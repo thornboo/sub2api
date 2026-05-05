@@ -90,6 +90,7 @@ Changes:
 - Kept existing deployment secrets safe by reusing `deploy/.env` unless `--force-env` is explicitly passed.
 - Forced recreation of the `sub2api` container after startup so repeated script runs pick up the rebuilt local image tag.
 - Added validation for `IMAGE_NAME` before writing it into the Compose override file and switched `.env` replacement temporary files to `mktemp`.
+- Added Docker Compose command detection so the script works with both `docker compose` and legacy `docker-compose`.
 
 Verification:
 - `bash -n secondary-dev/deploy-dev-sd.sh`

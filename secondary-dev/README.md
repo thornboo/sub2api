@@ -45,6 +45,8 @@ The script uses the checked-in source and deployment files to:
 
 The script does not overwrite an existing `deploy/.env` by default. Re-running it after pulling updates rebuilds the local image and restarts the stack with the same persisted data and secrets.
 
+The script supports both Docker Compose command styles. It prefers `docker compose` when available and falls back to `docker-compose` on environments that only provide the legacy command.
+
 Useful script options:
 
 ```bash
@@ -138,6 +140,8 @@ From `deploy/`:
 ```bash
 docker compose -f docker-compose.local.yml -f docker-compose.override.yml up -d
 ```
+
+If your environment only has the legacy Compose command, replace `docker compose` with `docker-compose` in the manual commands.
 
 Check service status and logs:
 

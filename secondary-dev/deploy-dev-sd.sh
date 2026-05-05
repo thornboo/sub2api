@@ -135,10 +135,17 @@ require_command git
 require_command docker
 require_command openssl
 
-if ! docker compose version >/dev/null 2>&1; then
-  print_error "docker compose is required but is not available."
+if docker compose version >/dev/null 2>&1; then
+  compose_base=(docker compose)
+  compose_display="docker compose"
+elif command_exists docker-compose; then
+  compose_base=(docker-compose)
+  compose_display="docker-compose"
+else
+  print_error "Docker Compose is required. Install either 'docker compose' or 'docker-compose'."
   exit 1
 fi
+print_info "Using Docker Compose command: ${compose_display}"
 
 current_branch="$(git branch --show-current 2>/dev/null || true)"
 if [ "$current_branch" != "$BRANCH_NAME" ]; then
@@ -202,7 +209,7 @@ else
 fi
 
 compose_cmd=(
-  docker compose
+  "${compose_base[@]}"
   -f docker-compose.local.yml
   -f docker-compose.override.yml
 )
@@ -231,8 +238,8 @@ Deployment files:
 
 Useful commands:
   cd ${deploy_dir}
-  docker compose -f docker-compose.local.yml -f docker-compose.override.yml ps
-  docker compose -f docker-compose.local.yml -f docker-compose.override.yml logs -f sub2api
-  docker compose -f docker-compose.local.yml -f docker-compose.override.yml up -d --no-deps --force-recreate sub2api
+  ${compose_display} -f docker-compose.local.yml -f docker-compose.override.yml ps
+  ${compose_display} -f docker-compose.local.yml -f docker-compose.override.yml logs -f sub2api
+  ${compose_display} -f docker-compose.local.yml -f docker-compose.override.yml up -d --no-deps --force-recreate sub2api
 
 EOF
