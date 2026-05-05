@@ -30,11 +30,11 @@
     </button>
 
     <div v-if="showDivider" class="flex items-center gap-3">
-      <div class="h-px flex-1 bg-gray-200 dark:bg-dark-700"></div>
-      <span class="text-xs text-gray-500 dark:text-dark-400">
+      <div class="h-px flex-1 bg-stone-200/80 dark:bg-[#1e1e1e]"></div>
+      <span class="text-xs font-medium text-stone-500 dark:text-stone-500">
         {{ t('auth.oauthOrContinue') }}
       </span>
-      <div class="h-px flex-1 bg-gray-200 dark:bg-dark-700"></div>
+      <div class="h-px flex-1 bg-stone-200/80 dark:bg-[#1e1e1e]"></div>
     </div>
   </div>
 </template>

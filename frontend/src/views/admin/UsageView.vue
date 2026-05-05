@@ -68,7 +68,7 @@
         <template #after-reset>
           <div class="relative" ref="columnDropdownRef">
             <button
-              @click="showColumnDropdown = !showColumnDropdown"
+              @click="toggleColumnDropdown"
               class="btn btn-secondary px-2 md:px-3"
               :title="t('admin.users.columnSettings')"
             >
@@ -77,26 +77,6 @@
               </svg>
               <span class="hidden md:inline">{{ t('admin.users.columnSettings') }}</span>
             </button>
-            <div
-              v-if="showColumnDropdown"
-              class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
-            >
-              <button
-                v-for="col in toggleableColumns"
-                :key="col.key"
-                @click="toggleColumn(col.key)"
-                class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
-              >
-                <span>{{ col.label }}</span>
-                <Icon
-                  v-if="isColumnVisible(col.key)"
-                  name="check"
-                  size="sm"
-                  class="text-primary-500"
-                  :stroke-width="2"
-                />
-              </button>
-            </div>
           </div>
         </template>
       </UsageFilters>
@@ -128,10 +108,34 @@
     :hide-actions="true"
     @close="showBalanceHistoryModal = false; balanceHistoryUser = null"
   />
+  <Teleport to="body">
+    <div
+      v-if="showColumnDropdown"
+      ref="columnDropdownMenuRef"
+      class="popover-surface fixed z-[100000030] max-h-80 w-48 overflow-y-auto p-1"
+      :style="{ top: `${columnDropdownPosition.top}px`, left: `${columnDropdownPosition.left}px` }"
+    >
+      <button
+        v-for="col in toggleableColumns"
+        :key="col.key"
+        @click="toggleColumn(col.key)"
+        class="popover-item"
+      >
+        <span>{{ col.label }}</span>
+        <Icon
+          v-if="isColumnVisible(col.key)"
+          name="check"
+          size="sm"
+          class="text-emerald-500"
+          :stroke-width="2"
+        />
+      </button>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { saveAs } from 'file-saver'
 import { useRoute } from 'vue-router'
@@ -588,9 +592,59 @@ const loadSavedColumns = () => {
 
 const showColumnDropdown = ref(false)
 const columnDropdownRef = ref<HTMLElement | null>(null)
+const columnDropdownMenuRef = ref<HTMLElement | null>(null)
+const columnDropdownPosition = reactive({ top: 0, left: 0 })
+
+const updateColumnDropdownPosition = () => {
+  if (!showColumnDropdown.value) return
+  const trigger = columnDropdownRef.value
+  if (!trigger) return
+  const rect = trigger.getBoundingClientRect()
+  const width = 192
+  const margin = 8
+  const menuHeight = Math.min(columnDropdownMenuRef.value?.offsetHeight || 320, window.innerHeight - margin * 2)
+  let top = rect.bottom + margin
+  if (top + menuHeight > window.innerHeight - margin) {
+    top = Math.max(margin, rect.top - margin - menuHeight)
+  }
+  columnDropdownPosition.top = top
+  columnDropdownPosition.left = Math.max(margin, Math.min(rect.right - width, window.innerWidth - width - margin))
+}
+
+let columnDropdownListenersActive = false
+
+const addColumnDropdownListeners = () => {
+  if (columnDropdownListenersActive) return
+  columnDropdownListenersActive = true
+  document.addEventListener('click', handleColumnClickOutside)
+  window.addEventListener('resize', updateColumnDropdownPosition)
+  window.addEventListener('scroll', updateColumnDropdownPosition, true)
+}
+
+const removeColumnDropdownListeners = () => {
+  if (!columnDropdownListenersActive) return
+  columnDropdownListenersActive = false
+  document.removeEventListener('click', handleColumnClickOutside)
+  window.removeEventListener('resize', updateColumnDropdownPosition)
+  window.removeEventListener('scroll', updateColumnDropdownPosition, true)
+}
+
+const toggleColumnDropdown = async () => {
+  showColumnDropdown.value = !showColumnDropdown.value
+  if (showColumnDropdown.value) {
+    updateColumnDropdownPosition()
+    await nextTick()
+    updateColumnDropdownPosition()
+  }
+}
 
 const handleColumnClickOutside = (event: MouseEvent) => {
-  if (columnDropdownRef.value && !columnDropdownRef.value.contains(event.target as HTMLElement)) {
+  const target = event.target as HTMLElement
+  if (
+    columnDropdownRef.value &&
+    !columnDropdownRef.value.contains(target) &&
+    !columnDropdownMenuRef.value?.contains(target)
+  ) {
     showColumnDropdown.value = false
   }
 }
@@ -604,9 +658,22 @@ onMounted(() => {
     void loadChartData()
   }, 120)
   loadSavedColumns()
-  document.addEventListener('click', handleColumnClickOutside)
 })
-onUnmounted(() => { abortController?.abort(); exportAbortController?.abort(); document.removeEventListener('click', handleColumnClickOutside) })
+onUnmounted(() => {
+  abortController?.abort()
+  exportAbortController?.abort()
+  removeColumnDropdownListeners()
+})
+
+watch(showColumnDropdown, async (open) => {
+  if (open) {
+    addColumnDropdownListeners()
+    await nextTick()
+    updateColumnDropdownPosition()
+    return
+  }
+  removeColumnDropdownListeners()
+})
 
 watch(modelDistributionSource, (source) => {
   void loadModelStats(source)

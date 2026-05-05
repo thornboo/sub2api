@@ -121,7 +121,7 @@ describe('ProfileIdentityBindingsSection', () => {
     vi.unstubAllGlobals()
   })
 
-  it('renders provider binding states and provider-specific bind actions', () => {
+  it('renders visible provider binding states and provider-specific bind actions', () => {
     const wrapper = mount(ProfileIdentityBindingsSection, {
       global: {
         plugins: [pinia],
@@ -145,22 +145,41 @@ describe('ProfileIdentityBindingsSection', () => {
     })
 
     expect(wrapper.get('[data-testid="profile-binding-email-status"]').text()).toBe('Bound')
-    expect(wrapper.get('[data-testid="profile-binding-linuxdo-status"]').text()).toBe('Bound')
     expect(wrapper.get('[data-testid="profile-binding-oidc-status"]').text()).toBe('Not bound')
     expect(wrapper.get('[data-testid="profile-binding-oidc-action"]').text()).toBe(
       'Bind ExampleID'
     )
-    expect(wrapper.get('[data-testid="profile-binding-wechat-action"]').text()).toBe('Bind WeChat')
+    expect(wrapper.find('[data-testid="profile-binding-linuxdo-status"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-binding-wechat-action"]').exists()).toBe(false)
   })
 
-  it('starts the WeChat bind flow for the current profile page', async () => {
+  it('hides LinuxDo and WeChat binding entries even when providers are enabled and already bound', () => {
     const wrapper = mount(ProfileIdentityBindingsSection, {
       global: {
         plugins: [pinia],
       },
       props: {
-        user: createUser(),
-        linuxdoEnabled: false,
+        user: createUser({
+          auth_bindings: {
+            email: { bound: true },
+            linuxdo: {
+              bound: true,
+              display_name: 'linuxdo-handle',
+              subject_hint: 'lin***3456',
+              note: 'Linked from LinuxDo',
+              can_unbind: true,
+            },
+            oidc: { bound: false },
+            wechat: {
+              bound: true,
+              display_name: 'wechat-user',
+              subject_hint: 'wx***7890',
+              note: 'Linked from WeChat',
+              can_unbind: true,
+            },
+          },
+        }),
+        linuxdoEnabled: true,
         oidcEnabled: false,
         wechatEnabled: true,
         wechatOpenEnabled: true,
@@ -168,70 +187,17 @@ describe('ProfileIdentityBindingsSection', () => {
       },
     })
 
-    await wrapper.get('[data-testid="profile-binding-wechat-action"]').trigger('click')
-
-    expect(locationState.current.href).toContain('/api/v1/auth/oauth/wechat/bind/start?')
-    expect(locationState.current.href).toContain('mode=open')
-    expect(locationState.current.href).toContain('intent=bind_current_user')
-    expect(locationState.current.href).toContain('redirect=%2Fprofile')
-  })
-
-  it('hides the WeChat bind action outside the WeChat browser when only mp mode is configured', () => {
-    const wrapper = mount(ProfileIdentityBindingsSection, {
-      global: {
-        plugins: [pinia],
-      },
-      props: {
-        user: createUser(),
-        linuxdoEnabled: false,
-        oidcEnabled: false,
-        wechatEnabled: true,
-        wechatOpenEnabled: false,
-        wechatMpEnabled: true,
-      },
-    })
-
+    expect(wrapper.text()).not.toContain('LinuxDo')
+    expect(wrapper.text()).not.toContain('WeChat')
+    expect(wrapper.text()).not.toContain('linuxdo-handle')
+    expect(wrapper.text()).not.toContain('wechat-user')
+    expect(wrapper.find('[data-testid="profile-binding-linuxdo-status"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-binding-linuxdo-unbind"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="profile-binding-wechat-action"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-binding-wechat-unbind"]').exists()).toBe(false)
   })
 
-  it('keeps the WeChat bind action visible when only the legacy aggregate setting is present', () => {
-    const wrapper = mount(ProfileIdentityBindingsSection, {
-      global: {
-        plugins: [pinia],
-      },
-      props: {
-        user: createUser(),
-        linuxdoEnabled: false,
-        oidcEnabled: false,
-        wechatEnabled: true,
-      },
-    })
-
-    expect(wrapper.find('[data-testid="profile-binding-wechat-action"]').exists()).toBe(true)
-  })
-
-  it('starts the WeChat bind flow when only the legacy aggregate setting is present', async () => {
-    const wrapper = mount(ProfileIdentityBindingsSection, {
-      global: {
-        plugins: [pinia],
-      },
-      props: {
-        user: createUser(),
-        linuxdoEnabled: false,
-        oidcEnabled: false,
-        wechatEnabled: true,
-      },
-    })
-
-    await wrapper.get('[data-testid="profile-binding-wechat-action"]').trigger('click')
-
-    expect(locationState.current.href).toContain('/api/v1/auth/oauth/wechat/bind/start?')
-    expect(locationState.current.href).toContain('mode=open')
-    expect(locationState.current.href).toContain('intent=bind_current_user')
-    expect(locationState.current.href).toContain('redirect=%2Fprofile')
-  })
-
-  it('uses explicit cached WeChat capabilities and ignores legacy prop fallbacks', () => {
+  it('keeps WeChat hidden even when public settings expose explicit OAuth capabilities', () => {
     const appStore = useAppStore()
     appStore.cachedPublicSettings = {
       registration_enabled: false,
@@ -282,7 +248,8 @@ describe('ProfileIdentityBindingsSection', () => {
       },
     })
 
-    expect(wrapper.find('[data-testid="profile-binding-wechat-action"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="profile-binding-wechat-action"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-binding-wechat-status"]').exists()).toBe(false)
   })
 
   it('sends email verification code and binds email from the profile card', async () => {
@@ -529,14 +496,14 @@ describe('ProfileIdentityBindingsSection', () => {
     expect(wrapper.get('[data-testid="profile-binding-email-input"]').exists()).toBe(true)
   })
 
-  it('shows third-party binding details and unbinds a connected provider', async () => {
+  it('shows OIDC binding details and unbinds a connected provider', async () => {
     userApiMocks.unbindAuthIdentity.mockResolvedValue(
       createUser({
         email_bound: true,
-        linuxdo_bound: false,
+        oidc_bound: false,
         auth_bindings: {
           email: { bound: true },
-          linuxdo: { bound: false, can_unbind: false },
+          oidc: { bound: false, can_unbind: false },
         },
       })
     )
@@ -548,36 +515,37 @@ describe('ProfileIdentityBindingsSection', () => {
       props: {
         user: createUser({
           email_bound: true,
-          linuxdo_bound: true,
+          oidc_bound: true,
           auth_bindings: {
             email: { bound: true },
-            linuxdo: {
+            oidc: {
               bound: true,
-              display_name: 'linuxdo-handle',
-              subject_hint: 'lin***3456',
-              note: 'Linked from LinuxDo',
+              display_name: 'oidc-handle',
+              subject_hint: 'oid***3456',
+              note: 'Linked from ExampleID',
               can_unbind: true,
             },
           },
         }),
         compact: true,
-        linuxdoEnabled: true,
+        linuxdoEnabled: false,
+        oidcProviderName: 'ExampleID',
         oidcEnabled: false,
         wechatEnabled: false,
       },
     })
 
-    expect(wrapper.text()).toContain('linuxdo-handle')
-    expect(wrapper.text()).toContain('lin***3456')
-    expect(wrapper.text()).toContain('Linked from LinuxDo')
+    expect(wrapper.text()).toContain('oidc-handle')
+    expect(wrapper.text()).toContain('oid***3456')
+    expect(wrapper.text()).toContain('Linked from ExampleID')
 
-    await wrapper.get('[data-testid="profile-binding-linuxdo-unbind"]').trigger('click')
+    await wrapper.get('[data-testid="profile-binding-oidc-unbind"]').trigger('click')
 
-    expect(userApiMocks.unbindAuthIdentity).toHaveBeenCalledWith('linuxdo')
-    expect(wrapper.get('[data-testid="profile-binding-linuxdo-status"]').text()).toBe('Not bound')
+    expect(userApiMocks.unbindAuthIdentity).toHaveBeenCalledWith('oidc')
+    expect(wrapper.get('[data-testid="profile-binding-oidc-status"]').text()).toBe('Not bound')
   })
 
-  it('localizes third-party unbind guidance from note_key', () => {
+  it('localizes OIDC unbind guidance from note_key', () => {
     const wrapper = mount(ProfileIdentityBindingsSection, {
       global: {
         plugins: [pinia],
@@ -585,19 +553,19 @@ describe('ProfileIdentityBindingsSection', () => {
       props: {
         user: createUser({
           email_bound: true,
-          linuxdo_bound: true,
+          oidc_bound: true,
           auth_bindings: {
             email: { bound: true },
-            linuxdo: {
+            oidc: {
               bound: true,
-              display_name: 'linuxdo-handle',
+              display_name: 'oidc-handle',
               note_key: 'profile.authBindings.notes.canUnbind',
               note: 'You can unbind this sign-in method.',
               can_unbind: true,
             } as any,
           },
         }),
-        linuxdoEnabled: true,
+        linuxdoEnabled: false,
         oidcEnabled: false,
         wechatEnabled: false,
       },

@@ -1,35 +1,35 @@
 <template>
-  <div class="rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-dark-700 dark:bg-dark-800/50">
+  <div class="rounded-2xl border border-stone-200/80 bg-stone-50/80 p-4 dark:border-white/10 dark:bg-white/[0.04]">
     <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <div class="text-sm font-medium text-gray-900 dark:text-white">
+        <div class="text-sm font-medium text-stone-950 dark:text-white">
           {{ t('admin.announcements.form.targetingMode') }}
         </div>
-        <div class="mt-1 text-xs text-gray-500 dark:text-dark-400">
+        <div class="mt-1 text-xs text-stone-500 dark:text-stone-400">
           {{ mode === 'all' ? t('admin.announcements.form.targetingAll') : t('admin.announcements.form.targetingCustom') }}
         </div>
       </div>
 
       <div class="flex items-center gap-3">
-        <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+        <label class="flex items-center gap-2 text-sm text-stone-700 dark:text-stone-300">
           <input
             type="radio"
             name="announcement-targeting-mode"
             value="all"
             :checked="mode === 'all'"
             @change="setMode('all')"
-            class="h-4 w-4"
+            class="h-4 w-4 border-stone-300 text-emerald-600 focus:ring-emerald-500"
           />
           {{ t('admin.announcements.form.targetingAll') }}
         </label>
-        <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+        <label class="flex items-center gap-2 text-sm text-stone-700 dark:text-stone-300">
           <input
             type="radio"
             name="announcement-targeting-mode"
             value="custom"
             :checked="mode === 'custom'"
             @change="setMode('custom')"
-            class="h-4 w-4"
+            class="h-4 w-4 border-stone-300 text-emerald-600 focus:ring-emerald-500"
           />
           {{ t('admin.announcements.form.targetingCustom') }}
         </label>
@@ -38,9 +38,9 @@
 
     <div v-if="mode === 'custom'" class="mt-4 space-y-4">
       <div class="flex items-center justify-between">
-        <div class="text-sm font-medium text-gray-900 dark:text-white">
+        <div class="text-sm font-medium text-stone-950 dark:text-white">
           OR
-          <span class="ml-1 text-xs font-normal text-gray-500 dark:text-dark-400">
+          <span class="ml-1 text-xs font-normal text-stone-500 dark:text-stone-400">
             ({{ anyOf.length }}/50)
           </span>
         </div>
@@ -55,22 +55,22 @@
         </button>
       </div>
 
-      <div v-if="anyOf.length === 0" class="rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500 dark:border-dark-600 dark:text-dark-400">
+      <div v-if="anyOf.length === 0" class="rounded-xl border border-dashed border-stone-300 p-4 text-sm text-stone-500 dark:border-white/10 dark:text-stone-400">
         {{ t('admin.announcements.form.targetingCustom') }}: {{ t('admin.announcements.form.addOrGroup') }}
       </div>
 
       <div
         v-for="(group, groupIndex) in anyOf"
         :key="groupIndex"
-        class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-dark-700 dark:bg-dark-800"
+        class="rounded-2xl border border-stone-200/80 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-neutral-950/60"
       >
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
-            <div class="text-sm font-medium text-gray-900 dark:text-white">
+            <div class="text-sm font-medium text-stone-950 dark:text-white">
               {{ t('admin.announcements.form.targetingCustom') }} #{{ groupIndex + 1 }}
-              <span class="ml-2 text-xs font-normal text-gray-500 dark:text-dark-400">AND ({{ (group.all_of?.length || 0) }}/50)</span>
+              <span class="ml-2 text-xs font-normal text-stone-500 dark:text-stone-400">AND ({{ (group.all_of?.length || 0) }}/50)</span>
             </div>
-            <div class="mt-1 text-xs text-gray-500 dark:text-dark-400">
+            <div class="mt-1 text-xs text-stone-500 dark:text-stone-400">
               {{ t('admin.announcements.form.addAndCondition') }}
             </div>
           </div>
@@ -89,7 +89,7 @@
           <div
             v-for="(cond, condIndex) in (group.all_of || [])"
             :key="condIndex"
-            class="rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-dark-700 dark:bg-dark-900/30"
+            class="rounded-xl border border-stone-200/80 bg-stone-50/80 p-3 dark:border-white/10 dark:bg-black/35"
           >
             <div class="flex flex-col gap-3 md:flex-row md:items-end">
               <div class="w-full md:w-52">

@@ -1528,7 +1528,7 @@
           </div>
 
           <!-- LinuxDo Connect OAuth 登录 -->
-          <div class="card">
+          <div v-if="showAuthPlatform('linuxdo')" class="card">
             <div
               class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
             >
@@ -1646,7 +1646,7 @@
           </div>
 
           <!-- WeChat Connect OAuth 登录 -->
-          <div class="card">
+          <div v-if="showAuthPlatform('wechat')" class="card">
             <div
               class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
             >
@@ -5855,6 +5855,10 @@ const authSourceDefaults = reactive<AuthSourceDefaultsState>(
   buildAuthSourceDefaultsState({}),
 );
 
+function showAuthPlatform(source: AuthSourceType): boolean {
+  return source !== "linuxdo" && source !== "wechat";
+}
+
 const authSourceDefaultsMeta = computed(() => [
   {
     source: "email" as AuthSourceType,
@@ -5876,7 +5880,7 @@ const authSourceDefaultsMeta = computed(() => [
     title: t("admin.settings.authSourceDefaults.sources.wechat.title"),
     description: t("admin.settings.authSourceDefaults.sources.wechat.description"),
   },
-]);
+].filter((source) => showAuthPlatform(source.source)));
 
 // Proxies for web search emulation ProxySelector
 const webSearchProxies = ref<Proxy[]>([]);

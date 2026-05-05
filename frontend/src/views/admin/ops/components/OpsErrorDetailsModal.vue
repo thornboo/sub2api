@@ -190,13 +190,13 @@ watch(
   <BaseDialog :show="show" :title="modalTitle" width="full" @close="close">
     <div class="flex h-full min-h-0 flex-col">
       <!-- Filters -->
-      <div class="mb-4 flex-shrink-0 border-b border-gray-200 pb-4 dark:border-dark-700">
+      <div class="mb-4 flex-shrink-0 border-b border-stone-200/80 pb-4 dark:border-white/10">
         <div class="grid grid-cols-8 gap-2">
           <div class="col-span-2 compact-select">
             <div class="relative group">
               <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                 <svg
-                  class="h-3.5 w-3.5 text-gray-400 transition-colors group-focus-within:text-blue-500"
+                  class="h-3.5 w-3.5 text-stone-400 transition-colors group-focus-within:text-emerald-500"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -207,7 +207,7 @@ watch(
               <input
                 v-model="q"
                 type="text"
-                class="w-full rounded-lg border-gray-200 bg-gray-50/50 py-1.5 pl-9 pr-3 text-xs font-medium text-gray-700 transition-all focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/10 dark:border-dark-700 dark:bg-dark-900 dark:text-gray-300 dark:focus:bg-dark-800"
+                class="w-full rounded-lg border-stone-200/80 bg-stone-50/80 py-1.5 pl-9 pr-3 text-xs font-medium text-stone-700 transition-all focus:border-emerald-500/60 focus:bg-white focus:ring-2 focus:ring-emerald-500/25 dark:border-white/10 dark:bg-neutral-950/70 dark:text-stone-300 dark:focus:bg-white/[0.06]"
                 :placeholder="t('admin.ops.errorDetails.searchPlaceholder')"
               />
             </div>
@@ -232,7 +232,7 @@ watch(
           </div>
 
           <div class="flex items-center justify-end">
-            <button type="button" class="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-300 dark:hover:bg-dark-600" @click="resetFilters">
+            <button type="button" class="rounded-lg bg-stone-100 px-3 py-1.5 text-xs font-semibold text-stone-700 transition-colors hover:bg-stone-200 dark:bg-white/[0.08] dark:text-stone-300 dark:hover:bg-white/[0.12]" @click="resetFilters">
               {{ t('common.reset') }}
             </button>
           </div>
@@ -241,7 +241,7 @@ watch(
 
       <!-- Body -->
       <div class="flex min-h-0 flex-1 flex-col">
-        <div class="mb-2 flex-shrink-0 text-xs text-gray-500 dark:text-gray-400">
+        <div class="mb-2 flex-shrink-0 text-xs text-stone-500 dark:text-stone-400">
           {{ t('admin.ops.errorDetails.total') }} {{ total }}
         </div>
 

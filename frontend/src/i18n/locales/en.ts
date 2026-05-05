@@ -10,6 +10,135 @@ export default {
     login: 'Login',
     getStarted: 'Get Started',
     goToDashboard: 'Go to Dashboard',
+    nav: {
+      home: 'Home',
+      model: 'Models',
+      pricing: 'Pricing',
+      document: 'Docs',
+      register: 'Sign Up'
+    },
+    hero: {
+      badge: 'Unified AI Model Gateway',
+      titleLead: 'One API, ',
+      titleHighlight: 'Call All Global AI Models',
+      description: 'Unified API key, unified format, unified billing. One-stop access to dozens of models including OpenAI, Claude, Gemini, and DeepSeek.',
+      primaryCta: 'Get Started',
+      secondaryCta: 'View Docs'
+    },
+    quickAccess: {
+      title: 'Quick Access in 3 Minutes',
+      guide: 'Quick Access Guide',
+      guideDesc: 'Only three steps to access global AI models. No need to adapt to multiple platforms, just use one unified format.',
+      step1: 'Register to get an API key',
+      step2: 'Replace the request URL with the gateway URL',
+      step3: 'Call directly with support for all models',
+      stepDesc1: 'Create or copy an API key in the console, then control available models by user and group.',
+      stepDesc2: 'Point your client Base URL to the gateway while keeping the familiar OpenAI-compatible request format.',
+      stepDesc3: 'Choose a model name and call it directly. Request logs, billing, and usage records are handled centrally.',
+      samplePrompt: 'Hello',
+      fullDoc: 'View Full Docs',
+      compatibility: 'Compatible with OpenAI format, no business-code rewrite required'
+    },
+    advantages: {
+      title: 'Core Advantages',
+      description: 'Put unified access, model selection, usage tracking, and permission control in one console instead of spreading critical settings across multiple platforms.',
+      fast: 'High-Speed Forwarding',
+      fastDesc: 'Global nodes, low latency, high concurrency, stable availability',
+      unified: 'Unified API',
+      unifiedDesc: 'One integration works across models without repeated adapter work',
+      safe: 'Secure & Reliable',
+      safeDesc: 'Encrypted traffic, controllable permissions, traceable logs',
+      format: 'Unified request format',
+      stable: 'Stable access experience',
+      usage: 'Traceable usage and billing'
+    },
+    models: {
+      title: 'Popular Models',
+      description: 'Common models are presented in one catalog. Business teams only choose the model name while compatibility, availability, and usage records stay centralized.',
+      more: 'View More Models',
+      hot: 'Hot',
+      input: 'Input',
+      output: 'Output',
+      gptDesc: 'Strong reasoning, coding, and multimodal capabilities',
+      claudeDesc: 'Long context window with strong document understanding',
+      geminiDesc: 'Multimodal, web-aware, and video understanding',
+      compatibilityBullet: 'Compatible with OpenAI, Gemini, and Claude calls',
+      usageBullet: 'Select models by scenario and view request records and usage in one place',
+      metricAccess: 'Unified entry point',
+      metricUsage: 'Usage records visible',
+      metricModels: 'Choose on demand'
+    },
+    testimonials: {
+      title: 'What Users Say',
+      description: 'These anonymized comments come from different team types and only retain usage scenarios and roles.',
+      first: {
+        initial: 'B',
+        quote: 'After integration, we no longer maintain adapters for multiple AI models. Development speed improved by 80% and costs dropped by 30%.',
+        name: 'Enterprise Customer',
+        role: 'CEO'
+      },
+      second: {
+        initial: 'T',
+        quote: 'Unified APIs and billing made life easier for both finance and engineering, and model responses are faster than direct calls.',
+        name: 'Technical Team',
+        role: 'Technical Architect'
+      },
+      third: {
+        initial: 'P',
+        quote: 'We were worried about data security, but the encryption and private deployment options met our compliance requirements.',
+        name: 'Product Team',
+        role: 'Product Lead'
+      },
+      fourth: {
+        quote: 'After connecting Codex, Claude, and Gemini to one gateway, the team no longer distributes different keys everywhere, and permissions and usage finally live in one place.',
+        name: 'AI Team',
+        role: 'AI Application Lead'
+      },
+      fifth: {
+        initial: 'BE',
+        quote: 'Each project used to adapt model APIs separately. Now we maintain one OpenAI-compatible call path, and upstream rollout is much easier.',
+        name: 'Backend Team',
+        role: 'Backend Architect'
+      },
+      sixth: {
+        initial: 'OP',
+        quote: 'What we needed most was stable forwarding and clear billing. Now costs can be split by user, key, and model, which saves time at month end.',
+        name: 'Operations Team',
+        role: 'SaaS Operations Lead'
+      },
+      seventh: {
+        initial: 'CS',
+        quote: 'A unified entry point is much easier than manually maintaining multiple platforms. Business teams no longer care about provider-specific differences.',
+        name: 'Customer Success Team',
+        role: 'Customer Success Manager'
+      },
+      eighth: {
+        initial: 'PL',
+        quote: 'For internal tools, one entry point is critical. New teammates only need one key to test all available models in the staging environment.',
+        name: 'Platform Team',
+        role: 'Platform Engineer'
+      },
+      ninth: {
+        quote: 'We split departments into separate groups, each with its own quota, rate, and available models. It is much clearer than spreadsheet tracking.',
+        name: 'Enterprise IT',
+        role: 'IT Administrator'
+      },
+      tenth: {
+        quote: 'Model switching is fast. Business teams can validate results by changing only the model name, making A/B tests simpler than direct integrations.',
+        name: 'Product Team',
+        role: 'Product Manager'
+      }
+    },
+    faq: {
+      title: 'FAQ',
+      description: 'The most common questions before integration are compatibility, cost, and security policy. Core answers are listed here, with detailed configuration in the docs.',
+      q1: 'Which API formats are compatible?',
+      a1: 'The platform is compatible with the OpenAI API format, so most integrations only need a request URL change. It can also adapt to Claude, Gemini, and other model capabilities.',
+      q2: 'Will this add extra cost?',
+      a2: 'The platform is designed around actual usage and configuration, making multi-model calling, budgets, and team quotas easier to manage.',
+      q3: 'Is data security covered?',
+      a3: 'Requests are forwarded through the gateway and can be governed with permissions, logs, quotas, and deployment policies depending on your site configuration.'
+    },
     // User-focused value proposition
     heroSubtitle: 'One Key, All AI Models',
     heroDescription: 'No need to manage multiple subscriptions. Access Claude, GPT, Gemini and more with a single API key',
@@ -101,11 +230,23 @@ export default {
     },
     // CTA section
     cta: {
-      title: 'Ready to Get Started?',
-      description: 'Sign up now and get free trial credits to experience seamless AI access',
-      button: 'Sign Up Free'
+      title: 'Ready to Access Global AI Models?',
+      description: 'Sign up to experience unified APIs, unified billing, and multi-model calling.',
+      button: 'Sign Up Now'
     },
     footer: {
+      tagline: 'One API to call global AI models. Unified format, unified key, unified billing.',
+      navTitle: 'Navigation',
+      supportTitle: 'Support',
+      businessTitle: 'Business',
+      quickAccess: 'Quick Access',
+      faq: 'FAQ',
+      apiDocs: 'API Docs',
+      contact: 'Contact Us',
+      enterprise: 'Enterprise',
+      privateDeploy: 'Private Deployment',
+      partner: 'Partnerships',
+      custom: 'Custom Service',
       allRightsReserved: 'All rights reserved.'
     }
   },
@@ -393,6 +534,7 @@ export default {
     createAccount: 'Create Account',
     signUpToStart: 'Sign up to start using {siteName}',
     signUp: 'Sign up',
+    copyright: '© {year} {siteName}. All rights reserved.',
     processing: 'Processing...',
     continue: 'Continue',
     rememberMe: 'Remember me',

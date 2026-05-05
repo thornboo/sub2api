@@ -1,7 +1,12 @@
 <template>
-  <div class="min-h-screen bg-gray-50 dark:bg-dark-950">
-    <!-- Background Decoration -->
-    <div class="pointer-events-none fixed inset-0 bg-mesh-gradient"></div>
+  <div
+    class="min-h-screen bg-[linear-gradient(180deg,#fafaf9_0%,#f5f5f4_48%,#fafaf9_100%)] text-stone-950 dark:bg-[linear-gradient(180deg,#050505_0%,#070707_52%,#050505_100%)] dark:text-white"
+  >
+    <!-- Neutral depth layer; no grid or green glow so console pages stay quiet. -->
+    <div
+      class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(15,23,42,0.045),transparent_34rem)] dark:bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.045),transparent_34rem)]"
+      aria-hidden="true"
+    ></div>
 
     <!-- Sidebar -->
     <AppSidebar />

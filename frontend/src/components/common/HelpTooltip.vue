@@ -14,6 +14,7 @@ const show = ref(false)
 const triggerRef = useTemplateRef<HTMLElement>('trigger')
 const tooltipRef = useTemplateRef<HTMLElement>('tooltip')
 const tooltipStyle = ref({ top: '0px', left: '0px' })
+const placement = ref<'top' | 'bottom'>('top')
 
 function openTooltip() {
   show.value = true
@@ -68,9 +69,21 @@ function updatePosition() {
   const el = triggerRef.value
   if (!el) return
   const rect = el.getBoundingClientRect()
+  const tooltip = tooltipRef.value
+  const padding = 12
+  const offset = 8
+  const tooltipWidth = tooltip?.offsetWidth || 256
+  const tooltipHeight = tooltip?.offsetHeight || 0
+  const maxLeft = Math.max(padding + tooltipWidth / 2, window.innerWidth - padding - tooltipWidth / 2)
+  const minLeft = padding + tooltipWidth / 2
+  const desiredLeft = rect.left + rect.width / 2
+  const left = Math.min(Math.max(desiredLeft, minLeft), maxLeft)
+  const hasRoomAbove = rect.top >= tooltipHeight + padding + offset
+
+  placement.value = hasRoomAbove ? 'top' : 'bottom'
   tooltipStyle.value = {
-    top: `${rect.top + window.scrollY}px`,
-    left: `${rect.left + rect.width / 2 + window.scrollX}px`,
+    top: `${hasRoomAbove ? rect.top - offset : rect.bottom + offset}px`,
+    left: `${left}px`,
   }
 }
 
@@ -121,10 +134,11 @@ onBeforeUnmount(() => {
         v-show="show"
         role="tooltip"
         :class="[
-          'fixed z-[99999] -translate-x-1/2 -translate-y-full rounded-lg bg-gray-900 p-3 text-xs leading-relaxed text-white shadow-xl ring-1 ring-white/10 dark:bg-gray-800',
+          'fixed z-[99999] -translate-x-1/2 rounded-lg bg-gray-900 p-3 text-xs leading-relaxed text-white shadow-xl ring-1 ring-white/10 dark:bg-gray-800',
+          placement === 'top' ? '-translate-y-full' : '',
           props.widthClass,
         ]"
-        :style="{ top: `calc(${tooltipStyle.top} - 8px)`, left: tooltipStyle.left }"
+        :style="{ top: tooltipStyle.top, left: tooltipStyle.left }"
       >
         <button
           v-if="props.trigger === 'click'"
@@ -138,7 +152,12 @@ onBeforeUnmount(() => {
           </svg>
         </button>
         <slot>{{ content }}</slot>
-        <div class="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-gray-900 dark:bg-gray-800"></div>
+        <div
+          :class="[
+            'absolute left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-gray-900 dark:bg-gray-800',
+            placement === 'top' ? '-bottom-1' : '-top-1',
+          ]"
+        ></div>
       </div>
     </Teleport>
   </div>

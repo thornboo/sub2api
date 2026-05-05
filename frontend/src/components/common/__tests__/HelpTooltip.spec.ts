@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
@@ -14,6 +14,7 @@ function getTooltipElement(): HTMLDivElement {
 describe('HelpTooltip', () => {
   afterEach(() => {
     document.body.innerHTML = ''
+    vi.restoreAllMocks()
   })
 
   it('keeps the existing hover interaction by default', async () => {
@@ -74,6 +75,44 @@ describe('HelpTooltip', () => {
     document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await nextTick()
     expect(tooltip.style.display).toBe('none')
+
+    wrapper.unmount()
+  })
+
+  it('uses viewport coordinates for fixed positioning after page scroll', async () => {
+    Object.defineProperty(window, 'scrollY', { value: 480, configurable: true })
+    Object.defineProperty(window, 'scrollX', { value: 32, configurable: true })
+    Object.defineProperty(window, 'innerWidth', { value: 1024, configurable: true })
+
+    const wrapper = mount(HelpTooltip, {
+      attachTo: document.body,
+      props: {
+        content: 'position details',
+      },
+    })
+
+    const trigger = wrapper.get('.group')
+    vi.spyOn(trigger.element, 'getBoundingClientRect').mockReturnValue({
+      top: 200,
+      right: 130,
+      bottom: 220,
+      left: 110,
+      width: 20,
+      height: 20,
+      x: 110,
+      y: 200,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    const tooltip = getTooltipElement()
+    Object.defineProperty(tooltip, 'offsetWidth', { value: 120, configurable: true })
+    Object.defineProperty(tooltip, 'offsetHeight', { value: 40, configurable: true })
+
+    await trigger.trigger('mouseenter')
+    await nextTick()
+
+    expect(tooltip.style.top).toBe('192px')
+    expect(tooltip.style.left).toBe('120px')
 
     wrapper.unmount()
   })

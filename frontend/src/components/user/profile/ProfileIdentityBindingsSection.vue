@@ -2,22 +2,22 @@
   <div :class="props.embedded ? 'space-y-4' : 'card overflow-hidden'">
     <div
       v-if="!props.embedded"
-      class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+      class="border-b border-stone-200/70 px-6 py-4 dark:border-white/10"
     >
-      <h2 class="text-lg font-medium text-gray-900 dark:text-white">
+      <h2 class="text-lg font-medium text-stone-950 dark:text-white">
         {{ t('profile.authBindings.title') }}
       </h2>
-      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+      <p class="mt-1 text-sm text-stone-500 dark:text-stone-400">
         {{ t('profile.authBindings.description') }}
       </p>
     </div>
 
-    <div :class="props.embedded ? 'space-y-4' : 'divide-y divide-gray-100 dark:divide-dark-700'">
+    <div :class="props.embedded ? 'space-y-4' : 'divide-y divide-stone-200/70 dark:divide-white/10'">
       <div v-if="props.embedded">
-        <p class="text-sm font-semibold text-gray-900 dark:text-white">
+        <p class="text-sm font-semibold text-stone-950 dark:text-white">
           {{ t('profile.authBindings.title') }}
         </p>
-        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+        <p class="mt-1 text-sm text-stone-500 dark:text-stone-400">
           {{ t('profile.authBindings.description') }}
         </p>
       </div>
@@ -44,7 +44,7 @@
 
             <div class="min-w-0 flex-1 space-y-3">
               <div class="flex flex-wrap items-center gap-2">
-                <h3 class="font-medium text-gray-900 dark:text-white">
+                <h3 class="font-medium text-stone-950 dark:text-white">
                   {{ item.label }}
                 </h3>
                 <span
@@ -61,18 +61,18 @@
 
               <p
                 v-if="providerSummary(item.provider)"
-                class="text-sm text-gray-600 dark:text-gray-300"
+                class="text-sm text-stone-600 dark:text-stone-300"
               >
                 {{ providerSummary(item.provider) }}
               </p>
 
               <div
                 v-if="hasBindingDetails(item.provider, item.details)"
-                class="grid gap-1 text-sm text-gray-500 dark:text-gray-400"
+                class="grid gap-1 text-sm text-stone-500 dark:text-stone-400"
               >
                 <p
                   v-if="item.provider !== 'email' && item.details?.display_name"
-                  class="font-medium text-gray-700 dark:text-gray-200"
+                  class="font-medium text-stone-700 dark:text-stone-200"
                 >
                   {{ item.details.display_name }}
                 </p>
@@ -197,11 +197,6 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import {
-  hasExplicitWeChatOAuthCapabilities,
-  resolveWeChatOAuthStartStrict,
-  type WeChatOAuthPublicSettings,
-} from '@/api/auth'
-import {
   bindEmailIdentity,
   sendEmailBindingCode,
   startOAuthBinding,
@@ -212,6 +207,7 @@ import { useAppStore, useAuthStore } from '@/stores'
 import type { User, UserAuthBindingStatus, UserAuthProvider } from '@/types'
 
 type BindableProvider = Exclude<UserAuthProvider, 'email'>
+type VisibleBindingProvider = 'email' | 'oidc'
 
 const props = withDefaults(
   defineProps<{
@@ -282,8 +278,8 @@ const compact = computed(() => props.compact)
 const rowClass = computed(() =>
   props.embedded
     ? compact.value
-      ? 'rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-dark-700 dark:bg-dark-900/40'
-      : 'rounded-2xl border border-gray-100 bg-gray-50/70 p-4 dark:border-dark-700 dark:bg-dark-900/30'
+      ? 'rounded-xl border border-stone-200/80 bg-white/65 p-4 dark:border-white/10 dark:bg-black/25'
+      : 'rounded-xl border border-stone-200/80 bg-white/55 p-4 dark:border-white/10 dark:bg-black/20'
     : 'px-6 py-5'
 )
 const emailBound = computed(() => getBindingStatus('email'))
@@ -305,46 +301,6 @@ const legacyBindingNoteKeys: Record<string, string> = {
   'Bind another sign-in method before unbinding.':
     'profile.authBindings.notes.bindAnotherBeforeUnbind',
 }
-
-function resolveLegacyCompatibleWeChatSettings(
-  settings: WeChatOAuthPublicSettings | null | undefined
-): (WeChatOAuthPublicSettings & {
-  wechat_oauth_open_enabled: boolean
-  wechat_oauth_mp_enabled: boolean
-}) | null {
-  if (!settings) {
-    return null
-  }
-
-  if (hasExplicitWeChatOAuthCapabilities(settings)) {
-    return settings
-  }
-
-  if (typeof settings.wechat_oauth_enabled !== 'boolean') {
-    return null
-  }
-
-  return {
-    ...settings,
-    wechat_oauth_open_enabled: settings.wechat_oauth_enabled,
-    wechat_oauth_mp_enabled: settings.wechat_oauth_enabled,
-  }
-}
-
-const wechatOAuthSettings = computed<WeChatOAuthPublicSettings | null>(() => {
-  const cachedSettings = resolveLegacyCompatibleWeChatSettings(appStore.cachedPublicSettings)
-  if (cachedSettings) {
-    return cachedSettings
-  }
-
-  return resolveLegacyCompatibleWeChatSettings({
-    wechat_oauth_enabled: props.wechatEnabled,
-    wechat_oauth_open_enabled: props.wechatOpenEnabled,
-    wechat_oauth_mp_enabled: props.wechatMpEnabled,
-  })
-})
-
-const resolvedWeChatBinding = computed(() => resolveWeChatOAuthStartStrict(wechatOAuthSettings.value))
 
 function normalizeBindingStatus(binding: boolean | UserAuthBindingStatus | undefined): boolean | null {
   if (typeof binding === 'boolean') {
@@ -403,16 +359,20 @@ function getDisplayableEmail(user: User | null | undefined): string {
 }
 
 function isProviderEnabledForBinding(provider: BindableProvider): boolean {
-  if (provider === 'linuxdo') {
-    return props.linuxdoEnabled
-  }
   if (provider === 'oidc') {
     return props.oidcEnabled
   }
-  return resolvedWeChatBinding.value.mode !== null
+  return false
 }
 
-const providerItems = computed(() => [
+const providerItems = computed<Array<{
+  provider: VisibleBindingProvider
+  label: string
+  bound: boolean
+  canBind: boolean
+  canUnbind: boolean
+  details: UserAuthBindingStatus | null
+}>>(() => [
   {
     provider: 'email' as const,
     label: t('profile.authBindings.providers.email'),
@@ -420,17 +380,6 @@ const providerItems = computed(() => [
     canBind: false,
     canUnbind: false,
     details: getBindingDetails('email'),
-  },
-  {
-    provider: 'linuxdo' as const,
-    label: t('profile.authBindings.providers.linuxdo'),
-    bound: getBindingStatus('linuxdo'),
-    canBind:
-      !getBindingStatus('linuxdo') &&
-      isProviderEnabledForBinding('linuxdo') &&
-      (getBindingDetails('linuxdo')?.can_bind ?? true),
-    canUnbind: Boolean(getBindingStatus('linuxdo') && getBindingDetails('linuxdo')?.can_unbind),
-    details: getBindingDetails('linuxdo'),
   },
   {
     provider: 'oidc' as const,
@@ -443,46 +392,23 @@ const providerItems = computed(() => [
     canUnbind: Boolean(getBindingStatus('oidc') && getBindingDetails('oidc')?.can_unbind),
     details: getBindingDetails('oidc'),
   },
-  {
-    provider: 'wechat' as const,
-    label: t('profile.authBindings.providers.wechat'),
-    bound: getBindingStatus('wechat'),
-    canBind:
-      !getBindingStatus('wechat') &&
-      isProviderEnabledForBinding('wechat') &&
-      (getBindingDetails('wechat')?.can_bind ?? true),
-    canUnbind: Boolean(getBindingStatus('wechat') && getBindingDetails('wechat')?.can_unbind),
-    details: getBindingDetails('wechat'),
-  },
 ])
 
-function providerInitial(provider: UserAuthProvider): string {
-  if (provider === 'linuxdo') {
-    return 'L'
-  }
-  if (provider === 'wechat') {
-    return 'W'
-  }
+function providerInitial(provider: VisibleBindingProvider): string {
   if (provider === 'oidc') {
     return 'O'
   }
   return 'E'
 }
 
-function providerIconClass(provider: UserAuthProvider): string {
-  if (provider === 'linuxdo') {
-    return 'bg-orange-100 text-orange-600 dark:bg-orange-900/20 dark:text-orange-300'
-  }
-  if (provider === 'wechat') {
-    return 'bg-green-100 text-green-600 dark:bg-green-900/20 dark:text-green-300'
-  }
+function providerIconClass(provider: VisibleBindingProvider): string {
   if (provider === 'oidc') {
-    return 'bg-sky-100 text-sky-600 dark:bg-sky-900/20 dark:text-sky-300'
+    return 'bg-stone-100 text-stone-600 dark:bg-white/10 dark:text-stone-300'
   }
-  return 'bg-primary-100 text-primary-600 dark:bg-primary-900/20 dark:text-primary-300'
+  return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'
 }
 
-function providerSummary(provider: UserAuthProvider): string {
+function providerSummary(provider: VisibleBindingProvider): string {
   if (provider === 'email') {
     return getDisplayableEmail(currentUser.value)
   }
@@ -513,7 +439,7 @@ function bindingNote(details: UserAuthBindingStatus | null): string {
 }
 
 function hasBindingDetails(
-  provider: UserAuthProvider,
+  provider: VisibleBindingProvider,
   details: UserAuthBindingStatus | null
 ): boolean {
   if (!details) {
@@ -530,13 +456,12 @@ function toggleEmailForm(): void {
   isEmailFormExpanded.value = !isEmailFormExpanded.value
 }
 
-function startBinding(provider: UserAuthProvider): void {
+function startBinding(provider: VisibleBindingProvider): void {
   if (provider === 'email') {
     return
   }
   startOAuthBinding(provider, {
     redirectTo: route.fullPath || '/profile',
-    wechatOAuthSettings: provider === 'wechat' ? wechatOAuthSettings.value : null,
   })
 }
 
@@ -558,7 +483,7 @@ async function handleUnbind(provider: BindableProvider, providerLabel: string): 
   }
 }
 
-function handleUnbindForItem(provider: UserAuthProvider, providerLabel: string): void {
+function handleUnbindForItem(provider: VisibleBindingProvider, providerLabel: string): void {
   if (provider === 'email') {
     return
   }

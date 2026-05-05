@@ -10,6 +10,135 @@ export default {
     login: '登录',
     getStarted: '立即开始',
     goToDashboard: '进入控制台',
+    nav: {
+      home: '首页',
+      model: '模型',
+      pricing: '定价',
+      document: '文档',
+      register: '注册'
+    },
+    hero: {
+      badge: '统一 AI 模型网关',
+      titleLead: '一个接口，',
+      titleHighlight: '调用全球所有 AI 模型',
+      description: '统一密钥、统一格式、统一账单，一站式接入 OpenAI、Claude、Gemini、DeepSeek 等数十种模型',
+      primaryCta: '立即开始',
+      secondaryCta: '查看文档'
+    },
+    quickAccess: {
+      title: '3 分钟快速接入',
+      guide: '快速接入指南',
+      guideDesc: '只需三步，即可接入全球所有 AI 模型，无需适配多家平台，统一格式、一键调用。',
+      step1: '注册获取 API Key',
+      step2: '替换请求地址为网关地址',
+      step3: '直接调用，支持所有模型',
+      stepDesc1: '在控制台创建或复制 API Key，按用户和分组控制可用范围。',
+      stepDesc2: '把客户端 Base URL 指向网关，保留熟悉的 OpenAI 兼容请求格式。',
+      stepDesc3: '选择模型名称即可调用，后续请求记录、计费和日志由平台统一处理。',
+      samplePrompt: '你好',
+      fullDoc: '查看完整文档',
+      compatibility: '兼容 OpenAI 格式，无需修改业务代码'
+    },
+    advantages: {
+      title: '核心优势',
+      description: '统一接入、多模型选择、用量追踪和权限控制放在同一个工作台里，不再把关键配置散落在多个平台。',
+      fast: '高速转发',
+      fastDesc: '全球节点，低延迟，高并发，稳定可用',
+      unified: '统一接口',
+      unifiedDesc: '一次接入，全模型通用，无需重复适配',
+      safe: '安全可靠',
+      safeDesc: '数据加密，权限可控，日志可追溯',
+      format: '统一请求格式',
+      stable: '稳定接入体验',
+      usage: '用量和账单可追踪'
+    },
+    models: {
+      title: '主流模型',
+      description: '常用模型以统一目录呈现，业务只需要选择模型名称，兼容格式、可用范围和用量记录由平台集中呈现。',
+      more: '浏览更多模型',
+      hot: '热门',
+      input: '输入',
+      output: '输出',
+      gptDesc: '超强推理、代码、多模态能力',
+      claudeDesc: '超长上下文，文档理解强',
+      geminiDesc: '多模态、实时联网、视频理解',
+      compatibilityBullet: '兼容 OpenAI、Gemini、Claude 调用',
+      usageBullet: '按业务场景选择模型，统一查看请求记录和用量消耗',
+      metricAccess: '统一入口接入',
+      metricUsage: '消耗记录可查',
+      metricModels: '按需选择模型'
+    },
+    testimonials: {
+      title: '用户怎么说',
+      description: '这些反馈来自不同类型的团队，统一做匿名化展示，只保留使用场景和角色身份。',
+      first: {
+        initial: '企',
+        quote: '接入后，我们不再需要维护多个 AI 模型的适配代码，开发效率提升了 80%，成本降低了 30%。',
+        name: '企业客户',
+        role: 'CEO'
+      },
+      second: {
+        initial: '技',
+        quote: '统一的接口和账单管理让财务和技术团队都轻松了很多，而且模型响应速度比直连还快。',
+        name: '技术团队',
+        role: '技术架构师'
+      },
+      third: {
+        initial: '产',
+        quote: '原本担心数据安全问题，试用后发现加密和私有化部署方案完全满足我们的合规要求。',
+        name: '产品团队',
+        role: '产品负责人'
+      },
+      fourth: {
+        quote: '把 Codex、Claude 和 Gemini 都接到同一个网关后，团队不用再到处分发不同密钥，权限和用量也终于能统一看了。',
+        name: 'AI 团队',
+        role: 'AI 应用团队负责人'
+      },
+      fifth: {
+        initial: '后',
+        quote: '之前每个项目都要单独适配模型接口，现在只维护一套 OpenAI 兼容调用，灰度切换上游也很轻松。',
+        name: '后端团队',
+        role: '后端架构师'
+      },
+      sixth: {
+        initial: '运',
+        quote: '我们最需要的是稳定转发和清晰账单，接入后能按用户、Key 和模型拆分成本，月底对账省了很多时间。',
+        name: '运营团队',
+        role: 'SaaS 运营负责人'
+      },
+      seventh: {
+        initial: '客',
+        quote: '统一入口比人工维护多个平台省心很多，业务侧不用关心不同供应商的接入差异，客服压力明显下降。',
+        name: '客户成功团队',
+        role: '客户成功经理'
+      },
+      eighth: {
+        initial: '平',
+        quote: '对于内部工具来说，统一入口非常关键。现在新人只需要拿一个 Key，就能在测试环境里试所有可用模型。',
+        name: '平台团队',
+        role: '平台工程师'
+      },
+      ninth: {
+        quote: '我们把不同部门拆成独立分组，额度、倍率和可用模型都能分开配置，比之前用表格登记清楚很多。',
+        name: '企业 IT',
+        role: '企业 IT 管理员'
+      },
+      tenth: {
+        quote: '模型切换速度很快，业务只改一个 model 名称就能验证效果，做 A/B 测试比直连多家平台简单很多。',
+        name: '产品团队',
+        role: '产品经理'
+      }
+    },
+    faq: {
+      title: '常见问题',
+      description: '接入前最常见的问题集中在兼容性、成本和安全策略。这里保留核心答案，详细配置可继续查看文档。',
+      q1: '平台兼容哪些接口格式？',
+      a1: '兼容 OpenAI 接口格式，通常只需要替换请求地址即可；同时可按平台能力适配 Claude、Gemini 等模型。',
+      q2: '使用平台会增加额外成本吗？',
+      a2: '平台按实际用量和配置计费，适合统一管理多模型调用、预算和团队额度，整体成本更容易控制。',
+      q3: '数据安全有保障吗？',
+      a3: '请求通过网关统一转发，可结合权限、日志、额度和部署策略做安全控制，具体能力取决于你的站点配置。'
+    },
     // 新增：面向用户的价值主张
     heroSubtitle: '一个密钥，畅用多个 AI 模型',
     heroDescription: '无需管理多个订阅账号，一站式接入 Claude、GPT、Gemini 等主流 AI 服务',
@@ -101,11 +230,23 @@ export default {
     },
     // CTA 区块
     cta: {
-      title: '准备好开始了吗？',
-      description: '注册即可获得免费试用额度，体验一站式 AI 服务',
-      button: '免费注册'
+      title: '准备好接入全球所有 AI 模型了吗？',
+      description: '注册即可体验统一接口、统一账单和多模型调用能力。',
+      button: '立即注册'
     },
     footer: {
+      tagline: '一个接口，调用全球所有 AI 模型。统一格式、统一密钥、统一账单。',
+      navTitle: '主导航',
+      supportTitle: '服务支持',
+      businessTitle: '商务合作',
+      quickAccess: '快速接入',
+      faq: '常见问题',
+      apiDocs: 'API 文档',
+      contact: '联系我们',
+      enterprise: '企业方案',
+      privateDeploy: '私有化部署',
+      partner: '渠道合作',
+      custom: '定制服务',
       allRightsReserved: '保留所有权利。'
     }
   },
@@ -393,6 +534,7 @@ export default {
     createAccount: '创建账户',
     signUpToStart: '注册以开始使用 {siteName}',
     signUp: '注册',
+    copyright: '© {year} {siteName}。保留所有权利。',
     processing: '处理中...',
     continue: '继续',
     rememberMe: '记住我',
