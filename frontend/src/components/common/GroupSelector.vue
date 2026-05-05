@@ -5,7 +5,24 @@
       <span class="font-normal text-gray-400">{{ t('common.selectedCount', { count: modelValue.length }) }}</span>
     </label>
     <div
-      class="grid max-h-32 grid-cols-2 gap-1 overflow-y-auto rounded-xl border border-stone-200/80 bg-white/70 p-2 shadow-inner shadow-stone-950/5 dark:border-white/10 dark:bg-neutral-950/70 dark:shadow-black/20"
+      v-if="isSearchable"
+      class="flex items-center gap-2 rounded-t-xl border border-b-0 border-stone-200/80 bg-white/70 px-3 py-2 shadow-inner shadow-stone-950/5 dark:border-white/10 dark:bg-neutral-950/70 dark:shadow-black/20"
+    >
+      <Icon name="search" size="sm" class="shrink-0 text-stone-400" />
+      <input
+        v-model="searchText"
+        type="text"
+        :placeholder="t('common.searchPlaceholder')"
+        class="flex-1 bg-transparent text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none dark:text-stone-100 dark:placeholder:text-stone-500"
+      />
+    </div>
+    <div
+      :class="[
+        'grid max-h-32 grid-cols-2 gap-1 overflow-y-auto p-2 shadow-inner shadow-stone-950/5 dark:shadow-black/20',
+        isSearchable
+          ? 'rounded-b-xl border border-t-0 border-stone-200/80 bg-white/70 dark:border-white/10 dark:bg-neutral-950/70'
+          : 'rounded-xl border border-stone-200/80 bg-white/70 dark:border-white/10 dark:bg-neutral-950/70'
+      ]"
     >
       <label
         v-for="group in filteredGroups"
@@ -40,9 +57,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import GroupBadge from './GroupBadge.vue'
+import Icon from '@/components/icons/Icon.vue'
 import type { AdminGroup, GroupPlatform } from '@/types'
 
 const { t } = useI18n()
@@ -52,26 +70,44 @@ interface Props {
   groups: AdminGroup[]
   platform?: GroupPlatform // Optional platform filter
   mixedScheduling?: boolean // For antigravity accounts: allow anthropic/gemini groups
+  searchable?: boolean | 'auto'
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  searchable: 'auto'
+})
 const emit = defineEmits<{
   'update:modelValue': [value: number[]]
 }>()
 
+const searchText = ref('')
+
+const isSearchable = computed(() => {
+  if (props.searchable === 'auto') return props.groups.length > 5
+  return props.searchable
+})
+
 // Filter groups by platform if specified
 const filteredGroups = computed(() => {
-  if (!props.platform) {
-    return props.groups
+  let result: AdminGroup[] = props.groups
+  if (props.platform) {
+    // antigravity 账户启用混合调度后，可选择 anthropic/gemini 分组
+    if (props.platform === 'antigravity' && props.mixedScheduling) {
+      result = result.filter(
+        (g) => g.platform === 'antigravity' || g.platform === 'anthropic' || g.platform === 'gemini'
+      )
+    } else {
+      // 默认：只能选择同 platform 的分组
+      result = result.filter((g) => g.platform === props.platform)
+    }
   }
-  // antigravity 账户启用混合调度后，可选择 anthropic/gemini 分组
-  if (props.platform === 'antigravity' && props.mixedScheduling) {
-    return props.groups.filter(
-      (g) => g.platform === 'antigravity' || g.platform === 'anthropic' || g.platform === 'gemini'
+  if (isSearchable.value && searchText.value) {
+    const q = searchText.value.toLowerCase()
+    result = result.filter(
+      (g) => g.name.toLowerCase().includes(q) || g.description?.toLowerCase().includes(q)
     )
   }
-  // 默认：只能选择同 platform 的分组
-  return props.groups.filter((g) => g.platform === props.platform)
+  return result
 })
 
 const handleChange = (groupId: number, checked: boolean) => {
