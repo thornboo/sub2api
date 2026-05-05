@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-05-06
+
+- Extended the account model-probe action to create/edit model mapping sections, appending fetched upstream models as same-name mapping pairs for administrator adjustment.
+
 ## 2026-05-05
 
 - Refined the Home page visual system and removed public GitHub entry points from the Home/footer/header surfaces.

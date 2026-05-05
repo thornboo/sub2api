@@ -956,16 +956,27 @@
             </div>
           </div>
 
-          <button
-            type="button"
-            @click="addAntigravityModelMapping"
-            class="mb-3 w-full rounded-lg border-2 border-dashed border-stone-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-white/15 dark:text-gray-400 dark:hover:border-white/20 dark:hover:text-gray-300"
-          >
-            <svg class="mr-1 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-            </svg>
-            {{ t('admin.accounts.addMapping') }}
-          </button>
+          <div class="mb-3 flex flex-wrap gap-2">
+            <button
+              v-if="canProbeModels"
+              type="button"
+              @click="handleProbeModels('antigravityMapping')"
+              :disabled="probeModelsLoading"
+              class="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm text-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
+            >
+              {{ probeModelsLoading ? t('admin.accounts.probingSupportedModels') : t('admin.accounts.probeSupportedModels') }}
+            </button>
+            <button
+              type="button"
+              @click="addAntigravityModelMapping"
+              class="flex-1 rounded-lg border-2 border-dashed border-stone-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-white/15 dark:text-gray-400 dark:hover:border-white/20 dark:hover:text-gray-300"
+            >
+              <svg class="mr-1 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+              </svg>
+              {{ t('admin.accounts.addMapping') }}
+            </button>
+          </div>
 
           <div class="flex flex-wrap gap-2">
             <button
@@ -1209,26 +1220,37 @@
               </div>
             </div>
 
-            <button
-              type="button"
-              @click="addModelMapping"
-              class="mb-3 w-full rounded-lg border-2 border-dashed border-stone-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-white/15 dark:text-gray-400 dark:hover:border-white/20 dark:hover:text-gray-300"
-            >
-              <svg
-                class="mr-1 inline h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
+            <div class="mb-3 flex flex-wrap gap-2">
+              <button
+                v-if="canProbeModels"
+                type="button"
+                @click="handleProbeModels('mapping')"
+                :disabled="probeModelsLoading"
+                class="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm text-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
               >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M12 4v16m8-8H4"
-                />
-              </svg>
-              {{ t('admin.accounts.addMapping') }}
-            </button>
+                {{ probeModelsLoading ? t('admin.accounts.probingSupportedModels') : t('admin.accounts.probeSupportedModels') }}
+              </button>
+              <button
+                type="button"
+                @click="addModelMapping"
+                class="flex-1 rounded-lg border-2 border-dashed border-stone-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-white/15 dark:text-gray-400 dark:hover:border-white/20 dark:hover:text-gray-300"
+              >
+                <svg
+                  class="mr-1 inline h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M12 4v16m8-8H4"
+                  />
+                </svg>
+                {{ t('admin.accounts.addMapping') }}
+              </button>
+            </div>
 
               <!-- Quick Add Buttons -->
               <div class="flex flex-wrap gap-2">
@@ -1579,9 +1601,20 @@
                 <Icon name="trash" size="sm" />
               </button>
             </div>
-            <button type="button" @click="modelMappings.push({ from: '', to: '' })" class="btn btn-secondary text-sm">
-              + {{ t('admin.accounts.addMapping') }}
-            </button>
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-if="canProbeModels"
+                type="button"
+                @click="handleProbeModels('mapping')"
+                :disabled="probeModelsLoading"
+                class="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm text-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
+              >
+                {{ probeModelsLoading ? t('admin.accounts.probingSupportedModels') : t('admin.accounts.probeSupportedModels') }}
+              </button>
+              <button type="button" @click="modelMappings.push({ from: '', to: '' })" class="btn btn-secondary text-sm">
+                + {{ t('admin.accounts.addMapping') }}
+              </button>
+            </div>
             <!-- Bedrock Preset Mappings -->
             <div class="flex flex-wrap gap-2">
               <button
@@ -1872,13 +1905,24 @@
               </div>
             </div>
 
-            <button
-              type="button"
-              @click="addModelMapping"
-              class="mb-3 w-full rounded-lg border-2 border-dashed border-stone-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-white/15 dark:text-gray-400 dark:hover:border-white/20 dark:hover:text-gray-300"
-            >
-              + {{ t('admin.accounts.addMapping') }}
-            </button>
+            <div class="mb-3 flex flex-wrap gap-2">
+              <button
+                v-if="canProbeModels"
+                type="button"
+                @click="handleProbeModels('mapping')"
+                :disabled="probeModelsLoading"
+                class="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm text-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
+              >
+                {{ probeModelsLoading ? t('admin.accounts.probingSupportedModels') : t('admin.accounts.probeSupportedModels') }}
+              </button>
+              <button
+                type="button"
+                @click="addModelMapping"
+                class="flex-1 rounded-lg border-2 border-dashed border-stone-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-white/15 dark:text-gray-400 dark:hover:border-white/20 dark:hover:text-gray-300"
+              >
+                + {{ t('admin.accounts.addMapping') }}
+              </button>
+            </div>
 
             <!-- Quick Add Buttons -->
             <div class="flex flex-wrap gap-2">
@@ -3758,6 +3802,8 @@ const getProbeModelsErrorMessage = (error: unknown) => {
   return t('admin.accounts.probeModelsFailed')
 }
 
+type ProbeModelsTarget = 'whitelist' | 'mapping' | 'antigravityMapping'
+
 const appendProbeModels = (models: string[]) => {
   const existing = new Set(allowedModels.value)
   const next = [...allowedModels.value]
@@ -3779,7 +3825,38 @@ const appendProbeModels = (models: string[]) => {
   }
 }
 
-const handleProbeModels = async () => {
+const appendProbeModelMappings = (models: string[], mappings: ModelMapping[]) => {
+  const existing = new Set(mappings.map((mapping) => mapping.from.trim()).filter(Boolean))
+  let added = 0
+
+  for (const rawModel of models) {
+    const model = rawModel.trim()
+    if (!model || existing.has(model)) continue
+    existing.add(model)
+    mappings.push({ from: model, to: model })
+    added += 1
+  }
+
+  if (added > 0) {
+    appStore.showSuccess(t('admin.accounts.probeModelsSuccess', { count: added }))
+  } else {
+    appStore.showInfo(t('admin.accounts.probeModelsNoNewModels'))
+  }
+}
+
+const appendProbeModelsToTarget = (models: string[], target: ProbeModelsTarget) => {
+  if (target === 'mapping') {
+    appendProbeModelMappings(models, modelMappings.value)
+    return
+  }
+  if (target === 'antigravityMapping') {
+    appendProbeModelMappings(models, antigravityModelMappings.value)
+    return
+  }
+  appendProbeModels(models)
+}
+
+const handleProbeModels = async (target: ProbeModelsTarget = 'whitelist') => {
   const { baseUrl, apiKey } = getCreateProbeCredentials()
   if (!baseUrl) {
     appStore.showError(t('admin.accounts.probeModelsMissingBaseUrl'))
@@ -3796,7 +3873,7 @@ const handleProbeModels = async () => {
       base_url: baseUrl,
       api_key: apiKey
     })
-    appendProbeModels(result.models ?? [])
+    appendProbeModelsToTarget(result.models ?? [], target)
   } catch (error) {
     appStore.showError(getProbeModelsErrorMessage(error))
   } finally {

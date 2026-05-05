@@ -1,5 +1,20 @@
 # Patches
 
+## 2026-05-06 - Model Probe Mapping Fill
+
+Scope:
+- `frontend/src/components/account/{CreateAccountModal,EditAccountModal}.vue`
+
+Changes:
+- Added the existing "获取支持模型" / "Fetch supported models" action to create/edit account model mapping sections.
+- Fetched upstream model IDs are appended as same-name mapping rows (`model -> model`) without overwriting existing source-model mappings, so administrators can adjust the target side manually.
+- Reused the existing backend probe endpoint, credential resolution, loading state, duplicate handling, and failure messages.
+
+Verification:
+- `cd frontend && pnpm typecheck`
+- `cd frontend && pnpm lint:check`
+- `git diff --check`
+
 ## 2026-05-05 - Account Model Probe
 
 Scope:
