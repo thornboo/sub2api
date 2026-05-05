@@ -13,7 +13,6 @@ export default {
     nav: {
       home: '首页',
       model: '模型',
-      pricing: '定价',
       document: '文档',
       register: '注册'
     },
@@ -90,6 +89,7 @@ export default {
         role: '产品负责人'
       },
       fourth: {
+        initial: 'AI',
         quote: '把 Codex、Claude 和 Gemini 都接到同一个网关后，团队不用再到处分发不同密钥，权限和用量也终于能统一看了。',
         name: 'AI 团队',
         role: 'AI 应用团队负责人'
@@ -119,11 +119,13 @@ export default {
         role: '平台工程师'
       },
       ninth: {
+        initial: 'IT',
         quote: '我们把不同部门拆成独立分组，额度、倍率和可用模型都能分开配置，比之前用表格登记清楚很多。',
         name: '企业 IT',
         role: '企业 IT 管理员'
       },
       tenth: {
+        initial: 'PM',
         quote: '模型切换速度很快，业务只改一个 model 名称就能验证效果，做 A/B 测试比直连多家平台简单很多。',
         name: '产品团队',
         role: '产品经理'
@@ -244,9 +246,7 @@ export default {
       apiDocs: 'API 文档',
       contact: '联系我们',
       enterprise: '企业方案',
-      privateDeploy: '私有化部署',
       partner: '渠道合作',
-      custom: '定制服务',
       allRightsReserved: '保留所有权利。'
     }
   },

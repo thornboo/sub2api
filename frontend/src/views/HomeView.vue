@@ -592,6 +592,8 @@ const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appS
 const siteLogo = computed(() => appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '')
 const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || 'AI API Gateway Platform')
 const docUrl = computed(() => appStore.cachedPublicSettings?.doc_url || appStore.docUrl || '')
+const contactInfo = computed(() => appStore.cachedPublicSettings?.contact_info || appStore.contactInfo || '')
+const contactHref = computed(() => normalizeContactHref(contactInfo.value))
 const homeContent = computed(() => appStore.cachedPublicSettings?.home_content || '')
 
 const isHomeContentUrl = computed(() => {
@@ -779,7 +781,7 @@ const testimonials = computed(() => [
     role: t('home.testimonials.third.role')
   },
   {
-    initial: 'AI',
+    initial: t('home.testimonials.fourth.initial'),
     quote: t('home.testimonials.fourth.quote'),
     name: t('home.testimonials.fourth.name'),
     role: t('home.testimonials.fourth.role')
@@ -809,13 +811,13 @@ const testimonials = computed(() => [
     role: t('home.testimonials.eighth.role')
   },
   {
-    initial: 'IT',
+    initial: t('home.testimonials.ninth.initial'),
     quote: t('home.testimonials.ninth.quote'),
     name: t('home.testimonials.ninth.name'),
     role: t('home.testimonials.ninth.role')
   },
   {
-    initial: 'PM',
+    initial: t('home.testimonials.tenth.initial'),
     quote: t('home.testimonials.tenth.quote'),
     name: t('home.testimonials.tenth.name'),
     role: t('home.testimonials.tenth.role')
@@ -853,32 +855,52 @@ const faqs = computed(() => [
   }
 ])
 
-const footerColumns = computed(() => [
-  {
-    title: t('home.footer.navTitle'),
-    links: [
-      { label: t('home.nav.home'), href: '#top' },
-      { label: t('home.nav.model'), href: '#models' },
-      { label: t('home.nav.document'), href: docUrl.value || '#quick-access' }
-    ]
-  },
-  {
-    title: t('home.footer.supportTitle'),
-    links: [
-      { label: t('home.footer.quickAccess'), href: '#quick-access' },
-      { label: t('home.footer.faq'), href: '#faq' },
-      { label: t('home.footer.apiDocs'), href: docUrl.value || '#quick-access' },
-      { label: t('home.footer.contact'), href: '#faq' }
-    ]
-  },
-  {
-    title: t('home.footer.businessTitle'),
-    links: [
-      { label: t('home.footer.enterprise'), href: '#advantages' },
-      { label: t('home.footer.partner'), href: '#faq' }
-    ]
+const footerColumns = computed(() => {
+  const supportLinks = [
+    { label: t('home.footer.quickAccess'), href: '#quick-access' },
+    { label: t('home.footer.faq'), href: '#faq' },
+    { label: t('home.footer.apiDocs'), href: docUrl.value || '#quick-access' }
+  ]
+  const businessLinks = [
+    { label: t('home.footer.enterprise'), href: '#advantages' },
+    { label: t('home.footer.partner'), href: contactHref.value || '#advantages' }
+  ]
+
+  if (contactHref.value) {
+    supportLinks.push({ label: t('home.footer.contact'), href: contactHref.value })
   }
-])
+
+  return [
+    {
+      title: t('home.footer.navTitle'),
+      links: [
+        { label: t('home.nav.home'), href: '#top' },
+        { label: t('home.nav.model'), href: '#models' },
+        { label: t('home.nav.document'), href: docUrl.value || '#quick-access' }
+      ]
+    },
+    {
+      title: t('home.footer.supportTitle'),
+      links: supportLinks
+    },
+    {
+      title: t('home.footer.businessTitle'),
+      links: businessLinks
+    }
+  ]
+})
+
+function normalizeContactHref(value: string) {
+  const contact = value.trim()
+  if (!contact) return ''
+  if (/^(https?:|mailto:|tel:)/i.test(contact)) return contact
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact)) return `mailto:${contact}`
+
+  const phone = contact.replace(/[\s()-]/g, '')
+  if (/^\+?\d{6,}$/.test(phone)) return `tel:${phone}`
+
+  return ''
+}
 
 function toggleTheme() {
   isDark.value = !isDark.value

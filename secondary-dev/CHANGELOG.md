@@ -11,3 +11,4 @@
 - Restyled login and registration entry pages to match the Home page stone/emerald dark-light visual direction.
 - Hid LinuxDo and WeChat third-party auth platform entries from frontend login, registration, profile binding, and admin auth settings displays.
 - Updated profile identity binding tests to match the frontend-only LinuxDo/WeChat hiding behavior while preserving OIDC binding coverage.
+- Cleaned up unused Home i18n keys, moved remaining testimonial initials into locale data, and made footer contact links use configured contact info instead of the FAQ anchor.

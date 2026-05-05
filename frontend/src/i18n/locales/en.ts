@@ -13,7 +13,6 @@ export default {
     nav: {
       home: 'Home',
       model: 'Models',
-      pricing: 'Pricing',
       document: 'Docs',
       register: 'Sign Up'
     },
@@ -90,6 +89,7 @@ export default {
         role: 'Product Lead'
       },
       fourth: {
+        initial: 'AI',
         quote: 'After connecting Codex, Claude, and Gemini to one gateway, the team no longer distributes different keys everywhere, and permissions and usage finally live in one place.',
         name: 'AI Team',
         role: 'AI Application Lead'
@@ -119,11 +119,13 @@ export default {
         role: 'Platform Engineer'
       },
       ninth: {
+        initial: 'IT',
         quote: 'We split departments into separate groups, each with its own quota, rate, and available models. It is much clearer than spreadsheet tracking.',
         name: 'Enterprise IT',
         role: 'IT Administrator'
       },
       tenth: {
+        initial: 'PM',
         quote: 'Model switching is fast. Business teams can validate results by changing only the model name, making A/B tests simpler than direct integrations.',
         name: 'Product Team',
         role: 'Product Manager'
@@ -244,9 +246,7 @@ export default {
       apiDocs: 'API Docs',
       contact: 'Contact Us',
       enterprise: 'Enterprise',
-      privateDeploy: 'Private Deployment',
       partner: 'Partnerships',
-      custom: 'Custom Service',
       allRightsReserved: 'All rights reserved.'
     }
   },
