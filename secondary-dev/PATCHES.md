@@ -1,5 +1,27 @@
 # Patches
 
+## 2026-05-05 - Account Model Probe
+
+Scope:
+- `backend/internal/handler/admin/account_handler.go`
+- `backend/internal/handler/admin/account_handler_probe_models_test.go`
+- `backend/internal/server/routes/admin.go`
+- `frontend/src/api/admin/accounts.ts`
+- `frontend/src/components/account/{CreateAccountModal,EditAccountModal,ModelWhitelistSelector}.vue`
+- `frontend/src/i18n/locales/{zh,en}.ts`
+
+Changes:
+- Added `POST /api/v1/admin/accounts/probe-models` for admin-only, non-persistent probing of OpenAI-compatible upstream model lists.
+- The backend builds `/v1/models` from the supplied HTTPS Base URL, blocks private/localhost/link-local resolved hosts for SSRF defense, sends the current API key as a bearer token, parses `data[].id`, and returns de-duplicated model IDs without logging or persisting credentials.
+- Added a "获取支持模型" / "Fetch supported models" button before "填入相关模型" / "Fill related models" in create/edit account whitelist selectors.
+- The create/edit dialogs use the current form credentials where available, hide the probe action for Bedrock/service-account flows, append fetched models to the current whitelist, and fall back to clear failure messages so administrators can continue filling models manually.
+
+Verification:
+- `cd frontend && pnpm typecheck`
+- `cd frontend && pnpm lint:check`
+- `mise x -C backend -- go test ./internal/handler/admin ./internal/server`
+- `git diff --check`
+
 ## 2026-05-05 - Home and Console UI Refresh
 
 Scope:

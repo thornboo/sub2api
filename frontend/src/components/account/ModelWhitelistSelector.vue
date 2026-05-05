@@ -79,6 +79,15 @@
     <!-- Quick Actions -->
     <div class="mb-4 flex flex-wrap gap-2">
       <button
+        v-if="canProbeModels"
+        type="button"
+        @click="emit('probe-models')"
+        :disabled="probeModelsLoading"
+        class="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm text-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
+      >
+        {{ probeModelsLoading ? t('admin.accounts.probingSupportedModels') : t('admin.accounts.probeSupportedModels') }}
+      </button>
+      <button
         type="button"
         @click="fillRelated"
         class="rounded-lg border border-blue-200 px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-900/30"
@@ -133,10 +142,13 @@ const props = defineProps<{
   modelValue: string[]
   platform?: string
   platforms?: string[]
+  canProbeModels?: boolean
+  probeModelsLoading?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: string[]]
+  'probe-models': []
 }>()
 
 const appStore = useAppStore()

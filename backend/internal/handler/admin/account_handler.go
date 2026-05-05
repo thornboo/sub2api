@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,10 +24,12 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
@@ -59,6 +63,23 @@ type AccountHandler struct {
 	rpmCache                service.RPMCache
 	tokenCacheInvalidator   service.TokenCacheInvalidator
 }
+
+type probeModelsRequest struct {
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key"`
+}
+
+type probeModelsResponse struct {
+	Models []string `json:"models"`
+}
+
+type openAIModelsResponse struct {
+	Data []struct {
+		ID string `json:"id"`
+	} `json:"data"`
+}
+
+const probeModelsResponseLimit = 256 << 10
 
 // NewAccountHandler creates a new admin account handler
 func NewAccountHandler(
@@ -1853,6 +1874,108 @@ func (h *AccountHandler) SetSchedulable(c *gin.Context) {
 	}
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
+// ProbeModels fetches OpenAI-compatible model IDs from the provided upstream config.
+// POST /api/v1/admin/accounts/probe-models
+func (h *AccountHandler) ProbeModels(c *gin.Context) {
+	var req probeModelsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request")
+		return
+	}
+
+	baseURL, err := urlvalidator.ValidateHTTPURL(req.BaseURL, false, urlvalidator.ValidationOptions{
+		AllowPrivate: false,
+	})
+	if err != nil {
+		response.BadRequest(c, "Invalid base URL")
+		return
+	}
+
+	apiKey := strings.TrimSpace(req.APIKey)
+	if apiKey == "" {
+		response.BadRequest(c, "API key is required")
+		return
+	}
+
+	endpoint := buildProbeModelsEndpoint(baseURL)
+	if err := validateProbeModelsEndpoint(endpoint); err != nil {
+		response.BadRequest(c, "Invalid base URL")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		response.BadRequest(c, "Failed to fetch supported models")
+		return
+	}
+	httpReq.Header.Set("Accept", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client, err := httpclient.GetClient(httpclient.Options{
+		Timeout:               10 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
+		ValidateResolvedIP:    true,
+		AllowPrivateHosts:     false,
+		MaxConnsPerHost:       2,
+	})
+	if err != nil {
+		response.BadRequest(c, "Failed to fetch supported models")
+		return
+	}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		response.BadRequest(c, "Failed to fetch supported models")
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		response.BadRequest(c, "Failed to fetch supported models")
+		return
+	}
+
+	var payload openAIModelsResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, probeModelsResponseLimit)).Decode(&payload); err != nil {
+		response.BadRequest(c, "Failed to parse supported models")
+		return
+	}
+
+	models := make([]string, 0, len(payload.Data))
+	seen := make(map[string]struct{}, len(payload.Data))
+	for _, item := range payload.Data {
+		modelID := strings.TrimSpace(item.ID)
+		if modelID == "" {
+			continue
+		}
+		if _, exists := seen[modelID]; exists {
+			continue
+		}
+		seen[modelID] = struct{}{}
+		models = append(models, modelID)
+	}
+
+	response.Success(c, probeModelsResponse{Models: models})
+}
+
+func buildProbeModelsEndpoint(baseURL string) string {
+	normalized := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if strings.HasSuffix(normalized, "/v1") {
+		return normalized + "/models"
+	}
+	return normalized + "/v1/models"
+}
+
+func validateProbeModelsEndpoint(endpoint string) error {
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return err
+	}
+	return urlvalidator.ValidateResolvedIP(parsed.Hostname())
 }
 
 // GetAvailableModels handles getting available models for an account

@@ -444,6 +444,20 @@ export async function getAvailableModels(id: number): Promise<ClaudeModel[]> {
   return data
 }
 
+export interface ProbeModelsRequest {
+  base_url: string
+  api_key: string
+}
+
+export interface ProbeModelsResponse {
+  models: string[]
+}
+
+export async function probeModels(request: ProbeModelsRequest): Promise<ProbeModelsResponse> {
+  const { data } = await apiClient.post<ProbeModelsResponse>('/admin/accounts/probe-models', request)
+  return data
+}
+
 export interface CRSPreviewAccount {
   crs_account_id: string
   kind: string
@@ -653,6 +667,7 @@ export const accountsAPI = {
   resetTempUnschedulable,
   setSchedulable,
   getAvailableModels,
+  probeModels,
   generateAuthUrl,
   exchangeCode,
   refreshOpenAIToken,

@@ -1124,7 +1124,13 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="form.platform" />
+              <ModelWhitelistSelector
+                v-model="allowedModels"
+                :platform="form.platform"
+                :can-probe-models="canProbeModels"
+                :probe-models-loading="probeModelsLoading"
+                @probe-models="handleProbeModels"
+              />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0">{{
@@ -1550,7 +1556,13 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" platform="anthropic" />
+            <ModelWhitelistSelector
+              v-model="allowedModels"
+              platform="anthropic"
+              :can-probe-models="canProbeModels"
+              :probe-models-loading="probeModelsLoading"
+              @probe-models="handleProbeModels"
+            />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0">{{ t('admin.accounts.supportsAllModels') }}</span>
@@ -1789,7 +1801,13 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" :platform="form.platform" />
+            <ModelWhitelistSelector
+              v-model="allowedModels"
+              :platform="form.platform"
+              :can-probe-models="canProbeModels"
+              :probe-models-loading="probeModelsLoading"
+              @probe-models="handleProbeModels"
+            />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0">{{
@@ -3264,6 +3282,7 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
+const probeModelsLoading = ref(false)
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const poolModeEnabled = ref(false)
@@ -3558,6 +3577,7 @@ watch(
         antigravityModelRestrictionMode.value = 'mapping'
       }
     } else {
+      probeModelsLoading.value = false
       resetForm()
     }
   }
@@ -3694,6 +3714,94 @@ const handleSelectGeminiOAuthType = (oauthType: 'code_assist' | 'google_one' | '
     return
   }
   geminiOAuthType.value = oauthType
+}
+
+const getDefaultAPIKeyBaseUrl = () => {
+  if (form.platform === 'openai') return 'https://api.openai.com'
+  if (form.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
+  return 'https://api.anthropic.com'
+}
+
+const getCreateProbeCredentials = () => {
+  if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
+    return {
+      baseUrl: upstreamBaseUrl.value.trim(),
+      apiKey: upstreamApiKey.value.trim()
+    }
+  }
+
+  if (accountCategory.value === 'apikey') {
+    return {
+      baseUrl: apiKeyBaseUrl.value.trim() || getDefaultAPIKeyBaseUrl(),
+      apiKey: apiKeyValue.value.trim()
+    }
+  }
+
+  return { baseUrl: '', apiKey: '' }
+}
+
+const canProbeModels = computed(() => {
+  if (form.platform === 'antigravity') {
+    return antigravityAccountType.value === 'upstream'
+  }
+  return accountCategory.value === 'apikey'
+})
+
+const getProbeModelsErrorMessage = (error: unknown) => {
+  const status =
+    typeof error === 'object' && error !== null && 'status' in error
+      ? (error as { status?: unknown }).status
+      : undefined
+  if (status === 404) {
+    return t('admin.accounts.probeModelsEndpointMissing')
+  }
+  return t('admin.accounts.probeModelsFailed')
+}
+
+const appendProbeModels = (models: string[]) => {
+  const existing = new Set(allowedModels.value)
+  const next = [...allowedModels.value]
+  let added = 0
+
+  for (const rawModel of models) {
+    const model = rawModel.trim()
+    if (!model || existing.has(model)) continue
+    existing.add(model)
+    next.push(model)
+    added += 1
+  }
+
+  allowedModels.value = next
+  if (added > 0) {
+    appStore.showSuccess(t('admin.accounts.probeModelsSuccess', { count: added }))
+  } else {
+    appStore.showInfo(t('admin.accounts.probeModelsNoNewModels'))
+  }
+}
+
+const handleProbeModels = async () => {
+  const { baseUrl, apiKey } = getCreateProbeCredentials()
+  if (!baseUrl) {
+    appStore.showError(t('admin.accounts.probeModelsMissingBaseUrl'))
+    return
+  }
+  if (!apiKey) {
+    appStore.showError(t('admin.accounts.probeModelsMissingApiKey'))
+    return
+  }
+
+  probeModelsLoading.value = true
+  try {
+    const result = await adminAPI.accounts.probeModels({
+      base_url: baseUrl,
+      api_key: apiKey
+    })
+    appendProbeModels(result.models ?? [])
+  } catch (error) {
+    appStore.showError(getProbeModelsErrorMessage(error))
+  } finally {
+    probeModelsLoading.value = false
+  }
 }
 
 // Auto-fill related models when switching to whitelist mode or changing platform
@@ -4086,6 +4194,7 @@ const resetForm = () => {
 }
 
 const handleClose = () => {
+  probeModelsLoading.value = false
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
   emit('close')

@@ -139,7 +139,13 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" />
+              <ModelWhitelistSelector
+                v-model="allowedModels"
+                :platform="account?.platform || 'anthropic'"
+                :can-probe-models="canProbeModels"
+                :probe-models-loading="probeModelsLoading"
+                @probe-models="handleProbeModels"
+              />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0">{{
@@ -454,7 +460,13 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" />
+            <ModelWhitelistSelector
+              v-model="allowedModels"
+              :platform="account?.platform || 'anthropic'"
+              :can-probe-models="canProbeModels"
+              :probe-models-loading="probeModelsLoading"
+              @probe-models="handleProbeModels"
+            />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0">{{
@@ -666,7 +678,13 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" />
+            <ModelWhitelistSelector
+              v-model="allowedModels"
+              :platform="account?.platform || 'anthropic'"
+              :can-probe-models="canProbeModels"
+              :probe-models-loading="probeModelsLoading"
+              @probe-models="handleProbeModels"
+            />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0">{{
@@ -888,7 +906,13 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" platform="anthropic" />
+            <ModelWhitelistSelector
+              v-model="allowedModels"
+              platform="anthropic"
+              :can-probe-models="canProbeModels"
+              :probe-models-loading="probeModelsLoading"
+              @probe-models="handleProbeModels"
+            />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0">{{ t('admin.accounts.supportsAllModels') }}</span>
@@ -2214,6 +2238,7 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
+const probeModelsLoading = ref(false)
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const poolModeEnabled = ref(false)
@@ -2385,6 +2410,84 @@ const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   return 'https://api.anthropic.com'
 })
+
+const getStringCredential = (credentials: Record<string, unknown>, key: string) => {
+  const value = credentials[key]
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+const canProbeModels = computed(() => {
+  if (!props.account) return false
+  return props.account.type !== 'bedrock' && props.account.type !== 'service_account'
+})
+
+const getProbeModelsErrorMessage = (error: unknown) => {
+  const status =
+    typeof error === 'object' && error !== null && 'status' in error
+      ? (error as { status?: unknown }).status
+      : undefined
+  if (status === 404) {
+    return t('admin.accounts.probeModelsEndpointMissing')
+  }
+  return t('admin.accounts.probeModelsFailed')
+}
+
+const getEditProbeCredentials = () => {
+  const credentials = (props.account?.credentials as Record<string, unknown>) || {}
+  const baseUrl = editBaseUrl.value.trim() || getStringCredential(credentials, 'base_url') || defaultBaseUrl.value
+  const apiKey =
+    editApiKey.value.trim() ||
+    getStringCredential(credentials, 'api_key') ||
+    getStringCredential(credentials, 'access_token')
+
+  return { baseUrl, apiKey }
+}
+
+const appendProbeModels = (models: string[]) => {
+  const existing = new Set(allowedModels.value)
+  const next = [...allowedModels.value]
+  let added = 0
+
+  for (const rawModel of models) {
+    const model = rawModel.trim()
+    if (!model || existing.has(model)) continue
+    existing.add(model)
+    next.push(model)
+    added += 1
+  }
+
+  allowedModels.value = next
+  if (added > 0) {
+    appStore.showSuccess(t('admin.accounts.probeModelsSuccess', { count: added }))
+  } else {
+    appStore.showInfo(t('admin.accounts.probeModelsNoNewModels'))
+  }
+}
+
+const handleProbeModels = async () => {
+  const { baseUrl, apiKey } = getEditProbeCredentials()
+  if (!baseUrl) {
+    appStore.showError(t('admin.accounts.probeModelsMissingBaseUrl'))
+    return
+  }
+  if (!apiKey) {
+    appStore.showError(t('admin.accounts.probeModelsMissingApiKey'))
+    return
+  }
+
+  probeModelsLoading.value = true
+  try {
+    const result = await adminAPI.accounts.probeModels({
+      base_url: baseUrl,
+      api_key: apiKey
+    })
+    appendProbeModels(result.models ?? [])
+  } catch (error) {
+    appStore.showError(getProbeModelsErrorMessage(error))
+  } finally {
+    probeModelsLoading.value = false
+  }
+}
 
 const mixedChannelWarningMessageText = computed(() => {
   if (mixedChannelWarningDetails.value) {
@@ -2770,6 +2873,7 @@ watch(
   [() => props.show, () => props.account],
   ([show, newAccount], [wasShow, previousAccount]) => {
     if (!show || !newAccount) {
+      probeModelsLoading.value = false
       return
     }
     if (!wasShow || newAccount !== previousAccount) {
@@ -3164,6 +3268,7 @@ const parseDateTimeLocal = parseDateTimeLocalInput
 
 // Methods
 const handleClose = () => {
+  probeModelsLoading.value = false
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
   emit('close')
