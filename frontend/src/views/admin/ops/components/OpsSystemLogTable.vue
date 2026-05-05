@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { opsAPI, type OpsRuntimeLogConfig, type OpsSystemLog, type OpsSystemLogSinkHealth } from '@/api/admin/ops'
+import { opsAPI, type OpsRuntimeLogConfig, type OpsSystemLog, type OpsSystemLogCleanupRequest, type OpsSystemLogSinkHealth } from '@/api/admin/ops'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import Select from '@/components/common/Select.vue'
 import { useAppStore } from '@/stores'
@@ -20,6 +21,10 @@ const logs = ref<OpsSystemLog[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
+const cleanupConfirmVisible = ref(false)
+const cleanupSubmitting = ref(false)
+const cleanupPayload = ref<OpsSystemLogCleanupRequest | null>(null)
+const cleanupSummary = ref<Array<{ label: string; value: string }>>([])
 
 const health = ref<OpsSystemLogSinkHealth>({
   queue_depth: 0,
@@ -159,6 +164,39 @@ const toRFC3339 = (value: string) => {
   return d.toISOString()
 }
 
+const formatDateTime = (value?: string) => {
+  if (!value) return '-'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return value
+  return d.toLocaleString()
+}
+
+const timeRangeMs: Record<typeof filters.time_range, number> = {
+  '5m': 5 * 60 * 1000,
+  '30m': 30 * 60 * 1000,
+  '1h': 60 * 60 * 1000,
+  '6h': 6 * 60 * 60 * 1000,
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000
+}
+
+const resolveCleanupTimeRange = () => {
+  const explicitStart = toRFC3339(filters.start_time)
+  const explicitEnd = toRFC3339(filters.end_time)
+  if (explicitStart || explicitEnd) {
+    return { start_time: explicitStart, end_time: explicitEnd, label: `${formatDateTime(explicitStart)} - ${formatDateTime(explicitEnd)}` }
+  }
+
+  const end = new Date()
+  const start = new Date(end.getTime() - timeRangeMs[filters.time_range])
+  return {
+    start_time: start.toISOString(),
+    end_time: end.toISOString(),
+    label: `最近 ${filters.time_range} (${formatDateTime(start.toISOString())} - ${formatDateTime(end.toISOString())})`
+  }
+}
+
 const buildQuery = () => {
   const query: Record<string, any> = {
     page: page.value,
@@ -187,6 +225,38 @@ const buildQuery = () => {
   if (filters.model.trim()) query.model = filters.model.trim()
   if (filters.q.trim()) query.q = filters.q.trim()
   return query
+}
+
+const buildCleanupPayload = () => {
+  const range = resolveCleanupTimeRange()
+  const payload: OpsSystemLogCleanupRequest = {
+    start_time: range.start_time,
+    end_time: range.end_time,
+    level: filters.level.trim() || undefined,
+    component: filters.component.trim() || undefined,
+    request_id: filters.request_id.trim() || undefined,
+    client_request_id: filters.client_request_id.trim() || undefined,
+    user_id: filters.user_id.trim() ? Number.parseInt(filters.user_id.trim(), 10) : undefined,
+    account_id: filters.account_id.trim() ? Number.parseInt(filters.account_id.trim(), 10) : undefined,
+    platform: filters.platform.trim() || undefined,
+    model: filters.model.trim() || undefined,
+    q: filters.q.trim() || undefined
+  }
+
+  const summary: Array<{ label: string; value: string }> = [
+    { label: '时间范围', value: range.label }
+  ]
+  if (payload.level) summary.push({ label: '级别', value: payload.level })
+  if (payload.component) summary.push({ label: '组件', value: payload.component })
+  if (payload.request_id) summary.push({ label: 'request_id', value: payload.request_id })
+  if (payload.client_request_id) summary.push({ label: 'client_request_id', value: payload.client_request_id })
+  if (payload.user_id) summary.push({ label: 'user_id', value: String(payload.user_id) })
+  if (payload.account_id) summary.push({ label: 'account_id', value: String(payload.account_id) })
+  if (payload.platform) summary.push({ label: '平台', value: payload.platform })
+  if (payload.model) summary.push({ label: '模型', value: payload.model })
+  if (payload.q) summary.push({ label: '关键词', value: payload.q })
+
+  return { payload, summary }
 }
 
 const fetchLogs = async () => {
@@ -273,30 +343,28 @@ const resetRuntimeConfig = async () => {
   }
 }
 
+const openCleanupConfirm = () => {
+  const next = buildCleanupPayload()
+  cleanupPayload.value = next.payload
+  cleanupSummary.value = next.summary
+  cleanupConfirmVisible.value = true
+}
+
 const cleanupCurrentFilter = async () => {
-  const ok = window.confirm('确认按当前筛选条件清理系统日志？该操作不可撤销。')
-  if (!ok) return
+  if (!cleanupPayload.value) return
+  cleanupSubmitting.value = true
   try {
-    const payload = {
-      start_time: toRFC3339(filters.start_time),
-      end_time: toRFC3339(filters.end_time),
-      level: filters.level.trim() || undefined,
-      component: filters.component.trim() || undefined,
-      request_id: filters.request_id.trim() || undefined,
-      client_request_id: filters.client_request_id.trim() || undefined,
-      user_id: filters.user_id.trim() ? Number.parseInt(filters.user_id.trim(), 10) : undefined,
-      account_id: filters.account_id.trim() ? Number.parseInt(filters.account_id.trim(), 10) : undefined,
-      platform: filters.platform.trim() || undefined,
-      model: filters.model.trim() || undefined,
-      q: filters.q.trim() || undefined
-    }
-    const res = await opsAPI.cleanupSystemLogs(payload)
+    const res = await opsAPI.cleanupSystemLogs(cleanupPayload.value)
     appStore.showSuccess(`清理完成，删除 ${res.deleted || 0} 条日志`)
+    cleanupConfirmVisible.value = false
+    cleanupPayload.value = null
     page.value = 1
     await Promise.all([fetchLogs(), fetchHealth()])
   } catch (err: any) {
     console.error('[OpsSystemLogTable] Failed to cleanup logs', err)
     appStore.showError(err?.response?.data?.detail || '清理系统日志失败')
+  } finally {
+    cleanupSubmitting.value = false
   }
 }
 
@@ -477,7 +545,7 @@ onMounted(async () => {
     <div class="mb-3 flex flex-wrap gap-2">
       <button type="button" class="btn btn-primary btn-sm" @click="applyFilters">查询</button>
       <button type="button" class="btn btn-secondary btn-sm" @click="resetFilters">重置</button>
-      <button type="button" class="btn btn-danger btn-sm" @click="cleanupCurrentFilter">按当前筛选清理</button>
+      <button type="button" class="btn btn-danger btn-sm" @click="openCleanupConfirm">按当前筛选清理</button>
       <button type="button" class="btn btn-secondary btn-sm" @click="fetchHealth">刷新健康指标</button>
     </div>
 
@@ -517,4 +585,28 @@ onMounted(async () => {
       />
     </div>
   </section>
+
+  <ConfirmDialog
+    :show="cleanupConfirmVisible"
+    title="确认清理系统日志"
+    message="将按当前筛选条件删除系统日志，该操作不可恢复。"
+    :confirm-text="cleanupSubmitting ? '清理中...' : '确认清理'"
+    cancel-text="取消"
+    danger
+    @confirm="cleanupCurrentFilter"
+    @cancel="cleanupConfirmVisible = false"
+  >
+    <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+      删除只影响系统日志索引，不会删除用户使用记录。请确认筛选条件符合预期。
+    </div>
+    <div class="rounded-xl border border-stone-200/80 bg-stone-50/80 p-3 dark:border-white/10 dark:bg-white/[0.04]">
+      <div class="mb-2 text-xs font-semibold text-stone-600 dark:text-stone-300">当前清理条件</div>
+      <dl class="grid gap-2 text-xs sm:grid-cols-2">
+        <div v-for="item in cleanupSummary" :key="item.label" class="min-w-0">
+          <dt class="text-stone-500 dark:text-stone-400">{{ item.label }}</dt>
+          <dd class="mt-0.5 break-all font-medium text-stone-800 dark:text-stone-100">{{ item.value }}</dd>
+        </div>
+      </dl>
+    </div>
+  </ConfirmDialog>
 </template>

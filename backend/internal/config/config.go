@@ -1060,12 +1060,15 @@ type OpsConfig struct {
 }
 
 type OpsCleanupConfig struct {
-	Enabled  bool   `mapstructure:"enabled"`
-	Schedule string `mapstructure:"schedule"`
+	// Enabled controls the scheduled maintenance job itself. Keep it separate from
+	// AutoCleanupEnabled because the job also runs non-destructive maintenance.
+	Enabled            bool   `mapstructure:"enabled"`
+	AutoCleanupEnabled bool   `mapstructure:"auto_cleanup_enabled"`
+	Schedule           string `mapstructure:"schedule"`
 
-	// Retention days (0 disables that cleanup target).
+	// Retention days used only when automatic cleanup is enabled.
 	//
-	// vNext requirement: default 30 days across ops datasets.
+	// Legacy behavior allowed 0 to truncate that cleanup target.
 	ErrorLogRetentionDays      int `mapstructure:"error_log_retention_days"`
 	MinuteMetricsRetentionDays int `mapstructure:"minute_metrics_retention_days"`
 	HourlyMetricsRetentionDays int `mapstructure:"hourly_metrics_retention_days"`
@@ -1179,10 +1182,14 @@ type DashboardAggregationConfig struct {
 
 // DashboardAggregationRetentionConfig 预聚合保留窗口
 type DashboardAggregationRetentionConfig struct {
-	UsageLogsDays         int `mapstructure:"usage_logs_days"`
-	UsageBillingDedupDays int `mapstructure:"usage_billing_dedup_days"`
-	HourlyDays            int `mapstructure:"hourly_days"`
-	DailyDays             int `mapstructure:"daily_days"`
+	// AutoCleanupEnabled controls automatic retention cleanup for usage-related data.
+	// When false, usage logs, billing dedup rows, and dashboard aggregates are kept
+	// until an administrator manually deletes them.
+	AutoCleanupEnabled    bool `mapstructure:"auto_cleanup_enabled"`
+	UsageLogsDays         int  `mapstructure:"usage_logs_days"`
+	UsageBillingDedupDays int  `mapstructure:"usage_billing_dedup_days"`
+	HourlyDays            int  `mapstructure:"hourly_days"`
+	DailyDays             int  `mapstructure:"daily_days"`
 }
 
 // UsageCleanupConfig 使用记录清理任务配置
@@ -1546,8 +1553,9 @@ func setDefaults() {
 	viper.SetDefault("ops.enabled", true)
 	viper.SetDefault("ops.use_preaggregated_tables", true)
 	viper.SetDefault("ops.cleanup.enabled", true)
+	viper.SetDefault("ops.cleanup.auto_cleanup_enabled", false)
 	viper.SetDefault("ops.cleanup.schedule", "0 2 * * *")
-	// Retention days: vNext defaults to 30 days across ops datasets.
+	// Retention days: effective only when automatic cleanup is explicitly enabled.
 	viper.SetDefault("ops.cleanup.error_log_retention_days", 30)
 	viper.SetDefault("ops.cleanup.minute_metrics_retention_days", 30)
 	viper.SetDefault("ops.cleanup.hourly_metrics_retention_days", 30)
@@ -1617,6 +1625,7 @@ func setDefaults() {
 	viper.SetDefault("dashboard_aggregation.lookback_seconds", 120)
 	viper.SetDefault("dashboard_aggregation.backfill_enabled", false)
 	viper.SetDefault("dashboard_aggregation.backfill_max_days", 31)
+	viper.SetDefault("dashboard_aggregation.retention.auto_cleanup_enabled", false)
 	viper.SetDefault("dashboard_aggregation.retention.usage_logs_days", 90)
 	viper.SetDefault("dashboard_aggregation.retention.usage_billing_dedup_days", 365)
 	viper.SetDefault("dashboard_aggregation.retention.hourly_days", 180)
@@ -2156,20 +2165,40 @@ func (c *Config) Validate() error {
 		if c.DashboardAgg.BackfillEnabled && c.DashboardAgg.BackfillMaxDays == 0 {
 			return fmt.Errorf("dashboard_aggregation.backfill_max_days must be positive")
 		}
-		if c.DashboardAgg.Retention.UsageLogsDays <= 0 {
-			return fmt.Errorf("dashboard_aggregation.retention.usage_logs_days must be positive")
-		}
-		if c.DashboardAgg.Retention.UsageBillingDedupDays <= 0 {
-			return fmt.Errorf("dashboard_aggregation.retention.usage_billing_dedup_days must be positive")
-		}
-		if c.DashboardAgg.Retention.UsageBillingDedupDays < c.DashboardAgg.Retention.UsageLogsDays {
-			return fmt.Errorf("dashboard_aggregation.retention.usage_billing_dedup_days must be greater than or equal to usage_logs_days")
-		}
-		if c.DashboardAgg.Retention.HourlyDays <= 0 {
-			return fmt.Errorf("dashboard_aggregation.retention.hourly_days must be positive")
-		}
-		if c.DashboardAgg.Retention.DailyDays <= 0 {
-			return fmt.Errorf("dashboard_aggregation.retention.daily_days must be positive")
+		if c.DashboardAgg.Retention.AutoCleanupEnabled {
+			if c.DashboardAgg.Retention.UsageLogsDays <= 0 {
+				return fmt.Errorf("dashboard_aggregation.retention.usage_logs_days must be positive when auto_cleanup_enabled is true")
+			}
+			if c.DashboardAgg.Retention.UsageBillingDedupDays <= 0 {
+				return fmt.Errorf("dashboard_aggregation.retention.usage_billing_dedup_days must be positive when auto_cleanup_enabled is true")
+			}
+			if c.DashboardAgg.Retention.UsageBillingDedupDays < c.DashboardAgg.Retention.UsageLogsDays {
+				return fmt.Errorf("dashboard_aggregation.retention.usage_billing_dedup_days must be greater than or equal to usage_logs_days")
+			}
+			if c.DashboardAgg.Retention.HourlyDays <= 0 {
+				return fmt.Errorf("dashboard_aggregation.retention.hourly_days must be positive when auto_cleanup_enabled is true")
+			}
+			if c.DashboardAgg.Retention.DailyDays <= 0 {
+				return fmt.Errorf("dashboard_aggregation.retention.daily_days must be positive when auto_cleanup_enabled is true")
+			}
+		} else {
+			if c.DashboardAgg.Retention.UsageLogsDays < 0 {
+				return fmt.Errorf("dashboard_aggregation.retention.usage_logs_days must be non-negative")
+			}
+			if c.DashboardAgg.Retention.UsageBillingDedupDays < 0 {
+				return fmt.Errorf("dashboard_aggregation.retention.usage_billing_dedup_days must be non-negative")
+			}
+			if c.DashboardAgg.Retention.UsageBillingDedupDays > 0 &&
+				c.DashboardAgg.Retention.UsageLogsDays > 0 &&
+				c.DashboardAgg.Retention.UsageBillingDedupDays < c.DashboardAgg.Retention.UsageLogsDays {
+				return fmt.Errorf("dashboard_aggregation.retention.usage_billing_dedup_days must be greater than or equal to usage_logs_days")
+			}
+			if c.DashboardAgg.Retention.HourlyDays < 0 {
+				return fmt.Errorf("dashboard_aggregation.retention.hourly_days must be non-negative")
+			}
+			if c.DashboardAgg.Retention.DailyDays < 0 {
+				return fmt.Errorf("dashboard_aggregation.retention.daily_days must be non-negative")
+			}
 		}
 		if c.DashboardAgg.RecomputeDays < 0 {
 			return fmt.Errorf("dashboard_aggregation.recompute_days must be non-negative")

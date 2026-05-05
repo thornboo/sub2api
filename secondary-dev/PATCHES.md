@@ -37,3 +37,43 @@ Verification:
 - `cd frontend && pnpm build`
 - `cd frontend && pnpm lint:check`
 - `git diff --check`
+
+## 2026-05-05 - Permanent Usage Data Retention
+
+Scope:
+- `backend/internal/config/config.go`
+- `backend/internal/config/config_test.go`
+- `backend/internal/service/dashboard_aggregation_service.go`
+- `backend/internal/service/dashboard_aggregation_service_test.go`
+- `backend/internal/service/ops_cleanup_service.go`
+- `backend/internal/service/ops_cleanup_service_test.go`
+- `backend/internal/service/channel_monitor_service.go`
+- `backend/internal/service/channel_monitor_maintenance_test.go`
+- `deploy/config.example.yaml`
+- `deploy/.env.example`
+
+Changes:
+- Added `dashboard_aggregation.retention.auto_cleanup_enabled`, defaulting to `false`, so usage-related data is retained permanently unless an administrator manually cleans it.
+- Skipped automatic cleanup of raw `usage_logs`, `usage_billing_dedup`, hourly dashboard aggregates, and daily dashboard aggregates when retention auto cleanup is disabled.
+- Kept the existing day-based retention settings available for deployments that explicitly re-enable automatic cleanup.
+- Relaxed configuration validation so zero retention days are accepted when automatic cleanup is disabled, while keeping positive-day validation when automatic cleanup is enabled.
+- Added `ops.cleanup.auto_cleanup_enabled`, defaulting to `false`, so scheduled ops maintenance no longer deletes old ops logs, system metrics, ops preaggregates, or channel monitor history/rollups unless explicitly re-enabled.
+- Kept non-destructive channel monitor daily aggregation maintenance running while automatic deletion is disabled.
+
+Verification:
+- `mise x -C backend -- go test ./internal/config`
+- `mise x -C backend -- go test ./internal/service -run 'TestDashboardAggregationService|TestDashboardService|TestUsageCleanup'`
+- `mise x -C backend -- go test ./internal/service -run 'TestOpsCleanup|TestChannelMonitorRunDailyMaintenance|TestDashboardAggregationService|TestDashboardService|TestUsageCleanup'`
+
+## 2026-05-05 - Ops System Log Cleanup Confirmation
+
+Scope:
+- `frontend/src/views/admin/ops/components/OpsSystemLogTable.vue`
+
+Changes:
+- Replaced the browser `window.confirm` for system-log cleanup with the shared confirmation modal.
+- Added a current-filter summary to the cleanup confirmation so administrators can verify the deletion scope before submitting.
+- Converted quick time ranges into explicit cleanup start/end timestamps so "按当前筛选清理" matches the visible time filter.
+
+Verification:
+- `cd frontend && pnpm typecheck`

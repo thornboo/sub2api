@@ -1,8 +1,12 @@
 package service
 
 import (
+	"context"
 	"testing"
 	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
 func TestOpsCleanupPlan(t *testing.T) {
@@ -56,6 +60,41 @@ func TestIsMissingRelationError(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestOpsCleanupService_RunCleanupOnceAutoCleanupDisabledSkipsDeletes(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	defer db.Close()
+
+	svc := &OpsCleanupService{
+		opsRepo: &opsRepoMock{},
+		db:      db,
+		cfg: &config.Config{
+			Ops: config.OpsConfig{
+				Cleanup: config.OpsCleanupConfig{
+					Enabled:                    true,
+					AutoCleanupEnabled:         false,
+					ErrorLogRetentionDays:      30,
+					MinuteMetricsRetentionDays: 30,
+					HourlyMetricsRetentionDays: 30,
+				},
+			},
+		},
+	}
+
+	counts, err := svc.runCleanupOnce(context.Background())
+	if err != nil {
+		t.Fatalf("runCleanupOnce() error = %v", err)
+	}
+	if counts != (opsCleanupDeletedCounts{}) {
+		t.Fatalf("counts = %+v, want zero counts", counts)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unexpected SQL cleanup was executed: %v", err)
 	}
 }
 

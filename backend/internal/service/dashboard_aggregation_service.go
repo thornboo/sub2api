@@ -287,6 +287,10 @@ func (s *DashboardAggregationService) aggregateRange(ctx context.Context, start,
 }
 
 func (s *DashboardAggregationService) maybeCleanupRetention(ctx context.Context, now time.Time) {
+	if !s.cfg.Retention.AutoCleanupEnabled {
+		return
+	}
+
 	lastAny := s.lastRetentionCleanup.Load()
 	if lastAny != nil {
 		if last, ok := lastAny.(time.Time); ok && now.Sub(last) < dashboardAggregationRetentionInterval {

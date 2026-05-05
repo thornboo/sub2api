@@ -12,3 +12,6 @@
 - Hid LinuxDo and WeChat third-party auth platform entries from frontend login, registration, profile binding, and admin auth settings displays.
 - Updated profile identity binding tests to match the frontend-only LinuxDo/WeChat hiding behavior while preserving OIDC binding coverage.
 - Cleaned up unused Home i18n keys, moved remaining testimonial initials into locale data, and made footer contact links use configured contact info instead of the FAQ anchor.
+- Disabled automatic dashboard retention cleanup by default so usage logs, billing dedup data, and usage dashboard aggregates are kept until an administrator manually deletes them.
+- Disabled automatic ops retention cleanup by default so ops logs, metrics, preaggregates, and channel monitor history are not deleted by scheduled maintenance.
+- Replaced the ops system-log cleanup browser confirm with the project modal confirmation and current-filter summary.

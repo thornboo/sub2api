@@ -671,14 +671,20 @@ dashboard_aggregation:
   # Retention windows (days)
   # 保留窗口（天）
   retention:
+    # Automatic cleanup for usage-related data
+    # 使用相关数据自动清理开关；false 表示永久保存，仅允许管理员手动清理
+    auto_cleanup_enabled: false
     # Raw usage_logs retention
-    # 原始 usage_logs 保留天数
+    # 原始 usage_logs 保留天数，仅 auto_cleanup_enabled=true 时生效
     usage_logs_days: 90
+    # Usage billing dedup retention
+    # 计费去重数据保留天数，仅 auto_cleanup_enabled=true 时生效
+    usage_billing_dedup_days: 365
     # Hourly aggregation retention
-    # 小时聚合保留天数
+    # 小时聚合保留天数，仅 auto_cleanup_enabled=true 时生效
     hourly_days: 180
     # Daily aggregation retention
-    # 日聚合保留天数
+    # 日聚合保留天数，仅 auto_cleanup_enabled=true 时生效
     daily_days: 730
 
 # =============================================================================
@@ -811,6 +817,21 @@ ops:
   # Other detailed settings (cleanup, aggregation, etc.) are configured in ops settings dialog
   # 其他详细设置（数据清理、预聚合等）在运维监控设置对话框中配置
   enabled: true
+  cleanup:
+    # Enable scheduled ops maintenance job
+    # 启用运维定时维护任务（包含非删除类维护）
+    enabled: true
+    # Enable automatic deletion of old ops logs/metrics/preaggregates
+    # 启用运维日志/指标/预聚合自动删除；false 表示永久保存，仅管理员手动清理
+    auto_cleanup_enabled: false
+    # Cron schedule for scheduled maintenance
+    # 定时维护 Cron 调度表达式
+    schedule: "0 2 * * *"
+    # Retention days, effective only when auto_cleanup_enabled=true
+    # 保留天数，仅 auto_cleanup_enabled=true 时生效
+    error_log_retention_days: 30
+    minute_metrics_retention_days: 30
+    hourly_metrics_retention_days: 30
 
 # =============================================================================
 # JWT Configuration

@@ -586,6 +586,9 @@ func TestLoadDefaultDashboardAggregationConfig(t *testing.T) {
 	if cfg.DashboardAgg.BackfillMaxDays != 31 {
 		t.Fatalf("DashboardAgg.BackfillMaxDays = %d, want 31", cfg.DashboardAgg.BackfillMaxDays)
 	}
+	if cfg.DashboardAgg.Retention.AutoCleanupEnabled {
+		t.Fatalf("DashboardAgg.Retention.AutoCleanupEnabled = true, want false")
+	}
 	if cfg.DashboardAgg.Retention.UsageLogsDays != 90 {
 		t.Fatalf("DashboardAgg.Retention.UsageLogsDays = %d, want 90", cfg.DashboardAgg.Retention.UsageLogsDays)
 	}
@@ -867,6 +870,30 @@ func TestValidateOpsCleanupScheduleRequired(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "ops.cleanup.schedule") {
 		t.Fatalf("Validate() expected ops.cleanup.schedule error, got: %v", err)
+	}
+}
+
+func TestLoadDefaultOpsCleanupAutoCleanupDisabled(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if !cfg.Ops.Cleanup.Enabled {
+		t.Fatalf("Ops.Cleanup.Enabled = false, want true")
+	}
+	if cfg.Ops.Cleanup.AutoCleanupEnabled {
+		t.Fatalf("Ops.Cleanup.AutoCleanupEnabled = true, want false")
+	}
+	if cfg.Ops.Cleanup.ErrorLogRetentionDays != 30 {
+		t.Fatalf("Ops.Cleanup.ErrorLogRetentionDays = %d, want 30", cfg.Ops.Cleanup.ErrorLogRetentionDays)
+	}
+	if cfg.Ops.Cleanup.MinuteMetricsRetentionDays != 30 {
+		t.Fatalf("Ops.Cleanup.MinuteMetricsRetentionDays = %d, want 30", cfg.Ops.Cleanup.MinuteMetricsRetentionDays)
+	}
+	if cfg.Ops.Cleanup.HourlyMetricsRetentionDays != 30 {
+		t.Fatalf("Ops.Cleanup.HourlyMetricsRetentionDays = %d, want 30", cfg.Ops.Cleanup.HourlyMetricsRetentionDays)
 	}
 }
 
@@ -1166,14 +1193,19 @@ func TestValidateConfigErrors(t *testing.T) {
 			wantErr: "dashboard_aggregation.backfill_max_days",
 		},
 		{
-			name:    "dashboard aggregation retention",
-			mutate:  func(c *Config) { c.DashboardAgg.Enabled = true; c.DashboardAgg.Retention.UsageLogsDays = 0 },
+			name: "dashboard aggregation retention",
+			mutate: func(c *Config) {
+				c.DashboardAgg.Enabled = true
+				c.DashboardAgg.Retention.AutoCleanupEnabled = true
+				c.DashboardAgg.Retention.UsageLogsDays = 0
+			},
 			wantErr: "dashboard_aggregation.retention.usage_logs_days",
 		},
 		{
 			name: "dashboard aggregation dedup retention",
 			mutate: func(c *Config) {
 				c.DashboardAgg.Enabled = true
+				c.DashboardAgg.Retention.AutoCleanupEnabled = true
 				c.DashboardAgg.Retention.UsageBillingDedupDays = 0
 			},
 			wantErr: "dashboard_aggregation.retention.usage_billing_dedup_days",
@@ -1182,6 +1214,7 @@ func TestValidateConfigErrors(t *testing.T) {
 			name: "dashboard aggregation dedup retention smaller than usage logs",
 			mutate: func(c *Config) {
 				c.DashboardAgg.Enabled = true
+				c.DashboardAgg.Retention.AutoCleanupEnabled = true
 				c.DashboardAgg.Retention.UsageLogsDays = 30
 				c.DashboardAgg.Retention.UsageBillingDedupDays = 29
 			},
@@ -1674,6 +1707,25 @@ func TestValidateConfig_AutoScaleDisabledIgnoreAutoScaleFields(t *testing.T) {
 
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() should ignore auto scale fields when disabled: %v", err)
+	}
+}
+
+func TestValidateDashboardAggregationRetentionZeroAllowedWhenAutoCleanupDisabled(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	cfg.DashboardAgg.Enabled = true
+	cfg.DashboardAgg.Retention.AutoCleanupEnabled = false
+	cfg.DashboardAgg.Retention.UsageLogsDays = 0
+	cfg.DashboardAgg.Retention.UsageBillingDedupDays = 0
+	cfg.DashboardAgg.Retention.HourlyDays = 0
+	cfg.DashboardAgg.Retention.DailyDays = 0
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() should allow zero retention days when auto cleanup is disabled: %v", err)
 	}
 }
 

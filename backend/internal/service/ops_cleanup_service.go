@@ -31,11 +31,11 @@ end
 return 0
 `)
 
-// OpsCleanupService periodically deletes old ops data to prevent unbounded DB growth.
+// OpsCleanupService periodically runs ops maintenance.
 //
 // - Scheduling: 5-field cron spec (minute hour dom month dow).
 // - Multi-instance: best-effort Redis leader lock so only one node runs cleanup.
-// - Safety: deletes in batches to avoid long transactions.
+// - Safety: automatic deletion is gated by ops.cleanup.auto_cleanup_enabled.
 //
 // 附带：在 runCleanupOnce 末尾调用 ChannelMonitorService.RunDailyMaintenance，
 // 统一共享 cron schedule + leader lock + heartbeat，避免再引一套调度。
@@ -222,68 +222,72 @@ func (s *OpsCleanupService) runCleanupOnce(ctx context.Context) (opsCleanupDelet
 		return deleteOldRowsByID(ctx, s.db, table, timeCol, cutoff, batchSize, castDate)
 	}
 
-	// Error-like tables: error logs / retry attempts / alert events / system logs / cleanup audits.
-	if cutoff, truncate, ok := opsCleanupPlan(now, s.cfg.Ops.Cleanup.ErrorLogRetentionDays); ok {
-		n, err := runOne(truncate, cutoff, "ops_error_logs", "created_at", false)
-		if err != nil {
-			return out, err
-		}
-		out.errorLogs = n
+	autoCleanupEnabled := s.cfg.Ops.Cleanup.AutoCleanupEnabled
 
-		n, err = runOne(truncate, cutoff, "ops_retry_attempts", "created_at", false)
-		if err != nil {
-			return out, err
-		}
-		out.retryAttempts = n
+	if autoCleanupEnabled {
+		// Error-like tables: error logs / retry attempts / alert events / system logs / cleanup audits.
+		if cutoff, truncate, ok := opsCleanupPlan(now, s.cfg.Ops.Cleanup.ErrorLogRetentionDays); ok {
+			n, err := runOne(truncate, cutoff, "ops_error_logs", "created_at", false)
+			if err != nil {
+				return out, err
+			}
+			out.errorLogs = n
 
-		n, err = runOne(truncate, cutoff, "ops_alert_events", "created_at", false)
-		if err != nil {
-			return out, err
-		}
-		out.alertEvents = n
+			n, err = runOne(truncate, cutoff, "ops_retry_attempts", "created_at", false)
+			if err != nil {
+				return out, err
+			}
+			out.retryAttempts = n
 
-		n, err = runOne(truncate, cutoff, "ops_system_logs", "created_at", false)
-		if err != nil {
-			return out, err
-		}
-		out.systemLogs = n
+			n, err = runOne(truncate, cutoff, "ops_alert_events", "created_at", false)
+			if err != nil {
+				return out, err
+			}
+			out.alertEvents = n
 
-		n, err = runOne(truncate, cutoff, "ops_system_log_cleanup_audits", "created_at", false)
-		if err != nil {
-			return out, err
+			n, err = runOne(truncate, cutoff, "ops_system_logs", "created_at", false)
+			if err != nil {
+				return out, err
+			}
+			out.systemLogs = n
+
+			n, err = runOne(truncate, cutoff, "ops_system_log_cleanup_audits", "created_at", false)
+			if err != nil {
+				return out, err
+			}
+			out.logAudits = n
 		}
-		out.logAudits = n
+
+		// Minute-level metrics snapshots.
+		if cutoff, truncate, ok := opsCleanupPlan(now, s.cfg.Ops.Cleanup.MinuteMetricsRetentionDays); ok {
+			n, err := runOne(truncate, cutoff, "ops_system_metrics", "created_at", false)
+			if err != nil {
+				return out, err
+			}
+			out.systemMetrics = n
+		}
+
+		// Pre-aggregation tables (hourly/daily).
+		if cutoff, truncate, ok := opsCleanupPlan(now, s.cfg.Ops.Cleanup.HourlyMetricsRetentionDays); ok {
+			n, err := runOne(truncate, cutoff, "ops_metrics_hourly", "bucket_start", false)
+			if err != nil {
+				return out, err
+			}
+			out.hourlyPreagg = n
+
+			n, err = runOne(truncate, cutoff, "ops_metrics_daily", "bucket_date", true)
+			if err != nil {
+				return out, err
+			}
+			out.dailyPreagg = n
+		}
 	}
 
-	// Minute-level metrics snapshots.
-	if cutoff, truncate, ok := opsCleanupPlan(now, s.cfg.Ops.Cleanup.MinuteMetricsRetentionDays); ok {
-		n, err := runOne(truncate, cutoff, "ops_system_metrics", "created_at", false)
-		if err != nil {
-			return out, err
-		}
-		out.systemMetrics = n
-	}
-
-	// Pre-aggregation tables (hourly/daily).
-	if cutoff, truncate, ok := opsCleanupPlan(now, s.cfg.Ops.Cleanup.HourlyMetricsRetentionDays); ok {
-		n, err := runOne(truncate, cutoff, "ops_metrics_hourly", "bucket_start", false)
-		if err != nil {
-			return out, err
-		}
-		out.hourlyPreagg = n
-
-		n, err = runOne(truncate, cutoff, "ops_metrics_daily", "bucket_date", true)
-		if err != nil {
-			return out, err
-		}
-		out.dailyPreagg = n
-	}
-
-	// Channel monitor 每日维护（聚合昨日明细 + 软删过期明细/聚合）。
+	// Channel monitor 每日维护（聚合昨日明细，可选软删过期明细/聚合）。
 	// 失败只记日志，不影响 ops 清理的成功状态（与 ops 各步骤风格一致）；
 	// 维护本身已经把每步错误打到 slog，heartbeat result 不再分项记录。
 	if s.channelMonitorSvc != nil {
-		if err := s.channelMonitorSvc.RunDailyMaintenance(ctx); err != nil {
+		if err := s.channelMonitorSvc.RunDailyMaintenance(ctx, autoCleanupEnabled); err != nil {
 			logger.LegacyPrintf("service.ops_cleanup", "[OpsCleanup] channel monitor maintenance failed: %v", err)
 		}
 	}

@@ -355,7 +355,7 @@ func (s *ChannelMonitorService) cleanupOldHistory(ctx context.Context) error {
 	return nil
 }
 
-// RunDailyMaintenance 每日维护任务：聚合昨天之前未聚合的明细，软删过期明细和聚合。
+// RunDailyMaintenance 每日维护任务：聚合昨天之前未聚合的明细，并按开关软删过期明细和聚合。
 // 由 OpsCleanupService 的 cron 调度触发（共享 schedule 和 leader lock）。
 //
 // 幂等性：
@@ -364,7 +364,7 @@ func (s *ChannelMonitorService) cleanupOldHistory(ctx context.Context) error {
 //
 // 每一步失败都只记 slog.Warn，整体函数始终返回 nil 让后续步骤能继续跑
 // （与 OpsCleanupService.runCleanupOnce 风格一致）。
-func (s *ChannelMonitorService) RunDailyMaintenance(ctx context.Context) error {
+func (s *ChannelMonitorService) RunDailyMaintenance(ctx context.Context, autoCleanupEnabled bool) error {
 	now := time.Now().UTC()
 	today := now.Truncate(24 * time.Hour)
 
@@ -372,13 +372,15 @@ func (s *ChannelMonitorService) RunDailyMaintenance(ctx context.Context) error {
 		slog.Warn("channel_monitor: maintenance step failed",
 			"step", "aggregate", "error", err)
 	}
-	if err := s.cleanupOldHistory(ctx); err != nil {
-		slog.Warn("channel_monitor: maintenance step failed",
-			"step", "prune_history", "error", err)
-	}
-	if err := s.cleanupOldRollups(ctx, today); err != nil {
-		slog.Warn("channel_monitor: maintenance step failed",
-			"step", "prune_rollups", "error", err)
+	if autoCleanupEnabled {
+		if err := s.cleanupOldHistory(ctx); err != nil {
+			slog.Warn("channel_monitor: maintenance step failed",
+				"step", "prune_history", "error", err)
+		}
+		if err := s.cleanupOldRollups(ctx, today); err != nil {
+			slog.Warn("channel_monitor: maintenance step failed",
+				"step", "prune_rollups", "error", err)
+		}
 	}
 	return nil
 }
