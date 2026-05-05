@@ -15,6 +15,18 @@
             <span class="flex items-center gap-1 truncate">
               <ModelIcon :model="model" size="14px" />
               <span class="truncate">{{ model }}</span>
+              <span
+                v-if="probeNewModels.includes(model)"
+                class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+              >
+                {{ t('admin.accounts.probeModelNew') }}
+              </span>
+              <span
+                v-else-if="probeMissingModels.includes(model)"
+                class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+              >
+                {{ t('admin.accounts.probeModelMissing') }}
+              </span>
             </span>
             <button
               type="button"
@@ -105,25 +117,12 @@
 
     <!-- Custom Model Input -->
     <div class="mb-3">
-      <label class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.accounts.customModelName') }}</label>
-      <div class="flex gap-2">
-        <input
-          v-model="customModel"
-          type="text"
-          class="input flex-1"
-          :placeholder="t('admin.accounts.enterCustomModelName')"
-          @keydown.enter.prevent="handleEnter"
-          @compositionstart="isComposing = true"
-          @compositionend="isComposing = false"
-        />
-        <button
-          type="button"
-          @click="addCustom"
-          class="rounded-lg bg-primary-50 px-4 py-2 text-sm font-medium text-primary-600 hover:bg-primary-100 dark:bg-primary-900/30 dark:text-primary-400 dark:hover:bg-primary-900/50"
-        >
-          {{ t('admin.accounts.addModel') }}
-        </button>
-      </div>
+      <ModelCatalogSearch
+        v-model="customModel"
+        :label="t('admin.accounts.customModelName')"
+        :placeholder="t('admin.accounts.enterCustomModelName')"
+        @add="addCustom"
+      />
     </div>
   </div>
 </template>
@@ -134,6 +133,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import ModelIcon from '@/components/common/ModelIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
+import ModelCatalogSearch from '@/components/account/ModelCatalogSearch.vue'
 import { allModels, getModelsByPlatform } from '@/composables/useModelWhitelist'
 
 const { t } = useI18n()
@@ -144,6 +144,8 @@ const props = defineProps<{
   platforms?: string[]
   canProbeModels?: boolean
   probeModelsLoading?: boolean
+  probeNewModels?: string[]
+  probeMissingModels?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -153,10 +155,12 @@ const emit = defineEmits<{
 
 const appStore = useAppStore()
 
+const probeNewModels = computed(() => props.probeNewModels || [])
+const probeMissingModels = computed(() => props.probeMissingModels || [])
+
 const showDropdown = ref(false)
 const searchQuery = ref('')
 const customModel = ref('')
-const isComposing = ref(false)
 const normalizedPlatforms = computed(() => {
   const rawPlatforms =
     props.platforms && props.platforms.length > 0
@@ -214,8 +218,8 @@ const toggleModel = (model: string) => {
   }
 }
 
-const addCustom = () => {
-  const model = customModel.value.trim()
+const addCustom = (selectedModel?: string) => {
+  const model = (selectedModel || customModel.value).trim()
   if (!model) return
   if (props.modelValue.includes(model)) {
     appStore.showInfo(t('admin.accounts.modelExists'))
@@ -223,10 +227,6 @@ const addCustom = () => {
   }
   emit('update:modelValue', [...props.modelValue, model])
   customModel.value = ''
-}
-
-const handleEnter = () => {
-  if (!isComposing.value) addCustom()
 }
 
 const fillRelated = () => {

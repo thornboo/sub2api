@@ -33,6 +33,9 @@ vi.mock('@/api/admin', () => ({
     },
     tlsFingerprintProfiles: {
       list: vi.fn().mockResolvedValue([])
+    },
+    channels: {
+      list: vi.fn().mockResolvedValue({ items: [], total: 0 })
     }
   }
 }))

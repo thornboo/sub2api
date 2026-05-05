@@ -931,6 +931,18 @@
                   ]"
                   :placeholder="t('admin.accounts.actualModel')"
                 />
+                <span
+                  v-if="probeNewAntigravityMappingTargets.includes(mapping.to.trim())"
+                  class="shrink-0 rounded bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                >
+                  {{ t('admin.accounts.probeModelNew') }}
+                </span>
+                <span
+                  v-else-if="probeMissingAntigravityMappingTargets.includes(mapping.to.trim())"
+                  class="shrink-0 rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                >
+                  {{ t('admin.accounts.probeModelMissing') }}
+                </span>
                 <button
                   type="button"
                   @click="removeAntigravityModelMapping(index)"
@@ -980,14 +992,23 @@
 
           <div class="flex flex-wrap gap-2">
             <button
-              v-for="preset in antigravityPresetMappings"
-              :key="preset.label"
+              v-for="recommendation in currentChannelModelRecommendations"
+              :key="recommendation.model"
               type="button"
-              @click="addAntigravityPresetMapping(preset.from, preset.to)"
-              :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
+              :title="recommendation.title"
+              @click="addAntigravityPresetMapping(recommendation.model, recommendation.model)"
+              class="rounded-lg bg-emerald-500/10 px-3 py-1 text-xs text-emerald-600 transition-colors hover:bg-emerald-500/20 dark:text-emerald-300"
             >
-              + {{ preset.label }}
+              + {{ recommendation.model }}
             </button>
+          </div>
+          <div class="mt-3">
+            <ModelCatalogSearch
+              v-model="antigravityMappingCatalogModel"
+              :label="t('admin.accounts.customModelName')"
+              :placeholder="t('admin.accounts.enterCustomModelName')"
+              @add="addAntigravityCatalogModelMapping"
+            />
           </div>
         </div>
       </div>
@@ -1140,6 +1161,8 @@
                 :platform="form.platform"
                 :can-probe-models="canProbeModels"
                 :probe-models-loading="probeModelsLoading"
+                :probe-new-models="probeNewWhitelistModels"
+                :probe-missing-models="probeMissingWhitelistModels"
                 @probe-models="handleProbeModels"
               />
               <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -1203,6 +1226,18 @@
                   class="input flex-1"
                   :placeholder="t('admin.accounts.actualModel')"
                 />
+                <span
+                  v-if="probeNewMappingTargets.includes(mapping.to.trim())"
+                  class="shrink-0 rounded bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                >
+                  {{ t('admin.accounts.probeModelNew') }}
+                </span>
+                <span
+                  v-else-if="probeMissingMappingTargets.includes(mapping.to.trim())"
+                  class="shrink-0 rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                >
+                  {{ t('admin.accounts.probeModelMissing') }}
+                </span>
                 <button
                   type="button"
                   @click="removeModelMapping(index)"
@@ -1255,14 +1290,23 @@
               <!-- Quick Add Buttons -->
               <div class="flex flex-wrap gap-2">
                 <button
-                  v-for="preset in presetMappings"
-                  :key="preset.label"
+                  v-for="recommendation in currentChannelModelRecommendations"
+                  :key="recommendation.model"
                   type="button"
-                  @click="addPresetMapping(preset.from, preset.to)"
-                  :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
+                  :title="recommendation.title"
+                  @click="addPresetMapping(recommendation.model, recommendation.model)"
+                  class="rounded-lg bg-emerald-500/10 px-3 py-1 text-xs text-emerald-600 transition-colors hover:bg-emerald-500/20 dark:text-emerald-300"
                 >
-                  + {{ preset.label }}
+                  + {{ recommendation.model }}
                 </button>
+              </div>
+              <div class="mt-3">
+                <ModelCatalogSearch
+                  v-model="mappingCatalogModel"
+                  :label="t('admin.accounts.customModelName')"
+                  :placeholder="t('admin.accounts.enterCustomModelName')"
+                  @add="addCatalogModelMapping"
+                />
               </div>
             </div>
           </template>
@@ -1583,6 +1627,8 @@
               platform="anthropic"
               :can-probe-models="canProbeModels"
               :probe-models-loading="probeModelsLoading"
+              :probe-new-models="probeNewWhitelistModels"
+              :probe-missing-models="probeMissingWhitelistModels"
               @probe-models="handleProbeModels"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -1597,6 +1643,18 @@
               <input v-model="mapping.from" type="text" class="input flex-1" :placeholder="t('admin.accounts.fromModel')" />
               <span class="text-gray-400">→</span>
               <input v-model="mapping.to" type="text" class="input flex-1" :placeholder="t('admin.accounts.toModel')" />
+              <span
+                v-if="probeNewMappingTargets.includes(mapping.to.trim())"
+                class="shrink-0 rounded bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+              >
+                {{ t('admin.accounts.probeModelNew') }}
+              </span>
+              <span
+                v-else-if="probeMissingMappingTargets.includes(mapping.to.trim())"
+                class="shrink-0 rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+              >
+                {{ t('admin.accounts.probeModelMissing') }}
+              </span>
               <button type="button" @click="modelMappings.splice(index, 1)" class="text-red-500 hover:text-red-700">
                 <Icon name="trash" size="sm" />
               </button>
@@ -1618,14 +1676,23 @@
             <!-- Bedrock Preset Mappings -->
             <div class="flex flex-wrap gap-2">
               <button
-                v-for="preset in bedrockPresets"
-                :key="preset.from"
+                v-for="recommendation in currentChannelModelRecommendations"
+                :key="recommendation.model"
                 type="button"
-                @click="addPresetMapping(preset.from, preset.to)"
-                :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
+                :title="recommendation.title"
+                @click="addPresetMapping(recommendation.model, recommendation.model)"
+                class="rounded-lg bg-emerald-500/10 px-3 py-1 text-xs text-emerald-600 transition-colors hover:bg-emerald-500/20 dark:text-emerald-300"
               >
-                + {{ preset.label }}
+                + {{ recommendation.model }}
               </button>
+            </div>
+            <div class="mt-3">
+              <ModelCatalogSearch
+                v-model="mappingCatalogModel"
+                :label="t('admin.accounts.customModelName')"
+                :placeholder="t('admin.accounts.enterCustomModelName')"
+                @add="addCatalogModelMapping"
+              />
             </div>
           </div>
         </div>
@@ -1839,6 +1906,8 @@
               :platform="form.platform"
               :can-probe-models="canProbeModels"
               :probe-models-loading="probeModelsLoading"
+              :probe-new-models="probeNewWhitelistModels"
+              :probe-missing-models="probeMissingWhitelistModels"
               @probe-models="handleProbeModels"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -1888,6 +1957,18 @@
                   class="input flex-1"
                   :placeholder="t('admin.accounts.actualModel')"
                 />
+                <span
+                  v-if="probeNewMappingTargets.includes(mapping.to.trim())"
+                  class="shrink-0 rounded bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                >
+                  {{ t('admin.accounts.probeModelNew') }}
+                </span>
+                <span
+                  v-else-if="probeMissingMappingTargets.includes(mapping.to.trim())"
+                  class="shrink-0 rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                >
+                  {{ t('admin.accounts.probeModelMissing') }}
+                </span>
                 <button
                   type="button"
                   @click="removeModelMapping(index)"
@@ -1927,14 +2008,23 @@
             <!-- Quick Add Buttons -->
             <div class="flex flex-wrap gap-2">
               <button
-                v-for="preset in presetMappings"
-                :key="'oauth-' + preset.label"
+                v-for="recommendation in currentChannelModelRecommendations"
+                :key="'oauth-' + recommendation.model"
                 type="button"
-                @click="addPresetMapping(preset.from, preset.to)"
-                :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
+                :title="recommendation.title"
+                @click="addPresetMapping(recommendation.model, recommendation.model)"
+                class="rounded-lg bg-emerald-500/10 px-3 py-1 text-xs text-emerald-600 transition-colors hover:bg-emerald-500/20 dark:text-emerald-300"
               >
-                + {{ preset.label }}
+                + {{ recommendation.model }}
               </button>
+            </div>
+            <div class="mt-3">
+              <ModelCatalogSearch
+                v-model="mappingCatalogModel"
+                :label="t('admin.accounts.customModelName')"
+                :placeholder="t('admin.accounts.enterCustomModelName')"
+                @add="addCatalogModelMapping"
+              />
             </div>
           </div>
         </template>
@@ -3156,7 +3246,6 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import {
   claudeModels,
-  getPresetMappingsByPlatform,
   getModelsByPlatform,
   commonErrorCodes,
   buildModelMappingObject,
@@ -3165,6 +3254,7 @@ import {
 } from '@/composables/useModelWhitelist'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
+import type { Channel } from '@/api/admin/channels'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import {
   useAccountOAuth,
@@ -3190,7 +3280,9 @@ import Icon from '@/components/icons/Icon.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import ModelCatalogSearch from '@/components/account/ModelCatalogSearch.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
+import { buildChannelModelRecommendations } from '@/components/account/channelModelRecommendations'
 import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
@@ -3326,7 +3418,14 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
+const mappingCatalogModel = ref('')
 const probeModelsLoading = ref(false)
+const probeNewWhitelistModels = ref<string[]>([])
+const probeMissingWhitelistModels = ref<string[]>([])
+const probeNewMappingTargets = ref<string[]>([])
+const probeMissingMappingTargets = ref<string[]>([])
+const probeNewAntigravityMappingTargets = ref<string[]>([])
+const probeMissingAntigravityMappingTargets = ref<string[]>([])
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const poolModeEnabled = ref(false)
@@ -3365,8 +3464,9 @@ const upstreamApiKey = ref('') // For upstream type: API key
 const antigravityModelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const antigravityWhitelistModels = ref<string[]>([])
 const antigravityModelMappings = ref<ModelMapping[]>([])
-const antigravityPresetMappings = computed(() => getPresetMappingsByPlatform('antigravity'))
-const bedrockPresets = computed(() => getPresetMappingsByPlatform('bedrock'))
+const antigravityMappingCatalogModel = ref('')
+const channelRecommendations = ref<Channel[]>([])
+const channelRecommendationsLoaded = ref(false)
 
 // Bedrock credentials
 const bedrockAuthMode = ref<'sigv4' | 'apikey'>('sigv4')
@@ -3512,8 +3612,21 @@ const geminiHelpLinks = {
   countryChange: 'https://policies.google.com/country-association-form'
 }
 
-// Computed: current preset mappings based on platform
-const presetMappings = computed(() => getPresetMappingsByPlatform(form.platform))
+const currentChannelModelRecommendations = computed(() =>
+  buildChannelModelRecommendations(channelRecommendations.value, form.group_ids, form.platform)
+)
+
+const loadChannelModelRecommendations = async () => {
+  if (channelRecommendationsLoaded.value) return
+  try {
+    const response = await adminAPI.channels.list(1, 1000)
+    channelRecommendations.value = response.items || []
+    channelRecommendationsLoaded.value = true
+  } catch (error) {
+    console.warn('Failed to load channel model recommendations:', error)
+    channelRecommendations.value = []
+  }
+}
 const tempUnschedPresets = computed(() => [
   {
     label: t('admin.accounts.tempUnschedulable.presets.overloadLabel'),
@@ -3606,6 +3719,7 @@ watch(
       adminAPI.tlsFingerprintProfiles.list()
         .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
         .catch(() => { tlsFingerprintProfiles.value = [] })
+      void loadChannelModelRecommendations()
       // Modal opened - fill related models
       allowedModels.value = [...getModelsByPlatform(form.platform)]
       // Antigravity: 默认使用映射模式并填充默认映射
@@ -3792,10 +3906,9 @@ const canProbeModels = computed(() => {
 })
 
 const getProbeModelsErrorMessage = (error: unknown) => {
-  const status =
-    typeof error === 'object' && error !== null && 'status' in error
-      ? (error as { status?: unknown }).status
-      : undefined
+  const status = typeof error === 'object' && error !== null && 'response' in error
+    ? (error as { response?: { status?: unknown } }).response?.status
+    : undefined
   if (status === 404) {
     return t('admin.accounts.probeModelsEndpointMissing')
   }
@@ -3805,43 +3918,79 @@ const getProbeModelsErrorMessage = (error: unknown) => {
 type ProbeModelsTarget = 'whitelist' | 'mapping' | 'antigravityMapping'
 
 const appendProbeModels = (models: string[]) => {
-  const existing = new Set(allowedModels.value)
-  const next = [...allowedModels.value]
+  const before = [...allowedModels.value]
+  const existing = new Set(before)
+  const fetched = new Set(models.map(model => model.trim()).filter(Boolean))
+  const next = [...before]
+  const addedModels: string[] = []
   let added = 0
+  let existingCount = 0
 
-  for (const rawModel of models) {
-    const model = rawModel.trim()
-    if (!model || existing.has(model)) continue
+  for (const model of fetched) {
+    if (existing.has(model)) {
+      existingCount += 1
+      continue
+    }
     existing.add(model)
     next.push(model)
+    addedModels.push(model)
     added += 1
   }
 
   allowedModels.value = next
-  if (added > 0) {
-    appStore.showSuccess(t('admin.accounts.probeModelsSuccess', { count: added }))
-  } else {
-    appStore.showInfo(t('admin.accounts.probeModelsNoNewModels'))
-  }
+  probeNewWhitelistModels.value = addedModels
+  probeMissingWhitelistModels.value = next.filter(model => !fetched.has(model))
+  const missing = probeMissingWhitelistModels.value.length
+  const message = t('admin.accounts.probeModelsSummary', { added, existing: existingCount, missing })
+  if (missing > 0) appStore.showWarning(message)
+  else if (added > 0) appStore.showSuccess(message)
+  else appStore.showInfo(message)
 }
 
 const appendProbeModelMappings = (models: string[], mappings: ModelMapping[]) => {
-  const existing = new Set(mappings.map((mapping) => mapping.from.trim()).filter(Boolean))
+  const fetched = new Set(models.map(model => model.trim()).filter(Boolean))
+  const existingTargets = new Set(mappings.map((mapping) => mapping.to.trim()).filter(Boolean))
+  const existingSources = new Set(mappings.map((mapping) => mapping.from.trim()).filter(Boolean))
+  const newTargets: string[] = []
+  const missingTargets = mappings
+    .map(mapping => mapping.to.trim())
+    .filter(target => target && !fetched.has(target))
   let added = 0
+  let existingCount = 0
+  let conflictCount = 0
 
-  for (const rawModel of models) {
-    const model = rawModel.trim()
-    if (!model || existing.has(model)) continue
-    existing.add(model)
+  for (const model of fetched) {
+    if (existingTargets.has(model)) {
+      existingCount += 1
+      continue
+    }
+    if (existingSources.has(model)) {
+      conflictCount += 1
+      continue
+    }
+    existingSources.add(model)
+    existingTargets.add(model)
     mappings.push({ from: model, to: model })
+    newTargets.push(model)
     added += 1
   }
 
-  if (added > 0) {
-    appStore.showSuccess(t('admin.accounts.probeModelsSuccess', { count: added }))
-  } else {
-    appStore.showInfo(t('admin.accounts.probeModelsNoNewModels'))
-  }
+  const targetNewRef =
+    mappings === antigravityModelMappings.value ? probeNewAntigravityMappingTargets : probeNewMappingTargets
+  const targetMissingRef =
+    mappings === antigravityModelMappings.value ? probeMissingAntigravityMappingTargets : probeMissingMappingTargets
+  targetNewRef.value = newTargets
+  targetMissingRef.value = Array.from(new Set(missingTargets))
+
+  const message = t('admin.accounts.probeModelsSummaryWithConflicts', {
+    added,
+    existing: existingCount,
+    missing: targetMissingRef.value.length,
+    conflicts: conflictCount
+  })
+  if (targetMissingRef.value.length > 0 || conflictCount > 0) appStore.showWarning(message)
+  else if (added > 0) appStore.showSuccess(message)
+  else appStore.showInfo(message)
 }
 
 const appendProbeModelsToTarget = (models: string[], target: ProbeModelsTarget) => {
@@ -3920,9 +4069,18 @@ const removeModelMapping = (index: number) => {
 const addPresetMapping = (from: string, to: string) => {
   if (modelMappings.value.some((m) => m.from === from)) {
     appStore.showInfo(t('admin.accounts.mappingExists', { model: from }))
-    return
+    return false
   }
   modelMappings.value.push({ from, to })
+  return true
+}
+
+const addCatalogModelMapping = (selectedModel?: string) => {
+  const model = (selectedModel || mappingCatalogModel.value).trim()
+  if (!model) return
+  if (addPresetMapping(model, model)) {
+    mappingCatalogModel.value = ''
+  }
 }
 
 const addAntigravityModelMapping = () => {
@@ -3936,9 +4094,18 @@ const removeAntigravityModelMapping = (index: number) => {
 const addAntigravityPresetMapping = (from: string, to: string) => {
   if (antigravityModelMappings.value.some((m) => m.from === from)) {
     appStore.showInfo(t('admin.accounts.mappingExists', { model: from }))
-    return
+    return false
   }
   antigravityModelMappings.value.push({ from, to })
+  return true
+}
+
+const addAntigravityCatalogModelMapping = (selectedModel?: string) => {
+  const model = (selectedModel || antigravityMappingCatalogModel.value).trim()
+  if (!model) return
+  if (addAntigravityPresetMapping(model, model)) {
+    antigravityMappingCatalogModel.value = ''
+  }
 }
 
 // Error code toggle helper
@@ -4208,9 +4375,17 @@ const resetForm = () => {
   openAICompactModelMappings.value = []
   modelRestrictionMode.value = 'whitelist'
   allowedModels.value = [...claudeModels] // Default fill related models
+  mappingCatalogModel.value = ''
+  probeNewWhitelistModels.value = []
+  probeMissingWhitelistModels.value = []
+  probeNewMappingTargets.value = []
+  probeMissingMappingTargets.value = []
+  probeNewAntigravityMappingTargets.value = []
+  probeMissingAntigravityMappingTargets.value = []
 
   antigravityModelRestrictionMode.value = 'mapping'
   antigravityWhitelistModels.value = []
+  antigravityMappingCatalogModel.value = ''
   fetchAntigravityDefaultMappings().then(mappings => {
     antigravityModelMappings.value = [...mappings]
   })
@@ -4486,6 +4661,7 @@ const handleSubmit = async () => {
     )
     if (modelMapping) {
       credentials.model_mapping = modelMapping
+      credentials.model_restriction_mode = modelRestrictionMode.value
     }
 
     // Pool mode
@@ -4529,6 +4705,7 @@ const handleSubmit = async () => {
     )
     if (antigravityModelMapping) {
       credentials.model_mapping = antigravityModelMapping
+      credentials.model_restriction_mode = 'mapping'
     }
 
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
@@ -4589,6 +4766,7 @@ const handleSubmit = async () => {
     const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
     if (modelMapping) {
       credentials.model_mapping = modelMapping
+      credentials.model_restriction_mode = modelRestrictionMode.value
     }
   }
   if (form.platform === 'openai') {
@@ -4769,6 +4947,7 @@ const handleOpenAIExchange = async (authCode: string) => {
       const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
       if (modelMapping) {
         credentials.model_mapping = modelMapping
+        credentials.model_restriction_mode = modelRestrictionMode.value
       }
     }
     if (shouldCreateOpenAI) {
@@ -4867,6 +5046,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
           const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
           if (modelMapping) {
             credentials.model_mapping = modelMapping
+            credentials.model_restriction_mode = modelRestrictionMode.value
           }
         }
         if (shouldCreateOpenAI) {
@@ -5099,6 +5279,7 @@ const handleAntigravityExchange = async (authCode: string) => {
 		)
 		if (antigravityModelMapping) {
 			credentials.model_mapping = antigravityModelMapping
+			credentials.model_restriction_mode = 'mapping'
 		}
 		const extra = buildAntigravityExtra()
 		await createAccountAndFinish('antigravity', 'oauth', credentials, extra)

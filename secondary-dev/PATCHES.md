@@ -4,11 +4,20 @@
 
 Scope:
 - `frontend/src/components/account/{CreateAccountModal,EditAccountModal}.vue`
+- `frontend/src/components/account/ModelWhitelistSelector.vue`
+- `frontend/src/components/account/ModelCatalogSearch.vue`
+- `frontend/src/components/account/channelModelRecommendations.ts`
+- `frontend/src/components/account/modelCatalog.ts`
+- `frontend/src/i18n/locales/{zh,en}.ts`
 
 Changes:
 - Added the existing "获取支持模型" / "Fetch supported models" action to create/edit account model mapping sections.
 - Fetched upstream model IDs are appended as same-name mapping rows (`model -> model`) without overwriting existing source-model mappings, so administrators can adjust the target side manually.
 - Reused the existing backend probe endpoint, credential resolution, loading state, duplicate handling, and failure messages.
+- Probe comparisons in mapping mode now evaluate the right-hand upstream target model, marking rows that were newly added or not returned by the latest upstream model list.
+- Saved credentials now include `model_restriction_mode` when model mapping data is present, so same-name mapping rows can reopen in mapping mode instead of being inferred as a whitelist.
+- Mapping quick-add recommendations now come from the selected groups' channel configuration: channel model-mapping targets first, falling back to channel pricing models when no mapping is configured.
+- Custom model inputs now include a "查询" / "Search" action backed by the public models.dev catalog. Selecting a result fills the input; administrators still explicitly click "填入" or "添加同名映射" to apply it.
 
 Verification:
 - `cd frontend && pnpm typecheck`

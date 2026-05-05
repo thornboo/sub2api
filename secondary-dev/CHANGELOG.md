@@ -3,6 +3,8 @@
 ## 2026-05-06
 
 - Extended the account model-probe action to create/edit model mapping sections, appending fetched upstream models as same-name mapping pairs for administrator adjustment.
+- Refined account model probing and mapping setup so probe results compare against upstream target models, mark newly added and missing models, preserve explicit whitelist/mapping mode, and use selected-channel configuration for mapping recommendations.
+- Added a models.dev catalog search next to custom model input fields so administrators can look up public model IDs and fill whitelist or same-name mapping rows without replacing manual entry.
 
 ## 2026-05-05
 
