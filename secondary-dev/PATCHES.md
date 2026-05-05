@@ -98,3 +98,23 @@ Verification:
 - `secondary-dev/deploy-dev-sd.sh --build-only --no-build`
 - `IMAGE_NAME='bad image' secondary-dev/deploy-dev-sd.sh --no-build --no-start`
 - `git diff --check`
+
+## 2026-05-05 - dev-sd Deployment Pre-Start Backups
+
+Scope:
+- `secondary-dev/README.md`
+- `secondary-dev/deploy-dev-sd.sh`
+
+Changes:
+- Added a default pre-start backup step to the `dev-sd` deployment script before Compose recreates the application container.
+- Writes timestamped backups under `deploy/backups/` by default, with `BACKUP_DIR` available for custom locations.
+- Uses `pg_dump` for PostgreSQL when the existing `postgres` service is running, and archives deployment files (`.env`, `docker-compose.override.yml`, `data`).
+- Added `--skip-backup` for disposable test deployments.
+- Documented that live `postgres_data` and `redis_data` directory tarballs are not the default backup mechanism because file-level database archives can be inconsistent while services are running.
+
+Verification:
+- `bash -n secondary-dev/deploy-dev-sd.sh`
+- `secondary-dev/deploy-dev-sd.sh --help`
+- `secondary-dev/deploy-dev-sd.sh --build-only --no-build` (expected error)
+- `secondary-dev/deploy-dev-sd.sh --no-build --no-start`
+- `git diff --check`

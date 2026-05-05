@@ -41,9 +41,12 @@ The script uses the checked-in source and deployment files to:
 - generate `POSTGRES_PASSWORD`, `JWT_SECRET`, and `TOTP_ENCRYPTION_KEY` for a new `.env`;
 - create `deploy/data`, `deploy/postgres_data`, and `deploy/redis_data`;
 - create `deploy/docker-compose.override.yml` so Compose uses `sub2api:dev-sd` instead of `weishaw/sub2api:latest`;
+- create a pre-start backup under `deploy/backups/` before restarting an existing stack;
 - start Docker Compose with `deploy/docker-compose.local.yml` plus the override file.
 
 The script does not overwrite an existing `deploy/.env` by default. Re-running it after pulling updates rebuilds the local image and restarts the stack with the same persisted data and secrets.
+
+The pre-start backup uses `pg_dump` when the existing `postgres` service is running, and archives deployment files such as `.env`, `docker-compose.override.yml`, and `data`. It does not archive live `postgres_data` or `redis_data` directories by default because file-level database backups taken while the database is running can be inconsistent.
 
 The script supports both Docker Compose command styles. It prefers `docker compose` when available and falls back to `docker-compose` on environments that only provide the legacy command.
 
@@ -53,6 +56,7 @@ Useful script options:
 ./secondary-dev/deploy-dev-sd.sh --no-start
 ./secondary-dev/deploy-dev-sd.sh --build-only
 ./secondary-dev/deploy-dev-sd.sh --no-build
+./secondary-dev/deploy-dev-sd.sh --skip-backup
 ./secondary-dev/deploy-dev-sd.sh --force-env
 ./secondary-dev/deploy-dev-sd.sh --force-override
 ```
@@ -163,9 +167,15 @@ From the repository checkout on the server:
 ```bash
 git switch dev-sd
 git pull --ff-only origin dev-sd
-docker build -t sub2api:dev-sd .
-cd deploy
-docker compose -f docker-compose.local.yml -f docker-compose.override.yml up -d --no-deps --force-recreate sub2api
+./secondary-dev/deploy-dev-sd.sh
+```
+
+The script rebuilds the local image, creates a pre-start backup in `deploy/backups/`, and recreates only the `sub2api` container. PostgreSQL and Redis keep using their persisted local directories.
+
+If you intentionally want to skip the backup in a disposable test environment:
+
+```bash
+./secondary-dev/deploy-dev-sd.sh --skip-backup
 ```
 
 PostgreSQL, Redis, and `/app/data` are persisted by local directories under `deploy/`:
@@ -180,19 +190,21 @@ Do not remove those directories during normal upgrades.
 
 ### 7. Backup before upgrades
 
-At minimum, stop the stack or ensure a quiet maintenance window, then archive deployment data:
+The deployment script creates a pre-start backup automatically. For manual production database backups, prefer a PostgreSQL logical dump:
 
 ```bash
 cd deploy
-tar czf sub2api-deploy-backup-$(date +%F-%H%M).tar.gz .env data postgres_data redis_data
-```
-
-For production database backups, prefer a PostgreSQL logical dump in addition to the directory archive:
-
-```bash
 docker compose -f docker-compose.local.yml -f docker-compose.override.yml exec -T postgres \
   sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > sub2api-$(date +%F-%H%M).sql
 ```
+
+You can also archive non-database deployment files:
+
+```bash
+tar czf sub2api-deploy-files-$(date +%F-%H%M).tar.gz .env docker-compose.override.yml data
+```
+
+Avoid treating a live `postgres_data` directory tarball as the primary backup. If you need a raw directory archive, stop the stack first or take it during a quiet maintenance window after a successful logical dump.
 
 ### 8. Data-retention defaults in this branch
 

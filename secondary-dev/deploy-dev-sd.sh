@@ -8,6 +8,7 @@ BUILD_IMAGE=true
 BUILD_ONLY=false
 FORCE_ENV=false
 FORCE_OVERRIDE=false
+RUN_BACKUP=true
 
 print_info() {
   printf '\033[0;34m[INFO]\033[0m %s\n' "$1"
@@ -35,6 +36,7 @@ Options:
   --no-start        Build image and prepare deploy files, but do not start Docker Compose.
   --build-only      Only build the Docker image. Do not create deploy files or start Compose.
   --no-build        Skip docker build and only prepare/start Compose with the existing image.
+  --skip-backup     Skip the pre-start deployment backup.
   --force-env       Recreate deploy/.env from deploy/.env.example and regenerate secrets.
   --force-override  Recreate deploy/docker-compose.override.yml.
   -h, --help        Show this help.
@@ -42,6 +44,7 @@ Options:
 Environment:
   IMAGE_NAME        Docker image tag to build/use. Default: sub2api:dev-sd
   BRANCH_NAME       Expected Git branch. Default: dev-sd
+  BACKUP_DIR        Backup output directory. Default: deploy/backups
 EOF
 }
 
@@ -57,6 +60,9 @@ while [ "$#" -gt 0 ]; do
       ;;
     --no-build)
       BUILD_IMAGE=false
+      ;;
+    --skip-backup)
+      RUN_BACKUP=false
       ;;
     --force-env)
       FORCE_ENV=true
@@ -118,6 +124,78 @@ replace_env_value() {
   else
     printf '%s=%s\n' "$key" "$value" >> "$file"
   fi
+}
+
+directory_has_entries() {
+  dir="$1"
+  [ -d "$dir" ] && find "$dir" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null | read -r _
+}
+
+has_existing_deployment_state() {
+  target_deploy_dir="$1"
+  [ -f "${target_deploy_dir}/.env" ] ||
+    [ -f "${target_deploy_dir}/docker-compose.override.yml" ] ||
+    directory_has_entries "${target_deploy_dir}/data" ||
+    directory_has_entries "${target_deploy_dir}/postgres_data" ||
+    directory_has_entries "${target_deploy_dir}/redis_data"
+}
+
+compose_service_running() {
+  target_deploy_dir="$1"
+  service="$2"
+  container_id="$(
+    cd "$target_deploy_dir"
+    "${compose_cmd[@]}" ps -q "$service" 2>/dev/null | head -n 1
+  )"
+  [ -n "$container_id" ] && [ "$(docker inspect -f '{{.State.Running}}' "$container_id" 2>/dev/null || true)" = "true" ]
+}
+
+create_pre_start_backup() {
+  target_deploy_dir="$1"
+
+  if [ "$RUN_BACKUP" != true ] || [ "$START_STACK" != true ]; then
+    return
+  fi
+
+  if ! has_existing_deployment_state "$target_deploy_dir"; then
+    print_info "No existing deployment state found; backup skipped."
+    return
+  fi
+
+  backup_root="${BACKUP_DIR:-${target_deploy_dir}/backups}"
+  timestamp="$(date +%Y%m%d%H%M%S)"
+  backup_path="${backup_root}/${timestamp}"
+  mkdir -p "$backup_path"
+
+  print_info "Creating pre-start backup: $backup_path"
+
+  if compose_service_running "$target_deploy_dir" postgres; then
+    (
+      cd "$target_deploy_dir"
+      "${compose_cmd[@]}" exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"'
+    ) > "${backup_path}/postgres.sql"
+    print_success "PostgreSQL logical backup created: ${backup_path}/postgres.sql"
+  else
+    print_warning "PostgreSQL service is not running; database pg_dump backup skipped."
+    print_warning "For first deployment this is expected. For upgrades, start the existing stack before updating if you need a DB backup."
+  fi
+
+  files_to_archive=()
+  [ -f "${target_deploy_dir}/.env" ] && files_to_archive+=(".env")
+  [ -f "${target_deploy_dir}/docker-compose.override.yml" ] && files_to_archive+=("docker-compose.override.yml")
+  [ -d "${target_deploy_dir}/data" ] && files_to_archive+=("data")
+
+  if [ "${#files_to_archive[@]}" -gt 0 ]; then
+    (
+      cd "$target_deploy_dir"
+      tar czf "${backup_path}/deploy-files.tar.gz" "${files_to_archive[@]}"
+    )
+    print_success "Deployment file backup created: ${backup_path}/deploy-files.tar.gz"
+  else
+    print_warning "No deployment files found to archive."
+  fi
+
+  print_info "Raw postgres_data/redis_data directories are not archived by default because live file-level database backups can be inconsistent. Use pg_dump for PostgreSQL."
 }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -213,6 +291,8 @@ compose_cmd=(
   -f docker-compose.local.yml
   -f docker-compose.override.yml
 )
+
+create_pre_start_backup "$deploy_dir"
 
 if [ "$START_STACK" = true ]; then
   print_info "Starting Docker Compose stack"

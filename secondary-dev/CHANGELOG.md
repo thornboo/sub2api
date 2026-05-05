@@ -16,3 +16,4 @@
 - Disabled automatic ops retention cleanup by default so ops logs, metrics, preaggregates, and channel monitor history are not deleted by scheduled maintenance.
 - Replaced the ops system-log cleanup browser confirm with the project modal confirmation and current-filter summary.
 - Added secondary-development Docker deployment documentation and a source-build deployment script for the `dev-sd` branch.
+- Added automatic pre-start deployment backups to the `dev-sd` source-build script.
