@@ -77,3 +77,20 @@ Changes:
 
 Verification:
 - `cd frontend && pnpm typecheck`
+
+## 2026-05-05 - dev-sd Source-Built Docker Deployment
+
+Scope:
+- `secondary-dev/README.md`
+- `secondary-dev/deploy-dev-sd.sh`
+
+Changes:
+- Documented the deployment path for running the forked `dev-sd` branch from a locally built Docker image instead of the upstream `weishaw/sub2api:latest` image.
+- Added a repeatable deployment script that builds `sub2api:dev-sd` from the repository root `Dockerfile`, prepares `deploy/.env` and local data directories, writes `deploy/docker-compose.override.yml`, and starts Docker Compose with the checked-in `deploy/docker-compose.local.yml`.
+- Kept existing deployment secrets safe by reusing `deploy/.env` unless `--force-env` is explicitly passed.
+- Forced recreation of the `sub2api` container after startup so repeated script runs pick up the rebuilt local image tag.
+
+Verification:
+- `bash -n secondary-dev/deploy-dev-sd.sh`
+- `secondary-dev/deploy-dev-sd.sh --help`
+- `git diff --check`

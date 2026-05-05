@@ -15,3 +15,4 @@
 - Disabled automatic dashboard retention cleanup by default so usage logs, billing dedup data, and usage dashboard aggregates are kept until an administrator manually deletes them.
 - Disabled automatic ops retention cleanup by default so ops logs, metrics, preaggregates, and channel monitor history are not deleted by scheduled maintenance.
 - Replaced the ops system-log cleanup browser confirm with the project modal confirmation and current-filter summary.
+- Added secondary-development Docker deployment documentation and a source-build deployment script for the `dev-sd` branch.

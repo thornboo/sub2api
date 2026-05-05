@@ -26,6 +26,39 @@ docker pull weishaw/sub2api:latest
 
 That image is the upstream project image and does not contain the `dev-sd` secondary-development changes.
 
+### Recommended script
+
+After cloning the `dev-sd` branch, run the secondary-development deployment script from the repository root:
+
+```bash
+./secondary-dev/deploy-dev-sd.sh
+```
+
+The script uses the checked-in source and deployment files to:
+
+- build the local Docker image `sub2api:dev-sd` from the repository root `Dockerfile`;
+- create `deploy/.env` from `deploy/.env.example` if it does not exist;
+- generate `POSTGRES_PASSWORD`, `JWT_SECRET`, and `TOTP_ENCRYPTION_KEY` for a new `.env`;
+- create `deploy/data`, `deploy/postgres_data`, and `deploy/redis_data`;
+- create `deploy/docker-compose.override.yml` so Compose uses `sub2api:dev-sd` instead of `weishaw/sub2api:latest`;
+- start Docker Compose with `deploy/docker-compose.local.yml` plus the override file.
+
+The script does not overwrite an existing `deploy/.env` by default. Re-running it after pulling updates rebuilds the local image and restarts the stack with the same persisted data and secrets.
+
+Useful script options:
+
+```bash
+./secondary-dev/deploy-dev-sd.sh --no-start
+./secondary-dev/deploy-dev-sd.sh --build-only
+./secondary-dev/deploy-dev-sd.sh --no-build
+./secondary-dev/deploy-dev-sd.sh --force-env
+./secondary-dev/deploy-dev-sd.sh --force-override
+```
+
+Use `--force-env` carefully. It backs up the existing `deploy/.env` and regenerates secrets, which can invalidate sessions or TOTP setup if the new file is used.
+
+The manual steps below are the exact operations the script automates.
+
 ### 1. Clone the secondary-development branch
 
 On the server:
