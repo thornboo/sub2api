@@ -268,6 +268,13 @@
                 </svg>
                 {{ t('admin.accounts.addMapping') }}
               </button>
+              <button
+                type="button"
+                @click="clearModelMappings"
+                class="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
+              >
+                {{ t('admin.accounts.clearAllModels') }}
+              </button>
             </div>
 
               <!-- Quick Add Buttons -->
@@ -596,6 +603,13 @@
               >
                 + {{ t('admin.accounts.addMapping') }}
               </button>
+              <button
+                type="button"
+                @click="clearModelMappings"
+                class="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
+              >
+                {{ t('admin.accounts.clearAllModels') }}
+              </button>
             </div>
 
             <!-- Quick Add Buttons -->
@@ -875,6 +889,13 @@
                 </svg>
                 {{ t('admin.accounts.addMapping') }}
               </button>
+              <button
+                type="button"
+                @click="clearModelMappings"
+                class="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
+              >
+                {{ t('admin.accounts.clearAllModels') }}
+              </button>
             </div>
 
             <!-- Quick Add Buttons -->
@@ -1055,8 +1076,15 @@
               >
                 {{ probeModelsLoading ? t('admin.accounts.probingSupportedModels') : t('admin.accounts.probeSupportedModels') }}
               </button>
-              <button type="button" @click="modelMappings.push({ from: '', to: '' })" class="btn btn-secondary text-sm">
+              <button type="button" @click="addModelMapping" class="btn btn-secondary text-sm">
                 + {{ t('admin.accounts.addMapping') }}
+              </button>
+              <button
+                type="button"
+                @click="clearModelMappings"
+                class="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
+              >
+                {{ t('admin.accounts.clearAllModels') }}
               </button>
             </div>
             <!-- Bedrock Preset Mappings -->
@@ -1232,6 +1260,13 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
               </svg>
               {{ t('admin.accounts.addMapping') }}
+            </button>
+            <button
+              type="button"
+              @click="clearAntigravityModelMappings"
+              class="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
+            >
+              {{ t('admin.accounts.clearAllModels') }}
             </button>
           </div>
 
@@ -3179,6 +3214,13 @@ const removeModelMapping = (index: number) => {
   modelMappings.value.splice(index, 1)
 }
 
+const clearModelMappings = () => {
+  modelMappings.value = []
+  mappingCatalogModel.value = ''
+  probeNewMappingTargets.value = []
+  probeMissingMappingTargets.value = []
+}
+
 const addPresetMapping = (from: string, to: string) => {
   const exists = modelMappings.value.some((m) => m.from === from)
   if (exists) {
@@ -3211,6 +3253,13 @@ const removeOpenAICompactModelMapping = (index: number) => {
 
 const removeAntigravityModelMapping = (index: number) => {
   antigravityModelMappings.value.splice(index, 1)
+}
+
+const clearAntigravityModelMappings = () => {
+  antigravityModelMappings.value = []
+  antigravityMappingCatalogModel.value = ''
+  probeNewAntigravityMappingTargets.value = []
+  probeMissingAntigravityMappingTargets.value = []
 }
 
 const addAntigravityPresetMapping = (from: string, to: string) => {

@@ -1,5 +1,23 @@
 # Patches
 
+## 2026-05-06 - Mapping Mode Clear All Models
+
+Scope:
+- `frontend/src/components/account/{CreateAccountModal,EditAccountModal}.vue`
+- `frontend/src/components/account/__tests__/EditAccountModal.spec.ts`
+
+Changes:
+- Added "清除所有模型" / "Clear all models" actions to create/edit account model mapping sections.
+- Covered normal account mapping sections, Bedrock mapping sections, and Antigravity's mapping-only account section.
+- Clearing mappings keeps the current mapping mode UI active, removes all mapping rows, clears mapping catalog input state, and clears probe "new/missing" markers.
+- Added an edit-modal regression test that clears mapping rows and verifies saved credentials no longer include `model_mapping` or `model_restriction_mode`.
+
+Verification:
+- `cd frontend && pnpm test:run src/components/account/__tests__/EditAccountModal.spec.ts`
+- `cd frontend && pnpm typecheck`
+- `cd frontend && pnpm lint:check`
+- `git diff --check`
+
 ## 2026-05-06 - Model Probe Mapping Fill
 
 Scope:

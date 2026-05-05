@@ -219,4 +219,45 @@ describe('EditAccountModal', () => {
       'gpt-5.4': 'gpt-5.4-openai-compact'
     })
   })
+
+  it('clears all model mappings in mapping mode without switching modes', async () => {
+    const account = buildAccount()
+    account.credentials = {
+      ...account.credentials,
+      model_restriction_mode: 'mapping',
+      model_mapping: {
+        'gpt-5.5': 'upstream-gpt-5.5',
+        'claude-opus-4.7': 'upstream-claude-opus-4.7'
+      }
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    const clearButtons = wrapper
+      .findAll('button')
+      .filter((button) => button.text().includes('admin.accounts.clearAllModels'))
+
+    expect(clearButtons).toHaveLength(1)
+    const inputValuesBefore = wrapper
+      .findAll('input')
+      .map((input) => (input.element as HTMLInputElement).value)
+    expect(inputValuesBefore).toContain('upstream-gpt-5.5')
+
+    await clearButtons[0].trigger('click')
+
+    const inputValuesAfter = wrapper
+      .findAll('input')
+      .map((input) => (input.element as HTMLInputElement).value)
+    expect(inputValuesAfter).not.toContain('upstream-gpt-5.5')
+    expect(inputValuesAfter).not.toContain('upstream-claude-opus-4.7')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.model_mapping).toBeUndefined()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.model_restriction_mode).toBeUndefined()
+  })
 })

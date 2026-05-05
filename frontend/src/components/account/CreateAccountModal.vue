@@ -988,6 +988,13 @@
               </svg>
               {{ t('admin.accounts.addMapping') }}
             </button>
+            <button
+              type="button"
+              @click="clearAntigravityModelMappings"
+              class="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
+            >
+              {{ t('admin.accounts.clearAllModels') }}
+            </button>
           </div>
 
           <div class="flex flex-wrap gap-2">
@@ -1284,6 +1291,13 @@
                   />
                 </svg>
                 {{ t('admin.accounts.addMapping') }}
+              </button>
+              <button
+                type="button"
+                @click="clearModelMappings"
+                class="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
+              >
+                {{ t('admin.accounts.clearAllModels') }}
               </button>
             </div>
 
@@ -1669,8 +1683,15 @@
               >
                 {{ probeModelsLoading ? t('admin.accounts.probingSupportedModels') : t('admin.accounts.probeSupportedModels') }}
               </button>
-              <button type="button" @click="modelMappings.push({ from: '', to: '' })" class="btn btn-secondary text-sm">
+              <button type="button" @click="addModelMapping" class="btn btn-secondary text-sm">
                 + {{ t('admin.accounts.addMapping') }}
+              </button>
+              <button
+                type="button"
+                @click="clearModelMappings"
+                class="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
+              >
+                {{ t('admin.accounts.clearAllModels') }}
               </button>
             </div>
             <!-- Bedrock Preset Mappings -->
@@ -2002,6 +2023,13 @@
                 class="flex-1 rounded-lg border-2 border-dashed border-stone-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-white/15 dark:text-gray-400 dark:hover:border-white/20 dark:hover:text-gray-300"
               >
                 + {{ t('admin.accounts.addMapping') }}
+              </button>
+              <button
+                type="button"
+                @click="clearModelMappings"
+                class="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
+              >
+                {{ t('admin.accounts.clearAllModels') }}
               </button>
             </div>
 
@@ -4066,6 +4094,13 @@ const removeModelMapping = (index: number) => {
   modelMappings.value.splice(index, 1)
 }
 
+const clearModelMappings = () => {
+  modelMappings.value = []
+  mappingCatalogModel.value = ''
+  probeNewMappingTargets.value = []
+  probeMissingMappingTargets.value = []
+}
+
 const addPresetMapping = (from: string, to: string) => {
   if (modelMappings.value.some((m) => m.from === from)) {
     appStore.showInfo(t('admin.accounts.mappingExists', { model: from }))
@@ -4089,6 +4124,13 @@ const addAntigravityModelMapping = () => {
 
 const removeAntigravityModelMapping = (index: number) => {
   antigravityModelMappings.value.splice(index, 1)
+}
+
+const clearAntigravityModelMappings = () => {
+  antigravityModelMappings.value = []
+  antigravityMappingCatalogModel.value = ''
+  probeNewAntigravityMappingTargets.value = []
+  probeMissingAntigravityMappingTargets.value = []
 }
 
 const addAntigravityPresetMapping = (from: string, to: string) => {
