@@ -82,6 +82,11 @@ if [ "$BUILD_ONLY" = true ] && [ "$BUILD_IMAGE" = false ]; then
   exit 1
 fi
 
+if [[ "$IMAGE_NAME" =~ [[:space:]] ]]; then
+  print_error "IMAGE_NAME must not contain whitespace."
+  exit 1
+fi
+
 command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
@@ -103,7 +108,7 @@ replace_env_value() {
   file="$3"
 
   if grep -q "^${key}=" "$file"; then
-    tmp="${file}.tmp.$$"
+    tmp="$(mktemp "${file}.tmp.XXXXXX")"
     awk -v key="$key" -v value="$value" '
       BEGIN { prefix = key "=" }
       index($0, prefix) == 1 { print key "=" value; next }

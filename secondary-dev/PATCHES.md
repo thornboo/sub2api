@@ -89,8 +89,11 @@ Changes:
 - Added a repeatable deployment script that builds `sub2api:dev-sd` from the repository root `Dockerfile`, prepares `deploy/.env` and local data directories, writes `deploy/docker-compose.override.yml`, and starts Docker Compose with the checked-in `deploy/docker-compose.local.yml`.
 - Kept existing deployment secrets safe by reusing `deploy/.env` unless `--force-env` is explicitly passed.
 - Forced recreation of the `sub2api` container after startup so repeated script runs pick up the rebuilt local image tag.
+- Added validation for `IMAGE_NAME` before writing it into the Compose override file and switched `.env` replacement temporary files to `mktemp`.
 
 Verification:
 - `bash -n secondary-dev/deploy-dev-sd.sh`
 - `secondary-dev/deploy-dev-sd.sh --help`
+- `secondary-dev/deploy-dev-sd.sh --build-only --no-build`
+- `IMAGE_NAME='bad image' secondary-dev/deploy-dev-sd.sh --no-build --no-start`
 - `git diff --check`
