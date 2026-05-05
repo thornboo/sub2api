@@ -34,7 +34,7 @@ export default {
       stepDesc1: 'Create or copy an API key in the console, then control available models by user and group.',
       stepDesc2: 'Point your client Base URL to the gateway while keeping the familiar OpenAI-compatible request format.',
       stepDesc3: 'Choose a model name and call it directly. Request logs, billing, and usage records are handled centrally.',
-      samplePrompt: 'Hello',
+      samplePrompt: 'hi',
       fullDoc: 'View Full Docs',
       compatibility: 'Compatible with OpenAI format, no business-code rewrite required'
     },
@@ -58,6 +58,7 @@ export default {
       hot: 'Hot',
       input: 'Input',
       output: 'Output',
+      pricingNote: 'Actual price follows group pricing',
       gptDesc: 'Strong reasoning, coding, and multimodal capabilities',
       claudeDesc: 'Long context window with strong document understanding',
       geminiDesc: 'Multimodal, web-aware, and video understanding',

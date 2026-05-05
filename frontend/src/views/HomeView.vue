@@ -341,7 +341,12 @@
             <div class="tech-panel overflow-hidden">
               <div class="grid grid-cols-[minmax(0,1fr)_auto] border-b border-stone-200/80 px-5 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-stone-500 dark:border-[#1e1e1e] md:grid-cols-[minmax(16rem,1fr)_minmax(18rem,0.9fr)]">
                 <span>Model</span>
-                <span class="text-left">Price</span>
+                <span class="text-left">
+                  <span>Price</span>
+                  <span class="mt-1 block text-[11px] font-medium normal-case tracking-normal text-emerald-600 dark:text-emerald-400">
+                    {{ t('home.models.pricingNote') }}
+                  </span>
+                </span>
               </div>
               <article
                 v-for="model in models"
@@ -642,7 +647,7 @@ const codeExamples = computed(() => [
   -H "Authorization: Bearer sk_xxxxxxxxx" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "gpt-4o",
+    "model": "gpt-5.5",
     "messages": [{"role":"user","content":"${t('home.quickAccess.samplePrompt')}"}]
   }'`
   },
@@ -657,7 +662,7 @@ headers = {
     "Content-Type": "application/json"
 }
 data = {
-    "model": "gpt-4o",
+    "model": "gpt-5.5",
     "messages": [{"role":"user","content":"${t('home.quickAccess.samplePrompt')}"}]
 }
 
@@ -674,7 +679,7 @@ print(response.json())`
     "Content-Type": "application/json"
   },
   body: JSON.stringify({
-    "model": "gpt-4o",
+    "model": "gpt-5.5",
     "messages": [{"role":"user","content":"${t('home.quickAccess.samplePrompt')}"}]
   })
 })
@@ -736,8 +741,8 @@ const models = computed(() => [
     format: 'Responses / Chat',
     badge: t('home.models.hot'),
     description: t('home.models.gptDesc'),
-    input: '$2.5/M input tokens',
-    output: '$10/M output tokens'
+    input: '$4/M input tokens',
+    output: '$24/M output tokens'
   },
   {
     initial: 'A',
@@ -746,8 +751,8 @@ const models = computed(() => [
     format: 'Messages',
     badge: '',
     description: t('home.models.claudeDesc'),
-    input: '$1.8/M input tokens',
-    output: '$9/M output tokens'
+    input: '$4/M input tokens',
+    output: '$20/M output tokens'
   },
   {
     initial: 'G',
@@ -756,8 +761,8 @@ const models = computed(() => [
     format: 'v1beta',
     badge: '',
     description: t('home.models.geminiDesc'),
-    input: '$1.2/M input tokens',
-    output: '$6/M output tokens'
+    input: '$1.6/M input tokens',
+    output: '$9.6/M output tokens'
   }
 ])
 

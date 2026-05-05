@@ -34,7 +34,7 @@ export default {
       stepDesc1: '在控制台创建或复制 API Key，按用户和分组控制可用范围。',
       stepDesc2: '把客户端 Base URL 指向网关，保留熟悉的 OpenAI 兼容请求格式。',
       stepDesc3: '选择模型名称即可调用，后续请求记录、计费和日志由平台统一处理。',
-      samplePrompt: '你好',
+      samplePrompt: 'hi',
       fullDoc: '查看完整文档',
       compatibility: '兼容 OpenAI 格式，无需修改业务代码'
     },
@@ -58,6 +58,7 @@ export default {
       hot: '热门',
       input: '输入',
       output: '输出',
+      pricingNote: '实际以分组定价为准',
       gptDesc: '超强推理、代码、多模态能力',
       claudeDesc: '超长上下文，文档理解强',
       geminiDesc: '多模态、实时联网、视频理解',
