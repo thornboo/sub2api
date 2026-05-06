@@ -2,6 +2,7 @@
 
 ## 2026-05-06
 
+- Restored the Home page popular-model displayed prices to official prices while keeping discounted group pricing as the actual billing note.
 - Updated the Home page popular-model displayed prices from 80% to 85% of official prices and clarified the Chinese/English group-pricing note as discounted group pricing.
 - Extended the account model-probe action to create/edit model mapping sections, appending fetched upstream models as same-name mapping pairs for administrator adjustment.
 - Refined account model probing and mapping setup so probe results compare against upstream target models, mark newly added and missing models, preserve explicit whitelist/mapping mode, and use selected-channel configuration for mapping recommendations.

@@ -1,5 +1,24 @@
 # Patches
 
+## 2026-05-06 - Home Official Model Prices
+
+Scope:
+- `frontend/src/views/HomeView.vue`
+- `secondary-dev/CHANGELOG.md`
+- `secondary-dev/PATCHES.md`
+
+Changes:
+- Restored the Home page popular-model displayed prices from 85% discounted values to official prices.
+- Kept the existing Chinese/English pricing note that actual pricing follows discounted group pricing.
+
+Verification:
+- `rg -n -F '$5/M input tokens' frontend/src/views/HomeView.vue`
+- `rg -n -F '$30/M output tokens' frontend/src/views/HomeView.vue`
+- `rg -n -F '$25/M output tokens' frontend/src/views/HomeView.vue`
+- `rg -n -F '$2/M input tokens' frontend/src/views/HomeView.vue`
+- `rg -n -F '$12/M output tokens' frontend/src/views/HomeView.vue`
+- `git diff --check -- frontend/src/views/HomeView.vue secondary-dev/CHANGELOG.md secondary-dev/PATCHES.md`
+
 ## 2026-05-06 - Home Discounted Model Prices
 
 Scope:
