@@ -58,7 +58,7 @@ export default {
       hot: 'Hot',
       input: 'Input',
       output: 'Output',
-      pricingNote: 'Actual price follows group pricing',
+      pricingNote: 'Actual price follows discounted group pricing',
       gptDesc: 'Strong reasoning, coding, and multimodal capabilities',
       claudeDesc: 'Long context window with strong document understanding',
       geminiDesc: 'Multimodal, web-aware, and video understanding',

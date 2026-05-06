@@ -58,7 +58,7 @@ export default {
       hot: '热门',
       input: '输入',
       output: '输出',
-      pricingNote: '实际以分组定价为准',
+      pricingNote: '实际以优惠后分组价格为准',
       gptDesc: '超强推理、代码、多模态能力',
       claudeDesc: '超长上下文，文档理解强',
       geminiDesc: '多模态、实时联网、视频理解',

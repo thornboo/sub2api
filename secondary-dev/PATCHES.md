@@ -1,5 +1,26 @@
 # Patches
 
+## 2026-05-06 - Home Discounted Model Prices
+
+Scope:
+- `frontend/src/views/HomeView.vue`
+- `frontend/src/i18n/locales/{zh,en}.ts`
+
+Changes:
+- Updated the Home page popular-model displayed prices from 80% to 85% of official prices.
+- Changed the Chinese pricing note from "实际以分组定价为准" to "实际以优惠后分组价格为准".
+- Changed the English pricing note from "Actual price follows group pricing" to "Actual price follows discounted group pricing".
+
+Verification:
+- `rg -n -F '$4.25/M input tokens' frontend/src/views/HomeView.vue`
+- `rg -n -F '$25.5/M output tokens' frontend/src/views/HomeView.vue`
+- `rg -n -F '$21.25/M output tokens' frontend/src/views/HomeView.vue`
+- `rg -n -F '$1.7/M input tokens' frontend/src/views/HomeView.vue`
+- `rg -n -F '$10.2/M output tokens' frontend/src/views/HomeView.vue`
+- `rg -n "Actual price follows group pricing|Actual price follows discounted group pricing|实际以分组定价为准|实际以优惠后分组价格为准" frontend/src/i18n/locales/en.ts frontend/src/i18n/locales/zh.ts`
+- `cd frontend && pnpm run typecheck`
+- `git diff --check -- frontend/src/views/HomeView.vue frontend/src/i18n/locales/zh.ts frontend/src/i18n/locales/en.ts`
+
 ## 2026-05-06 - Mapping Mode Clear All Models
 
 Scope:

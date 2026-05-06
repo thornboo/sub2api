@@ -741,8 +741,8 @@ const models = computed(() => [
     format: 'Responses / Chat',
     badge: t('home.models.hot'),
     description: t('home.models.gptDesc'),
-    input: '$4/M input tokens',
-    output: '$24/M output tokens'
+    input: '$4.25/M input tokens',
+    output: '$25.5/M output tokens'
   },
   {
     initial: 'A',
@@ -751,8 +751,8 @@ const models = computed(() => [
     format: 'Messages',
     badge: '',
     description: t('home.models.claudeDesc'),
-    input: '$4/M input tokens',
-    output: '$20/M output tokens'
+    input: '$4.25/M input tokens',
+    output: '$21.25/M output tokens'
   },
   {
     initial: 'G',
@@ -761,8 +761,8 @@ const models = computed(() => [
     format: 'v1beta',
     badge: '',
     description: t('home.models.geminiDesc'),
-    input: '$1.6/M input tokens',
-    output: '$9.6/M output tokens'
+    input: '$1.7/M input tokens',
+    output: '$10.2/M output tokens'
   }
 ])
 
