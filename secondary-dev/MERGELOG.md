@@ -2,6 +2,68 @@
 
 This file records upstream synchronization work for secondary-development branches.
 
+## 2026-05-27 - Sync upstream `main` into `dev-zz`
+
+Branch:
+- Target: `dev-zz`
+- Upstream: `main`
+- Base: `18790386`
+- Target before merge: `68877dcc`
+- Upstream head: `bebc0823`
+- Result commit: this merge commit
+
+Upstream highlights:
+- User platform USD quota support.
+- DingTalk OAuth and provider-default grant support.
+- Content moderation per-model controls and risk-threshold configuration.
+- Account upstream model sync and OpenAI API Key Responses support controls.
+- Channel monitor API-mode/template updates.
+- User/admin usage image billing metadata and daily usage views.
+- Redeem code batch updates, email templates, subscription reminder mail, and related admin UI updates.
+- OpenAI Responses/WebSocket/tool-output continuation fixes, HTTP/2 timeout fix, and dependency/security updates.
+
+Merge strategy:
+- Merged upstream `main` into `dev-zz`.
+- Preserved secondary-development account model probing, models.dev search, mapping-fill, same-name mapping mode persistence, clear-all model mapping, permanent data-retention defaults, Home/console visual direction, and source-built deployment records.
+- Accepted upstream DingTalk, user platform quota, account upstream-model sync, OpenAI Responses controls, risk-control, channel-monitor, image-usage, redeem, email-template, subscription reminder, and gateway compatibility updates.
+- Continued the secondary-development frontend policy of hiding LinuxDo and WeChat auth surfaces while accepting visible upstream DingTalk surfaces.
+
+Conflict files:
+- `frontend/src/api/admin/accounts.ts`
+- `frontend/src/components/account/EditAccountModal.vue`
+- `frontend/src/components/account/ModelWhitelistSelector.vue`
+- `frontend/src/components/account/__tests__/EditAccountModal.spec.ts`
+- `frontend/src/components/user/profile/ProfileIdentityBindingsSection.vue`
+- `frontend/src/components/user/profile/ProfileInfoCard.vue`
+- `frontend/src/i18n/locales/en.ts`
+- `frontend/src/i18n/locales/zh.ts`
+- `frontend/src/views/admin/ChannelsView.vue`
+- `frontend/src/views/admin/SettingsView.vue`
+- `frontend/src/views/admin/UsersView.vue`
+- `frontend/src/views/auth/LoginView.vue`
+- `frontend/src/views/user/UsageView.vue`
+
+Resolution notes:
+- Kept both account model-discovery paths: secondary-development credential-based `/probe-models` and upstream saved-account `/models/sync-upstream`.
+- Kept the secondary-development "Fill related models" / "填入相关模型" action label and added separate upstream sync labels.
+- Preserved explicit `model_restriction_mode: mapping` so same-name mappings reopen as mapping mode, while keeping upstream mixed whitelist/mapping behavior for legacy mappings without an explicit mode.
+- Kept secondary-development clear-all mapping regression coverage and upstream OpenAI Responses override regression coverage.
+- Kept LinuxDo/WeChat hidden from frontend login/profile/admin default-source surfaces; DingTalk remains visible because it is an upstream feature outside the existing hide policy.
+- Merged upstream channel pricing sync and user column forced-visible behavior into the secondary-development popover/emerald visual style.
+- Fixed user usage tooltip resolution so image metadata is shown whenever image usage is present, even when stored `billing_mode` is empty.
+
+Verification:
+- `git diff --check`
+- `git diff --cached --check`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/components/account/__tests__/EditAccountModal.spec.ts src/views/user/__tests__/UsageView.spec.ts src/components/user/profile/__tests__/ProfileIdentityBindingsSection.spec.ts src/components/auth/__tests__/EmailOAuthButtons.spec.ts src/views/auth/__tests__/OAuthCallbackView.spec.ts src/components/admin/usage/__tests__/UsageTable.spec.ts`
+- `mise x -C backend -- go test ./internal/server ./internal/handler/admin ./internal/config`
+
+Not verified:
+- Full frontend test suite was not run.
+- Full backend test suite was not run.
+
 ## 2026-05-14 - Sync upstream `main` into `dev-zz`
 
 Branch:

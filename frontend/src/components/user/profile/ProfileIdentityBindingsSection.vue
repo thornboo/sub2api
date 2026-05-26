@@ -207,12 +207,13 @@ import { useAppStore, useAuthStore } from '@/stores'
 import type { User, UserAuthBindingStatus, UserAuthProvider } from '@/types'
 
 type BindableProvider = Exclude<UserAuthProvider, 'email'>
-type VisibleBindingProvider = 'email' | 'oidc'
+type VisibleBindingProvider = 'email' | 'dingtalk' | 'oidc'
 
 const props = withDefaults(
   defineProps<{
     user: User | null
     linuxdoEnabled?: boolean
+    dingtalkEnabled?: boolean
     oidcEnabled?: boolean
     oidcProviderName?: string
     wechatEnabled?: boolean
@@ -223,6 +224,7 @@ const props = withDefaults(
   }>(),
   {
     linuxdoEnabled: false,
+    dingtalkEnabled: false,
     oidcEnabled: false,
     oidcProviderName: 'OIDC',
     wechatEnabled: false,
@@ -359,6 +361,9 @@ function getDisplayableEmail(user: User | null | undefined): string {
 }
 
 function isProviderEnabledForBinding(provider: BindableProvider): boolean {
+  if (provider === 'dingtalk') {
+    return props.dingtalkEnabled
+  }
   if (provider === 'oidc') {
     return props.oidcEnabled
   }
@@ -382,6 +387,17 @@ const providerItems = computed<Array<{
     details: getBindingDetails('email'),
   },
   {
+    provider: 'dingtalk' as const,
+    label: t('profile.authBindings.providers.dingtalk'),
+    bound: getBindingStatus('dingtalk'),
+    canBind:
+      !getBindingStatus('dingtalk') &&
+      isProviderEnabledForBinding('dingtalk') &&
+      (getBindingDetails('dingtalk')?.can_bind ?? true),
+    canUnbind: Boolean(getBindingStatus('dingtalk') && getBindingDetails('dingtalk')?.can_unbind),
+    details: getBindingDetails('dingtalk'),
+  },
+  {
     provider: 'oidc' as const,
     label: t('profile.authBindings.providers.oidc', { providerName: props.oidcProviderName }),
     bound: getBindingStatus('oidc'),
@@ -395,6 +411,9 @@ const providerItems = computed<Array<{
 ])
 
 function providerInitial(provider: VisibleBindingProvider): string {
+  if (provider === 'dingtalk') {
+    return 'D'
+  }
   if (provider === 'oidc') {
     return 'O'
   }
@@ -402,6 +421,9 @@ function providerInitial(provider: VisibleBindingProvider): string {
 }
 
 function providerIconClass(provider: VisibleBindingProvider): string {
+  if (provider === 'dingtalk') {
+    return 'bg-blue-100 text-blue-600 dark:bg-blue-900/20 dark:text-blue-300'
+  }
   if (provider === 'oidc') {
     return 'bg-stone-100 text-stone-600 dark:bg-white/10 dark:text-stone-300'
   }

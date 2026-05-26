@@ -147,6 +147,11 @@
             :show-divider="false"
           />
 
+          <DingTalkOAuthSection
+            v-if="dingtalkOAuthEnabled"
+            :disabled="authActionDisabled"
+            :show-divider="false"
+          />
           <OidcOAuthSection
             v-if="oidcOAuthEnabled"
             :disabled="authActionDisabled"
@@ -187,6 +192,7 @@ import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
+import DingTalkOAuthSection from '@/components/auth/DingTalkOAuthSection.vue'
 import OidcOAuthSection from '@/components/auth/OidcOAuthSection.vue'
 import EmailOAuthButtons from '@/components/auth/EmailOAuthButtons.vue'
 import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
@@ -218,6 +224,7 @@ const publicSettingsLoaded = ref<boolean>(false)
 // Public settings
 const turnstileEnabled = ref<boolean>(false)
 const turnstileSiteKey = ref<string>('')
+const dingtalkOAuthEnabled = ref<boolean>(false)
 const backendModeEnabled = ref<boolean>(false)
 const oidcOAuthEnabled = ref<boolean>(false)
 const oidcOAuthProviderName = ref<string>('OIDC')
@@ -268,7 +275,8 @@ const authActionDisabled = computed(
 const showOAuthLogin = computed(
   () =>
     !backendModeEnabled.value &&
-    (oidcOAuthEnabled.value ||
+    (dingtalkOAuthEnabled.value ||
+      oidcOAuthEnabled.value ||
       githubOAuthEnabled.value ||
       googleOAuthEnabled.value)
 )
@@ -294,6 +302,7 @@ onMounted(async () => {
     const settings = await getPublicSettings()
     turnstileEnabled.value = settings.turnstile_enabled
     turnstileSiteKey.value = settings.turnstile_site_key || ''
+    dingtalkOAuthEnabled.value = settings.dingtalk_oauth_enabled ?? false
     backendModeEnabled.value = settings.backend_mode_enabled
     oidcOAuthEnabled.value = settings.oidc_oauth_enabled
     oidcOAuthProviderName.value = settings.oidc_oauth_provider_name || 'OIDC'
