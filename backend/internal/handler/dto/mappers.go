@@ -375,10 +375,56 @@ func AccountFromService(a *service.Account) *Account {
 			out.AccountGroups = append(out.AccountGroups, *AccountGroupFromService(&ag))
 		}
 	}
+	if len(a.APIKeys) > 0 {
+		out.APIKeys = make([]AccountAPIKey, 0, len(a.APIKeys))
+		for i := range a.APIKeys {
+			key := a.APIKeys[i]
+			out.APIKeys = append(out.APIKeys, *AccountAPIKeyFromService(&key))
+		}
+	}
 	if len(a.Groups) > 0 {
 		out.Groups = make([]*Group, 0, len(a.Groups))
 		for _, g := range a.Groups {
 			out.Groups = append(out.Groups, GroupFromServiceShallow(g))
+		}
+	}
+	return out
+}
+
+func AccountAPIKeyFromService(k *service.AccountAPIKey) *AccountAPIKey {
+	if k == nil {
+		return nil
+	}
+	status := k.Status
+	if status == service.AccountAPIKeyStatusError {
+		status = service.AccountAPIKeyStatusInactive
+	}
+	out := &AccountAPIKey{
+		ID:                   k.ID,
+		AccountID:            k.AccountID,
+		Name:                 k.Name,
+		Priority:             k.Priority,
+		Status:               status,
+		ModelRestrictionMode: k.ModelRestrictionMode,
+		ModelMapping:         k.ModelMapping,
+		GlobalCooldownUntil:  k.GlobalCooldownUntil,
+		LastUsedAt:           k.LastUsedAt,
+		RecentRequestCount:   k.RecentRequestCount,
+		RecentErrorCount:     k.RecentErrorCount,
+		CreatedAt:            k.CreatedAt,
+		UpdatedAt:            k.UpdatedAt,
+	}
+	if len(k.ModelCooldowns) > 0 {
+		out.ModelCooldowns = make(map[string]AccountKeyCooldown, len(k.ModelCooldowns))
+		for model, cooldown := range k.ModelCooldowns {
+			out.ModelCooldowns[model] = AccountKeyCooldown{
+				UpstreamModel:             cooldown.UpstreamModel,
+				Reason:                    cooldown.Reason,
+				StatusCode:                cooldown.StatusCode,
+				CooldownUntil:             cooldown.CooldownUntil,
+				LastErrorAt:               cooldown.LastErrorAt,
+				LastErrorMessageSanitized: cooldown.LastErrorMessageSanitized,
+			}
 		}
 	}
 	return out

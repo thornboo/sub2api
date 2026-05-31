@@ -1,8 +1,15 @@
 package service
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -570,6 +577,62 @@ func TestResolveBedrockModelID(t *testing.T) {
 		_, ok := ResolveBedrockModelID(account, "claude-3-5-sonnet-20241022")
 		assert.False(t, ok)
 	})
+}
+
+func TestGatewayService_BedrockAPIKeyPoolFailoverCoolsSelectedKeyModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}],"max_tokens":16}`)
+	parsed := &ParsedRequest{Body: body, Model: "claude-sonnet-4-5", Stream: false}
+	upstream := &anthropicHTTPUpstreamRecorder{
+		responses: []*http.Response{
+			{
+				StatusCode: http.StatusTooManyRequests,
+				Header:     http.Header{"Content-Type": []string{"application/json"}, "x-amzn-requestid": []string{"bedrock-key-1"}},
+				Body:       io.NopCloser(strings.NewReader(`{"message":"rate limit on selected bedrock key"}`)),
+			},
+			{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}, "x-amzn-requestid": []string{"bedrock-key-2"}},
+				Body:       io.NopCloser(strings.NewReader(`{"type":"message","usage":{"input_tokens":4,"output_tokens":2},"content":[]}`)),
+			},
+		},
+	}
+	repo := &accountAPIKeyRuntimeRepoRecorder{}
+	svc := &GatewayService{httpUpstream: upstream, accountRepo: repo}
+	now := time.Now()
+	account := &Account{
+		ID:       806,
+		Name:     "bedrock-pool",
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeBedrock,
+		Credentials: map[string]any{
+			"auth_mode":  "apikey",
+			"api_key":    "legacy-bedrock-key",
+			"aws_region": "us-east-1",
+		},
+		APIKeys: []AccountAPIKey{
+			{ID: 8601, AccountID: 806, Name: "bedrock-key-1", APIKey: "upstream-bedrock-key-1", Priority: 1, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "whitelist", ModelMapping: map[string]string{"us.anthropic.claude-sonnet-4-5-20250929-v1:0": "us.anthropic.claude-sonnet-4-5-20250929-v1:0"}},
+			{ID: 8602, AccountID: 806, Name: "bedrock-key-2", APIKey: "upstream-bedrock-key-2", Priority: 2, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "whitelist", ModelMapping: map[string]string{"us.anthropic.claude-sonnet-4-5-20250929-v1:0": "us.anthropic.claude-sonnet-4-5-20250929-v1:0"}, LastUsedAt: &now},
+		},
+	}
+
+	result, err := svc.forwardBedrock(context.Background(), c, account, parsed, time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.reqs, 2)
+	require.Equal(t, "Bearer upstream-bedrock-key-1", upstream.reqs[0].Header.Get("Authorization"))
+	require.Equal(t, "Bearer upstream-bedrock-key-2", upstream.reqs[1].Header.Get("Authorization"))
+	require.Len(t, repo.cooldowns, 1)
+	require.Equal(t, int64(8601), repo.cooldowns[0].keyID)
+	require.Equal(t, "us.anthropic.claude-sonnet-4-5-20250929-v1:0", repo.cooldowns[0].upstreamModel)
+	require.Equal(t, http.StatusTooManyRequests, repo.cooldowns[0].statusCode)
+	require.Len(t, repo.used, 2)
+	require.True(t, repo.used[0].failed)
+	require.False(t, repo.used[1].failed)
 }
 
 func TestAutoInjectBedrockBetaTokens(t *testing.T) {

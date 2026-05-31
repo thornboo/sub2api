@@ -29,6 +29,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 
 	"github.com/gin-gonic/gin"
@@ -65,8 +66,10 @@ type AccountHandler struct {
 }
 
 type probeModelsRequest struct {
-	BaseURL string `json:"base_url"`
-	APIKey  string `json:"api_key"`
+	BaseURL         string `json:"base_url"`
+	APIKey          string `json:"api_key"`
+	AccountID       *int64 `json:"account_id,omitempty"`
+	AccountAPIKeyID *int64 `json:"account_api_key_id,omitempty"`
 }
 
 type probeModelsResponse struct {
@@ -79,7 +82,10 @@ type openAIModelsResponse struct {
 	} `json:"data"`
 }
 
-const probeModelsResponseLimit = 256 << 10
+const (
+	probeModelsResponseLimit  = 256 << 10
+	probeModelsErrorBodyLimit = 4 << 10
+)
 
 // NewAccountHandler creates a new admin account handler
 func NewAccountHandler(
@@ -116,41 +122,43 @@ func NewAccountHandler(
 
 // CreateAccountRequest represents create account request
 type CreateAccountRequest struct {
-	Name                    string         `json:"name" binding:"required"`
-	Notes                   *string        `json:"notes"`
-	Platform                string         `json:"platform" binding:"required"`
-	Type                    string         `json:"type" binding:"required,oneof=oauth setup-token apikey upstream bedrock service_account"`
-	Credentials             map[string]any `json:"credentials" binding:"required"`
-	Extra                   map[string]any `json:"extra"`
-	ProxyID                 *int64         `json:"proxy_id"`
-	Concurrency             int            `json:"concurrency"`
-	Priority                int            `json:"priority"`
-	RateMultiplier          *float64       `json:"rate_multiplier"`
-	LoadFactor              *int           `json:"load_factor"`
-	GroupIDs                []int64        `json:"group_ids"`
-	ExpiresAt               *int64         `json:"expires_at"`
-	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
-	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
+	Name                    string                       `json:"name" binding:"required"`
+	Notes                   *string                      `json:"notes"`
+	Platform                string                       `json:"platform" binding:"required"`
+	Type                    string                       `json:"type" binding:"required,oneof=oauth setup-token apikey upstream bedrock service_account"`
+	Credentials             map[string]any               `json:"credentials" binding:"required"`
+	Extra                   map[string]any               `json:"extra"`
+	ProxyID                 *int64                       `json:"proxy_id"`
+	Concurrency             int                          `json:"concurrency"`
+	Priority                int                          `json:"priority"`
+	RateMultiplier          *float64                     `json:"rate_multiplier"`
+	LoadFactor              *int                         `json:"load_factor"`
+	GroupIDs                []int64                      `json:"group_ids"`
+	ExpiresAt               *int64                       `json:"expires_at"`
+	AutoPauseOnExpired      *bool                        `json:"auto_pause_on_expired"`
+	APIKeys                 []service.AccountAPIKeyInput `json:"api_keys"`
+	ConfirmMixedChannelRisk *bool                        `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
 }
 
 // UpdateAccountRequest represents update account request
 // 使用指针类型来区分"未提供"和"设置为0"
 type UpdateAccountRequest struct {
-	Name                    string         `json:"name"`
-	Notes                   *string        `json:"notes"`
-	Type                    string         `json:"type" binding:"omitempty,oneof=oauth setup-token apikey upstream bedrock service_account"`
-	Credentials             map[string]any `json:"credentials"`
-	Extra                   map[string]any `json:"extra"`
-	ProxyID                 *int64         `json:"proxy_id"`
-	Concurrency             *int           `json:"concurrency"`
-	Priority                *int           `json:"priority"`
-	RateMultiplier          *float64       `json:"rate_multiplier"`
-	LoadFactor              *int           `json:"load_factor"`
-	Status                  string         `json:"status" binding:"omitempty,oneof=active inactive error"`
-	GroupIDs                *[]int64       `json:"group_ids"`
-	ExpiresAt               *int64         `json:"expires_at"`
-	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
-	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
+	Name                    string                        `json:"name"`
+	Notes                   *string                       `json:"notes"`
+	Type                    string                        `json:"type" binding:"omitempty,oneof=oauth setup-token apikey upstream bedrock service_account"`
+	Credentials             map[string]any                `json:"credentials"`
+	Extra                   map[string]any                `json:"extra"`
+	ProxyID                 *int64                        `json:"proxy_id"`
+	Concurrency             *int                          `json:"concurrency"`
+	Priority                *int                          `json:"priority"`
+	RateMultiplier          *float64                      `json:"rate_multiplier"`
+	LoadFactor              *int                          `json:"load_factor"`
+	Status                  string                        `json:"status" binding:"omitempty,oneof=active inactive error"`
+	GroupIDs                *[]int64                      `json:"group_ids"`
+	ExpiresAt               *int64                        `json:"expires_at"`
+	AutoPauseOnExpired      *bool                         `json:"auto_pause_on_expired"`
+	APIKeys                 *[]service.AccountAPIKeyInput `json:"api_keys"`
+	ConfirmMixedChannelRisk *bool                         `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
 }
 
 // BulkUpdateAccountsRequest represents the payload for bulk editing accounts
@@ -569,6 +577,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 			GroupIDs:              req.GroupIDs,
 			ExpiresAt:             req.ExpiresAt,
 			AutoPauseOnExpired:    req.AutoPauseOnExpired,
+			APIKeys:               req.APIKeys,
 			SkipMixedChannelCheck: skipCheck,
 		})
 		if execErr != nil {
@@ -648,6 +657,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		GroupIDs:              req.GroupIDs,
 		ExpiresAt:             req.ExpiresAt,
 		AutoPauseOnExpired:    req.AutoPauseOnExpired,
+		APIKeys:               req.APIKeys,
 		SkipMixedChannelCheck: skipCheck,
 	})
 	if err != nil {
@@ -1984,32 +1994,34 @@ func (h *AccountHandler) ProbeModels(c *gin.Context) {
 		AllowPrivate: false,
 	})
 	if err != nil {
-		response.BadRequest(c, "Invalid base URL")
+		h.logProbeModelsFailure(c, req, "invalid_base_url", 0, "")
+		response.BadRequest(c, "Invalid base URL: use a public HTTPS upstream Base URL")
 		return
 	}
 
-	apiKey := strings.TrimSpace(req.APIKey)
-	if apiKey == "" {
-		response.BadRequest(c, "API key is required")
+	apiKey, err := h.resolveProbeModelsAPIKey(c.Request.Context(), req)
+	if err != nil {
+		h.logProbeModelsFailure(c, req, "missing_api_key", 0, "")
+		response.BadRequest(c, "API key is required: save the account key first or enter a key in this row")
 		return
 	}
 
 	endpoint := buildProbeModelsEndpoint(baseURL)
 	if err := validateProbeModelsEndpoint(endpoint); err != nil {
-		response.BadRequest(c, "Invalid base URL")
+		h.logProbeModelsFailure(c, req, "unsafe_or_unresolvable_base_url", 0, err.Error())
+		response.BadRequest(c, "Invalid base URL: host is private, blocked, or cannot be resolved")
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	httpReq, err := newProbeModelsHTTPRequest(ctx, endpoint, apiKey)
 	if err != nil {
+		h.logProbeModelsFailure(c, req, "build_request_failed", 0, err.Error())
 		response.BadRequest(c, "Failed to fetch supported models")
 		return
 	}
-	httpReq.Header.Set("Accept", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 
 	client, err := httpclient.GetClient(httpclient.Options{
 		Timeout:               10 * time.Second,
@@ -2019,24 +2031,29 @@ func (h *AccountHandler) ProbeModels(c *gin.Context) {
 		MaxConnsPerHost:       2,
 	})
 	if err != nil {
+		h.logProbeModelsFailure(c, req, "client_init_failed", 0, err.Error())
 		response.BadRequest(c, "Failed to fetch supported models")
 		return
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		response.BadRequest(c, "Failed to fetch supported models")
+		h.logProbeModelsFailure(c, req, "request_failed", 0, err.Error())
+		response.BadRequest(c, "Failed to fetch supported models: upstream request failed")
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		response.BadRequest(c, "Failed to fetch supported models")
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, probeModelsErrorBodyLimit))
+		h.logProbeModelsFailure(c, req, "upstream_non_2xx", resp.StatusCode, string(body))
+		response.BadRequest(c, probeModelsUpstreamStatusMessage(resp.StatusCode))
 		return
 	}
 
 	var payload openAIModelsResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, probeModelsResponseLimit)).Decode(&payload); err != nil {
-		response.BadRequest(c, "Failed to parse supported models")
+		h.logProbeModelsFailure(c, req, "parse_failed", resp.StatusCode, err.Error())
+		response.BadRequest(c, "Failed to parse supported models: upstream did not return an OpenAI-compatible models response")
 		return
 	}
 
@@ -2055,6 +2072,81 @@ func (h *AccountHandler) ProbeModels(c *gin.Context) {
 	}
 
 	response.Success(c, probeModelsResponse{Models: models})
+}
+
+func newProbeModelsHTTPRequest(ctx context.Context, endpoint string, apiKey string) (*http.Request, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Accept", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	// Many second-layer relays expose OpenAI-compatible /v1/models but still accept
+	// upstream keys through Anthropic-style headers. Sending both keeps probing
+	// compatible with those relays while the request is still limited to the
+	// administrator-configured upstream URL.
+	httpReq.Header.Set("X-Api-Key", apiKey)
+	return httpReq, nil
+}
+
+func probeModelsUpstreamStatusMessage(statusCode int) string {
+	return fmt.Sprintf("Failed to fetch supported models: upstream /v1/models returned HTTP %d", statusCode)
+}
+
+func (h *AccountHandler) logProbeModelsFailure(c *gin.Context, req probeModelsRequest, reason string, upstreamStatus int, detail string) {
+	baseURL := strings.TrimSpace(req.BaseURL)
+	endpointHost := ""
+	endpointPath := ""
+	if parsed, err := url.Parse(baseURL); err == nil && parsed != nil {
+		endpointHost = parsed.Hostname()
+		endpointPath = strings.TrimRight(parsed.EscapedPath(), "/")
+	}
+	if endpointPath == "" {
+		endpointPath = "/"
+	}
+	safeDetail := logredact.RedactText(detail, "api_key", "key", "authorization", "x-api-key")
+	if len(safeDetail) > 500 {
+		safeDetail = safeDetail[:500]
+	}
+	slog.WarnContext(c.Request.Context(), "probe models failed",
+		"reason", reason,
+		"upstream_status", upstreamStatus,
+		"base_url_host", endpointHost,
+		"base_url_path", endpointPath,
+		"account_id", int64ValueForLog(req.AccountID),
+		"account_api_key_id", int64ValueForLog(req.AccountAPIKeyID),
+		"request_has_inline_key", strings.TrimSpace(req.APIKey) != "",
+		"detail", safeDetail,
+	)
+}
+
+func int64ValueForLog(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+func (h *AccountHandler) resolveProbeModelsAPIKey(ctx context.Context, req probeModelsRequest) (string, error) {
+	if apiKey := strings.TrimSpace(req.APIKey); apiKey != "" {
+		return apiKey, nil
+	}
+	if req.AccountID == nil || req.AccountAPIKeyID == nil || *req.AccountID <= 0 || *req.AccountAPIKeyID <= 0 {
+		return "", errors.New("api key is required")
+	}
+	account, err := h.adminService.GetAccount(ctx, *req.AccountID)
+	if err != nil || account == nil || account.ID != *req.AccountID {
+		return "", errors.New("api key is required")
+	}
+	for _, key := range account.APIKeys {
+		if key.ID == *req.AccountAPIKeyID {
+			if apiKey := strings.TrimSpace(key.APIKey); apiKey != "" {
+				return apiKey, nil
+			}
+			break
+		}
+	}
+	return "", errors.New("api key is required")
 }
 
 func buildProbeModelsEndpoint(baseURL string) string {

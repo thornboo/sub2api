@@ -364,6 +364,7 @@ type OpenAIGatewayService struct {
 	codexSnapshotThrottle               *accountWriteThrottle
 	openaiCompatSessionResponses        sync.Map
 	openaiCompatAnthropicDigestSessions sync.Map
+	disableAccountFailoverSideEffects   bool
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
@@ -2284,7 +2285,71 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
 }
 
+func (s *OpenAIGatewayService) forwardOpenAIAPIKeyPool(ctx context.Context, c *gin.Context, account *Account, body []byte, requestedModel string) (*OpenAIForwardResult, error) {
+	accountUpstreamModel := resolveOpenAIForwardModel(account, requestedModel, "")
+	if accountUpstreamModel == "" {
+		accountUpstreamModel = requestedModel
+	}
+	if isOpenAIResponsesCompactPath(c) {
+		accountUpstreamModel = resolveOpenAICompactForwardModel(account, accountUpstreamModel)
+	}
+	keySelections := account.EffectiveAPIKeySelectionsForRequest(requestedModel, accountUpstreamModel, time.Now())
+	if len(keySelections) == 0 {
+		return nil, &UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable, ResponseBody: []byte(`{"error":{"message":"no available upstream key for model","type":"service_unavailable"}}`)}
+	}
+
+	var lastFailoverErr *UpstreamFailoverError
+	for i := range keySelections {
+		selection := keySelections[i]
+		key := selection.Key
+		keyAccount := cloneOpenAIAccountForAPIKeySelection(account, key, requestedModel, selection.UpstreamModel)
+		keyService := *s
+		keyService.rateLimitService = nil
+		keyService.disableAccountFailoverSideEffects = true
+		if c != nil {
+			delete(c.Keys, OpenAIParsedRequestBodyKey)
+		}
+
+		result, err := keyService.Forward(ctx, c, keyAccount, body)
+		if err == nil {
+			s.markAccountAPIKeyUsed(ctx, key.ID, false)
+			if result != nil {
+				result.Model = requestedModel
+				result.UpstreamModel = selection.UpstreamModel
+			}
+			return result, nil
+		}
+		var failoverErr *UpstreamFailoverError
+		if errors.As(err, &failoverErr) {
+			lastFailoverErr = failoverErr
+			s.cooldownAccountAPIKeyModel(ctx, key.ID, selection.UpstreamModel, failoverErr.StatusCode, failoverErr.ResponseBody)
+			s.markAccountAPIKeyUsed(ctx, key.ID, true)
+			continue
+		}
+		return nil, err
+	}
+	if lastFailoverErr != nil {
+		return nil, lastFailoverErr
+	}
+	return nil, &UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable, ResponseBody: []byte(`{"error":{"message":"all upstream keys failed","type":"service_unavailable"}}`)}
+}
+
+func cloneOpenAIAccountForAPIKeySelection(account *Account, key AccountAPIKey, requestedModel string, upstreamModel string) *Account {
+	if account == nil {
+		return nil
+	}
+	clone := *account
+	clone.APIKeys = nil
+	clone.Credentials = cloneMapAny(account.Credentials)
+	clone.Credentials["api_key"] = key.APIKey
+	clone.Credentials["model_mapping"] = map[string]any{requestedModel: upstreamModel}
+	return &clone
+}
+
 func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account, requestedModel ...string) {
+	if s.disableAccountFailoverSideEffects || s.rateLimitService == nil {
+		return
+	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if len(requestedModel) > 0 {
 		s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, requestedModel[0])
@@ -2360,6 +2425,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		// 透传分支只需要轻量提取字段，避免热路径全量 Unmarshal。
 		reasoningEffort := extractOpenAIReasoningEffortFromBody(body, reqModel)
 		return s.forwardOpenAIPassthrough(ctx, c, account, originalBody, reqModel, reasoningEffort, reqStream, startTime)
+	}
+	if account.Type == AccountTypeAPIKey && account.HasAccountAPIKeyPool() {
+		return s.forwardOpenAIAPIKeyPool(ctx, c, account, originalBody, reqModel)
 	}
 
 	reqBody, err := getOpenAIRequestBodyMap(c, body)
@@ -2987,6 +3055,16 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 			return wsResult, nil
 		}
+		if s.disableAccountFailoverSideEffects && c != nil && c.Writer != nil && !c.Writer.Written() {
+			statusCode, _, _, upstreamMessage, ok := resolveOpenAIWSFallbackErrorResponse(wsErr)
+			if !ok || statusCode == 0 {
+				statusCode = http.StatusBadGateway
+			}
+			if strings.TrimSpace(upstreamMessage) == "" {
+				upstreamMessage = strings.TrimSpace(wsErr.Error())
+			}
+			return nil, &UpstreamFailoverError{StatusCode: statusCode, ResponseBody: []byte(fmt.Sprintf(`{"error":{"message":%q,"type":"upstream_error"}}`, sanitizeUpstreamErrorMessage(upstreamMessage)))}
+		}
 		s.writeOpenAIWSFallbackErrorResponse(c, account, wsErr)
 		return nil, wsErr
 	}
@@ -3014,6 +3092,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		if err != nil {
 			// Ensure the client receives an error response (handlers assume Forward writes on non-failover errors).
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
+			if s.disableAccountFailoverSideEffects {
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: []byte(fmt.Sprintf(`{"error":{"message":%q,"type":"upstream_error"}}`, safeErr))}
+			}
 			setOpsUpstreamError(c, 0, safeErr, "")
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
@@ -3146,6 +3227,18 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 }
 
+type openaiPassthroughForwardInput struct {
+	Body              []byte
+	OriginalModel     string
+	RequestModel      string
+	ReasoningEffort   *string
+	Stream            bool
+	StartTime         time.Time
+	ImageBillingModel string
+	ImageSizeTier     string
+	ImageInputSize    string
+}
+
 func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	ctx context.Context,
 	c *gin.Context,
@@ -3156,16 +3249,23 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	reqStream bool,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
-	upstreamPassthroughModel := ""
+	requestModel := reqModel
+	if account != nil && account.Type == AccountTypeAPIKey {
+		mappedModel := resolveOpenAIForwardModel(account, reqModel, "")
+		if mappedModel != "" && mappedModel != requestModel {
+			body = ReplaceModelInBody(body, mappedModel)
+			requestModel = mappedModel
+		}
+	}
 	if isOpenAIResponsesCompactPath(c) {
-		compactMappedModel := resolveOpenAICompactForwardModel(account, reqModel)
-		if compactMappedModel != "" && compactMappedModel != reqModel {
+		compactMappedModel := resolveOpenAICompactForwardModel(account, requestModel)
+		if compactMappedModel != "" && compactMappedModel != requestModel {
 			nextBody, setErr := sjson.SetBytes(body, "model", compactMappedModel)
 			if setErr != nil {
 				return nil, fmt.Errorf("set compact passthrough model: %w", setErr)
 			}
 			body = nextBody
-			upstreamPassthroughModel = compactMappedModel
+			requestModel = compactMappedModel
 		}
 	}
 
@@ -3253,15 +3353,6 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		imageSizeTier = imageCfg.SizeTier
 		imageInputSize = imageCfg.InputSize
 	}
-
-	logger.LegacyPrintf("service.openai_gateway",
-		"[OpenAI 自动透传] 命中自动透传分支: account=%d name=%s type=%s model=%s stream=%v",
-		account.ID,
-		account.Name,
-		account.Type,
-		reqModel,
-		reqStream,
-	)
 	if reqStream && c != nil && c.Request != nil {
 		if timeoutHeaders := collectOpenAIPassthroughTimeoutHeaders(c.Request.Header); len(timeoutHeaders) > 0 {
 			streamWarnLogger := logger.FromContext(ctx).With(
@@ -3277,14 +3368,114 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		}
 	}
 
-	// Get access token
-	token, _, err := s.GetAccessToken(ctx, account)
+	return s.forwardOpenAIPassthroughWithInput(ctx, c, account, openaiPassthroughForwardInput{
+		Body:              body,
+		OriginalModel:     reqModel,
+		RequestModel:      requestModel,
+		ReasoningEffort:   reasoningEffort,
+		Stream:            reqStream,
+		StartTime:         startTime,
+		ImageBillingModel: imageBillingModel,
+		ImageSizeTier:     imageSizeTier,
+		ImageInputSize:    imageInputSize,
+	})
+}
+
+func (s *OpenAIGatewayService) forwardOpenAIPassthroughWithInput(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	input openaiPassthroughForwardInput,
+) (*OpenAIForwardResult, error) {
+	if account != nil && account.Type == AccountTypeAPIKey && account.HasAccountAPIKeyPool() {
+		keySelections := account.EffectiveAPIKeySelectionsForRequest(input.OriginalModel, input.RequestModel, time.Now())
+		if len(keySelections) == 0 {
+			return nil, &UpstreamFailoverError{
+				StatusCode:   http.StatusServiceUnavailable,
+				ResponseBody: []byte(`{"error":{"message":"no available upstream key for model","type":"service_unavailable"}}`),
+			}
+		}
+
+		var lastFailoverErr *UpstreamFailoverError
+		for i := range keySelections {
+			selection := keySelections[i]
+			key := selection.Key
+			keyInput := input
+			keyInput.RequestModel = selection.UpstreamModel
+			if selection.UpstreamModel != input.RequestModel {
+				keyInput.Body = ReplaceModelInBody(input.Body, selection.UpstreamModel)
+			}
+
+			result, err := s.forwardOpenAIPassthroughWithToken(ctx, c, account, keyInput, key.APIKey, &key)
+			if err == nil {
+				s.markAccountAPIKeyUsed(ctx, key.ID, false)
+				return result, nil
+			}
+
+			var failoverErr *UpstreamFailoverError
+			if errors.As(err, &failoverErr) {
+				lastFailoverErr = failoverErr
+				s.cooldownAccountAPIKeyModel(ctx, key.ID, keyInput.RequestModel, failoverErr.StatusCode, failoverErr.ResponseBody)
+				s.markAccountAPIKeyUsed(ctx, key.ID, true)
+				continue
+			}
+			return nil, err
+		}
+		if lastFailoverErr != nil {
+			return nil, lastFailoverErr
+		}
+		return nil, &UpstreamFailoverError{
+			StatusCode:   http.StatusServiceUnavailable,
+			ResponseBody: []byte(`{"error":{"message":"all upstream keys failed","type":"service_unavailable"}}`),
+		}
+	}
+
+	token, tokenType, err := s.GetAccessToken(ctx, account)
 	if err != nil {
 		return nil, err
 	}
+	if account != nil && account.Type == AccountTypeAPIKey && tokenType != "apikey" {
+		return nil, fmt.Errorf("openai api key passthrough requires apikey token, got: %s", tokenType)
+	}
+	return s.forwardOpenAIPassthroughWithToken(ctx, c, account, input, token, nil)
+}
+
+func (s *OpenAIGatewayService) forwardOpenAIPassthroughWithToken(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	input openaiPassthroughForwardInput,
+	apiKey string,
+	selectedKey *AccountAPIKey,
+) (*OpenAIForwardResult, error) {
+	upstreamPassthroughModel := ""
+	if strings.TrimSpace(input.RequestModel) != "" && strings.TrimSpace(input.RequestModel) != strings.TrimSpace(input.OriginalModel) {
+		upstreamPassthroughModel = input.RequestModel
+	}
+
+	logger.LegacyPrintf("service.openai_gateway",
+		"[OpenAI 自动透传] 命中自动透传分支: account=%d name=%s type=%s key=%d key_name=%s model=%s stream=%v",
+		account.ID,
+		account.Name,
+		account.Type,
+		func() int64 {
+			if selectedKey == nil {
+				return 0
+			}
+			return selectedKey.ID
+		}(),
+		func() string {
+			if selectedKey == nil {
+				return ""
+			}
+			return selectedKey.Name
+		}(),
+		input.RequestModel,
+		input.Stream,
+	)
 
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
-	upstreamReq, err := s.buildUpstreamRequestOpenAIPassthrough(upstreamCtx, c, account, body, token)
+	upstreamReq, err := s.buildUpstreamRequestOpenAIPassthrough(upstreamCtx, c, account, input.Body, apiKey)
 	releaseUpstreamCtx()
 	if err != nil {
 		return nil, err
@@ -3295,6 +3486,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		proxyURL = account.Proxy.URL()
 	}
 
+	setOpsUpstreamRequestBody(c, input.Body)
 	if c != nil {
 		c.Set("openai_passthrough", true)
 	}
@@ -3314,6 +3506,12 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			Kind:               "request_error",
 			Message:            safeErr,
 		})
+		if selectedKey != nil && selectedKey.ID > 0 {
+			return nil, &UpstreamFailoverError{
+				StatusCode:   http.StatusBadGateway,
+				ResponseBody: []byte(`{"error":{"message":"upstream request failed","type":"upstream_error"}}`),
+			}
+		}
 		c.JSON(http.StatusBadGateway, gin.H{
 			"error": gin.H{
 				"type":    "upstream_error",
@@ -3325,22 +3523,28 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
-		// 透传模式默认保持原样代理；但 429/529 属于网关必须兜底的
-		// 上游容量类错误，应先触发多账号 failover 以维持基础 SLA。
-		if shouldFailoverOpenAIPassthroughResponse(resp.StatusCode) {
-			return nil, s.handleFailoverErrorResponsePassthrough(ctx, resp, c, account, body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		resp.Body = io.NopCloser(bytes.NewReader(respBody))
+		if shouldFailover, failoverStatusCode := s.shouldFailoverOpenAIPassthroughResponse(resp.StatusCode, respBody); shouldFailover {
+			if selectedKey != nil && selectedKey.ID > 0 {
+				s.recordOpenAIPassthroughSelectedKeyFailover(c, account, selectedKey, resp, respBody)
+				return nil, &UpstreamFailoverError{
+					StatusCode:      failoverStatusCode,
+					ResponseBody:    respBody,
+					ResponseHeaders: resp.Header.Clone(),
+				}
+			}
+			return nil, s.handleFailoverErrorResponsePassthrough(ctx, resp, c, account, input.Body)
 		}
-		return nil, s.handleErrorResponsePassthrough(ctx, resp, c, account, body)
+		return nil, s.handleErrorResponsePassthrough(ctx, resp, c, account, input.Body)
 	}
-
-	serviceTier := extractOpenAIServiceTierFromBody(body)
 
 	var usage *OpenAIUsage
 	var firstTokenMs *int
 	imageCount := 0
 	var imageOutputSizes []string
-	if reqStream {
-		result, err := s.handleStreamingResponsePassthrough(ctx, resp, c, account, startTime, reqModel, upstreamPassthroughModel)
+	if input.Stream {
+		result, err := s.handleStreamingResponsePassthrough(ctx, resp, c, account, input.StartTime, input.OriginalModel, upstreamPassthroughModel)
 		if err != nil {
 			return nil, err
 		}
@@ -3349,7 +3553,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		imageCount = result.imageCount
 		imageOutputSizes = result.imageOutputSizes
 	} else {
-		result, err := s.handleNonStreamingResponsePassthrough(ctx, resp, c, reqModel, upstreamPassthroughModel)
+		result, err := s.handleNonStreamingResponsePassthrough(ctx, resp, c, input.OriginalModel, upstreamPassthroughModel)
 		if err != nil {
 			return nil, err
 		}
@@ -3369,21 +3573,21 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	forwardResult := &OpenAIForwardResult{
 		RequestID:       resp.Header.Get("x-request-id"),
 		Usage:           *usage,
-		Model:           reqModel,
+		Model:           input.OriginalModel,
 		UpstreamModel:   upstreamPassthroughModel,
-		ServiceTier:     serviceTier,
-		ReasoningEffort: reasoningEffort,
-		Stream:          reqStream,
+		ServiceTier:     extractOpenAIServiceTierFromBody(input.Body),
+		ReasoningEffort: input.ReasoningEffort,
+		Stream:          input.Stream,
 		OpenAIWSMode:    false,
-		Duration:        time.Since(startTime),
+		Duration:        time.Since(input.StartTime),
 		FirstTokenMs:    firstTokenMs,
 	}
 	if imageCount > 0 {
 		forwardResult.ImageCount = imageCount
-		forwardResult.ImageSize = imageSizeTier
-		forwardResult.ImageInputSize = imageInputSize
+		forwardResult.ImageSize = input.ImageSizeTier
+		forwardResult.ImageInputSize = input.ImageInputSize
 		forwardResult.ImageOutputSizes = imageOutputSizes
-		forwardResult.BillingModel = imageBillingModel
+		forwardResult.BillingModel = input.ImageBillingModel
 	}
 	return forwardResult, nil
 }
@@ -3535,12 +3739,111 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	return req, nil
 }
 
-func shouldFailoverOpenAIPassthroughResponse(statusCode int) bool {
+func (s *OpenAIGatewayService) shouldFailoverOpenAIPassthroughResponse(statusCode int, body []byte) (bool, int) {
 	switch statusCode {
-	case http.StatusTooManyRequests, 529:
-		return true
+	case http.StatusUnauthorized, http.StatusTooManyRequests, 529:
+		return true, statusCode
 	default:
+		if statusCode >= 500 && statusCode < 600 {
+			return true, statusCode
+		}
+		return shouldFailoverOpenAIPassthroughBadRequest(statusCode, body), statusCode
+	}
+}
+
+func shouldFailoverOpenAIPassthroughBadRequest(statusCode int, body []byte) bool {
+	if statusCode != http.StatusBadRequest {
 		return false
+	}
+	message := strings.ToLower(extractUpstreamErrorMessage(body))
+	raw := strings.ToLower(string(body))
+	haystack := message + "\n" + raw
+	keywords := []string{
+		"model not found",
+		"model_not_found",
+		"model_not_supported",
+		"model not supported",
+		"does not support model",
+		"not available for this key",
+		"not enabled for this key",
+		"access denied",
+		"insufficient quota",
+		"insufficient_quota",
+		"rate_limit_exceeded",
+		"please use the official client",
+		"official client",
+		"cch_session_id",
+	}
+	for _, keyword := range keywords {
+		if strings.Contains(haystack, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *OpenAIGatewayService) recordOpenAIPassthroughSelectedKeyFailover(c *gin.Context, account *Account, selectedKey *AccountAPIKey, resp *http.Response, body []byte) {
+	if account == nil || selectedKey == nil || resp == nil {
+		return
+	}
+	upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(body)))
+	upstreamDetail := ""
+	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+		maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
+		if maxBytes <= 0 {
+			maxBytes = 2048
+		}
+		upstreamDetail = truncateString(string(body), maxBytes)
+	}
+	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Platform:             account.Platform,
+		AccountID:            account.ID,
+		AccountName:          account.Name,
+		UpstreamStatusCode:   resp.StatusCode,
+		UpstreamRequestID:    resp.Header.Get("x-request-id"),
+		Passthrough:          true,
+		Kind:                 "key_model_failover",
+		Message:              upstreamMsg,
+		Detail:               upstreamDetail,
+		UpstreamResponseBody: upstreamDetail,
+	})
+	logger.LegacyPrintf("service.openai_gateway", "[OpenAI Passthrough] key/model failover: account=%d(%s) key=%d(%s) status=%d request_id=%s body=%s",
+		account.ID, account.Name, selectedKey.ID, selectedKey.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(body), 1000))
+}
+
+func (s *OpenAIGatewayService) cooldownAccountAPIKeyModel(ctx context.Context, keyID int64, upstreamModel string, statusCode int, respBody []byte) {
+	if keyID <= 0 {
+		return
+	}
+	repo, ok := s.accountRepo.(AccountAPIKeyRuntimeRepository)
+	if !ok {
+		return
+	}
+	resetAt := time.Now().Add(accountAPIKeyCooldownDuration(statusCode))
+	reason := "upstream_key_model_failure"
+	if statusCode == http.StatusTooManyRequests {
+		reason = "upstream_rate_limited"
+	} else if statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden {
+		reason = "upstream_authorization_unavailable"
+	} else if statusCode >= 500 || statusCode == 529 {
+		reason = "upstream_transient_error"
+	}
+	if err := repo.SetAccountAPIKeyModelCooldown(ctx, keyID, upstreamModel, resetAt, reason, statusCode, extractUpstreamErrorMessage(respBody)); err != nil {
+		slog.Warn("openai_account_api_key_model_cooldown_failed", "key_id", keyID, "model", upstreamModel, "status_code", statusCode, "error", err)
+	}
+}
+
+func (s *OpenAIGatewayService) markAccountAPIKeyUsed(ctx context.Context, keyID int64, failed bool) {
+	if keyID <= 0 {
+		return
+	}
+	repo, ok := s.accountRepo.(AccountAPIKeyRuntimeRepository)
+	if !ok {
+		return
+	}
+	if err := repo.MarkAccountAPIKeyUsed(ctx, keyID, time.Now(), failed); err != nil {
+		slog.Warn("openai_account_api_key_mark_used_failed", "key_id", keyID, "failed", failed, "error", err)
 	}
 }
 

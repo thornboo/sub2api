@@ -2460,6 +2460,41 @@ func (s *AntigravityGatewayService) shouldFailoverUpstreamError(statusCode int) 
 	}
 }
 
+func (s *AntigravityGatewayService) cooldownAccountAPIKeyModel(ctx context.Context, keyID int64, upstreamModel string, statusCode int, respBody []byte) {
+	if keyID <= 0 {
+		return
+	}
+	repo, ok := s.accountRepo.(AccountAPIKeyRuntimeRepository)
+	if !ok {
+		return
+	}
+	resetAt := time.Now().Add(accountAPIKeyCooldownDuration(statusCode))
+	reason := "upstream_key_model_failure"
+	if statusCode == http.StatusTooManyRequests {
+		reason = "upstream_rate_limited"
+	} else if statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden {
+		reason = "upstream_authorization_unavailable"
+	} else if statusCode >= 500 || statusCode == 529 {
+		reason = "upstream_transient_error"
+	}
+	if err := repo.SetAccountAPIKeyModelCooldown(ctx, keyID, upstreamModel, resetAt, reason, statusCode, extractUpstreamErrorMessage(respBody)); err != nil {
+		logger.LegacyPrintf("service.antigravity_gateway", "Antigravity account_api_key_model_cooldown_failed key=%d model=%s status=%d error=%v", keyID, upstreamModel, statusCode, err)
+	}
+}
+
+func (s *AntigravityGatewayService) markAccountAPIKeyUsed(ctx context.Context, keyID int64, failed bool) {
+	if keyID <= 0 {
+		return
+	}
+	repo, ok := s.accountRepo.(AccountAPIKeyRuntimeRepository)
+	if !ok {
+		return
+	}
+	if err := repo.MarkAccountAPIKeyUsed(ctx, keyID, time.Now(), failed); err != nil {
+		logger.LegacyPrintf("service.antigravity_gateway", "Antigravity account_api_key_mark_used_failed key=%d failed=%v error=%v", keyID, failed, err)
+	}
+}
+
 // isGoogleProjectConfigError 判断（已提取的小写）错误消息是否属于 Google 服务端配置类问题。
 // 只精确匹配已知的服务端侧错误，避免对客户端请求错误做无意义重试。
 // 适用于所有走 Google 后端的平台（Antigravity、Gemini）。
@@ -4190,9 +4225,8 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 
 	// 获取上游配置
 	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
-	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
-	if baseURL == "" || apiKey == "" {
-		return nil, fmt.Errorf("upstream account missing base_url or api_key")
+	if baseURL == "" {
+		return nil, fmt.Errorf("upstream account missing base_url")
 	}
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
@@ -4205,6 +4239,79 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 		return nil, fmt.Errorf("missing model")
 	}
 	originalModel := claudeReq.Model
+	upstreamModel := originalModel
+	requestStream := claudeReq.Stream
+
+	if account.HasAccountAPIKeyPool() {
+		return s.forwardAntigravityUpstreamAPIKeyPool(ctx, c, account, body, baseURL, originalModel, requestStream, startTime, prefix)
+	}
+
+	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
+	if apiKey == "" {
+		return nil, fmt.Errorf("upstream account missing api_key")
+	}
+	return s.forwardAntigravityUpstreamWithToken(ctx, c, account, body, baseURL, apiKey, originalModel, upstreamModel, requestStream, startTime, prefix, false)
+}
+
+func (s *AntigravityGatewayService) forwardAntigravityUpstreamAPIKeyPool(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	baseURL string,
+	originalModel string,
+	requestStream bool,
+	startTime time.Time,
+	prefix string,
+) (*ForwardResult, error) {
+	keySelections := account.EffectiveAPIKeySelectionsForRequest(originalModel, originalModel, time.Now())
+	if len(keySelections) == 0 {
+		return nil, &UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable, ResponseBody: []byte(`{"error":{"message":"no available upstream key for model","type":"service_unavailable"}}`)}
+	}
+
+	var lastFailoverErr *UpstreamFailoverError
+	for i := range keySelections {
+		selection := keySelections[i]
+		key := selection.Key
+		keyBody := body
+		if selection.UpstreamModel != originalModel {
+			keyBody = ReplaceModelInBody(body, selection.UpstreamModel)
+		}
+
+		result, err := s.forwardAntigravityUpstreamWithToken(ctx, c, account, keyBody, baseURL, key.APIKey, originalModel, selection.UpstreamModel, requestStream, startTime, prefix, true)
+		if err == nil {
+			s.markAccountAPIKeyUsed(ctx, key.ID, false)
+			return result, nil
+		}
+		var failoverErr *UpstreamFailoverError
+		if errors.As(err, &failoverErr) {
+			lastFailoverErr = failoverErr
+			s.cooldownAccountAPIKeyModel(ctx, key.ID, selection.UpstreamModel, failoverErr.StatusCode, failoverErr.ResponseBody)
+			s.markAccountAPIKeyUsed(ctx, key.ID, true)
+			continue
+		}
+		return nil, err
+	}
+	if lastFailoverErr != nil {
+		return nil, lastFailoverErr
+	}
+	return nil, &UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable, ResponseBody: []byte(`{"error":{"message":"all upstream keys failed","type":"service_unavailable"}}`)}
+}
+
+func (s *AntigravityGatewayService) forwardAntigravityUpstreamWithToken(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	baseURL string,
+	apiKey string,
+	originalModel string,
+	upstreamModel string,
+	requestStream bool,
+	startTime time.Time,
+	prefix string,
+	failoverOnUpstreamError bool,
+) (*ForwardResult, error) {
 
 	// 构建上游请求 URL
 	upstreamURL := baseURL + "/v1/messages"
@@ -4246,6 +4353,10 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
 		logger.LegacyPrintf("service.antigravity_gateway", "%s upstream request failed: %v", prefix, err)
+		if failoverOnUpstreamError {
+			safeErr := sanitizeUpstreamErrorMessage(err.Error())
+			return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: []byte(fmt.Sprintf(`{"error":{"message":%q,"type":"upstream_error"}}`, safeErr))}
+		}
 		return nil, fmt.Errorf("upstream request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -4253,6 +4364,9 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 	// 处理错误响应
 	if resp.StatusCode >= 400 {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		if failoverOnUpstreamError && s.shouldFailoverUpstreamError(resp.StatusCode) {
+			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody}
+		}
 
 		// 429 错误时标记账号限流
 		if resp.StatusCode == http.StatusTooManyRequests {
@@ -4265,7 +4379,8 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 		_, _ = c.Writer.Write(respBody)
 
 		return &ForwardResult{
-			Model: originalModel,
+			Model:         originalModel,
+			UpstreamModel: upstreamModel,
 		}, nil
 	}
 
@@ -4274,7 +4389,7 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 	var firstTokenMs *int
 	var clientDisconnect bool
 
-	if claudeReq.Stream {
+	if requestStream {
 		// 流式响应：透传
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache")
@@ -4307,7 +4422,8 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 
 	return &ForwardResult{
 		Model:            originalModel,
-		Stream:           claudeReq.Stream,
+		UpstreamModel:    upstreamModel,
+		Stream:           requestStream,
 		Duration:         duration,
 		FirstTokenMs:     firstTokenMs,
 		ClientDisconnect: clientDisconnect,

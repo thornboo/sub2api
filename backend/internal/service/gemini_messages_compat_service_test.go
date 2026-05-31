@@ -19,17 +19,25 @@ import (
 )
 
 type geminiCompatHTTPUpstreamStub struct {
-	response *http.Response
-	err      error
-	calls    int
-	lastReq  *http.Request
+	response  *http.Response
+	responses []*http.Response
+	err       error
+	calls     int
+	lastReq   *http.Request
+	requests  []*http.Request
 }
 
 func (s *geminiCompatHTTPUpstreamStub) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
 	s.calls++
 	s.lastReq = req
+	s.requests = append(s.requests, req)
 	if s.err != nil {
 		return nil, s.err
+	}
+	if len(s.responses) > 0 {
+		resp := s.responses[0]
+		s.responses = s.responses[1:]
+		return resp, nil
 	}
 	if s.response == nil {
 		return nil, fmt.Errorf("missing stub response")
@@ -388,6 +396,61 @@ func TestGeminiMessagesCompatServiceForward_PreservesRequestedModelAndMappedUpst
 	require.Equal(t, 1, httpStub.calls)
 	require.NotNil(t, httpStub.lastReq)
 	require.Contains(t, httpStub.lastReq.URL.String(), "/models/claude-sonnet-4-20250514:")
+}
+
+func TestGeminiMessagesCompatServiceForward_APIKeyPoolFailoverCoolsSelectedKeyModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	httpStub := &geminiCompatHTTPUpstreamStub{
+		responses: []*http.Response{
+			{
+				StatusCode: http.StatusTooManyRequests,
+				Header:     http.Header{"x-request-id": []string{"gemini-key-1"}},
+				Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"rate limited selected key"}}`)),
+			},
+			{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"x-request-id": []string{"gemini-key-2"}},
+				Body:       io.NopCloser(strings.NewReader(`{"candidates":[{"content":{"parts":[{"text":"hello"}]}}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5}}`)),
+			},
+		},
+	}
+	repo := &accountAPIKeyRuntimeRepoRecorder{}
+	svc := &GeminiMessagesCompatService{httpUpstream: httpStub, cfg: &config.Config{}, accountRepo: repo}
+	account := &Account{
+		ID:       77,
+		Platform: PlatformGemini,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key": "legacy-gemini-key",
+			"model_mapping": map[string]any{
+				"claude-sonnet-4": "gemini-account-model",
+			},
+		},
+		APIKeys: []AccountAPIKey{
+			{ID: 7701, AccountID: 77, Name: "gemini-key-1", APIKey: "upstream-gemini-key-1", Priority: 1, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "whitelist", ModelMapping: map[string]string{"gemini-account-model": "gemini-account-model"}},
+			{ID: 7702, AccountID: 77, Name: "gemini-key-2", APIKey: "upstream-gemini-key-2", Priority: 2, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "whitelist", ModelMapping: map[string]string{"gemini-account-model": "gemini-account-model"}},
+		},
+	}
+	body := []byte(`{"model":"claude-sonnet-4","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`)
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "gemini-account-model", result.UpstreamModel)
+	require.Len(t, httpStub.requests, 2)
+	require.Equal(t, "upstream-gemini-key-1", httpStub.requests[0].Header.Get("x-goog-api-key"))
+	require.Equal(t, "upstream-gemini-key-2", httpStub.requests[1].Header.Get("x-goog-api-key"))
+	require.Len(t, repo.cooldowns, 1)
+	require.Equal(t, int64(7701), repo.cooldowns[0].keyID)
+	require.Equal(t, "gemini-account-model", repo.cooldowns[0].upstreamModel)
+	require.Equal(t, http.StatusTooManyRequests, repo.cooldowns[0].statusCode)
+	require.Len(t, repo.used, 2)
+	require.True(t, repo.used[0].failed)
+	require.False(t, repo.used[1].failed)
 }
 
 func TestGeminiMessagesCompatServiceForward_NormalizesWebSearchToolForAIStudio(t *testing.T) {

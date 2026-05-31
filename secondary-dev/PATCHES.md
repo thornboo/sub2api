@@ -1,5 +1,80 @@
 # Patches
 
+## 2026-05-06 - Anthropic Upstream API Key Pool Failover
+
+Scope:
+- `backend/migrations/{135_account_api_key_pool,136_account_api_key_pool_defaults,137_account_api_key_pool_scheduler_indexes_notx}.sql`
+- `backend/internal/service/{account,account_api_key_pool,gateway_service}.go`
+- `backend/internal/repository/{account_repo,account_api_key_pool}.go`
+- `backend/internal/handler/{admin/account_handler,dto/*}.go`
+- `frontend/src/components/account/{CreateAccountModal,EditAccountModal,AccountAPIKeyPoolEditor}.vue`
+- `frontend/src/types/index.ts`
+- `frontend/src/i18n/locales/{zh,en}.ts`
+- `secondary-dev/PLAN.md`
+
+Changes:
+- Added `account_api_keys` and `account_api_key_model_cooldowns` tables so an upstream Anthropic API-key account can manage multiple child keys.
+- Kept the already-applied `135_account_api_key_pool.sql` checksum immutable and moved later key-pool default changes into `136_account_api_key_pool_defaults.sql`.
+- Added key-pool scheduler indexes in a new `137_*_notx.sql` migration, preserving migration immutability while optimizing account/key priority and LRU scheduling queries.
+- Loaded child keys and active key/model cooldowns into account scheduler snapshots.
+- Added account create/edit API support for `api_keys`, preserving existing child key secrets when edit forms leave a key blank.
+- Added repository audit logs for child-key create/update/preserve/delete save paths; log entries include account/key/name metadata only and never include API key values.
+- Added repository regression tests for blank edit secret preservation, deleting all child keys when no valid rows remain, rejecting invalid account IDs, and treating unknown submitted IDs as inserts when a secret is provided.
+- Extended model probing for saved child keys: edit-account probe requests may pass `account_id` and `account_api_key_id`, letting the backend use the stored key secret while keeping the edit form's API Key field blank.
+- Improved child-key supported-model probe diagnostics: backend failures now log sanitized reason/host/account/key context, upstream non-2xx responses include the upstream HTTP status in the returned message, and probe requests send both Bearer and `X-Api-Key` headers for relay compatibility.
+- Updated create/edit/key-pool probe error handling so the admin UI shows the backend-provided reason instead of always replacing it with the generic Base URL / API Key message.
+- Added GoDoc comments to exported key-pool scheduling helpers to document model-level cooldown scope, legacy fallback behavior, and account failover semantics.
+- Added per-child-key model rules: each child key defines its own whitelist or model mapping.
+- In Anthropic API-key passthrough mode, requests now try available child keys in priority + least-recently-used order.
+- Anthropic API-key `count_tokens` passthrough now uses the same child-key pool path as message forwarding, so Claude-compatible clients that preflight token counts use the selected child key instead of the legacy account-level API key.
+- Child keys whose whitelist/mapping does not match the requested model are skipped before any upstream request is made; matching key-level mappings can override the account-level resolved upstream model for that selected key.
+- Upstream failures that mean the selected key/model is unavailable, including relay-specific `cch_session_id` / official-client 400s, cool down only that child key plus the resolved upstream model.
+- If all child keys for the selected account are unavailable, the existing account-level failover path receives `UpstreamFailoverError` and can try the next account.
+- Plain user request 400s, such as missing request fields, do not trigger key failover and continue to return as request errors.
+- Added create/edit account UI for Anthropic upstream child keys, including status, priority, per-key model rules, recent usage counters, and active model cooldown badges.
+- Replaced the old top-level single API Key input for Anthropic API-key accounts with the upstream key pool as the only key input surface.
+- In edit forms, existing child keys are shown without their secret value; leaving the API Key field blank preserves the stored secret instead of requiring re-entry.
+- Required each newly added upstream child key to include a note/name, so operators can record the upstream provider group or purpose for that key.
+- Labeled the child-key priority field and hint directly in the form; lower values are tried first, newly added keys default to priority `1`, and same-priority keys rotate by recent use.
+- Switched the child-key status field to the shared frontend `Select` control for consistent project styling, and limited operator choices to enabled/disabled. Runtime errors remain represented by key/model cooldowns and counters instead of a manual `error` status.
+- Reworked the key-pool editor into a left/right layout where each key owns its model whitelist/mapping; key-level whitelist editing reuses the shared model selector instead of a textarea, and Anthropic API-key accounts no longer show or save the shared account-level model restriction UI.
+- Added key-level probe/manual-add badges so newly added models and models not returned by the latest probe remain visible inside each key row.
+- Added validation that each upstream child key has its own model whitelist or mapping before saving.
+- Clarified `secondary-dev/PLAN.md` that the upstream key-pool scheduler is the target design for all API-key account platforms. Anthropic is only the first platform currently wired through the runtime forwarding path.
+
+Verification:
+- `mise x -C backend -- go test ./internal/service -run 'TestAccountEffectiveAPIKeysForModel|TestAccountEffectiveAPIKey|TestGatewayService_AnthropicAPIKeyPassthrough'`
+- `mise x -C backend -- go test ./internal/repository -run 'TestReplaceAccountAPIKeys|TestIsMigrationChecksumCompatible|TestApplyMigrations|TestLatestMigrationBaseline|TestMigrationChecksumCompatibilityRules'`
+- `mise x -C backend -- go test ./internal/handler/admin -run 'TestAccountHandlerProbeModels|TestBuildProbeModelsEndpoint|TestNewProbeModelsHTTPRequest|TestProbeModelsUpstreamStatusMessage'`
+- `cd frontend && pnpm typecheck`
+- `cd frontend && pnpm lint:check`
+- `git diff --check`
+
+## 2026-05-07 - Platform-Wide API Key Pool Forwarding
+
+Scope:
+- `backend/internal/service/{gateway_service,openai_gateway_service,openai_images,gemini_messages_compat_service,antigravity_gateway_service}.go`
+- `backend/internal/service/*apikey*pool*_test.go`
+- `backend/internal/service/{gateway_anthropic_apikey_passthrough,bedrock_request,openai_images,gemini_messages_compat_service,antigravity_gateway_service}_test.go`
+- `frontend/src/components/account/{CreateAccountModal,EditAccountModal,AccountAPIKeyPoolEditor}.vue`
+- `secondary-dev/{PLAN,CHANGELOG,PATCHES}.md`
+
+Changes:
+- Extended child-key pool scheduling beyond the original Anthropic passthrough path to the current API-key forwarding paths: Claude/Anthropic API-key forwarding, OpenAI API-key Responses passthrough, OpenAI images, Gemini messages compatibility, Antigravity API-key/upstream forwarding, and Bedrock `auth_mode=apikey`.
+- Added a Claude/API-key forwarding scheduler path that clones the selected account and parsed request per child key, rewrites the request body to the selected child key's resolved upstream model, and disables account-level failover side effects while trying keys inside one account.
+- Ensured retry/cooldown isolation is child-key plus final upstream model. A failed child key/model records cooldown on the selected key ID and resolved upstream model without cooling the whole account.
+- Kept stream safety behavior: once a streaming path has written client bytes, the request does not transparently fail over to another key.
+- Preserved legacy single-key account behavior when no `account_api_keys` are configured.
+- Opened the frontend API-key pool editor to Anthropic, OpenAI, Gemini, Antigravity, Antigravity upstream, and Bedrock API-key mode, while keeping the top-level single API Key input available for legacy accounts.
+- Updated `secondary-dev/PLAN.md` from implementation-in-progress wording to the verified platform-wide status for this demand.
+
+Verification:
+- `/Users/thornboo/.local/share/mise/installs/go/1.26.2/bin/go test ./internal/service -run 'TestGatewayService_Forward_APIKeyPoolFailoverCoolsSelectedKeyModel|TestAntigravityGatewayService_ForwardUpstream_APIKeyPool|TestGatewayService_BedrockAPIKeyPool|TestOpenAIGatewayService_Forward_APIKeyPool|TestOpenAIGatewayService_APIKeyPassthrough|TestGeminiMessagesCompatServiceForward_APIKeyPool'`
+- `/Users/thornboo/.local/share/mise/installs/go/1.26.2/bin/go test ./internal/service`
+- `/Users/thornboo/.local/share/mise/installs/go/1.26.2/bin/go test ./...`
+- `pnpm -C frontend exec eslint src/components/account/AccountAPIKeyPoolEditor.vue src/components/account/CreateAccountModal.vue src/components/account/EditAccountModal.vue --fix`
+- `pnpm -C frontend typecheck`
+
 ## 2026-05-06 - Home Official Model Prices
 
 Scope:

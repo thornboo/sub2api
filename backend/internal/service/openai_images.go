@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -576,13 +577,89 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	if err := validateOpenAIImagesModel(upstreamModel); err != nil {
 		return nil, err
 	}
+	if account.HasAccountAPIKeyPool() {
+		keySelections := account.EffectiveAPIKeySelectionsForRequest(requestModel, upstreamModel, time.Now())
+		if len(keySelections) == 0 {
+			return nil, &UpstreamFailoverError{
+				StatusCode:   http.StatusServiceUnavailable,
+				ResponseBody: []byte(`{"error":{"message":"no available upstream key for model","type":"service_unavailable"}}`),
+			}
+		}
+		var lastFailoverErr *UpstreamFailoverError
+		for i := range keySelections {
+			selection := keySelections[i]
+			key := selection.Key
+			keyUpstreamModel := selection.UpstreamModel
+			if err := validateOpenAIImagesModel(keyUpstreamModel); err != nil {
+				return nil, err
+			}
+			result, err := s.forwardOpenAIImagesAPIKeyWithToken(ctx, c, account, body, parsed, requestModel, keyUpstreamModel, key.APIKey, &key, startTime)
+			if err == nil {
+				s.markAccountAPIKeyUsed(ctx, key.ID, false)
+				return result, nil
+			}
+			var failoverErr *UpstreamFailoverError
+			if errors.As(err, &failoverErr) {
+				lastFailoverErr = failoverErr
+				s.cooldownAccountAPIKeyModel(ctx, key.ID, keyUpstreamModel, failoverErr.StatusCode, failoverErr.ResponseBody)
+				s.markAccountAPIKeyUsed(ctx, key.ID, true)
+				continue
+			}
+			return nil, err
+		}
+		if lastFailoverErr != nil {
+			return nil, lastFailoverErr
+		}
+		return nil, &UpstreamFailoverError{
+			StatusCode:   http.StatusServiceUnavailable,
+			ResponseBody: []byte(`{"error":{"message":"all upstream keys failed","type":"service_unavailable"}}`),
+		}
+	}
+
+	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, parsed.Stream)
+	defer releaseUpstreamCtx()
+
+	token, tokenType, err := s.GetAccessToken(upstreamCtx, account)
+	if err != nil {
+		return nil, err
+	}
+	if tokenType != "apikey" {
+		return nil, fmt.Errorf("openai images api key forwarding requires apikey token, got: %s", tokenType)
+	}
+	return s.forwardOpenAIImagesAPIKeyWithToken(ctx, c, account, body, parsed, requestModel, upstreamModel, token, nil, startTime)
+}
+
+func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKeyWithToken(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	parsed *OpenAIImagesRequest,
+	requestModel string,
+	upstreamModel string,
+	token string,
+	selectedKey *AccountAPIKey,
+	startTime time.Time,
+) (*OpenAIForwardResult, error) {
 	logger.LegacyPrintf(
 		"service.openai_gateway",
-		"[OpenAI] Images request routing request_model=%s upstream_model=%s endpoint=%s account_type=%s",
+		"[OpenAI] Images request routing request_model=%s upstream_model=%s endpoint=%s account_type=%s key=%d key_name=%s",
 		strings.TrimSpace(parsed.Model),
 		upstreamModel,
 		parsed.Endpoint,
 		account.Type,
+		func() int64 {
+			if selectedKey == nil {
+				return 0
+			}
+			return selectedKey.ID
+		}(),
+		func() string {
+			if selectedKey == nil {
+				return ""
+			}
+			return selectedKey.Name
+		}(),
 	)
 	forwardBody, forwardContentType, err := rewriteOpenAIImagesModel(body, parsed.ContentType, upstreamModel)
 	if err != nil {
@@ -591,10 +668,6 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, parsed.Stream)
 	defer releaseUpstreamCtx()
 
-	token, _, err := s.GetAccessToken(upstreamCtx, account)
-	if err != nil {
-		return nil, err
-	}
 	upstreamReq, err := s.buildOpenAIImagesRequest(upstreamCtx, c, account, forwardBody, forwardContentType, token, parsed.Endpoint)
 	if err != nil {
 		return nil, err
@@ -619,6 +692,12 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 			Kind:               "request_error",
 			Message:            safeErr,
 		})
+		if selectedKey != nil && selectedKey.ID > 0 {
+			return nil, &UpstreamFailoverError{
+				StatusCode:   http.StatusBadGateway,
+				ResponseBody: []byte(`{"error":{"message":"upstream request failed","type":"upstream_error"}}`),
+			}
+		}
 		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 	}
 	if resp.StatusCode >= 400 {
@@ -628,6 +707,14 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 		if s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody) {
+			if selectedKey != nil && selectedKey.ID > 0 {
+				s.recordOpenAIPassthroughSelectedKeyFailover(c, account, selectedKey, resp, respBody)
+				return nil, &UpstreamFailoverError{
+					StatusCode:      resp.StatusCode,
+					ResponseBody:    respBody,
+					ResponseHeaders: resp.Header.Clone(),
+				}
+			}
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
 				AccountID:          account.ID,

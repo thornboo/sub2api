@@ -22,10 +22,13 @@ import (
 )
 
 type anthropicHTTPUpstreamRecorder struct {
-	lastReq  *http.Request
-	lastBody []byte
-	resp     *http.Response
-	err      error
+	lastReq   *http.Request
+	lastBody  []byte
+	reqs      []*http.Request
+	bodies    [][]byte
+	responses []*http.Response
+	resp      *http.Response
+	err       error
 }
 
 func newAnthropicAPIKeyAccountForTest() *Account {
@@ -52,11 +55,18 @@ func (u *anthropicHTTPUpstreamRecorder) Do(req *http.Request, proxyURL string, a
 	if req != nil && req.Body != nil {
 		b, _ := io.ReadAll(req.Body)
 		u.lastBody = b
+		u.bodies = append(u.bodies, b)
 		_ = req.Body.Close()
 		req.Body = io.NopCloser(bytes.NewReader(b))
 	}
+	u.reqs = append(u.reqs, req)
 	if u.err != nil {
 		return nil, u.err
+	}
+	if len(u.responses) > 0 {
+		resp := u.responses[0]
+		u.responses = u.responses[1:]
+		return resp, nil
 	}
 	return u.resp, nil
 }
@@ -95,6 +105,38 @@ func (w *failWriteResponseWriter) Write(data []byte) (int, error) {
 
 func (w *failWriteResponseWriter) WriteString(_ string) (int, error) {
 	return 0, errors.New("client disconnected")
+}
+
+type accountAPIKeyRuntimeRepoRecorder struct {
+	AccountRepository
+	cooldowns []struct {
+		keyID         int64
+		upstreamModel string
+		statusCode    int
+		message       string
+	}
+	used []struct {
+		keyID  int64
+		failed bool
+	}
+}
+
+func (r *accountAPIKeyRuntimeRepoRecorder) SetAccountAPIKeyModelCooldown(_ context.Context, keyID int64, upstreamModel string, _ time.Time, _ string, statusCode int, message string) error {
+	r.cooldowns = append(r.cooldowns, struct {
+		keyID         int64
+		upstreamModel string
+		statusCode    int
+		message       string
+	}{keyID: keyID, upstreamModel: upstreamModel, statusCode: statusCode, message: message})
+	return nil
+}
+
+func (r *accountAPIKeyRuntimeRepoRecorder) MarkAccountAPIKeyUsed(_ context.Context, keyID int64, _ time.Time, failed bool) error {
+	r.used = append(r.used, struct {
+		keyID  int64
+		failed bool
+	}{keyID: keyID, failed: failed})
+	return nil
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardStreamPreservesBodyAndAuthReplacement(t *testing.T) {
@@ -259,6 +301,117 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardCountTokensPreservesBo
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.JSONEq(t, upstreamRespBody, rec.Body.String())
 	require.Empty(t, rec.Header().Get("Set-Cookie"))
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokensKeyPoolFailoverCoolsOnlySelectedKeyModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
+
+	body := []byte(`{"model":"haiku4.5","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
+	parsed := &ParsedRequest{Body: body, Model: "haiku4.5"}
+	firstErr := `{"type":"error","error":{"message":"please use the official client (cch_session_id: abc)","type":"invalid_request_error"}}`
+	secondOK := `{"input_tokens":42}`
+	upstream := &anthropicHTTPUpstreamRecorder{
+		responses: []*http.Response{
+			{
+				StatusCode: http.StatusBadRequest,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(firstErr)),
+			},
+			{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(secondOK)),
+			},
+		},
+	}
+	repo := &accountAPIKeyRuntimeRepoRecorder{}
+	svc := &GatewayService{
+		cfg:              &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
+		httpUpstream:     upstream,
+		accountRepo:      repo,
+		rateLimitService: &RateLimitService{},
+	}
+	account := &Account{
+		ID:          601,
+		Name:        "relay-count-tokens-key-pool",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"base_url":      "https://relay.example.com",
+			"model_mapping": map[string]any{"haiku4.5": "claude-haiku-4.5"},
+		},
+		Extra:       map[string]any{"anthropic_passthrough": true},
+		Status:      StatusActive,
+		Schedulable: true,
+		APIKeys: []AccountAPIKey{
+			{ID: 3001, AccountID: 601, Name: "key-1", APIKey: "upstream-key-1", Priority: 10, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "whitelist", ModelMapping: map[string]string{"claude-haiku-4.5": "claude-haiku-4.5"}},
+			{ID: 3002, AccountID: 601, Name: "key-2", APIKey: "upstream-key-2", Priority: 20, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "whitelist", ModelMapping: map[string]string{"claude-haiku-4.5": "claude-haiku-4.5"}},
+		},
+	}
+
+	err := svc.ForwardCountTokens(context.Background(), c, account, parsed)
+	require.NoError(t, err)
+	require.Len(t, upstream.reqs, 2)
+	require.Equal(t, "upstream-key-1", getHeaderRaw(upstream.reqs[0].Header, "x-api-key"))
+	require.Equal(t, "upstream-key-2", getHeaderRaw(upstream.reqs[1].Header, "x-api-key"))
+	require.Equal(t, "claude-haiku-4.5", gjson.GetBytes(upstream.bodies[0], "model").String())
+	require.Equal(t, "claude-haiku-4.5", gjson.GetBytes(upstream.bodies[1], "model").String())
+	require.Len(t, repo.cooldowns, 1)
+	require.Equal(t, int64(3001), repo.cooldowns[0].keyID)
+	require.Equal(t, "claude-haiku-4.5", repo.cooldowns[0].upstreamModel)
+	require.Equal(t, http.StatusBadRequest, repo.cooldowns[0].statusCode)
+	require.Len(t, repo.used, 2)
+	require.True(t, repo.used[0].failed)
+	require.False(t, repo.used[1].failed)
+	require.JSONEq(t, secondOK, rec.Body.String())
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokensKeyPoolDoesNotFailoverPlainBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
+
+	body := []byte(`{"model":"haiku4.5","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
+	parsed := &ParsedRequest{Body: body, Model: "haiku4.5"}
+	respBody := `{"type":"error","error":{"message":"max_tokens: Field required","type":"invalid_request_error"}}`
+	upstream := &anthropicHTTPUpstreamRecorder{
+		responses: []*http.Response{
+			{
+				StatusCode: http.StatusBadRequest,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(respBody)),
+			},
+			{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"input_tokens":999}`)),
+			},
+		},
+	}
+	repo := &accountAPIKeyRuntimeRepoRecorder{}
+	svc := &GatewayService{
+		cfg:              &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
+		httpUpstream:     upstream,
+		accountRepo:      repo,
+		rateLimitService: &RateLimitService{},
+	}
+	account := newAnthropicAPIKeyAccountForTest()
+	account.APIKeys = []AccountAPIKey{
+		{ID: 3101, AccountID: account.ID, Name: "key-1", APIKey: "upstream-key-1", Priority: 10, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "whitelist", ModelMapping: map[string]string{"haiku4.5": "haiku4.5"}},
+		{ID: 3102, AccountID: account.ID, Name: "key-2", APIKey: "upstream-key-2", Priority: 20, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "whitelist", ModelMapping: map[string]string{"haiku4.5": "haiku4.5"}},
+	}
+
+	err := svc.ForwardCountTokens(context.Background(), c, account, parsed)
+	require.Error(t, err)
+	require.Len(t, upstream.reqs, 1)
+	require.Empty(t, repo.cooldowns)
+	require.Empty(t, repo.used)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingEdgeCases 覆盖透传模式下模型映射的各种边界情况
@@ -946,6 +1099,258 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_NonStreamingSuc
 	require.Equal(t, upstreamJSON, rec.Body.String())
 }
 
+func TestGatewayService_AnthropicAPIKeyPassthrough_KeyPoolFailoverCoolsOnlySelectedKeyModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"model":"haiku4.5","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
+	parsed := &ParsedRequest{Body: body, Model: "haiku4.5"}
+	firstErr := `{"type":"error","error":{"message":"请在cc官方客户端中使用 (cch_session_id: abc)","type":"invalid_request_error"}}`
+	secondOK := `{"id":"msg_1","type":"message","usage":{"input_tokens":3,"output_tokens":2}}`
+	upstream := &anthropicHTTPUpstreamRecorder{
+		responses: []*http.Response{
+			{
+				StatusCode: http.StatusBadRequest,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(firstErr)),
+			},
+			{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(secondOK)),
+			},
+		},
+	}
+	repo := &accountAPIKeyRuntimeRepoRecorder{}
+	svc := &GatewayService{
+		cfg:              &config.Config{},
+		httpUpstream:     upstream,
+		accountRepo:      repo,
+		rateLimitService: &RateLimitService{},
+	}
+	account := &Account{
+		ID:          501,
+		Name:        "relay-packycode",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"base_url":      "https://relay.example.com",
+			"model_mapping": map[string]any{"haiku4.5": "claude-haiku-4.5"},
+		},
+		Extra:       map[string]any{"anthropic_passthrough": true},
+		Status:      StatusActive,
+		Schedulable: true,
+		APIKeys: []AccountAPIKey{
+			{ID: 1001, AccountID: 501, Name: "key-1", APIKey: "upstream-key-1", Priority: 10, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "whitelist", ModelMapping: map[string]string{"claude-haiku-4.5": "claude-haiku-4.5"}},
+			{ID: 1002, AccountID: 501, Name: "key-2", APIKey: "upstream-key-2", Priority: 20, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "whitelist", ModelMapping: map[string]string{"claude-haiku-4.5": "claude-haiku-4.5"}},
+		},
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, parsed)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.reqs, 2)
+	require.Equal(t, "upstream-key-1", getHeaderRaw(upstream.reqs[0].Header, "x-api-key"))
+	require.Equal(t, "upstream-key-2", getHeaderRaw(upstream.reqs[1].Header, "x-api-key"))
+	require.Equal(t, "claude-haiku-4.5", gjson.GetBytes(upstream.bodies[0], "model").String())
+	require.Equal(t, "claude-haiku-4.5", gjson.GetBytes(upstream.bodies[1], "model").String())
+	require.Len(t, repo.cooldowns, 1)
+	require.Equal(t, int64(1001), repo.cooldowns[0].keyID)
+	require.Equal(t, "claude-haiku-4.5", repo.cooldowns[0].upstreamModel)
+	require.Equal(t, http.StatusBadRequest, repo.cooldowns[0].statusCode)
+	require.Contains(t, repo.cooldowns[0].message, "cc")
+	require.Len(t, repo.used, 2)
+	require.Equal(t, int64(1001), repo.used[0].keyID)
+	require.True(t, repo.used[0].failed)
+	require.Equal(t, int64(1002), repo.used[1].keyID)
+	require.False(t, repo.used[1].failed)
+	require.JSONEq(t, secondOK, rec.Body.String())
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_KeyPoolUsesPerKeyModelRules(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"model":"haiku4.5","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
+	parsed := &ParsedRequest{Body: body, Model: "haiku4.5"}
+	upstreamJSON := `{"id":"msg_1","type":"message","usage":{"input_tokens":3,"output_tokens":2}}`
+	upstream := &anthropicHTTPUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(upstreamJSON)),
+		},
+	}
+	repo := &accountAPIKeyRuntimeRepoRecorder{}
+	svc := &GatewayService{
+		cfg:              &config.Config{},
+		httpUpstream:     upstream,
+		accountRepo:      repo,
+		rateLimitService: &RateLimitService{},
+	}
+	account := &Account{
+		ID:          502,
+		Name:        "relay-per-key-models",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"base_url":      "https://relay.example.com",
+			"model_mapping": map[string]any{"haiku4.5": "claude-haiku-4.5"},
+		},
+		Extra:       map[string]any{"anthropic_passthrough": true},
+		Status:      StatusActive,
+		Schedulable: true,
+		APIKeys: []AccountAPIKey{
+			{
+				ID:                   1101,
+				AccountID:            502,
+				Name:                 "key-opus-only",
+				APIKey:               "upstream-key-opus",
+				Priority:             10,
+				Status:               AccountAPIKeyStatusActive,
+				ModelRestrictionMode: "mapping",
+				ModelMapping: map[string]string{
+					"opus4.7": "relay-opus",
+				},
+			},
+			{
+				ID:                   1102,
+				AccountID:            502,
+				Name:                 "key-haiku",
+				APIKey:               "upstream-key-haiku",
+				Priority:             20,
+				Status:               AccountAPIKeyStatusActive,
+				ModelRestrictionMode: "mapping",
+				ModelMapping: map[string]string{
+					"haiku4.5": "relay-haiku-key-2",
+				},
+			},
+		},
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, parsed)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.reqs, 1)
+	require.Equal(t, "upstream-key-haiku", getHeaderRaw(upstream.reqs[0].Header, "x-api-key"))
+	require.Equal(t, "relay-haiku-key-2", gjson.GetBytes(upstream.bodies[0], "model").String())
+	require.Len(t, repo.used, 1)
+	require.Equal(t, int64(1102), repo.used[0].keyID)
+	require.False(t, repo.used[0].failed)
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_KeyPoolDoesNotTriggerAccountFailoverSideEffects(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"model":"haiku4.5","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
+	parsed := &ParsedRequest{Body: body, Model: "haiku4.5"}
+	upstream := &anthropicHTTPUpstreamRecorder{
+		responses: []*http.Response{
+			{
+				StatusCode: http.StatusTooManyRequests,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"type":"error","error":{"message":"rate limit on selected upstream key","type":"rate_limit_error"}}`)),
+			},
+			{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"id":"msg_2","type":"message","usage":{"input_tokens":2,"output_tokens":1}}`)),
+			},
+		},
+	}
+	repo := &accountAPIKeyRuntimeRepoRecorder{}
+	svc := &GatewayService{
+		cfg:              &config.Config{},
+		httpUpstream:     upstream,
+		accountRepo:      repo,
+		rateLimitService: &RateLimitService{},
+	}
+	account := &Account{
+		ID:          503,
+		Name:        "relay-no-account-side-effects",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"base_url":      "https://relay.example.com",
+			"model_mapping": map[string]any{"haiku4.5": "claude-haiku-4.5"},
+		},
+		Extra:       map[string]any{"anthropic_passthrough": true},
+		Status:      StatusActive,
+		Schedulable: true,
+		APIKeys: []AccountAPIKey{
+			{ID: 1201, AccountID: 503, Name: "key-1", APIKey: "upstream-key-1", Priority: 10, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "whitelist", ModelMapping: map[string]string{"claude-haiku-4.5": "claude-haiku-4.5"}},
+			{ID: 1202, AccountID: 503, Name: "key-2", APIKey: "upstream-key-2", Priority: 20, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "whitelist", ModelMapping: map[string]string{"claude-haiku-4.5": "claude-haiku-4.5"}},
+		},
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, parsed)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.reqs, 2, "first key fails over by key/model; second key then succeeds")
+	require.Len(t, repo.cooldowns, 1)
+	require.Equal(t, int64(1201), repo.cooldowns[0].keyID)
+	require.Equal(t, "claude-haiku-4.5", repo.cooldowns[0].upstreamModel)
+	require.Equal(t, http.StatusTooManyRequests, repo.cooldowns[0].statusCode)
+	require.Len(t, repo.used, 2)
+	require.True(t, account.IsSchedulable(), "key pool failures must not make the whole account unschedulable")
+	require.Nil(t, account.RateLimitResetAt, "key pool 429 must not mark the whole account as rate limited")
+	require.Equal(t, StatusActive, account.Status, "key pool failures must not mark the whole account as error")
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_KeyPoolDoesNotFailoverPlainBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"model":"haiku4.5","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
+	parsed := &ParsedRequest{Body: body, Model: "haiku4.5"}
+	respBody := `{"type":"error","error":{"message":"max_tokens: Field required","type":"invalid_request_error"}}`
+	upstream := &anthropicHTTPUpstreamRecorder{
+		responses: []*http.Response{
+			{
+				StatusCode: http.StatusBadRequest,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(respBody)),
+			},
+			{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"id":"unexpected"}`)),
+			},
+		},
+	}
+	repo := &accountAPIKeyRuntimeRepoRecorder{}
+	svc := &GatewayService{
+		cfg:              &config.Config{},
+		httpUpstream:     upstream,
+		accountRepo:      repo,
+		rateLimitService: &RateLimitService{},
+	}
+	account := newAnthropicAPIKeyAccountForTest()
+	account.APIKeys = []AccountAPIKey{
+		{ID: 2001, AccountID: account.ID, Name: "key-1", APIKey: "upstream-key-1", Priority: 10, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "whitelist", ModelMapping: map[string]string{"haiku4.5": "haiku4.5"}},
+		{ID: 2002, AccountID: account.ID, Name: "key-2", APIKey: "upstream-key-2", Priority: 20, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "whitelist", ModelMapping: map[string]string{"haiku4.5": "haiku4.5"}},
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, parsed)
+	require.Nil(t, result)
+	require.Error(t, err)
+	require.Len(t, upstream.reqs, 1)
+	require.Empty(t, repo.cooldowns)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_InvalidTokenType(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -1414,4 +1819,66 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingUpstreamReadErrorAft
 	require.NotNil(t, result)
 	require.True(t, result.clientDisconnect)
 	require.Equal(t, 8, result.usage.InputTokens)
+}
+
+func TestGatewayService_Forward_APIKeyPoolFailoverCoolsSelectedKeyModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"model":"claude-site","messages":[{"role":"user","content":"hello"}],"max_tokens":16,"stream":false}`)
+	upstream := &anthropicHTTPUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusTooManyRequests,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"rate limited selected key"}}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":8,"output_tokens":3}}`)),
+		},
+	}}
+	repo := &accountAPIKeyRuntimeRepoRecorder{}
+	svc := &GatewayService{
+		httpUpstream: upstream,
+		accountRepo:  repo,
+		cfg:          &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
+	}
+	account := &Account{
+		ID:          91,
+		Name:        "claude-api-key-pool",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"base_url": "https://api.anthropic.com",
+			"api_key":  "legacy-key",
+		},
+		APIKeys: []AccountAPIKey{
+			{ID: 9101, AccountID: 91, Name: "key-1", APIKey: "upstream-key-1", Priority: 1, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "mapping", ModelMapping: map[string]string{"claude-site": "claude-upstream"}},
+			{ID: 9102, AccountID: 91, Name: "key-2", APIKey: "upstream-key-2", Priority: 2, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "mapping", ModelMapping: map[string]string{"claude-site": "claude-upstream"}},
+		},
+	}
+	parsed := &ParsedRequest{Body: body, Model: "claude-site", Stream: false}
+
+	result, err := svc.Forward(context.Background(), c, account, parsed)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "claude-site", result.Model)
+	require.Equal(t, "claude-upstream", result.UpstreamModel)
+	require.Len(t, upstream.reqs, 2)
+	require.Equal(t, "upstream-key-1", getHeaderRaw(upstream.reqs[0].Header, "x-api-key"))
+	require.Equal(t, "upstream-key-2", getHeaderRaw(upstream.reqs[1].Header, "x-api-key"))
+	require.Contains(t, string(upstream.bodies[0]), `"model":"claude-upstream"`)
+	require.Contains(t, string(upstream.bodies[1]), `"model":"claude-upstream"`)
+	require.Len(t, repo.cooldowns, 1)
+	require.Equal(t, int64(9101), repo.cooldowns[0].keyID)
+	require.Equal(t, "claude-upstream", repo.cooldowns[0].upstreamModel)
+	require.Equal(t, http.StatusTooManyRequests, repo.cooldowns[0].statusCode)
+	require.Len(t, repo.used, 2)
+	require.True(t, repo.used[0].failed)
+	require.False(t, repo.used[1].failed)
 }

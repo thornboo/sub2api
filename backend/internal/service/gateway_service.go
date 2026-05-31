@@ -583,42 +583,43 @@ func (s *GatewayService) TempUnscheduleRetryableError(ctx context.Context, accou
 
 // GatewayService handles API gateway operations
 type GatewayService struct {
-	accountRepo           AccountRepository
-	groupRepo             GroupRepository
-	usageLogRepo          UsageLogRepository
-	usageBillingRepo      UsageBillingRepository
-	userRepo              UserRepository
-	userSubRepo           UserSubscriptionRepository
-	userGroupRateRepo     UserGroupRateRepository
-	cache                 GatewayCache
-	digestStore           *DigestSessionStore
-	cfg                   *config.Config
-	schedulerSnapshot     *SchedulerSnapshotService
-	billingService        *BillingService
-	rateLimitService      *RateLimitService
-	billingCacheService   *BillingCacheService
-	identityService       *IdentityService
-	httpUpstream          HTTPUpstream
-	deferredService       *DeferredService
-	concurrencyService    *ConcurrencyService
-	claudeTokenProvider   *ClaudeTokenProvider
-	sessionLimitCache     SessionLimitCache // 会话数量限制缓存（仅 Anthropic OAuth/SetupToken）
-	rpmCache              RPMCache          // RPM 计数缓存（仅 Anthropic OAuth/SetupToken）
-	userGroupRateResolver *userGroupRateResolver
-	userGroupRateCache    *gocache.Cache
-	userGroupRateSF       singleflight.Group
-	modelsListCache       *gocache.Cache
-	modelsListCacheTTL    time.Duration
-	settingService        *SettingService
-	responseHeaderFilter  *responseheaders.CompiledHeaderFilter
-	debugModelRouting     atomic.Bool
-	debugClaudeMimic      atomic.Bool
-	channelService        *ChannelService
-	resolver              *ModelPricingResolver
-	debugGatewayBodyFile  atomic.Pointer[os.File] // non-nil when SUB2API_DEBUG_GATEWAY_BODY is set
-	tlsFPProfileService   *TLSFingerprintProfileService
-	balanceNotifyService  *BalanceNotifyService
-	userPlatformQuotaRepo UserPlatformQuotaRepository
+	accountRepo                       AccountRepository
+	groupRepo                         GroupRepository
+	usageLogRepo                      UsageLogRepository
+	usageBillingRepo                  UsageBillingRepository
+	userRepo                          UserRepository
+	userSubRepo                       UserSubscriptionRepository
+	userGroupRateRepo                 UserGroupRateRepository
+	cache                             GatewayCache
+	digestStore                       *DigestSessionStore
+	cfg                               *config.Config
+	schedulerSnapshot                 *SchedulerSnapshotService
+	billingService                    *BillingService
+	rateLimitService                  *RateLimitService
+	billingCacheService               *BillingCacheService
+	identityService                   *IdentityService
+	httpUpstream                      HTTPUpstream
+	deferredService                   *DeferredService
+	concurrencyService                *ConcurrencyService
+	claudeTokenProvider               *ClaudeTokenProvider
+	sessionLimitCache                 SessionLimitCache // 会话数量限制缓存（仅 Anthropic OAuth/SetupToken）
+	rpmCache                          RPMCache          // RPM 计数缓存（仅 Anthropic OAuth/SetupToken）
+	userGroupRateResolver             *userGroupRateResolver
+	userGroupRateCache                *gocache.Cache
+	userGroupRateSF                   singleflight.Group
+	modelsListCache                   *gocache.Cache
+	modelsListCacheTTL                time.Duration
+	settingService                    *SettingService
+	responseHeaderFilter              *responseheaders.CompiledHeaderFilter
+	debugModelRouting                 atomic.Bool
+	debugClaudeMimic                  atomic.Bool
+	disableAccountFailoverSideEffects bool
+	channelService                    *ChannelService
+	resolver                          *ModelPricingResolver
+	debugGatewayBodyFile              atomic.Pointer[os.File] // non-nil when SUB2API_DEBUG_GATEWAY_BODY is set
+	tlsFPProfileService               *TLSFingerprintProfileService
+	balanceNotifyService              *BalanceNotifyService
+	userPlatformQuotaRepo             UserPlatformQuotaRepository
 }
 
 // NewGatewayService creates a new GatewayService
@@ -3855,6 +3856,9 @@ const (
 )
 
 func (s *GatewayService) shouldRetryUpstreamError(account *Account, statusCode int) bool {
+	if s.disableAccountFailoverSideEffects {
+		return false
+	}
 	// OAuth/Setup Token 账号：仅 403 重试
 	if account.IsOAuth() {
 		return statusCode == 403
@@ -3872,6 +3876,156 @@ func (s *GatewayService) shouldFailoverUpstreamError(statusCode int) bool {
 	default:
 		return statusCode >= 500
 	}
+}
+
+func shouldFailoverAnthropicPassthroughBadRequest(respBody []byte) bool {
+	message := strings.ToLower(extractUpstreamErrorMessage(respBody))
+	raw := strings.ToLower(string(respBody))
+	haystack := message + "\n" + raw
+	keywords := []string{
+		"cch_session_id",
+		"官方客户端",
+		"official client",
+		"model not found",
+		"model_not_found",
+		"model_not_supported",
+		"model not supported",
+		"does not support model",
+		"not available for this key",
+		"not enabled for this key",
+		"permission",
+		"access denied",
+	}
+	for _, keyword := range keywords {
+		if strings.Contains(haystack, strings.ToLower(keyword)) {
+			return true
+		}
+	}
+	return false
+}
+
+func accountAPIKeyCooldownDuration(statusCode int) time.Duration {
+	switch statusCode {
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return 10 * time.Minute
+	case http.StatusTooManyRequests:
+		return 5 * time.Minute
+	case http.StatusBadRequest:
+		return 5 * time.Minute
+	default:
+		if statusCode >= 500 || statusCode == 529 {
+			return 3 * time.Minute
+		}
+		return 5 * time.Minute
+	}
+}
+
+func (s *GatewayService) cooldownAccountAPIKeyModel(ctx context.Context, keyID int64, upstreamModel string, statusCode int, respBody []byte) {
+	if keyID <= 0 {
+		return
+	}
+	repo, ok := s.accountRepo.(AccountAPIKeyRuntimeRepository)
+	if !ok {
+		return
+	}
+	resetAt := time.Now().Add(accountAPIKeyCooldownDuration(statusCode))
+	reason := "upstream_key_model_failure"
+	if statusCode == http.StatusTooManyRequests {
+		reason = "upstream_rate_limited"
+	} else if statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden {
+		reason = "upstream_authorization_unavailable"
+	} else if statusCode >= 500 || statusCode == 529 {
+		reason = "upstream_transient_error"
+	}
+	if err := repo.SetAccountAPIKeyModelCooldown(ctx, keyID, upstreamModel, resetAt, reason, statusCode, extractUpstreamErrorMessage(respBody)); err != nil {
+		slog.Warn("account_api_key_model_cooldown_failed", "key_id", keyID, "model", upstreamModel, "status_code", statusCode, "error", err)
+	}
+}
+
+func (s *GatewayService) markAccountAPIKeyUsed(ctx context.Context, keyID int64, failed bool) {
+	if keyID <= 0 {
+		return
+	}
+	repo, ok := s.accountRepo.(AccountAPIKeyRuntimeRepository)
+	if !ok {
+		return
+	}
+	if err := repo.MarkAccountAPIKeyUsed(ctx, keyID, time.Now(), failed); err != nil {
+		slog.Warn("account_api_key_mark_used_failed", "key_id", keyID, "failed", failed, "error", err)
+	}
+}
+
+func (s *GatewayService) forwardClaudeAPIKeyPool(ctx context.Context, c *gin.Context, account *Account, parsed *ParsedRequest) (*ForwardResult, error) {
+	if account == nil || parsed == nil {
+		return nil, fmt.Errorf("api key pool forward requires account and parsed request")
+	}
+	accountUpstreamModel := account.GetMappedModel(parsed.Model)
+	if accountUpstreamModel == "" {
+		accountUpstreamModel = parsed.Model
+	}
+	keySelections := account.EffectiveAPIKeySelectionsForRequest(parsed.Model, accountUpstreamModel, time.Now())
+	if len(keySelections) == 0 {
+		return nil, &UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable, ResponseBody: []byte(`{"error":{"message":"no available upstream key for model","type":"service_unavailable"}}`)}
+	}
+
+	var lastFailoverErr *UpstreamFailoverError
+	for i := range keySelections {
+		selection := keySelections[i]
+		key := selection.Key
+		keyParsed := cloneParsedRequestForAPIKeySelection(parsed, selection.UpstreamModel)
+		keyAccount := cloneClaudeAccountForAPIKeySelection(account, key, parsed.Model, selection.UpstreamModel)
+		keyService := *s
+		keyService.rateLimitService = nil
+		keyService.disableAccountFailoverSideEffects = true
+
+		result, err := keyService.Forward(ctx, c, keyAccount, keyParsed)
+		if err == nil {
+			s.markAccountAPIKeyUsed(ctx, key.ID, false)
+			if result != nil {
+				result.Model = parsed.Model
+				result.UpstreamModel = selection.UpstreamModel
+			}
+			return result, nil
+		}
+		var failoverErr *UpstreamFailoverError
+		if errors.As(err, &failoverErr) {
+			lastFailoverErr = failoverErr
+			s.cooldownAccountAPIKeyModel(ctx, key.ID, selection.UpstreamModel, failoverErr.StatusCode, failoverErr.ResponseBody)
+			s.markAccountAPIKeyUsed(ctx, key.ID, true)
+			continue
+		}
+		return nil, err
+	}
+	if lastFailoverErr != nil {
+		return nil, lastFailoverErr
+	}
+	return nil, &UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable, ResponseBody: []byte(`{"error":{"message":"all upstream keys failed","type":"service_unavailable"}}`)}
+}
+
+func cloneParsedRequestForAPIKeySelection(parsed *ParsedRequest, upstreamModel string) *ParsedRequest {
+	if parsed == nil {
+		return nil
+	}
+	clone := *parsed
+	if upstreamModel != "" && upstreamModel != parsed.Model {
+		clone.Body = ReplaceModelInBody(parsed.Body, upstreamModel)
+		clone.Model = upstreamModel
+	}
+	return &clone
+}
+
+func cloneClaudeAccountForAPIKeySelection(account *Account, key AccountAPIKey, requestedModel string, upstreamModel string) *Account {
+	if account == nil {
+		return nil
+	}
+	clone := *account
+	clone.APIKeys = nil
+	clone.Credentials = cloneMapAny(account.Credentials)
+	clone.Credentials["api_key"] = key.APIKey
+	clone.Credentials["model_mapping"] = map[string]any{requestedModel: upstreamModel}
+	clone.modelMappingCacheReady = false
+	clone.modelMappingCache = nil
+	return &clone
 }
 
 func retryBackoffDelay(attempt int) time.Duration {
@@ -4423,6 +4577,10 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		})
 	}
 
+	if account != nil && account.Type == AccountTypeAPIKey && account.HasAccountAPIKeyPool() {
+		return s.forwardClaudeAPIKeyPool(ctx, c, account, parsed)
+	}
+
 	if account != nil && account.IsBedrock() {
 		return s.forwardBedrock(ctx, c, account, parsed, startTime)
 	}
@@ -4607,6 +4765,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 				Kind:               "request_error",
 				Message:            safeErr,
 			})
+			if s.disableAccountFailoverSideEffects {
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: []byte(`{"error":{"message":"upstream request failed","type":"upstream_error"}}`)}
+			}
 			c.JSON(http.StatusBadGateway, gin.H{
 				"type": "error",
 				"error": gin.H{
@@ -4865,7 +5026,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			logger.LegacyPrintf("service.gateway", "[Forward] Upstream error (retry exhausted, failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
 				account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
 
-			s.handleRetryExhaustedSideEffects(ctx, resp, account)
+			if !s.disableAccountFailoverSideEffects {
+				s.handleRetryExhaustedSideEffects(ctx, resp, account)
+			}
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
 				AccountID:          account.ID,
@@ -5045,6 +5208,41 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	account *Account,
 	input anthropicPassthroughForwardInput,
 ) (*ForwardResult, error) {
+	now := time.Now()
+	keySelections := account.EffectiveAPIKeySelectionsForRequest(input.OriginalModel, input.RequestModel, now)
+	if account.HasAccountAPIKeyPool() {
+		if len(keySelections) == 0 {
+			return nil, &UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable, ResponseBody: []byte(`{"error":"no available upstream key for model"}`)}
+		}
+		var lastFailoverErr *UpstreamFailoverError
+		for i := range keySelections {
+			selection := keySelections[i]
+			key := selection.Key
+			keyInput := input
+			keyInput.RequestModel = selection.UpstreamModel
+			if selection.UpstreamModel != input.RequestModel {
+				keyInput.Body = s.replaceModelInBody(input.Body, selection.UpstreamModel)
+			}
+			result, err := s.forwardAnthropicAPIKeyPassthroughWithToken(ctx, c, account, keyInput, key.APIKey, &key)
+			if err == nil {
+				s.markAccountAPIKeyUsed(ctx, key.ID, false)
+				return result, nil
+			}
+			var failoverErr *UpstreamFailoverError
+			if errors.As(err, &failoverErr) {
+				lastFailoverErr = failoverErr
+				s.cooldownAccountAPIKeyModel(ctx, key.ID, keyInput.RequestModel, failoverErr.StatusCode, failoverErr.ResponseBody)
+				s.markAccountAPIKeyUsed(ctx, key.ID, true)
+				continue
+			}
+			return nil, err
+		}
+		if lastFailoverErr != nil {
+			return nil, lastFailoverErr
+		}
+		return nil, &UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable, ResponseBody: []byte(`{"error":"no available upstream key for model"}`)}
+	}
+
 	token, tokenType, err := s.GetAccessToken(ctx, account)
 	if err != nil {
 		return nil, err
@@ -5052,14 +5250,29 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	if tokenType != "apikey" {
 		return nil, fmt.Errorf("anthropic api key passthrough requires apikey token, got: %s", tokenType)
 	}
+	return s.forwardAnthropicAPIKeyPassthroughWithToken(ctx, c, account, input, token, nil)
+}
 
+func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithToken(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	input anthropicPassthroughForwardInput,
+	token string,
+	selectedKey *AccountAPIKey,
+) (*ForwardResult, error) {
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
 
-	logger.LegacyPrintf("service.gateway", "[Anthropic 自动透传] 命中 API Key 透传分支: account=%d name=%s model=%s stream=%v",
-		account.ID, account.Name, input.RequestModel, input.RequestStream)
+	if selectedKey != nil && selectedKey.ID > 0 {
+		logger.LegacyPrintf("service.gateway", "[Anthropic 自动透传] 命中 API Key 池透传分支: account=%d name=%s key=%d key_name=%s model=%s stream=%v",
+			account.ID, account.Name, selectedKey.ID, selectedKey.Name, input.RequestModel, input.RequestStream)
+	} else {
+		logger.LegacyPrintf("service.gateway", "[Anthropic 自动透传] 命中 API Key 透传分支: account=%d name=%s model=%s stream=%v",
+			account.ID, account.Name, input.RequestModel, input.RequestStream)
+	}
 
 	if c != nil {
 		c.Set("anthropic_passthrough", true)
@@ -5094,6 +5307,12 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 				Kind:               "request_error",
 				Message:            safeErr,
 			})
+			if selectedKey != nil && selectedKey.ID > 0 {
+				return nil, &UpstreamFailoverError{
+					StatusCode:   http.StatusBadGateway,
+					ResponseBody: []byte(`{"error":"upstream request failed"}`),
+				}
+			}
 			c.JSON(http.StatusBadGateway, gin.H{
 				"type": "error",
 				"error": gin.H{
@@ -5166,7 +5385,9 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 			logger.LegacyPrintf("service.gateway", "[Anthropic Passthrough] Upstream error (retry exhausted, failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
 				account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
 
-			s.handleRetryExhaustedSideEffects(ctx, resp, account)
+			if selectedKey == nil || selectedKey.ID <= 0 {
+				s.handleRetryExhaustedSideEffects(ctx, resp, account)
+			}
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
 				AccountID:          account.ID,
@@ -5200,7 +5421,9 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		logger.LegacyPrintf("service.gateway", "[Anthropic Passthrough] Upstream error (failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
 			account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
 
-		s.handleFailoverSideEffects(ctx, resp, account, input.RequestModel)
+		if selectedKey == nil || selectedKey.ID <= 0 {
+			s.handleFailoverSideEffects(ctx, resp, account, input.RequestModel)
+		}
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			Platform:           account.Platform,
 			AccountID:          account.ID,
@@ -5224,6 +5447,36 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		}
 	}
 
+	if resp.StatusCode == http.StatusBadRequest {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		_ = resp.Body.Close()
+		resp.Body = io.NopCloser(bytes.NewReader(respBody))
+		if shouldFailoverAnthropicPassthroughBadRequest(respBody) {
+			logger.LegacyPrintf("service.gateway", "[Anthropic Passthrough] Upstream 400 classified as key/model failover: Account=%d(%s) Status=%d RequestID=%s Body=%s",
+				account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				Platform:           account.Platform,
+				AccountID:          account.ID,
+				AccountName:        account.Name,
+				UpstreamStatusCode: resp.StatusCode,
+				UpstreamRequestID:  resp.Header.Get("x-request-id"),
+				Passthrough:        true,
+				Kind:               "key_model_failover",
+				Message:            extractUpstreamErrorMessage(respBody),
+				Detail: func() string {
+					if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+						return truncateString(string(respBody), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
+					}
+					return ""
+				}(),
+			})
+			return nil, &UpstreamFailoverError{
+				StatusCode:   resp.StatusCode,
+				ResponseBody: respBody,
+			}
+		}
+	}
+
 	if resp.StatusCode >= 400 {
 		return s.handleErrorResponse(ctx, resp, c, account, input.RequestModel)
 	}
@@ -5231,6 +5484,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	var usage *ClaudeUsage
 	var firstTokenMs *int
 	var clientDisconnect bool
+	var err error
 	if input.RequestStream {
 		streamResult, err := s.handleStreamingResponseAnthropicAPIKeyPassthrough(ctx, resp, c, account, input.StartTime, input.RequestModel)
 		if err != nil {
@@ -5774,6 +6028,9 @@ func (s *GatewayService) forwardBedrock(
 	var signer *BedrockSigner
 	var bedrockAPIKey string
 	if account.IsBedrockAPIKey() {
+		if account.HasAccountAPIKeyPool() {
+			return s.forwardBedrockAPIKeyPool(ctx, c, account, body, reqModel, mappedModel, region, reqStream, proxyURL, startTime)
+		}
 		bedrockAPIKey = account.GetCredential("api_key")
 		if bedrockAPIKey == "" {
 			return nil, fmt.Errorf("api_key not found in bedrock credentials")
@@ -5825,6 +6082,151 @@ func (s *GatewayService) forwardBedrock(
 		usage = &ClaudeUsage{}
 	}
 
+	return &ForwardResult{
+		RequestID:        resp.Header.Get("x-amzn-requestid"),
+		Usage:            *usage,
+		Model:            reqModel,
+		UpstreamModel:    mappedModel,
+		Stream:           reqStream,
+		Duration:         time.Since(startTime),
+		FirstTokenMs:     firstTokenMs,
+		ClientDisconnect: clientDisconnect,
+	}, nil
+}
+
+func (s *GatewayService) forwardBedrockAPIKeyPool(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	reqModel string,
+	mappedModel string,
+	region string,
+	reqStream bool,
+	proxyURL string,
+	startTime time.Time,
+) (*ForwardResult, error) {
+	keySelections := account.EffectiveAPIKeySelectionsForRequest(reqModel, mappedModel, time.Now())
+	if len(keySelections) == 0 {
+		return nil, &UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable, ResponseBody: []byte(`{"error":"no available upstream key for model"}`)}
+	}
+
+	var lastFailoverErr *UpstreamFailoverError
+	for i := range keySelections {
+		selection := keySelections[i]
+		key := selection.Key
+		keyModel := selection.UpstreamModel
+		bedrockBody, err := PrepareBedrockRequestBody(body, keyModel, c.GetHeader("anthropic-beta"))
+		if err != nil {
+			return nil, fmt.Errorf("prepare bedrock request body: %w", err)
+		}
+		result, err := s.forwardBedrockAPIKeyWithToken(ctx, c, account, bedrockBody, reqModel, keyModel, region, reqStream, key.APIKey, proxyURL, startTime, &key)
+		if err == nil {
+			s.markAccountAPIKeyUsed(ctx, key.ID, false)
+			return result, nil
+		}
+		var failoverErr *UpstreamFailoverError
+		if errors.As(err, &failoverErr) {
+			lastFailoverErr = failoverErr
+			s.cooldownAccountAPIKeyModel(ctx, key.ID, keyModel, failoverErr.StatusCode, failoverErr.ResponseBody)
+			s.markAccountAPIKeyUsed(ctx, key.ID, true)
+			continue
+		}
+		return nil, err
+	}
+	if lastFailoverErr != nil {
+		return nil, lastFailoverErr
+	}
+	return nil, &UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable, ResponseBody: []byte(`{"error":"all upstream keys failed"}`)}
+}
+
+func (s *GatewayService) forwardBedrockAPIKeyWithToken(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	reqModel string,
+	mappedModel string,
+	region string,
+	reqStream bool,
+	apiKey string,
+	proxyURL string,
+	startTime time.Time,
+	selectedKey *AccountAPIKey,
+) (*ForwardResult, error) {
+	upstreamReq, err := s.buildUpstreamRequestBedrockAPIKey(ctx, body, mappedModel, region, reqStream, apiKey)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, nil)
+	if err != nil {
+		safeErr := sanitizeUpstreamErrorMessage(err.Error())
+		setOpsUpstreamError(c, 0, safeErr, "")
+		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			Platform:           account.Platform,
+			AccountID:          account.ID,
+			AccountName:        account.Name,
+			UpstreamStatusCode: 0,
+			UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
+			Kind:               "request_error",
+			Message:            safeErr,
+		})
+		if selectedKey != nil && selectedKey.ID > 0 {
+			return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: []byte(`{"error":"upstream request failed"}`)}
+		}
+		c.JSON(http.StatusBadGateway, gin.H{
+			"type": "error",
+			"error": gin.H{
+				"type":    "upstream_error",
+				"message": "Upstream request failed",
+			},
+		})
+		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if awsReqID := resp.Header.Get("x-amzn-requestid"); awsReqID != "" && resp.Header.Get("x-request-id") == "" {
+		resp.Header.Set("x-request-id", awsReqID)
+	}
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		resp.Body = io.NopCloser(bytes.NewReader(respBody))
+		if s.shouldFailoverUpstreamError(resp.StatusCode) {
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				Platform:           account.Platform,
+				AccountID:          account.ID,
+				AccountName:        account.Name,
+				UpstreamStatusCode: resp.StatusCode,
+				UpstreamRequestID:  resp.Header.Get("x-request-id"),
+				Kind:               "key_model_failover",
+				Message:            extractUpstreamErrorMessage(respBody),
+			})
+			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody, ResponseHeaders: resp.Header.Clone()}
+		}
+		return s.handleErrorResponse(ctx, resp, c, account)
+	}
+
+	var usage *ClaudeUsage
+	var firstTokenMs *int
+	var clientDisconnect bool
+	if reqStream {
+		streamResult, err := s.handleBedrockStreamingResponse(ctx, resp, c, account, startTime, reqModel)
+		if err != nil {
+			return nil, err
+		}
+		usage = streamResult.usage
+		firstTokenMs = streamResult.firstTokenMs
+		clientDisconnect = streamResult.clientDisconnect
+	} else {
+		usage, err = s.handleBedrockNonStreamingResponse(ctx, resp, c, account)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if usage == nil {
+		usage = &ClaudeUsage{}
+	}
 	return &ForwardResult{
 		RequestID:        resp.Header.Get("x-amzn-requestid"),
 		Usage:            *usage,
@@ -7166,7 +7568,7 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 
 	// 处理上游错误，标记账号状态
 	shouldDisable := false
-	if s.rateLimitService != nil {
+	if !s.disableAccountFailoverSideEffects && s.rateLimitService != nil {
 		if len(requestedModel) > 0 {
 			shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, requestedModel[0])
 		} else {
@@ -7274,6 +7676,9 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 }
 
 func (s *GatewayService) handleRetryExhaustedSideEffects(ctx context.Context, resp *http.Response, account *Account) {
+	if s.disableAccountFailoverSideEffects || s.rateLimitService == nil {
+		return
+	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	statusCode := resp.StatusCode
 
@@ -7288,6 +7693,9 @@ func (s *GatewayService) handleRetryExhaustedSideEffects(ctx context.Context, re
 }
 
 func (s *GatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account, requestedModel ...string) {
+	if s.disableAccountFailoverSideEffects || s.rateLimitService == nil {
+		return
+	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if len(requestedModel) > 0 {
 		s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, requestedModel[0])
@@ -9173,13 +9581,15 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 
 	if account != nil && account.IsAnthropicAPIKeyPassthroughEnabled() {
 		passthroughBody := parsed.Body
-		if reqModel := parsed.Model; reqModel != "" {
-			if mappedModel := account.GetMappedModel(reqModel); mappedModel != reqModel {
+		passthroughModel := parsed.Model
+		if passthroughModel != "" {
+			if mappedModel := account.GetMappedModel(passthroughModel); mappedModel != passthroughModel {
 				passthroughBody = s.replaceModelInBody(passthroughBody, mappedModel)
-				logger.LegacyPrintf("service.gateway", "CountTokens passthrough model mapping: %s -> %s (account: %s)", reqModel, mappedModel, account.Name)
+				logger.LegacyPrintf("service.gateway", "CountTokens passthrough model mapping: %s -> %s (account: %s)", parsed.Model, mappedModel, account.Name)
+				passthroughModel = mappedModel
 			}
 		}
-		return s.forwardCountTokensAnthropicAPIKeyPassthrough(ctx, c, account, passthroughBody)
+		return s.forwardCountTokensAnthropicAPIKeyPassthrough(ctx, c, account, passthroughBody, passthroughModel, parsed.Model)
 	}
 
 	// Bedrock 不支持 count_tokens 端点
@@ -9356,7 +9766,45 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	return nil
 }
 
-func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx context.Context, c *gin.Context, account *Account, body []byte) error {
+func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx context.Context, c *gin.Context, account *Account, body []byte, reqModel string, originalModel string) error {
+	now := time.Now()
+	keySelections := account.EffectiveAPIKeySelectionsForRequest(originalModel, reqModel, now)
+	if account.HasAccountAPIKeyPool() {
+		if len(keySelections) == 0 {
+			s.countTokensError(c, http.StatusServiceUnavailable, "upstream_error", "No available upstream key for model")
+			return &UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable, ResponseBody: []byte(`{"error":"no available upstream key for model"}`)}
+		}
+		var lastFailoverErr *UpstreamFailoverError
+		for i := range keySelections {
+			selection := keySelections[i]
+			key := selection.Key
+			keyBody := body
+			keyModel := selection.UpstreamModel
+			if keyModel != reqModel {
+				keyBody = s.replaceModelInBody(body, keyModel)
+			}
+			err := s.forwardCountTokensAnthropicAPIKeyPassthroughWithToken(ctx, c, account, keyBody, key.APIKey, &key)
+			if err == nil {
+				s.markAccountAPIKeyUsed(ctx, key.ID, false)
+				return nil
+			}
+			var failoverErr *UpstreamFailoverError
+			if errors.As(err, &failoverErr) {
+				lastFailoverErr = failoverErr
+				s.cooldownAccountAPIKeyModel(ctx, key.ID, keyModel, failoverErr.StatusCode, failoverErr.ResponseBody)
+				s.markAccountAPIKeyUsed(ctx, key.ID, true)
+				continue
+			}
+			return err
+		}
+		if lastFailoverErr != nil {
+			s.countTokensError(c, http.StatusServiceUnavailable, "upstream_error", "No available upstream key for model")
+			return lastFailoverErr
+		}
+		s.countTokensError(c, http.StatusServiceUnavailable, "upstream_error", "No available upstream key for model")
+		return &UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable, ResponseBody: []byte(`{"error":"no available upstream key for model"}`)}
+	}
+
 	token, tokenType, err := s.GetAccessToken(ctx, account)
 	if err != nil {
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to get access token")
@@ -9367,6 +9815,10 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 		return fmt.Errorf("anthropic api key passthrough requires apikey token, got: %s", tokenType)
 	}
 
+	return s.forwardCountTokensAnthropicAPIKeyPassthroughWithToken(ctx, c, account, body, token, nil)
+}
+
+func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthroughWithToken(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, selectedKey *AccountAPIKey) error {
 	upstreamReq, err := s.buildCountTokensRequestAnthropicAPIKeyPassthrough(ctx, c, account, body, token)
 	if err != nil {
 		s.countTokensError(c, http.StatusInternalServerError, "api_error", "Failed to build request")
@@ -9391,6 +9843,9 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 			Kind:               "request_error",
 			Message:            sanitizeUpstreamErrorMessage(err.Error()),
 		})
+		if selectedKey != nil && selectedKey.ID > 0 {
+			return &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: []byte(`{"error":"upstream request failed"}`)}
+		}
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Request failed")
 		return fmt.Errorf("upstream request failed: %w", err)
 	}
@@ -9408,7 +9863,7 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 	}
 
 	if resp.StatusCode >= 400 {
-		if s.rateLimitService != nil {
+		if selectedKey == nil && s.rateLimitService != nil {
 			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}
 
@@ -9424,6 +9879,12 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 				account.ID, account.Name, truncateString(upstreamMsg, 512))
 			s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported by upstream")
 			return nil
+		}
+
+		if selectedKey != nil && selectedKey.ID > 0 {
+			if s.shouldFailoverUpstreamError(resp.StatusCode) || shouldFailoverAnthropicPassthroughBadRequest(respBody) {
+				return &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody}
+			}
 		}
 
 		upstreamDetail := ""

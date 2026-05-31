@@ -135,6 +135,33 @@ func (s *httpUpstreamStub) DoWithTLS(_ *http.Request, _ string, _ int64, _ int, 
 	return s.resp, s.err
 }
 
+type antigravityUpstreamRequestRecorder struct {
+	responses []*http.Response
+	requests  []*http.Request
+	body      [][]byte
+	calls     int
+}
+
+func (s *antigravityUpstreamRequestRecorder) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	s.calls++
+	s.requests = append(s.requests, req)
+	if req != nil && req.Body != nil {
+		body, _ := io.ReadAll(req.Body)
+		s.body = append(s.body, body)
+		req.Body = io.NopCloser(bytes.NewReader(body))
+	}
+	if len(s.responses) == 0 {
+		return nil, fmt.Errorf("unexpected upstream call")
+	}
+	resp := s.responses[0]
+	s.responses = s.responses[1:]
+	return resp, nil
+}
+
+func (s *antigravityUpstreamRequestRecorder) DoWithTLS(req *http.Request, proxyURL string, accountID int64, concurrency int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	return s.Do(req, proxyURL, accountID, concurrency)
+}
+
 type queuedHTTPUpstreamStub struct {
 	responses     []*http.Response
 	errors        []error
@@ -264,6 +291,134 @@ func TestAntigravityGatewayService_Forward_PromptTooLong(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, events, 1)
 	require.Equal(t, "prompt_too_long", events[0].Kind)
+}
+
+func TestAntigravityGatewayService_ForwardUpstream_APIKeyPoolFailoverCoolsSelectedKeyModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	writer := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(writer)
+
+	body, err := json.Marshal(map[string]any{
+		"model": "claude-sonnet-4-5",
+		"messages": []map[string]any{
+			{"role": "user", "content": "hello"},
+		},
+		"max_tokens": 16,
+		"stream":     false,
+	})
+	require.NoError(t, err)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	upstream := &antigravityUpstreamRequestRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusTooManyRequests,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"rate limited selected key"}}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":8,"output_tokens":3}}`)),
+		},
+	}}
+	repo := &accountAPIKeyRuntimeRepoRecorder{}
+	svc := &AntigravityGatewayService{
+		accountRepo:    repo,
+		settingService: NewSettingService(&antigravitySettingRepoStub{}, &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}),
+		httpUpstream:   upstream,
+	}
+	account := &Account{
+		ID:          88,
+		Name:        "ag-upstream-pool",
+		Platform:    PlatformAntigravity,
+		Type:        AccountTypeUpstream,
+		Status:      StatusActive,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"base_url": "https://relay.example.com",
+			"api_key":  "legacy-ag-key",
+		},
+		APIKeys: []AccountAPIKey{
+			{ID: 8801, AccountID: 88, Name: "ag-key-1", APIKey: "upstream-ag-key-1", Priority: 1, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "whitelist", ModelMapping: map[string]string{"claude-sonnet-4-5": "claude-sonnet-4-5"}},
+			{ID: 8802, AccountID: 88, Name: "ag-key-2", APIKey: "upstream-ag-key-2", Priority: 2, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "whitelist", ModelMapping: map[string]string{"claude-sonnet-4-5": "claude-sonnet-4-5"}},
+		},
+	}
+
+	result, err := svc.ForwardUpstream(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "claude-sonnet-4-5", result.Model)
+	require.Equal(t, "claude-sonnet-4-5", result.UpstreamModel)
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "Bearer upstream-ag-key-1", upstream.requests[0].Header.Get("Authorization"))
+	require.Equal(t, "upstream-ag-key-1", upstream.requests[0].Header.Get("x-api-key"))
+	require.Equal(t, "Bearer upstream-ag-key-2", upstream.requests[1].Header.Get("Authorization"))
+	require.Equal(t, "upstream-ag-key-2", upstream.requests[1].Header.Get("x-api-key"))
+	require.Len(t, repo.cooldowns, 1)
+	require.Equal(t, int64(8801), repo.cooldowns[0].keyID)
+	require.Equal(t, "claude-sonnet-4-5", repo.cooldowns[0].upstreamModel)
+	require.Equal(t, http.StatusTooManyRequests, repo.cooldowns[0].statusCode)
+	require.Len(t, repo.used, 2)
+	require.True(t, repo.used[0].failed)
+	require.False(t, repo.used[1].failed)
+}
+
+func TestAntigravityGatewayService_ForwardUpstream_APIKeyPoolUsesPerKeyModelMapping(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	writer := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(writer)
+
+	body, err := json.Marshal(map[string]any{
+		"model": "claude-sonnet-site",
+		"messages": []map[string]any{
+			{"role": "user", "content": "hello"},
+		},
+		"max_tokens": 16,
+		"stream":     false,
+	})
+	require.NoError(t, err)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	upstream := &antigravityUpstreamRequestRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":8,"output_tokens":3}}`)),
+		},
+	}}
+	repo := &accountAPIKeyRuntimeRepoRecorder{}
+	svc := &AntigravityGatewayService{
+		accountRepo:    repo,
+		settingService: NewSettingService(&antigravitySettingRepoStub{}, &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}),
+		httpUpstream:   upstream,
+	}
+	account := &Account{
+		ID:          89,
+		Name:        "ag-upstream-mapping",
+		Platform:    PlatformAntigravity,
+		Type:        AccountTypeUpstream,
+		Status:      StatusActive,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"base_url": "https://relay.example.com",
+			"api_key":  "legacy-ag-key",
+		},
+		APIKeys: []AccountAPIKey{
+			{ID: 8901, AccountID: 89, Name: "ag-key-1", APIKey: "upstream-ag-key-1", Priority: 1, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "mapping", ModelMapping: map[string]string{"claude-sonnet-site": "claude-sonnet-upstream"}},
+		},
+	}
+
+	result, err := svc.ForwardUpstream(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "claude-sonnet-site", result.Model)
+	require.Equal(t, "claude-sonnet-upstream", result.UpstreamModel)
+	require.Len(t, upstream.body, 1)
+	require.Contains(t, string(upstream.body[0]), `"model":"claude-sonnet-upstream"`)
+	require.NotContains(t, string(upstream.body[0]), `"model":"claude-sonnet-site"`)
+	require.Empty(t, repo.cooldowns)
+	require.Len(t, repo.used, 1)
+	require.False(t, repo.used[0].failed)
 }
 
 // TestAntigravityGatewayService_Forward_ModelRateLimitTriggersFailover

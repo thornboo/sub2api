@@ -1293,7 +1293,7 @@ const handleEdit = (proxy: Proxy) => {
   editForm.port = proxy.port
   editForm.username = proxy.username || ''
   editForm.password = proxy.password || ''
-  editForm.status = proxy.status
+  editForm.status = proxy.status === 'inactive' ? 'inactive' : 'active'
   editPasswordVisible.value = false
   editPasswordDirty.value = false
   showEditModal.value = true

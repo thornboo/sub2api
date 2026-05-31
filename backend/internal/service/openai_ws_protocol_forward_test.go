@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -29,6 +30,23 @@ type httpUpstreamSequenceRecorder struct {
 	responses []*http.Response
 	errs      []error
 	callCount int
+}
+
+type openAIWSFailThenSucceedDialer struct {
+	mu      sync.Mutex
+	headers []http.Header
+	calls   int
+}
+
+func (d *openAIWSFailThenSucceedDialer) Dial(_ context.Context, _ string, headers http.Header, _ string) (openAIWSClientConn, int, http.Header, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.calls++
+	d.headers = append(d.headers, cloneHeader(headers))
+	if d.calls == 1 {
+		return nil, http.StatusTooManyRequests, nil, errors.New("rate limited selected key")
+	}
+	return &openAIWSFakeConn{}, 0, nil, nil
 }
 
 func (u *httpUpstreamSequenceRecorder) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
@@ -184,6 +202,72 @@ func TestOpenAIGatewayService_Forward_HTTPIngressStaysHTTPWhenWSEnabled(t *testi
 	reason, _ := c.Get("openai_ws_transport_reason")
 	require.Equal(t, string(OpenAIUpstreamTransportHTTPSSE), decision)
 	require.Equal(t, "client_protocol_http", reason)
+}
+
+func TestOpenAIGatewayService_Forward_WSAPIKeyPoolFailoverCoolsSelectedKeyModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
+	c.Request.Header.Set("User-Agent", "custom-client/1.0")
+	SetOpenAIClientTransport(c, OpenAIClientTransportWS)
+
+	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.Enabled = false
+	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	cfg.Gateway.OpenAIWS.Enabled = true
+	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
+	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
+	cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 1
+	cfg.Gateway.OpenAIWS.PrewarmGenerateEnabled = false
+
+	repo := &accountAPIKeyRuntimeRepoRecorder{}
+	dialer := &openAIWSFailThenSucceedDialer{}
+	svc := &OpenAIGatewayService{
+		cfg:              cfg,
+		accountRepo:      repo,
+		openaiWSResolver: NewOpenAIWSProtocolResolver(cfg),
+	}
+	pool := svc.getOpenAIWSConnPool()
+	pool.setClientDialerForTest(dialer)
+
+	account := &Account{
+		ID:          102,
+		Name:        "openai-ws-apikey-pool",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "legacy-openai-key",
+			"base_url": "https://api.openai.example.com/v1/responses",
+		},
+		Extra: map[string]any{
+			"responses_websockets_v2_enabled": true,
+		},
+		APIKeys: []AccountAPIKey{
+			{ID: 10201, AccountID: 102, Name: "openai-ws-key-1", APIKey: "upstream-openai-ws-key-1", Priority: 1, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "mapping", ModelMapping: map[string]string{"gpt-site": "gpt-ws-upstream"}},
+			{ID: 10202, AccountID: 102, Name: "openai-ws-key-2", APIKey: "upstream-openai-ws-key-2", Priority: 2, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "mapping", ModelMapping: map[string]string{"gpt-site": "gpt-ws-upstream"}},
+		},
+	}
+	body := []byte(`{"model":"gpt-site","stream":true,"input":[{"type":"input_text","text":"hello"}]}`)
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.OpenAIWSMode)
+	require.Equal(t, "gpt-site", result.Model)
+	require.Equal(t, "gpt-ws-upstream", result.UpstreamModel)
+	require.Len(t, dialer.headers, 2)
+	require.Equal(t, "Bearer upstream-openai-ws-key-1", dialer.headers[0].Get("authorization"))
+	require.Equal(t, "Bearer upstream-openai-ws-key-2", dialer.headers[1].Get("authorization"))
+	require.Len(t, repo.cooldowns, 1)
+	require.Equal(t, int64(10201), repo.cooldowns[0].keyID)
+	require.Equal(t, "gpt-ws-upstream", repo.cooldowns[0].upstreamModel)
+	require.Equal(t, http.StatusTooManyRequests, repo.cooldowns[0].statusCode)
+	require.Len(t, repo.used, 2)
+	require.True(t, repo.used[0].failed)
+	require.False(t, repo.used[1].failed)
 }
 
 func TestOpenAIGatewayService_Forward_HTTPIngressRetriesInvalidEncryptedContentOnce(t *testing.T) {

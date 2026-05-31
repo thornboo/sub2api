@@ -205,6 +205,10 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 	if err != nil {
 		return nil, err
 	}
+	apiKeysByAccount, err := r.loadAccountAPIKeys(ctx, accountIDs)
+	if err != nil {
+		return nil, err
+	}
 
 	outByID := make(map[int64]*service.Account, len(entAccounts))
 	for _, entAcc := range entAccounts {
@@ -226,6 +230,9 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 		}
 		if ags, ok := accountGroupsByAccount[entAcc.ID]; ok {
 			out.AccountGroups = ags
+		}
+		if apiKeys, ok := apiKeysByAccount[entAcc.ID]; ok {
+			out.APIKeys = apiKeys
 		}
 		outByID[entAcc.ID] = out
 	}
@@ -1588,6 +1595,10 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 	if err != nil {
 		return nil, err
 	}
+	apiKeysByAccount, err := r.loadAccountAPIKeys(ctx, accountIDs)
+	if err != nil {
+		return nil, err
+	}
 
 	outAccounts := make([]service.Account, 0, len(accounts))
 	for _, acc := range accounts {
@@ -1608,6 +1619,9 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		}
 		if ags, ok := accountGroupsByAccount[acc.ID]; ok {
 			out.AccountGroups = ags
+		}
+		if apiKeys, ok := apiKeysByAccount[acc.ID]; ok {
+			out.APIKeys = apiKeys
 		}
 		outAccounts = append(outAccounts, *out)
 	}

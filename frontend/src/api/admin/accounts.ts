@@ -475,7 +475,9 @@ export async function getAvailableModels(id: number): Promise<ClaudeModel[]> {
 
 export interface ProbeModelsRequest {
   base_url: string
-  api_key: string
+  api_key?: string
+  account_id?: number
+  account_api_key_id?: number
 }
 
 export interface ProbeModelsResponse {

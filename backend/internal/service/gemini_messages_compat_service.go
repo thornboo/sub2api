@@ -54,6 +54,7 @@ type GeminiMessagesCompatService struct {
 	antigravityGatewayService *AntigravityGatewayService
 	cfg                       *config.Config
 	responseHeaderFilter      *responseheaders.CompiledHeaderFilter
+	disableUpstreamRetry      bool
 }
 
 func NewGeminiMessagesCompatService(
@@ -586,6 +587,11 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(req.Model)
 	}
+	if account.Type == AccountTypeAPIKey && account.HasAccountAPIKeyPool() {
+		return s.forwardGeminiAPIKeyPool(ctx, c, account, body, originalModel, mappedModel, func(svc *GeminiMessagesCompatService, keyAccount *Account) (*ForwardResult, error) {
+			return svc.Forward(ctx, c, keyAccount, body)
+		})
+	}
 
 	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(body)
 	if err != nil {
@@ -777,6 +783,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				Kind:               "request_error",
 				Message:            safeErr,
 			})
+			if s.disableUpstreamRetry {
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: []byte(fmt.Sprintf(`{"error":{"message":%q,"type":"upstream_error"}}`, safeErr))}
+			}
 			if attempt < geminiMaxRetries {
 				logger.LegacyPrintf("service.gemini_messages_compat", "Gemini account %d: upstream request failed, retry %d/%d: %v", account.ID, attempt, geminiMaxRetries, err)
 				sleepGeminiBackoff(attempt)
@@ -859,7 +868,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			resp = rebuilt
 		}
 
-		if resp.StatusCode >= 400 && s.shouldRetryGeminiUpstreamError(account, resp.StatusCode) {
+		if resp.StatusCode >= 400 && !s.disableUpstreamRetry && s.shouldRetryGeminiUpstreamError(account, resp.StatusCode) {
 			respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 			_ = resp.Body.Close()
 			// Don't treat insufficient-scope as transient.
@@ -1127,6 +1136,11 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(originalModel)
 	}
+	if account.Type == AccountTypeAPIKey && account.HasAccountAPIKeyPool() {
+		return s.forwardGeminiAPIKeyPool(ctx, c, account, body, originalModel, mappedModel, func(svc *GeminiMessagesCompatService, keyAccount *Account) (*ForwardResult, error) {
+			return svc.ForwardNative(ctx, c, keyAccount, originalModel, action, stream, body)
+		})
+	}
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -1298,6 +1312,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				Kind:               "request_error",
 				Message:            safeErr,
 			})
+			if s.disableUpstreamRetry {
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: []byte(fmt.Sprintf(`{"error":{"message":%q,"type":"upstream_error"}}`, safeErr))}
+			}
 			if attempt < geminiMaxRetries {
 				logger.LegacyPrintf("service.gemini_messages_compat", "Gemini account %d: upstream request failed, retry %d/%d: %v", account.ID, attempt, geminiMaxRetries, err)
 				sleepGeminiBackoff(attempt)
@@ -1328,7 +1345,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			resp = rebuilt
 		}
 
-		if resp.StatusCode >= 400 && s.shouldRetryGeminiUpstreamError(account, resp.StatusCode) {
+		if resp.StatusCode >= 400 && !s.disableUpstreamRetry && s.shouldRetryGeminiUpstreamError(account, resp.StatusCode) {
 			respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 			_ = resp.Body.Close()
 			// Don't treat insufficient-scope as transient.
@@ -1608,6 +1625,106 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		ImageSize:      imageSize,
 		ImageInputSize: imageInputSize,
 	}, nil
+}
+
+func (s *GeminiMessagesCompatService) forwardGeminiAPIKeyPool(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	requestedModel string,
+	accountUpstreamModel string,
+	forward func(*GeminiMessagesCompatService, *Account) (*ForwardResult, error),
+) (*ForwardResult, error) {
+	keySelections := account.EffectiveAPIKeySelectionsForRequest(requestedModel, accountUpstreamModel, time.Now())
+	if len(keySelections) == 0 {
+		return nil, &UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable, ResponseBody: []byte(`{"error":"no available upstream key for model"}`)}
+	}
+	var lastFailoverErr *UpstreamFailoverError
+	for i := range keySelections {
+		selection := keySelections[i]
+		key := selection.Key
+		keyAccount := cloneGeminiAccountForAPIKeySelection(account, key, requestedModel, selection.UpstreamModel)
+		keyService := *s
+		keyService.accountRepo = nil
+		keyService.rateLimitService = nil
+		keyService.disableUpstreamRetry = true
+		result, err := forward(&keyService, keyAccount)
+		if err == nil {
+			s.markAccountAPIKeyUsed(ctx, key.ID, false)
+			if result != nil {
+				result.UpstreamModel = selection.UpstreamModel
+			}
+			return result, nil
+		}
+		var failoverErr *UpstreamFailoverError
+		if errors.As(err, &failoverErr) {
+			lastFailoverErr = failoverErr
+			s.cooldownAccountAPIKeyModel(ctx, key.ID, selection.UpstreamModel, failoverErr.StatusCode, failoverErr.ResponseBody)
+			s.markAccountAPIKeyUsed(ctx, key.ID, true)
+			continue
+		}
+		return nil, err
+	}
+	if lastFailoverErr != nil {
+		return nil, lastFailoverErr
+	}
+	return nil, &UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable, ResponseBody: []byte(`{"error":"all upstream keys failed"}`)}
+}
+
+func cloneGeminiAccountForAPIKeySelection(account *Account, key AccountAPIKey, requestedModel string, upstreamModel string) *Account {
+	if account == nil {
+		return nil
+	}
+	clone := *account
+	clone.APIKeys = nil
+	clone.Credentials = cloneMapAny(account.Credentials)
+	clone.Credentials["api_key"] = key.APIKey
+	clone.Credentials["model_mapping"] = map[string]any{requestedModel: upstreamModel}
+	return &clone
+}
+
+func cloneMapAny(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in)+2)
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func (s *GeminiMessagesCompatService) cooldownAccountAPIKeyModel(ctx context.Context, keyID int64, upstreamModel string, statusCode int, respBody []byte) {
+	if keyID <= 0 {
+		return
+	}
+	repo, ok := s.accountRepo.(AccountAPIKeyRuntimeRepository)
+	if !ok {
+		return
+	}
+	resetAt := time.Now().Add(accountAPIKeyCooldownDuration(statusCode))
+	reason := "upstream_key_model_failure"
+	if statusCode == http.StatusTooManyRequests {
+		reason = "upstream_rate_limited"
+	} else if statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden {
+		reason = "upstream_authorization_unavailable"
+	} else if statusCode >= 500 || statusCode == 529 {
+		reason = "upstream_transient_error"
+	}
+	if err := repo.SetAccountAPIKeyModelCooldown(ctx, keyID, upstreamModel, resetAt, reason, statusCode, extractUpstreamErrorMessage(respBody)); err != nil {
+		logger.LegacyPrintf("service.gemini_messages_compat", "Gemini account_api_key_model_cooldown_failed key=%d model=%s status=%d error=%v", keyID, upstreamModel, statusCode, err)
+	}
+}
+
+func (s *GeminiMessagesCompatService) markAccountAPIKeyUsed(ctx context.Context, keyID int64, failed bool) {
+	if keyID <= 0 {
+		return
+	}
+	repo, ok := s.accountRepo.(AccountAPIKeyRuntimeRepository)
+	if !ok {
+		return
+	}
+	if err := repo.MarkAccountAPIKeyUsed(ctx, keyID, time.Now(), failed); err != nil {
+		logger.LegacyPrintf("service.gemini_messages_compat", "Gemini account_api_key_mark_used_failed key=%d failed=%v error=%v", keyID, failed, err)
+	}
 }
 
 // checkErrorPolicyInLoop 在重试循环内预检查错误策略。
@@ -2818,6 +2935,9 @@ func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Cont
 		return
 	}
 	if statusCode != 429 {
+		return
+	}
+	if s.accountRepo == nil {
 		return
 	}
 

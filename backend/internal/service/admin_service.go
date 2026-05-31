@@ -283,6 +283,7 @@ type CreateAccountInput struct {
 	GroupIDs           []int64
 	ExpiresAt          *int64
 	AutoPauseOnExpired *bool
+	APIKeys            []AccountAPIKeyInput
 	// SkipDefaultGroupBind prevents auto-binding to platform default group when GroupIDs is empty.
 	SkipDefaultGroupBind bool
 	// SkipMixedChannelCheck skips the mixed channel risk check when binding groups.
@@ -305,6 +306,7 @@ type UpdateAccountInput struct {
 	GroupIDs              *[]int64
 	ExpiresAt             *int64
 	AutoPauseOnExpired    *bool
+	APIKeys               *[]AccountAPIKeyInput
 	SkipMixedChannelCheck bool // 跳过混合渠道检查（用户已确认风险）
 }
 
@@ -2511,6 +2513,16 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err := s.accountRepo.Create(ctx, account); err != nil {
 		return nil, err
 	}
+	if len(input.APIKeys) > 0 {
+		if keyRepo, ok := s.accountRepo.(AccountAPIKeyPoolRepository); ok {
+			if err := keyRepo.ReplaceAccountAPIKeys(ctx, account.ID, input.APIKeys); err != nil {
+				return nil, err
+			}
+			if refreshed, err := s.accountRepo.GetByID(ctx, account.ID); err == nil {
+				account = refreshed
+			}
+		}
+	}
 
 	// 绑定分组
 	if len(groupIDs) > 0 {
@@ -2658,6 +2670,13 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 
 	if err := s.accountRepo.Update(ctx, account); err != nil {
 		return nil, err
+	}
+	if input.APIKeys != nil {
+		if keyRepo, ok := s.accountRepo.(AccountAPIKeyPoolRepository); ok {
+			if err := keyRepo.ReplaceAccountAPIKeys(ctx, account.ID, *input.APIKeys); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	// 绑定分组

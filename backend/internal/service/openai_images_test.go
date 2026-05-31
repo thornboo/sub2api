@@ -735,6 +735,72 @@ func TestOpenAIGatewayServiceForwardImages_APIKeyGenerationUsesConfiguredV1BaseU
 	require.Equal(t, "aGVsbG8=", gjson.Get(rec.Body.String(), "data.0.b64_json").String())
 }
 
+func TestOpenAIGatewayServiceForwardImages_APIKeyPoolFailoverCoolsSelectedKeyModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"gpt-image-site","prompt":"draw a cat","response_format":"b64_json"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+
+	upstream := &httpUpstreamRecorder{
+		responses: []*http.Response{
+			{
+				StatusCode: http.StatusTooManyRequests,
+				Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"rid-image-key-1"}},
+				Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"image key capacity exhausted","type":"rate_limit_error"}}`)),
+			},
+			{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"rid-image-key-2"}},
+				Body:       io.NopCloser(strings.NewReader(`{"created":1710000007,"data":[{"b64_json":"aGVsbG8="}]}`)),
+			},
+		},
+	}
+	repo := &accountAPIKeyRuntimeRepoRecorder{}
+	svc := &OpenAIGatewayService{
+		cfg:          &config.Config{},
+		httpUpstream: upstream,
+		accountRepo:  repo,
+	}
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+
+	account := &Account{
+		ID:       606,
+		Name:     "openai-image-pool",
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":       "legacy-image-key",
+			"base_url":      "https://image-upstream.example/v1",
+			"model_mapping": map[string]any{"gpt-image-site": "gpt-image-account"},
+		},
+		APIKeys: []AccountAPIKey{
+			{ID: 7601, AccountID: 606, Name: "image-key-1", APIKey: "upstream-image-key-1", Priority: 1, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "whitelist", ModelMapping: map[string]string{"gpt-image-account": "gpt-image-account"}},
+			{ID: 7602, AccountID: 606, Name: "image-key-2", APIKey: "upstream-image-key-2", Priority: 2, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "whitelist", ModelMapping: map[string]string{"gpt-image-account": "gpt-image-account"}},
+		},
+	}
+
+	result, err := svc.ForwardImages(context.Background(), c, account, body, parsed, "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "Bearer upstream-image-key-1", upstream.requests[0].Header.Get("Authorization"))
+	require.Equal(t, "Bearer upstream-image-key-2", upstream.requests[1].Header.Get("Authorization"))
+	require.Equal(t, "gpt-image-account", gjson.GetBytes(upstream.bodies[0], "model").String())
+	require.Equal(t, "gpt-image-account", gjson.GetBytes(upstream.bodies[1], "model").String())
+	require.Len(t, repo.cooldowns, 1)
+	require.Equal(t, int64(7601), repo.cooldowns[0].keyID)
+	require.Equal(t, "gpt-image-account", repo.cooldowns[0].upstreamModel)
+	require.Equal(t, http.StatusTooManyRequests, repo.cooldowns[0].statusCode)
+	require.Len(t, repo.used, 2)
+	require.True(t, repo.used[0].failed)
+	require.False(t, repo.used[1].failed)
+}
+
 func TestOpenAIGatewayServiceForwardImages_APIKeyStreamJSONResponseBillsImage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"model":"gpt-image-2","prompt":"draw a cat","stream":true,"response_format":"b64_json"}`)

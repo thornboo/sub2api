@@ -101,6 +101,72 @@ func TestOpenAIGatewayService_ResponsesUnknownModelDoesNotFallbackToGPT54(t *tes
 	require.True(t, rec.Code >= http.StatusBadRequest)
 }
 
+func TestOpenAIGatewayService_Forward_APIKeyPoolFailoverCoolsSelectedKeyModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"gpt-site","stream":false,"instructions":"local-test-instructions","input":[{"type":"input_text","text":"hi"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusTooManyRequests,
+			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"oa-key-1"}},
+			Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"rate_limit_error","message":"rate limited selected key"}}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"oa-key-2"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"resp_1","model":"gpt-upstream","usage":{"input_tokens":1,"output_tokens":2,"input_tokens_details":{"cached_tokens":0}}}`)),
+		},
+	}}
+	repo := &accountAPIKeyRuntimeRepoRecorder{}
+	svc := &OpenAIGatewayService{
+		cfg:              &config.Config{},
+		httpUpstream:     upstream,
+		accountRepo:      repo,
+		openaiWSResolver: NewOpenAIWSProtocolResolver(&config.Config{}),
+	}
+	account := &Account{
+		ID:          91,
+		Name:        "openai-key-pool",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key": "legacy-openai-key",
+			"model_mapping": map[string]any{
+				"gpt-site": "gpt-account",
+			},
+		},
+		APIKeys: []AccountAPIKey{
+			{ID: 9101, AccountID: 91, Name: "openai-key-1", APIKey: "upstream-openai-key-1", Priority: 1, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "mapping", ModelMapping: map[string]string{"gpt-site": "gpt-upstream"}},
+			{ID: 9102, AccountID: 91, Name: "openai-key-2", APIKey: "upstream-openai-key-2", Priority: 2, Status: AccountAPIKeyStatusActive, ModelRestrictionMode: "mapping", ModelMapping: map[string]string{"gpt-site": "gpt-upstream"}},
+		},
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "gpt-site", result.Model)
+	require.Equal(t, "gpt-upstream", result.UpstreamModel)
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "Bearer upstream-openai-key-1", upstream.requests[0].Header.Get("Authorization"))
+	require.Equal(t, "Bearer upstream-openai-key-2", upstream.requests[1].Header.Get("Authorization"))
+	require.Contains(t, string(upstream.bodies[0]), `"model":"gpt-upstream"`)
+	require.Contains(t, string(upstream.bodies[1]), `"model":"gpt-upstream"`)
+	require.Len(t, repo.cooldowns, 1)
+	require.Equal(t, int64(9101), repo.cooldowns[0].keyID)
+	require.Equal(t, "gpt-upstream", repo.cooldowns[0].upstreamModel)
+	require.Equal(t, http.StatusTooManyRequests, repo.cooldowns[0].statusCode)
+	require.Len(t, repo.used, 2)
+	require.True(t, repo.used[0].failed)
+	require.False(t, repo.used[1].failed)
+}
+
 func TestOpenAIGatewayService_OAuthMessagesBridgeDoesNotInjectDefaultInstructions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

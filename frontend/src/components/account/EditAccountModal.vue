@@ -69,8 +69,16 @@
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
         </div>
 
-        <!-- Model Restriction Section (不适用于 Antigravity) -->
-        <div v-if="account.platform !== 'antigravity'" class="border-t border-stone-200/80 pt-4 dark:border-white/10">
+        <AccountAPIKeyPoolEditor
+          v-if="supportsAccountAPIKeyPool"
+          v-model="accountAPIKeys"
+          :platform="account.platform"
+          :base-url="editBaseUrl.trim() || defaultBaseUrl"
+          :account-id="account.id"
+        />
+
+        <!-- Model Restriction Section (API Key pool accounts configure models per key) -->
+        <div v-if="account.platform !== 'antigravity' && !hasAccountAPIKeyPoolInput" class="border-t border-stone-200/80 pt-4 dark:border-white/10">
           <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
 
           <div
@@ -673,6 +681,14 @@
           />
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
         </div>
+
+        <AccountAPIKeyPoolEditor
+          v-if="supportsAccountAPIKeyPool"
+          v-model="accountAPIKeys"
+          :platform="account.platform"
+          :base-url="editBaseUrl.trim() || defaultBaseUrl"
+          :account-id="account.id"
+        />
       </div>
 
       <!-- Vertex Service Account -->
@@ -984,6 +1000,14 @@
           />
           <p class="input-hint">{{ t('admin.accounts.bedrockApiKeyLeaveEmpty') }}</p>
         </div>
+
+        <AccountAPIKeyPoolEditor
+          v-if="supportsAccountAPIKeyPool"
+          v-model="accountAPIKeys"
+          platform="anthropic"
+          base-url="https://bedrock-runtime.amazonaws.com"
+          :account-id="account.id"
+        />
 
         <!-- Shared: Region -->
         <div>
@@ -2616,6 +2640,7 @@ import type {
   Proxy,
   AdminGroup,
   CheckMixedChannelResponse,
+  AccountUpstreamAPIKey,
   OpenAICompactMode,
   OpenAIResponsesMode,
   OpenAIEndpointCapability
@@ -2629,6 +2654,7 @@ import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import ModelCatalogSearch from '@/components/account/ModelCatalogSearch.vue'
+import AccountAPIKeyPoolEditor from '@/components/account/AccountAPIKeyPoolEditor.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
 import { formatDateTime, formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
@@ -2697,6 +2723,7 @@ interface TempUnschedRuleForm {
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
+const accountAPIKeys = ref<AccountUpstreamAPIKey[]>([])
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
@@ -2708,8 +2735,13 @@ const editVertexProjectId = ref('')
 const editVertexClientEmail = ref('')
 const editVertexLocation = ref('us-central1')
 const isBedrockAPIKeyMode = computed(() =>
-  props.account?.type === 'bedrock' &&
-  (props.account?.credentials as Record<string, unknown>)?.auth_mode === 'apikey'
+	props.account?.type === 'bedrock' &&
+	(props.account?.credentials as Record<string, unknown>)?.auth_mode === 'apikey'
+)
+const supportsAccountAPIKeyPool = computed(() =>
+	(props.account?.type === 'apikey' && (props.account.platform === 'anthropic' || props.account.platform === 'openai' || props.account.platform === 'gemini' || props.account.platform === 'antigravity')) ||
+	(props.account?.platform === 'antigravity' && props.account?.type === 'upstream') ||
+	(props.account?.platform === 'anthropic' && props.account?.type === 'bedrock' && isBedrockAPIKeyMode.value)
 )
 const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
@@ -3034,6 +3066,71 @@ const openAIResponsesStatusKey = computed(() => {
   }
   return 'admin.accounts.openai.responsesStatusAutoUnknown'
 })
+
+const normalizedAccountAPIKeys = computed<AccountUpstreamAPIKey[]>(() =>
+  accountAPIKeys.value
+    .map((key) => ({
+      id: key.id,
+      name: (key.name || '').trim(),
+      api_key: (key.api_key || '').trim(),
+      priority: Number.isFinite(key.priority) ? Math.trunc(key.priority) : 1,
+      status: (key.status === 'inactive' ? key.status : 'active') as AccountUpstreamAPIKey['status'],
+      model_restriction_mode: (key.model_restriction_mode === 'mapping' ? 'mapping' : 'whitelist') as AccountUpstreamAPIKey['model_restriction_mode'],
+      model_mapping: key.model_mapping || {}
+    }))
+    .filter((key) => key.id || key.api_key.length > 0)
+)
+
+const hasAccountAPIKeyPoolInput = computed(() =>
+	supportsAccountAPIKeyPool.value && normalizedAccountAPIKeys.value.length > 0
+)
+
+const hasAccountAPIKeyPoolDraft = computed(() =>
+	supportsAccountAPIKeyPool.value && accountAPIKeys.value.some((key) => {
+		const existingKey = !!key.id
+		const hasSecret = (key.api_key || '').trim().length > 0
+		const hasNote = (key.name || '').trim().length > 0
+		const mapping = key.model_mapping || {}
+		return existingKey || hasSecret || hasNote || Object.keys(mapping).length > 0
+	})
+)
+
+const hasIncompleteAccountAPIKeyPoolRows = computed(() =>
+	supportsAccountAPIKeyPool.value && accountAPIKeys.value.some((key) => {
+		const existingKey = !!key.id
+		const hasSecret = (key.api_key || '').trim().length > 0
+    const hasNote = (key.name || '').trim().length > 0
+    const hasAnyInput = existingKey || hasSecret || hasNote
+    if (!hasAnyInput) return false
+    if (!hasNote) return true
+    return !existingKey && !hasSecret
+  })
+)
+
+const hasIncompleteAccountAPIKeyPoolModels = computed(() =>
+	supportsAccountAPIKeyPool.value && normalizedAccountAPIKeys.value.some((key) => {
+		const mapping = key.model_mapping || {}
+		return Object.keys(mapping).length === 0
+	})
+)
+
+const validateAccountAPIKeyPoolInput = () => {
+	if (!hasAccountAPIKeyPoolDraft.value) return true
+	if (hasIncompleteAccountAPIKeyPoolRows.value) {
+		appStore.showError(t('admin.accounts.keyPool.rowRequired'))
+		return false
+	}
+	if (!hasAccountAPIKeyPoolInput.value) {
+		appStore.showError(t('admin.accounts.keyPool.rowRequired'))
+		return false
+	}
+	if (hasIncompleteAccountAPIKeyPoolModels.value) {
+		appStore.showError(t('admin.accounts.keyPool.modelsRequired'))
+		return false
+	}
+	return true
+}
+
 const openAICompactStatusKey = computed(() => {
   const extra = props.account?.extra as Record<string, unknown> | undefined
   if (!props.account || props.account.platform !== 'openai') return ''
@@ -3115,22 +3212,22 @@ const canProbeModels = computed(() => {
 })
 
 const getProbeModelsErrorMessage = (error: unknown) => {
-  const status = typeof error === 'object' && error !== null && 'response' in error
-    ? (error as { response?: { status?: unknown } }).response?.status
-    : undefined
+  const normalized = error as { status?: unknown; message?: unknown } | undefined
+  const status = typeof normalized?.status === 'number' ? normalized.status : undefined
+  const message = typeof normalized?.message === 'string' ? normalized.message.trim() : ''
   if (status === 404) {
     return t('admin.accounts.probeModelsEndpointMissing')
   }
-  return t('admin.accounts.probeModelsFailed')
+  return message || t('admin.accounts.probeModelsFailed')
 }
 
 const getEditProbeCredentials = () => {
   const credentials = (props.account?.credentials as Record<string, unknown>) || {}
   const baseUrl = editBaseUrl.value.trim() || getStringCredential(credentials, 'base_url') || defaultBaseUrl.value
-  const apiKey =
-    editApiKey.value.trim() ||
-    getStringCredential(credentials, 'api_key') ||
-    getStringCredential(credentials, 'access_token')
+	const poolApiKey = supportsAccountAPIKeyPool.value
+		? normalizedAccountAPIKeys.value.find(key => key.api_key?.trim())?.api_key?.trim() || ''
+		: ''
+  const apiKey = poolApiKey || editApiKey.value.trim() || getStringCredential(credentials, 'api_key') || getStringCredential(credentials, 'access_token')
 
   return { baseUrl, apiKey }
 }
@@ -3366,6 +3463,12 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   probeMissingMappingTargets.value = []
   probeNewAntigravityMappingTargets.value = []
   probeMissingAntigravityMappingTargets.value = []
+  accountAPIKeys.value = (newAccount.api_keys || []).map((key) => ({
+    ...key,
+    api_key: '',
+    priority: Number.isFinite(key.priority) ? key.priority : 1,
+    status: key.status === 'inactive' ? 'inactive' : 'active'
+  }))
 
   // Load intercept warmup requests setting (applies to all account types)
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
@@ -4152,9 +4255,11 @@ const handleSubmit = async () => {
 
     // For apikey type, handle credentials update
     if (props.account.type === 'apikey') {
-      const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
-      const newBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
-      const shouldApplyModelMapping = !(props.account.platform === 'openai' && openaiPassthroughEnabled.value)
+		const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
+		const newBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
+		const shouldApplyModelMapping =
+			!(props.account.platform === 'openai' && openaiPassthroughEnabled.value) &&
+			!hasAccountAPIKeyPoolInput.value
 
       // Always update credentials for apikey type to handle model mapping changes
       const newCredentials: Record<string, unknown> = {
@@ -4169,7 +4274,12 @@ const handleSubmit = async () => {
       // 两者都无才报错。
       const hasExistingApiKey =
         props.account.credentials_status?.has_api_key ?? Boolean(currentCredentials.api_key)
-      if (editApiKey.value.trim()) {
+		if (hasAccountAPIKeyPoolInput.value) {
+			if (!validateAccountAPIKeyPoolInput()) {
+				return
+			}
+		} else if (editApiKey.value.trim()) {
+        // User provided a new API key
         newCredentials.api_key = editApiKey.value.trim()
       } else if (!hasExistingApiKey) {
         appStore.showError(t('admin.accounts.apiKeyIsRequired'))
@@ -4234,8 +4344,14 @@ const handleSubmit = async () => {
       }
 
       updatePayload.credentials = newCredentials
-    } else if (props.account.type === 'upstream') {
-      const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
+		if (supportsAccountAPIKeyPool.value) {
+			updatePayload.api_keys = normalizedAccountAPIKeys.value
+		}
+	} else if (props.account.type === 'upstream') {
+		if (!validateAccountAPIKeyPoolInput()) {
+			return
+		}
+		const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
 
       newCredentials.base_url = editBaseUrl.value.trim()
@@ -4251,8 +4367,11 @@ const handleSubmit = async () => {
         return
       }
 
-      updatePayload.credentials = newCredentials
-    } else if ((props.account.platform === 'gemini' || props.account.platform === 'anthropic') && props.account.type === 'service_account') {
+		updatePayload.credentials = newCredentials
+		if (supportsAccountAPIKeyPool.value) {
+			updatePayload.api_keys = normalizedAccountAPIKeys.value
+		}
+	} else if ((props.account.platform === 'gemini' || props.account.platform === 'anthropic') && props.account.type === 'service_account') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
 
@@ -4302,8 +4421,11 @@ const handleSubmit = async () => {
       }
 
       updatePayload.credentials = newCredentials
-    } else if (props.account.type === 'bedrock') {
-      const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
+	} else if (props.account.type === 'bedrock') {
+		if (!validateAccountAPIKeyPoolInput()) {
+			return
+		}
+		const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
 
       newCredentials.aws_region = editBedrockRegion.value.trim()
@@ -4360,8 +4482,11 @@ const handleSubmit = async () => {
         return
       }
 
-      updatePayload.credentials = newCredentials
-    } else {
+		updatePayload.credentials = newCredentials
+		if (supportsAccountAPIKeyPool.value) {
+			updatePayload.api_keys = normalizedAccountAPIKeys.value
+		}
+	} else {
       // For oauth/setup-token types, only update intercept_warmup_requests if changed
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
       const newCredentials: Record<string, unknown> = { ...currentCredentials }

@@ -250,11 +250,39 @@ type Account struct {
 	QuotaNotifyTotalEnabled    *bool    `json:"quota_notify_total_enabled,omitempty"`
 	QuotaNotifyTotalThreshold  *float64 `json:"quota_notify_total_threshold,omitempty"`
 
-	Proxy         *Proxy         `json:"proxy,omitempty"`
-	AccountGroups []AccountGroup `json:"account_groups,omitempty"`
+	Proxy         *Proxy          `json:"proxy,omitempty"`
+	AccountGroups []AccountGroup  `json:"account_groups,omitempty"`
+	APIKeys       []AccountAPIKey `json:"api_keys,omitempty"`
 
 	GroupIDs []int64  `json:"group_ids,omitempty"`
 	Groups   []*Group `json:"groups,omitempty"`
+}
+
+type AccountAPIKey struct {
+	ID                   int64                         `json:"id"`
+	AccountID            int64                         `json:"account_id"`
+	Name                 string                        `json:"name"`
+	APIKey               string                        `json:"api_key,omitempty"`
+	Priority             int                           `json:"priority"`
+	Status               string                        `json:"status"`
+	ModelRestrictionMode string                        `json:"model_restriction_mode,omitempty"`
+	ModelMapping         map[string]string             `json:"model_mapping,omitempty"`
+	GlobalCooldownUntil  *time.Time                    `json:"global_cooldown_until"`
+	LastUsedAt           *time.Time                    `json:"last_used_at"`
+	RecentRequestCount   int64                         `json:"recent_request_count"`
+	RecentErrorCount     int64                         `json:"recent_error_count"`
+	ModelCooldowns       map[string]AccountKeyCooldown `json:"model_cooldowns,omitempty"`
+	CreatedAt            time.Time                     `json:"created_at"`
+	UpdatedAt            time.Time                     `json:"updated_at"`
+}
+
+type AccountKeyCooldown struct {
+	UpstreamModel             string    `json:"upstream_model"`
+	Reason                    string    `json:"reason"`
+	StatusCode                *int      `json:"status_code,omitempty"`
+	CooldownUntil             time.Time `json:"cooldown_until"`
+	LastErrorAt               time.Time `json:"last_error_at"`
+	LastErrorMessageSanitized string    `json:"last_error_message_sanitized"`
 }
 
 type AccountGroup struct {

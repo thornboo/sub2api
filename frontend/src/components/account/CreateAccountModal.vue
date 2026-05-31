@@ -792,12 +792,19 @@
           <input
             v-model="upstreamApiKey"
             type="password"
-            required
+            :required="!hasAccountAPIKeyPoolInput"
             class="input font-mono"
             placeholder="sk-..."
           />
           <p class="input-hint">{{ t('admin.accounts.upstream.apiKeyHint') }}</p>
         </div>
+
+        <AccountAPIKeyPoolEditor
+          v-if="supportsAccountAPIKeyPool"
+          v-model="accountAPIKeys"
+          :platform="form.platform"
+          :base-url="upstreamBaseUrl.trim() || 'https://cloudcode-pa.googleapis.com'"
+        />
       </div>
 
       <!-- Vertex Service Account -->
@@ -1070,7 +1077,7 @@
           <input
             v-model="apiKeyValue"
             type="password"
-            required
+            :required="!hasAccountAPIKeyPoolInput"
             class="input font-mono"
             :placeholder="
               form.platform === 'openai'
@@ -1083,6 +1090,13 @@
           <p class="input-hint">{{ apiKeyHint }}</p>
         </div>
 
+        <AccountAPIKeyPoolEditor
+          v-if="supportsAccountAPIKeyPool"
+          v-model="accountAPIKeys"
+          :platform="form.platform"
+          :base-url="apiKeyBaseUrl.trim() || getDefaultAPIKeyBaseUrl()"
+        />
+
         <!-- Gemini API Key tier selection -->
         <div v-if="form.platform === 'gemini'">
           <label class="input-label">{{ t('admin.accounts.gemini.tier.label') }}</label>
@@ -1093,8 +1107,8 @@
           <p class="input-hint">{{ t('admin.accounts.gemini.tier.aiStudioHint') }}</p>
         </div>
 
-        <!-- Model Restriction Section (Antigravity 已在上层条件排除) -->
-        <div class="border-t border-stone-200/80 pt-4 dark:border-white/10">
+        <!-- Model Restriction Section (API Key pool accounts configure models per key) -->
+        <div v-if="!hasAccountAPIKeyPoolInput" class="border-t border-stone-200/80 pt-4 dark:border-white/10">
           <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
 
           <div
@@ -1555,10 +1569,17 @@
           <input
             v-model="bedrockApiKeyValue"
             type="password"
-            required
+            :required="!hasAccountAPIKeyPoolInput"
             class="input font-mono"
           />
         </div>
+
+        <AccountAPIKeyPoolEditor
+          v-if="supportsAccountAPIKeyPool"
+          v-model="accountAPIKeys"
+          platform="anthropic"
+          base-url="https://bedrock-runtime.amazonaws.com"
+        />
 
         <!-- Shared: Region -->
         <div>
@@ -3404,6 +3425,7 @@ import type {
   AccountType,
   CheckMixedChannelResponse,
   CreateAccountRequest,
+  AccountUpstreamAPIKey,
   CodexSessionImportMessage,
   OpenAICompactMode,
   OpenAIResponsesMode,
@@ -3418,6 +3440,7 @@ import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import ModelCatalogSearch from '@/components/account/ModelCatalogSearch.vue'
+import AccountAPIKeyPoolEditor from '@/components/account/AccountAPIKeyPoolEditor.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import { buildChannelModelRecommendations } from '@/components/account/channelModelRecommendations'
 import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
@@ -3543,6 +3566,7 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
+const accountAPIKeys = ref<AccountUpstreamAPIKey[]>([])
 const editQuotaLimit = ref<number | null>(null)
 const editQuotaDailyLimit = ref<number | null>(null)
 const editQuotaWeeklyLimit = ref<number | null>(null)
@@ -3807,6 +3831,47 @@ const isOpenAIModelRestrictionDisabled = computed(() =>
   form.platform === 'openai' && openaiPassthroughEnabled.value
 )
 
+const normalizedAccountAPIKeys = computed<AccountUpstreamAPIKey[]>(() =>
+  accountAPIKeys.value
+    .map((key) => ({
+      name: (key.name || '').trim(),
+      api_key: (key.api_key || '').trim(),
+      priority: Number.isFinite(key.priority) ? Math.trunc(key.priority) : 1,
+      status: (key.status === 'inactive' ? key.status : 'active') as AccountUpstreamAPIKey['status'],
+      model_restriction_mode: (key.model_restriction_mode === 'mapping' ? 'mapping' : 'whitelist') as AccountUpstreamAPIKey['model_restriction_mode'],
+      model_mapping: key.model_mapping || {}
+    }))
+    .filter((key) => key.api_key.length > 0)
+)
+
+const hasAccountAPIKeyPoolInput = computed(() =>
+	supportsAccountAPIKeyPool.value && normalizedAccountAPIKeys.value.length > 0
+)
+
+const hasAccountAPIKeyPoolDraft = computed(() =>
+	supportsAccountAPIKeyPool.value && accountAPIKeys.value.some((key) => {
+		const hasSecret = (key.api_key || '').trim().length > 0
+		const hasNote = (key.name || '').trim().length > 0
+		const mapping = key.model_mapping || {}
+		return hasSecret || hasNote || Object.keys(mapping).length > 0
+	})
+)
+
+const hasIncompleteAccountAPIKeyPoolRows = computed(() =>
+	supportsAccountAPIKeyPool.value && accountAPIKeys.value.some((key) => {
+		const hasSecret = (key.api_key || '').trim().length > 0
+		const hasNote = (key.name || '').trim().length > 0
+		return hasSecret !== hasNote
+	})
+)
+
+const hasIncompleteAccountAPIKeyPoolModels = computed(() =>
+	supportsAccountAPIKeyPool.value && normalizedAccountAPIKeys.value.some((key) => {
+		const mapping = key.model_mapping || {}
+		return Object.keys(mapping).length === 0
+	})
+)
+
 const mixedChannelWarningMessageText = computed(() => {
   if (mixedChannelWarningDetails.value) {
     return t('admin.accounts.mixedChannelWarning', mixedChannelWarningDetails.value)
@@ -3901,6 +3966,11 @@ const isOAuthFlow = computed(() => {
   }
   return accountCategory.value === 'oauth-based'
 })
+
+const supportsAccountAPIKeyPool = computed(() =>
+  (form.type === 'apikey' && (form.platform === 'anthropic' || form.platform === 'openai' || form.platform === 'gemini' || form.platform === 'antigravity')) ||
+  (form.platform === 'anthropic' && form.type === 'bedrock' && bedrockAuthMode.value === 'apikey')
+)
 
 const isManualInputMethod = computed(() => {
   return oauthFlowRef.value?.inputMethod === 'manual'
@@ -4109,9 +4179,12 @@ const getCreateProbeCredentials = () => {
   }
 
   if (accountCategory.value === 'apikey') {
+    const poolApiKey = form.platform === 'anthropic'
+      ? normalizedAccountAPIKeys.value.find(key => key.api_key?.trim())?.api_key?.trim() || ''
+      : ''
     return {
       baseUrl: apiKeyBaseUrl.value.trim() || getDefaultAPIKeyBaseUrl(),
-      apiKey: apiKeyValue.value.trim()
+      apiKey: form.platform === 'anthropic' ? poolApiKey : apiKeyValue.value.trim()
     }
   }
 
@@ -4126,13 +4199,13 @@ const canProbeModels = computed(() => {
 })
 
 const getProbeModelsErrorMessage = (error: unknown) => {
-  const status = typeof error === 'object' && error !== null && 'response' in error
-    ? (error as { response?: { status?: unknown } }).response?.status
-    : undefined
+  const normalized = error as { status?: unknown; message?: unknown } | undefined
+  const status = typeof normalized?.status === 'number' ? normalized.status : undefined
+  const message = typeof normalized?.message === 'string' ? normalized.message.trim() : ''
   if (status === 404) {
     return t('admin.accounts.probeModelsEndpointMissing')
   }
-  return t('admin.accounts.probeModelsFailed')
+  return message || t('admin.accounts.probeModelsFailed')
 }
 
 type ProbeModelsTarget = 'whitelist' | 'mapping' | 'antigravityMapping'
@@ -4596,6 +4669,7 @@ const resetForm = () => {
   addMethod.value = 'oauth'
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
+  accountAPIKeys.value = []
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -4777,6 +4851,25 @@ const doCreateAccount = async (payload: CreateAccountRequest) => {
   await submitCreateAccount(payload)
 }
 
+const createAccountAPIKeysPayload = () => hasAccountAPIKeyPoolInput.value ? normalizedAccountAPIKeys.value : undefined
+
+const validateAccountAPIKeyPoolInput = () => {
+	if (!hasAccountAPIKeyPoolDraft.value) return true
+	if (hasIncompleteAccountAPIKeyPoolRows.value) {
+		appStore.showError(t('admin.accounts.keyPool.rowRequired'))
+		return false
+	}
+	if (!hasAccountAPIKeyPoolInput.value) {
+		appStore.showError(t('admin.accounts.keyPool.rowRequired'))
+		return false
+	}
+	if (hasIncompleteAccountAPIKeyPoolModels.value) {
+		appStore.showError(t('admin.accounts.keyPool.modelsRequired'))
+		return false
+	}
+	return true
+}
+
 // Handle mixed channel warning confirmation
 const handleMixedChannelConfirm = async () => {
   const action = mixedChannelWarningAction.value
@@ -4875,11 +4968,14 @@ const handleSubmit = async () => {
   }
 
   // For Bedrock type, create directly
-  if (form.platform === 'anthropic' && accountCategory.value === 'bedrock') {
-    if (!form.name.trim()) {
-      appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
-      return
-    }
+	if (form.platform === 'anthropic' && accountCategory.value === 'bedrock') {
+		if (!form.name.trim()) {
+			appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+			return
+		}
+		if (!validateAccountAPIKeyPoolInput()) {
+			return
+		}
 
     const credentials: Record<string, unknown> = {
       auth_mode: bedrockAuthMode.value,
@@ -4900,13 +4996,15 @@ const handleSubmit = async () => {
       if (bedrockSessionToken.value.trim()) {
         credentials.aws_session_token = bedrockSessionToken.value.trim()
       }
-    } else {
-      if (!bedrockApiKeyValue.value.trim()) {
-        appStore.showError(t('admin.accounts.bedrockApiKeyRequired'))
-        return
-      }
-      credentials.api_key = bedrockApiKeyValue.value.trim()
-    }
+	} else {
+		if (!hasAccountAPIKeyPoolInput.value && !bedrockApiKeyValue.value.trim()) {
+			appStore.showError(t('admin.accounts.bedrockApiKeyRequired'))
+			return
+		}
+		if (bedrockApiKeyValue.value.trim()) {
+			credentials.api_key = bedrockApiKeyValue.value.trim()
+		}
+	}
 
     if (bedrockForceGlobal.value) {
       credentials.aws_force_global = 'true'
@@ -4933,30 +5031,35 @@ const handleSubmit = async () => {
 
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
 
-    await createAccountAndFinish('anthropic', 'bedrock' as AccountType, credentials)
-    return
-  }
+	await createAccountAndFinish('anthropic', 'bedrock' as AccountType, credentials)
+	return
+}
 
   // For Antigravity upstream type, create directly
-  if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
-    if (!form.name.trim()) {
-      appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
-      return
-    }
+	if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
+		if (!form.name.trim()) {
+			appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+			return
+		}
+		if (!validateAccountAPIKeyPoolInput()) {
+			return
+		}
     if (!upstreamBaseUrl.value.trim()) {
       appStore.showError(t('admin.accounts.upstream.pleaseEnterBaseUrl'))
       return
     }
-    if (!upstreamApiKey.value.trim()) {
-      appStore.showError(t('admin.accounts.upstream.pleaseEnterApiKey'))
-      return
-    }
+	if (!hasAccountAPIKeyPoolInput.value && !upstreamApiKey.value.trim()) {
+		appStore.showError(t('admin.accounts.upstream.pleaseEnterApiKey'))
+		return
+	}
 
     // Build upstream credentials (and optional model restriction)
-    const credentials: Record<string, unknown> = {
-      base_url: upstreamBaseUrl.value.trim(),
-      api_key: upstreamApiKey.value.trim()
-    }
+	const credentials: Record<string, unknown> = {
+		base_url: upstreamBaseUrl.value.trim()
+	}
+	if (upstreamApiKey.value.trim()) {
+		credentials.api_key = upstreamApiKey.value.trim()
+	}
 
     // Antigravity 只使用映射模式
     const antigravityModelMapping = buildModelMappingObject(
@@ -4972,9 +5075,9 @@ const handleSubmit = async () => {
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
 
     const extra = buildAntigravityExtra()
-    await createAccountAndFinish(form.platform, 'apikey', credentials, extra)
-    return
-  }
+	await createAccountAndFinish(form.platform, 'apikey', credentials, extra)
+	return
+}
 
   if ((form.platform === 'gemini' || form.platform === 'anthropic') && accountCategory.value === 'service_account') {
     if (!form.name.trim()) {
@@ -5000,10 +5103,13 @@ const handleSubmit = async () => {
   }
 
   // For apikey type, create directly
-  if (!apiKeyValue.value.trim()) {
-    appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
-    return
-  }
+	if (!validateAccountAPIKeyPoolInput()) {
+		return
+	}
+	if (!hasAccountAPIKeyPoolInput.value && !apiKeyValue.value.trim()) {
+		appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
+		return
+	}
 
   // Determine default base URL based on platform
   const defaultBaseUrl =
@@ -5015,15 +5121,17 @@ const handleSubmit = async () => {
 
   // Build credentials with optional model mapping
   const credentials: Record<string, unknown> = {
-    base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl,
-    api_key: apiKeyValue.value.trim()
+    base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl
   }
+	if (apiKeyValue.value.trim()) {
+		credentials.api_key = apiKeyValue.value.trim()
+	}
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
   }
 
-  // Add model mapping if configured（OpenAI 开启自动透传时不应用）
-  if (!isOpenAIModelRestrictionDisabled.value) {
+  // Add model mapping if configured（OpenAI 开启自动透传时不应用；Anthropic API Key 模式按每个 Key 单独配置）
+	if (!hasAccountAPIKeyPoolInput.value && form.platform !== 'anthropic' && !isOpenAIModelRestrictionDisabled.value) {
     const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
     if (modelMapping) {
       credentials.model_mapping = modelMapping
@@ -5062,12 +5170,13 @@ const handleSubmit = async () => {
   form.credentials = credentials
   const extra = buildAnthropicExtra(buildOpenAIExtra())
 
-  await doCreateAccount({
-    ...form,
-    group_ids: form.group_ids,
-    extra,
-    auto_pause_on_expired: autoPauseOnExpired.value
-  })
+	await doCreateAccount({
+		...form,
+		group_ids: form.group_ids,
+		extra,
+		auto_pause_on_expired: autoPauseOnExpired.value,
+		api_keys: createAccountAPIKeysPayload()
+	})
 }
 
 const goBackToBasicInfo = () => {
@@ -5174,12 +5283,13 @@ const createAccountAndFinish = async (
     proxy_id: form.proxy_id,
     concurrency: form.concurrency,
     load_factor: form.load_factor ?? undefined,
-    priority: form.priority,
-    rate_multiplier: form.rate_multiplier,
-    group_ids: form.group_ids,
-    expires_at: form.expires_at,
-    auto_pause_on_expired: autoPauseOnExpired.value
-  })
+		priority: form.priority,
+		rate_multiplier: form.rate_multiplier,
+		group_ids: form.group_ids,
+		expires_at: form.expires_at,
+		auto_pause_on_expired: autoPauseOnExpired.value,
+		api_keys: createAccountAPIKeysPayload()
+	})
 }
 
 // OpenAI OAuth 授权码兑换

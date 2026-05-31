@@ -503,7 +503,7 @@ export interface Group {
   rate_multiplier: number
   rpm_limit?: number // Group-level RPM cap (0 = unlimited); overrides user-level rpm_limit when set
   is_exclusive: boolean
-  status: 'active' | 'inactive'
+  status: 'active' | 'inactive' | 'error'
   subscription_type: SubscriptionType
   daily_limit_usd: number | null
   weekly_limit_usd: number | null
@@ -708,7 +708,7 @@ export interface Proxy {
   port: number
   username: string | null
   password?: string | null
-  status: 'active' | 'inactive'
+  status: 'active' | 'inactive' | 'error'
   account_count?: number // Number of accounts using this proxy
   latency_ms?: number
   latency_status?: 'success' | 'failed'
@@ -843,6 +843,7 @@ export interface Account {
   proxy?: Proxy
   group_ids?: number[] // Groups this account belongs to
   groups?: Group[] // Preloaded group objects
+  api_keys?: AccountUpstreamAPIKey[]
 
   // Rate limit & scheduling fields
   schedulable: boolean
@@ -909,6 +910,33 @@ export interface Account {
   current_window_cost?: number | null // 当前窗口费用
   active_sessions?: number | null // 当前活跃会话数
   current_rpm?: number | null // 当前分钟 RPM 计数
+}
+
+export interface AccountUpstreamAPIKeyCooldown {
+  upstream_model: string
+  reason: string
+  status_code?: number | null
+  cooldown_until: string
+  last_error_at: string
+  last_error_message_sanitized: string
+}
+
+export interface AccountUpstreamAPIKey {
+  id?: number
+  account_id?: number
+  name: string
+  api_key?: string
+  priority: number
+  status: 'active' | 'inactive'
+  model_restriction_mode?: '' | 'whitelist' | 'mapping'
+  model_mapping?: Record<string, string>
+  global_cooldown_until?: string | null
+  last_used_at?: string | null
+  recent_request_count?: number
+  recent_error_count?: number
+  model_cooldowns?: Record<string, AccountUpstreamAPIKeyCooldown>
+  created_at?: string
+  updated_at?: string
 }
 
 // Account Usage types
@@ -1027,6 +1055,7 @@ export interface CreateAccountRequest {
   group_ids?: number[]
   expires_at?: number | null
   auto_pause_on_expired?: boolean
+  api_keys?: AccountUpstreamAPIKey[]
   confirm_mixed_channel_risk?: boolean
 }
 
@@ -1046,6 +1075,7 @@ export interface UpdateAccountRequest {
   group_ids?: number[]
   expires_at?: number | null
   auto_pause_on_expired?: boolean
+  api_keys?: AccountUpstreamAPIKey[]
   confirm_mixed_channel_risk?: boolean
 }
 
