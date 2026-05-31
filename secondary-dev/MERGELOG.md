@@ -2,6 +2,51 @@
 
 This file records upstream synchronization work for secondary-development branches.
 
+## 2026-06-01 - Sync upstream `main` into `dev-zz`
+
+Branch:
+- Target: `dev-zz`
+- Upstream: `main`
+- Base: `bebc0823`
+- Target before merge: `f1ca9454`
+- Upstream head: `f18451e5`
+- Result commit: this merge commit
+
+Upstream highlights:
+- User platform quota DB aggregation flusher and sentinel backfill to reduce repeated preflight database reads.
+- Account 5h/7d usage-threshold auto-pause, same-account retry status-code configuration, and account created-time display.
+- Custom group-level `/v1/models` list configuration and candidate model loading.
+- OpenAI embeddings gateway support, endpoint capability gating, Codex CLI/Claude Code allowed-client handling, and Responses/WebSocket compatibility fixes.
+- Usage request-context preservation, concurrency error classification, model-not-found cooldown behavior, and local business-limit reason classification.
+- Billing, long-context cache pricing, Gemini messages, Anthropic/Responses conversion, Bedrock context-management, pricing metadata, and version updates through `0.1.133`.
+
+Merge strategy:
+- Merged upstream `main` into `dev-zz` with no content conflicts reported by `git merge-tree --write-tree dev-zz main` or the live `git merge --no-commit main`.
+- Preserved secondary-development account model probing, models.dev search, mapping-fill, same-name mapping mode persistence, clear-all model mapping, permanent data-retention defaults, Home/console visual direction, and source-built deployment records.
+- Accepted upstream quota, auto-pause, group model-list, embeddings, endpoint capability, request-context, retry-status, account-created-time, pricing, billing, compatibility, and ops/risk-control updates.
+- Continued the secondary-development frontend policy of hiding LinuxDo and WeChat auth surfaces while keeping upstream-visible providers and backend settings/data intact.
+
+Conflict files:
+- None.
+
+Resolution notes:
+- Automatic merge kept both account model-discovery paths: secondary-development credential-based `/probe-models` and upstream saved-account `/models/sync-upstream`.
+- Automatic merge kept explicit `model_restriction_mode: mapping` handling and secondary-development clear-all mapping regression coverage while accepting upstream account auto-pause and retry-status configuration.
+- Automatic merge kept the frontend-only LinuxDo/WeChat visibility policy in login/profile/admin surfaces while accepting upstream DingTalk and WeChat backend/settings/payment code where applicable.
+- Accepted upstream custom group `/v1/models` list configuration because it is additive and does not alter secondary-development account whitelist, mapping, or scheduler behavior.
+
+Verification:
+- `git diff --check`
+- `git diff --cached --check`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/components/account/__tests__/EditAccountModal.spec.ts src/components/account/__tests__/BulkEditAccountModal.spec.ts src/composables/__tests__/useModelWhitelist.spec.ts src/views/admin/__tests__/groupsModelsList.spec.ts src/views/admin/__tests__/groupsModelsListCandidates.spec.ts src/views/admin/__tests__/groupsModelsListLayout.spec.ts src/views/admin/__tests__/AccountsView.bulkEdit.spec.ts src/views/admin/__tests__/RiskControlView.spec.ts src/components/user/profile/__tests__/ProfileIdentityBindingsSection.spec.ts src/components/auth/__tests__/EmailOAuthButtons.spec.ts src/views/auth/__tests__/OAuthCallbackView.spec.ts src/components/admin/usage/__tests__/UsageTable.spec.ts`
+- `mise x -C backend -- go test ./internal/server ./internal/handler/admin ./internal/config ./internal/service ./internal/repository ./internal/handler`
+
+Not verified:
+- Full frontend test suite was not run.
+- Full backend test suite was not run.
+
 ## 2026-05-27 - Sync upstream `main` into `dev-zz`
 
 Branch:
