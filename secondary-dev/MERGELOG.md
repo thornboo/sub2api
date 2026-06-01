@@ -2,6 +2,48 @@
 
 This file records upstream synchronization work for secondary-development branches.
 
+## 2026-06-02 - Sync upstream `main` into `dev-zz` for Codex bridge follow-up
+
+Branch:
+- Target: `dev-zz`
+- Upstream: `main`
+- Base: `bc5813f0`
+- Target before merge: `8bd61b24`
+- Upstream head: `aa69e394`
+- Result commit: this merge commit
+
+Upstream highlights:
+- Codex Responses to Chat Completions bridge redesign, including request invariant coverage and response stream event wire helpers.
+- WebSocket Codex image bridge tool injection and additional WebSocket ingress-session coverage.
+- Antigravity Gemini rate-limit, scheduler-cache, quota-scope, and account-scheduling fixes.
+- Admin user balance handling changed to pointer-based input so zero and omitted balance can be distinguished.
+
+Merge strategy:
+- Merged upstream `main` into `dev-zz` with `git merge --no-commit main`.
+- No content conflicts were reported by `git merge-tree --write-tree dev-zz main` or the live merge.
+- Accepted upstream backend compatibility, scheduler, Antigravity, and admin-user fixes because they are additive or correctness-oriented and do not change the secondary-development frontend auth-visibility policy.
+- Preserved existing secondary-development records, account model probing/mapping behavior, permanent data-retention defaults, and source-built deployment guidance.
+
+Conflict files:
+- None.
+
+Resolution notes:
+- Automatic merge kept the previous `dev-zz` sync results intact while adding the upstream `apicompat` bridge redesign and new regression tests.
+- Automatic merge accepted the admin user-create balance pointer change and its API typing update because it preserves explicit zero-balance input behavior.
+- Automatic merge accepted Antigravity scheduler/rate-limit fixes without touching secondary-development UI policy or deployment records.
+
+Verification:
+- `git diff --check`
+- `git diff --cached --check`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/views/admin/__tests__/UsersView.spec.ts`
+- `mise x -C backend -- go test ./internal/pkg/apicompat ./internal/service ./internal/repository ./internal/handler/admin ./internal/handler`
+
+Not verified:
+- Full frontend test suite was not run.
+- Full backend test suite was not run.
+
 ## 2026-06-02 - Sync upstream `main` into `dev-zz`
 
 Branch:
