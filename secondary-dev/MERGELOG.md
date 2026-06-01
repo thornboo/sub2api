@@ -2,6 +2,49 @@
 
 This file records upstream synchronization work for secondary-development branches.
 
+## 2026-06-02 - Sync upstream `main` into `dev-zz`
+
+Branch:
+- Target: `dev-zz`
+- Upstream: `main`
+- Base: `f18451e5`
+- Target before merge: `e6e7e5b9`
+- Upstream head: `bc5813f0`
+- Result commit: this merge commit
+
+Upstream highlights:
+- OpenAI request-body retention/refactor, OOM handling, failover cached-body remapping coverage, WebSocket usage dedup fixes, oversized WebSocket request bridging, and WebSocket-to-HTTP bridge recovery.
+- Account create flow can sync upstream models from entered credentials before the account is persisted.
+- Admin usage performance/query-cache updates, model filter option loading from current stats, and support for viewing historical usage from deleted users.
+- OpenAI OAuth refresh enrichment, Claude Code count_tokens allowance, OpenAI 5h usage-window percentage fix, and account usage-window tooltip copy.
+
+Merge strategy:
+- Merged upstream `main` into `dev-zz` with `git merge --no-commit main`.
+- Preserved secondary-development account model probing, models.dev search, mapping-fill, same-name mapping persistence, clear-all model mapping, permanent data-retention defaults, Home/console visual direction, and source-built deployment records.
+- Accepted upstream create-account upstream-model sync because it is additive and can coexist with the secondary-development credential-based probe flow.
+- Accepted upstream admin-usage deleted-user and usage-window improvements while preserving the secondary-development popover/stone UI styling.
+
+Conflict files:
+- `frontend/src/components/account/CreateAccountModal.vue`
+- `frontend/src/components/admin/usage/UsageFilters.vue`
+
+Resolution notes:
+- Combined `ModelWhitelistSelector` props in create-account whitelist sections so secondary-development `/probe-models` loading/new/missing markers and upstream `syncCredentials` preview are both available.
+- Kept Bedrock/Anthropic whitelist behavior consistent with the existing secondary-development probe flow while enabling upstream preview sync where credentials are present.
+- Kept `UsageFilters` on the secondary-development `popover-item` styling and added upstream deleted-user badges plus deleted-user sorting.
+
+Verification:
+- `git diff --check`
+- `git diff --cached --check`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/components/account/__tests__/EditAccountModal.spec.ts src/components/account/__tests__/BulkEditAccountModal.spec.ts src/components/admin/usage/__tests__/UsageFilters.spec.ts src/components/admin/usage/__tests__/UsageTable.spec.ts src/views/admin/__tests__/AccountsView.usageWindowsHint.spec.ts src/views/admin/__tests__/UsageView.spec.ts src/components/user/profile/__tests__/ProfileIdentityBindingsSection.spec.ts src/components/auth/__tests__/EmailOAuthButtons.spec.ts src/views/auth/__tests__/OAuthCallbackView.spec.ts`
+- `mise x -C backend -- go test ./internal/server ./internal/handler/admin ./internal/config ./internal/service ./internal/repository ./internal/handler`
+
+Not verified:
+- Full frontend test suite was not run.
+- Full backend test suite was not run.
+
 ## 2026-06-01 - Sync upstream `main` into `dev-zz`
 
 Branch:

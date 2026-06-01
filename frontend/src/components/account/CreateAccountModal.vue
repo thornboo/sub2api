@@ -1170,6 +1170,7 @@
                 :probe-models-loading="probeModelsLoading"
                 :probe-new-models="probeNewWhitelistModels"
                 :probe-missing-models="probeMissingWhitelistModels"
+                :sync-credentials="syncPreviewCredentials"
                 @probe-models="handleProbeModels"
               />
               <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -1655,6 +1656,7 @@
               :probe-models-loading="probeModelsLoading"
               :probe-new-models="probeNewWhitelistModels"
               :probe-missing-models="probeMissingWhitelistModels"
+              :sync-credentials="syncPreviewCredentials"
               @probe-models="handleProbeModels"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -1953,6 +1955,7 @@
               :probe-models-loading="probeModelsLoading"
               :probe-new-models="probeNewWhitelistModels"
               :probe-missing-models="probeMissingWhitelistModels"
+              :sync-credentials="syncPreviewCredentials"
               @probe-models="handleProbeModels"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -3543,6 +3546,17 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
+
+const syncPreviewCredentials = computed(() => {
+  if (!apiKeyValue.value) return undefined
+  return {
+    platform: form.platform,
+    type: form.type,
+    base_url: apiKeyBaseUrl.value || undefined,
+    api_key: apiKeyValue.value
+  }
+})
+
 const editQuotaLimit = ref<number | null>(null)
 const editQuotaDailyLimit = ref<number | null>(null)
 const editQuotaWeeklyLimit = ref<number | null>(null)

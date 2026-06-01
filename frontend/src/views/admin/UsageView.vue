@@ -64,7 +64,7 @@
           <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
         </div>
       </div>
-      <UsageFilters v-model="filters" :start-date="startDate" :end-date="endDate" :exporting="exporting" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
+      <UsageFilters v-model="filters" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
         <template #after-reset>
           <div class="relative" ref="columnDropdownRef">
             <button
@@ -196,9 +196,13 @@ const breakdownFilters = computed(() => {
   return f
 })
 
+const modelNameOptions = computed(() =>
+  Array.from(new Set(requestedModelStats.value.map((m) => m.model).filter(Boolean))).sort()
+)
+
 const handleUserClick = async (userId: number) => {
   try {
-    const user = await adminAPI.users.getById(userId)
+    const user = await adminAPI.users.getById(userId, true)
     balanceHistoryUser.value = user
     showBalanceHistoryModal.value = true
   } catch {
@@ -310,13 +314,17 @@ const loadLogs = async () => {
     if(!c.signal.aborted) { usageLogs.value = res.items; pagination.total = res.total }
   } catch (error: any) { if(error?.name !== 'AbortError') console.error('Failed to load usage logs:', error) } finally { if(abortController === c) loading.value = false }
 }
-const loadStats = async () => {
+const loadStats = async (force = false) => {
   const seq = ++statsReqSeq
   endpointStatsLoading.value = true
   try {
     const requestType = filters.value.request_type
     const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
-    const s = await adminAPI.usage.getStats({ ...filters.value, stream: legacyStream === null ? undefined : legacyStream })
+    const s = await adminAPI.usage.getStats({
+      ...filters.value,
+      stream: legacyStream === null ? undefined : legacyStream,
+      ...(force ? { nocache: 1 } : {}),
+    })
     if (seq !== statsReqSeq) return
     usageStats.value = s
     inboundEndpointStats.value = s.endpoints || []
@@ -333,10 +341,8 @@ const loadStats = async () => {
   }
 }
 
-const resetModelStatsCache = () => {
-  requestedModelStats.value = []
-  upstreamModelStats.value = []
-  mappingModelStats.value = []
+// 失效模型统计缓存:仅标记需要重取,保留旧数据直到新数据到达(避免刷新时图表闪空)。
+const invalidateModelStatsCache = () => {
   loadedModelSources.requested = false
   loadedModelSources.upstream = false
   loadedModelSources.mapping = false
@@ -425,16 +431,16 @@ const loadChartData = async () => {
 }
 const applyFilters = () => {
   pagination.page = 1
-  resetModelStatsCache()
+  invalidateModelStatsCache()
   loadLogs()
   loadStats()
   loadModelStats(modelDistributionSource.value, true)
   loadChartData()
 }
 const refreshData = () => {
-  resetModelStatsCache()
+  invalidateModelStatsCache()
   loadLogs()
-  loadStats()
+  loadStats(true)
   loadModelStats(modelDistributionSource.value, true)
   loadChartData()
 }
@@ -678,4 +684,6 @@ watch(showColumnDropdown, async (open) => {
 watch(modelDistributionSource, (source) => {
   void loadModelStats(source)
 })
+
+defineExpose({ requestedModelStats, refreshData })
 </script>
