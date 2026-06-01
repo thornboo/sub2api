@@ -247,10 +247,10 @@ Not verified:
 - Full frontend test suite was not run.
 - Full backend test suite was not run.
 
-## 2026-05-05 - Sync upstream WebSocket recovery fix into `dev-sd`
+## 2026-05-05 - Sync upstream WebSocket recovery fix into `dev-zz`
 
 Branch:
-- Target: `dev-sd`
+- Target: `dev-zz`
 - Upstream: `main`
 - Result commit: `2d6e114a`
 
@@ -259,8 +259,8 @@ Upstream commits:
 - `94e49431` Merge pull request #2197 from learnerLj/fix/ws-preflight-ping-fc-output-recovery
 
 Merge strategy:
-- Merged `main` into `dev-sd`.
-- Kept the existing secondary-development commits on `dev-sd`.
+- Merged `main` into `dev-zz`.
+- Kept the existing secondary-development commits on `dev-zz`.
 - No conflicts occurred.
 
 Resolution notes:

@@ -182,43 +182,43 @@ Changes:
 Verification:
 - `cd frontend && pnpm typecheck`
 
-## 2026-05-05 - dev-sd Source-Built Docker Deployment
+## 2026-05-05 - dev-zz Source-Built Docker Deployment
 
 Scope:
 - `secondary-dev/README.md`
-- `secondary-dev/deploy-dev-sd.sh`
+- `secondary-dev/deploy-dev-zz.sh`
 
 Changes:
-- Documented the deployment path for running the forked `dev-sd` branch from a locally built Docker image instead of the upstream `weishaw/sub2api:latest` image.
-- Added a repeatable deployment script that builds `sub2api:dev-sd` from the repository root `Dockerfile`, prepares `deploy/.env` and local data directories, writes `deploy/docker-compose.override.yml`, and starts Docker Compose with the checked-in `deploy/docker-compose.local.yml`.
+- Documented the deployment path for running the forked `dev-zz` branch from a locally built Docker image instead of the upstream `weishaw/sub2api:latest` image.
+- Added a repeatable deployment script that builds `sub2api:dev-zz` from the repository root `Dockerfile`, prepares `deploy/.env` and local data directories, writes `deploy/docker-compose.override.yml`, and starts Docker Compose with the checked-in `deploy/docker-compose.local.yml`.
 - Kept existing deployment secrets safe by reusing `deploy/.env` unless `--force-env` is explicitly passed.
 - Forced recreation of the `sub2api` container after startup so repeated script runs pick up the rebuilt local image tag.
 - Added validation for `IMAGE_NAME` before writing it into the Compose override file and switched `.env` replacement temporary files to `mktemp`.
 - Added Docker Compose command detection so the script works with both `docker compose` and legacy `docker-compose`.
 
 Verification:
-- `bash -n secondary-dev/deploy-dev-sd.sh`
-- `secondary-dev/deploy-dev-sd.sh --help`
-- `secondary-dev/deploy-dev-sd.sh --build-only --no-build`
-- `IMAGE_NAME='bad image' secondary-dev/deploy-dev-sd.sh --no-build --no-start`
+- `bash -n secondary-dev/deploy-dev-zz.sh`
+- `secondary-dev/deploy-dev-zz.sh --help`
+- `secondary-dev/deploy-dev-zz.sh --build-only --no-build`
+- `IMAGE_NAME='bad image' secondary-dev/deploy-dev-zz.sh --no-build --no-start`
 - `git diff --check`
 
-## 2026-05-05 - dev-sd Deployment Pre-Start Backups
+## 2026-05-05 - dev-zz Deployment Pre-Start Backups
 
 Scope:
 - `secondary-dev/README.md`
-- `secondary-dev/deploy-dev-sd.sh`
+- `secondary-dev/deploy-dev-zz.sh`
 
 Changes:
-- Added a default pre-start backup step to the `dev-sd` deployment script before Compose recreates the application container.
+- Added a default pre-start backup step to the `dev-zz` deployment script before Compose recreates the application container.
 - Writes timestamped backups under `deploy/backups/` by default, with `BACKUP_DIR` available for custom locations.
 - Uses `pg_dump` for PostgreSQL when the existing `postgres` service is running, and archives deployment files (`.env`, `docker-compose.override.yml`, `data`).
 - Added `--skip-backup` for disposable test deployments.
 - Documented that live `postgres_data` and `redis_data` directory tarballs are not the default backup mechanism because file-level database archives can be inconsistent while services are running.
 
 Verification:
-- `bash -n secondary-dev/deploy-dev-sd.sh`
-- `secondary-dev/deploy-dev-sd.sh --help`
-- `secondary-dev/deploy-dev-sd.sh --build-only --no-build` (expected error)
-- `secondary-dev/deploy-dev-sd.sh --no-build --no-start`
+- `bash -n secondary-dev/deploy-dev-zz.sh`
+- `secondary-dev/deploy-dev-zz.sh --help`
+- `secondary-dev/deploy-dev-zz.sh --build-only --no-build` (expected error)
+- `secondary-dev/deploy-dev-zz.sh --no-build --no-start`
 - `git diff --check`

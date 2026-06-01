@@ -14,7 +14,7 @@ This directory records local secondary-development changes on top of the upstrea
 - Record the date, scope, affected files or modules, and verification commands.
 - Keep entries factual and concise. Avoid storing secrets, access tokens, private credentials, or environment-specific values.
 
-## Docker Deployment for `dev-sd`
+## Docker Deployment for `dev-zz`
 
 This secondary-development branch must be deployed from the forked source code, not from the upstream public image.
 
@@ -24,23 +24,23 @@ Do not deploy this branch with:
 docker pull weishaw/sub2api:latest
 ```
 
-That image is the upstream project image and does not contain the `dev-sd` secondary-development changes.
+That image is the upstream project image and does not contain the `dev-zz` secondary-development changes.
 
 ### Recommended script
 
-After cloning the `dev-sd` branch, run the secondary-development deployment script from the repository root:
+After cloning the `dev-zz` branch, run the secondary-development deployment script from the repository root:
 
 ```bash
-./secondary-dev/deploy-dev-sd.sh
+./secondary-dev/deploy-dev-zz.sh
 ```
 
 The script uses the checked-in source and deployment files to:
 
-- build the local Docker image `sub2api:dev-sd` from the repository root `Dockerfile`;
+- build the local Docker image `sub2api:dev-zz` from the repository root `Dockerfile`;
 - create `deploy/.env` from `deploy/.env.example` if it does not exist;
 - generate `POSTGRES_PASSWORD`, `JWT_SECRET`, and `TOTP_ENCRYPTION_KEY` for a new `.env`;
 - create `deploy/data`, `deploy/postgres_data`, and `deploy/redis_data`;
-- create `deploy/docker-compose.override.yml` so Compose uses `sub2api:dev-sd` instead of `weishaw/sub2api:latest`;
+- create `deploy/docker-compose.override.yml` so Compose uses `sub2api:dev-zz` instead of `weishaw/sub2api:latest`;
 - create a pre-start backup under `deploy/backups/` before restarting an existing stack;
 - start Docker Compose with `deploy/docker-compose.local.yml` plus the override file.
 
@@ -53,12 +53,12 @@ The script supports both Docker Compose command styles. It prefers `docker compo
 Useful script options:
 
 ```bash
-./secondary-dev/deploy-dev-sd.sh --no-start
-./secondary-dev/deploy-dev-sd.sh --build-only
-./secondary-dev/deploy-dev-sd.sh --no-build
-./secondary-dev/deploy-dev-sd.sh --skip-backup
-./secondary-dev/deploy-dev-sd.sh --force-env
-./secondary-dev/deploy-dev-sd.sh --force-override
+./secondary-dev/deploy-dev-zz.sh --no-start
+./secondary-dev/deploy-dev-zz.sh --build-only
+./secondary-dev/deploy-dev-zz.sh --no-build
+./secondary-dev/deploy-dev-zz.sh --skip-backup
+./secondary-dev/deploy-dev-zz.sh --force-env
+./secondary-dev/deploy-dev-zz.sh --force-override
 ```
 
 Use `--force-env` carefully. It backs up the existing `deploy/.env` and regenerates secrets, which can invalidate sessions or TOTP setup if the new file is used.
@@ -70,7 +70,7 @@ The manual steps below are the exact operations the script automates.
 On the server:
 
 ```bash
-git clone -b dev-sd https://github.com/thornboo/sub2api.git
+git clone -b dev-zz https://github.com/thornboo/sub2api.git
 cd sub2api
 ```
 
@@ -79,8 +79,8 @@ For an existing checkout:
 ```bash
 cd sub2api
 git fetch origin
-git switch dev-sd
-git pull --ff-only origin dev-sd
+git switch dev-zz
+git pull --ff-only origin dev-zz
 ```
 
 ### 2. Build the local Docker image
@@ -88,14 +88,14 @@ git pull --ff-only origin dev-sd
 Build from the repository root, where the project `Dockerfile` exists:
 
 ```bash
-docker build -t sub2api:dev-sd .
+docker build -t sub2api:dev-zz .
 ```
 
 The repository `Dockerfile` builds the frontend first, embeds the frontend output into the Go backend, and creates a runtime image containing `/app/sub2api`.
 
 ### 3. Prepare deployment files
 
-Use the deployment files from this same `dev-sd` checkout:
+Use the deployment files from this same `dev-zz` checkout:
 
 ```bash
 cd deploy
@@ -131,7 +131,7 @@ Keep `JWT_SECRET` and `TOTP_ENCRYPTION_KEY` stable across restarts. Changing the
 cat > docker-compose.override.yml <<'EOF'
 services:
   sub2api:
-    image: sub2api:dev-sd
+    image: sub2api:dev-zz
 EOF
 ```
 
@@ -165,9 +165,9 @@ http://SERVER_IP:8080
 From the repository checkout on the server:
 
 ```bash
-git switch dev-sd
-git pull --ff-only origin dev-sd
-./secondary-dev/deploy-dev-sd.sh
+git switch dev-zz
+git pull --ff-only origin dev-zz
+./secondary-dev/deploy-dev-zz.sh
 ```
 
 The script rebuilds the local image, creates a pre-start backup in `deploy/backups/`, and recreates only the `sub2api` container. PostgreSQL and Redis keep using their persisted local directories.
@@ -175,7 +175,7 @@ The script rebuilds the local image, creates a pre-start backup in `deploy/backu
 If you intentionally want to skip the backup in a disposable test environment:
 
 ```bash
-./secondary-dev/deploy-dev-sd.sh --skip-backup
+./secondary-dev/deploy-dev-zz.sh --skip-backup
 ```
 
 PostgreSQL, Redis, and `/app/data` are persisted by local directories under `deploy/`:
@@ -208,7 +208,7 @@ Avoid treating a live `postgres_data` directory tarball as the primary backup. I
 
 ### 8. Data-retention defaults in this branch
 
-The `dev-sd` branch defaults automatic deletion to disabled for commercial retention:
+The `dev-zz` branch defaults automatic deletion to disabled for commercial retention:
 
 ```env
 DASHBOARD_AGGREGATION_RETENTION_AUTO_CLEANUP_ENABLED=false
@@ -222,4 +222,4 @@ These values are already present in `deploy/.env.example`. Keep them disabled un
 - Do not run `docker compose down -v` unless intentionally deleting Docker volumes.
 - Do not delete `deploy/data`, `deploy/postgres_data`, or `deploy/redis_data` unless intentionally destroying the deployment.
 - Do not use the upstream one-click deployment script for this branch, because it downloads deployment files from upstream `Wei-Shaw/sub2api/main`.
-- Rebuild the local image after each `git pull`; Compose does not rebuild `sub2api:dev-sd` automatically.
+- Rebuild the local image after each `git pull`; Compose does not rebuild `sub2api:dev-zz` automatically.

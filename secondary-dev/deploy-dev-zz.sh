@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE_NAME="${IMAGE_NAME:-sub2api:dev-sd}"
-BRANCH_NAME="${BRANCH_NAME:-dev-sd}"
+IMAGE_NAME="${IMAGE_NAME:-sub2api:dev-zz}"
+BRANCH_NAME="${BRANCH_NAME:-dev-zz}"
 START_STACK=true
 BUILD_IMAGE=true
 BUILD_ONLY=false
@@ -28,9 +28,9 @@ print_error() {
 
 usage() {
   cat <<'EOF'
-Usage: ./secondary-dev/deploy-dev-sd.sh [options]
+Usage: ./secondary-dev/deploy-dev-zz.sh [options]
 
-Build and deploy the dev-sd secondary-development Docker image from source.
+Build and deploy the dev-zz secondary-development Docker image from source.
 
 Options:
   --no-start        Build image and prepare deploy files, but do not start Docker Compose.
@@ -42,8 +42,8 @@ Options:
   -h, --help        Show this help.
 
 Environment:
-  IMAGE_NAME        Docker image tag to build/use. Default: sub2api:dev-sd
-  BRANCH_NAME       Expected Git branch. Default: dev-sd
+  IMAGE_NAME        Docker image tag to build/use. Default: sub2api:dev-zz
+  BRANCH_NAME       Expected Git branch. Default: dev-zz
   BACKUP_DIR        Backup output directory. Default: deploy/backups
 EOF
 }
