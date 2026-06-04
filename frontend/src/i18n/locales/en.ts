@@ -1164,16 +1164,113 @@ export default {
     empty: 'No available channels',
     noModels: 'No models configured',
     noPricing: 'Pricing not configured',
+    exportExcel: 'Export Excel',
+    exporting: 'Exporting...',
     exclusive: 'Exclusive',
     public: 'Public',
     exclusiveTooltip: 'Exclusive groups granted to you by an admin',
     publicTooltip: 'Groups open to all users',
+    viewMode: {
+      channels: 'Channel View',
+      models: 'Table View'
+    },
+    platformFilter: {
+      label: 'Platform Filter',
+      all: 'All Platforms'
+    },
+    billingModeFilter: {
+      label: 'Billing Mode Filter',
+      all: 'All Billing'
+    },
+    groupScopeFilter: {
+      label: 'Group Scope Filter',
+      all: 'All Groups',
+      publicExclusive: 'Public + Exclusive',
+      public: 'Public Only',
+      exclusive: 'Exclusive Only'
+    },
+    priceStatusFilter: {
+      label: 'Price Status Filter',
+      all: 'All Prices',
+      priced: 'Priced',
+      unpriced: 'Not Configured'
+    },
+    exportScope: {
+      label: 'Export Group Scope',
+      publicExclusive: 'Export: Public + Exclusive',
+      public: 'Export: Public Only',
+      adminHint: 'Admin export uses the full channel catalog; subscription groups are excluded by default.'
+    },
+    exportStatus: {
+      label: 'Channel Status',
+      all: 'All Statuses',
+      active: 'Active Only',
+      disabled: 'Disabled Only'
+    },
+    exportSource: {
+      label: 'Export Source',
+      adminCatalog: 'Full Admin Catalog',
+      visibleChannels: 'Current Available Channels'
+    },
     columns: {
       name: 'Channel',
       description: 'Description',
       platform: 'Platform',
       groups: 'Your Accessible Groups',
       supportedModels: 'Supported Models'
+    },
+    modelTable: {
+      columns: {
+        model: 'Model',
+        platform: 'Platform',
+        channel: 'Channel',
+        billingMode: 'Billing Mode',
+        interval: 'Range',
+        inputPrice: 'Input',
+        outputPrice: 'Output',
+        cacheWritePrice: 'Cache Write',
+        cacheReadPrice: 'Cache Read',
+        imageOutputPrice: 'Image Output',
+        perRequestPrice: 'Per Call',
+        groups: 'Your Accessible Groups',
+        intervals: 'Tiered Pricing'
+      },
+      tooltips: {
+        interval: 'Tiered pricing range; default pricing shows -.',
+        inputPrice: 'Input price, unit: $/1M tokens. Cell values omit the unit.',
+        outputPrice: 'Output price, unit: $/1M tokens. Cell values omit the unit.',
+        cacheWritePrice: 'Cache write price, unit: $/1M tokens. Cell values omit the unit.',
+        cacheReadPrice: 'Cache read price, unit: $/1M tokens. Cell values omit the unit.',
+        imageOutputPrice: 'Image output price, usually the per-image or per-call model price.',
+        perRequestPrice: 'Fixed charge per API call for per-call billing; token-billed models show -.',
+        intervals: 'Tiered pricing by range; token prices still use $/1M tokens.'
+      }
+    },
+    export: {
+      dialogTitle: 'Export Model Pricing',
+      rowCount: 'Rows',
+      fullCatalogUnavailableHint: 'The full admin catalog is unavailable. You can export the current available channels instead.',
+      sheetName: 'Model Pricing',
+      noData: 'No model pricing to export',
+      success: 'Model pricing exported successfully',
+      failed: 'Failed to export model pricing',
+      columns: {
+        model: 'Model',
+        platform: 'Platform',
+        channel: 'Channel',
+        status: 'Status',
+        description: 'Description',
+        groups: 'Accessible Groups',
+        billingMode: 'Billing Mode',
+        interval: 'Range',
+        inputPrice: 'Input ($/1M tokens)',
+        outputPrice: 'Output ($/1M tokens)',
+        cacheWritePrice: 'Cache Write ($/1M tokens)',
+        cacheReadPrice: 'Cache Read ($/1M tokens)',
+        imageOutputPrice: 'Image Output ($/call)',
+        perRequestPrice: 'Per Call ($/call)',
+        intervals: 'Tiered Pricing'
+      }
     },
     pricing: {
       billingMode: 'Billing Mode',
@@ -1185,7 +1282,7 @@ export default {
       cacheWritePrice: 'Cache Write',
       cacheReadPrice: 'Cache Read',
       imageOutputPrice: 'Image Output',
-      perRequestPrice: 'Per Request',
+      perRequestPrice: 'Per Call',
       intervals: 'Tiered Pricing',
       unitPerMillion: '/ 1M tokens',
       unitPerRequest: '/ request'

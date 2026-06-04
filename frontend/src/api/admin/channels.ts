@@ -5,6 +5,7 @@
 
 import { apiClient } from '../client'
 import type { BillingMode, ChannelStatus, BillingModelSource } from '@/constants/channel'
+import type { UserAvailableChannel } from '@/api/channels'
 
 export type { BillingMode } from '@/constants/channel'
 
@@ -58,6 +59,11 @@ export interface Channel {
   account_stats_pricing_rules: AccountStatsPricingRule[]
   created_at: string
   updated_at: string
+}
+
+export interface AdminAvailableChannel extends UserAvailableChannel {
+  id: number
+  status: ChannelStatus
 }
 
 export interface CreateChannelRequest {
@@ -164,6 +170,16 @@ export async function getModelDefaultPricing(model: string): Promise<ModelDefaul
   return data
 }
 
+/**
+ * List the full admin-visible available-channel catalog for quotation/export.
+ */
+export async function getAvailableCatalog(options?: { signal?: AbortSignal }): Promise<AdminAvailableChannel[]> {
+  const { data } = await apiClient.get<AdminAvailableChannel[]>('/admin/channels/available-catalog', {
+    signal: options?.signal
+  })
+  return data
+}
+
 export interface SyncPricingModelsResult {
   models: string[]
 }
@@ -178,5 +194,14 @@ export async function syncPricingModels(platform: string): Promise<SyncPricingMo
   return data
 }
 
-const channelsAPI = { list, getById, create, update, remove, getModelDefaultPricing, syncPricingModels }
+const channelsAPI = {
+  list,
+  getById,
+  create,
+  update,
+  remove,
+  getModelDefaultPricing,
+  getAvailableCatalog,
+  syncPricingModels
+}
 export default channelsAPI

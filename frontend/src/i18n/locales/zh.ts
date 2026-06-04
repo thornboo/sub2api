@@ -1168,16 +1168,113 @@ export default {
     empty: '暂无可用渠道',
     noModels: '未配置模型',
     noPricing: '未配置定价',
+    exportExcel: '导出 Excel',
+    exporting: '导出中...',
     exclusive: '专属',
     public: '公开',
     exclusiveTooltip: '管理员授权给你的专属分组',
     publicTooltip: '对所有用户公开的分组',
+    viewMode: {
+      channels: '渠道视图',
+      models: '表格视图'
+    },
+    platformFilter: {
+      label: '平台筛选',
+      all: '全部平台'
+    },
+    billingModeFilter: {
+      label: '计费模式筛选',
+      all: '全部计费'
+    },
+    groupScopeFilter: {
+      label: '分组范围筛选',
+      all: '全部分组',
+      publicExclusive: '公开 + 专属',
+      public: '仅公开',
+      exclusive: '仅专属'
+    },
+    priceStatusFilter: {
+      label: '价格状态筛选',
+      all: '全部价格',
+      priced: '有价格',
+      unpriced: '未配置'
+    },
+    exportScope: {
+      label: '导出分组范围',
+      publicExclusive: '导出：公开 + 专属',
+      public: '导出：仅公开',
+      adminHint: '管理员导出使用全量渠道目录；订阅分组默认不导出。'
+    },
+    exportStatus: {
+      label: '导出渠道状态',
+      all: '全部状态',
+      active: '仅启用',
+      disabled: '仅禁用'
+    },
+    exportSource: {
+      label: '导出数据源',
+      adminCatalog: '管理员全量目录',
+      visibleChannels: '当前可见可用渠道'
+    },
     columns: {
       name: '渠道名',
       description: '描述',
       platform: '平台',
       groups: '我可访问的分组',
       supportedModels: '支持模型'
+    },
+    modelTable: {
+      columns: {
+        model: '模型',
+        platform: '平台',
+        channel: '渠道',
+        billingMode: '计费模式',
+        interval: '区间',
+        inputPrice: '输入',
+        outputPrice: '输出',
+        cacheWritePrice: '缓存写入',
+        cacheReadPrice: '缓存读取',
+        imageOutputPrice: '图片输出',
+        perRequestPrice: '按次',
+        groups: '我可访问的分组',
+        intervals: '阶梯定价'
+      },
+      tooltips: {
+        interval: '阶梯定价区间；无阶梯时显示默认。',
+        inputPrice: '输入价格，单位：$/1M token。表格数值省略单位。',
+        outputPrice: '输出价格，单位：$/1M token。表格数值省略单位。',
+        cacheWritePrice: '缓存写入价格，单位：$/1M token。表格数值省略单位。',
+        cacheReadPrice: '缓存读取价格，单位：$/1M token。表格数值省略单位。',
+        imageOutputPrice: '图片输出价格，通常为按图片或按次模型的单次价格。',
+        perRequestPrice: '按次计费模型的单次请求价格；按 Token 计费模型显示为 -。',
+        intervals: '阶梯定价按区间展示；Token 价格单位仍为 $/1M token。'
+      }
+    },
+    export: {
+      dialogTitle: '导出模型价格',
+      rowCount: '导出行数',
+      fullCatalogUnavailableHint: '管理员全量目录暂不可用，当前可导出页面可见的可用渠道。',
+      sheetName: '模型价格',
+      noData: '没有可导出的模型价格',
+      success: '模型价格导出成功',
+      failed: '模型价格导出失败',
+      columns: {
+        model: '模型',
+        platform: '平台',
+        channel: '渠道',
+        status: '状态',
+        description: '描述',
+        groups: '可访问分组',
+        billingMode: '计费模式',
+        interval: '区间',
+        inputPrice: '输入（$/1M token）',
+        outputPrice: '输出（$/1M token）',
+        cacheWritePrice: '缓存写入（$/1M token）',
+        cacheReadPrice: '缓存读取（$/1M token）',
+        imageOutputPrice: '图片输出（$/次）',
+        perRequestPrice: '按次（$/次）',
+        intervals: '阶梯定价'
+      }
     },
     pricing: {
       billingMode: '计费模式',
@@ -1189,7 +1286,7 @@ export default {
       cacheWritePrice: '缓存写入',
       cacheReadPrice: '缓存读取',
       imageOutputPrice: '图片输出',
-      perRequestPrice: '每次请求',
+      perRequestPrice: '按次',
       intervals: '阶梯定价',
       unitPerMillion: '/ 1M token',
       unitPerRequest: '/ 次'

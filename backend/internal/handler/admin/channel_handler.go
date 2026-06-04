@@ -2,6 +2,7 @@ package admin
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -104,6 +105,57 @@ type channelResponse struct {
 	AccountStatsPricingRules   []accountStatsPricingRuleResponse `json:"account_stats_pricing_rules"`
 	CreatedAt                  string                            `json:"created_at"`
 	UpdatedAt                  string                            `json:"updated_at"`
+}
+
+type availableCatalogGroupResponse struct {
+	ID               int64   `json:"id"`
+	Name             string  `json:"name"`
+	Platform         string  `json:"platform"`
+	SubscriptionType string  `json:"subscription_type"`
+	RateMultiplier   float64 `json:"rate_multiplier"`
+	IsExclusive      bool    `json:"is_exclusive"`
+}
+
+type availableCatalogPricingResponse struct {
+	BillingMode      string                             `json:"billing_mode"`
+	InputPrice       *float64                           `json:"input_price"`
+	OutputPrice      *float64                           `json:"output_price"`
+	CacheWritePrice  *float64                           `json:"cache_write_price"`
+	CacheReadPrice   *float64                           `json:"cache_read_price"`
+	ImageOutputPrice *float64                           `json:"image_output_price"`
+	PerRequestPrice  *float64                           `json:"per_request_price"`
+	Intervals        []availableCatalogIntervalResponse `json:"intervals"`
+}
+
+type availableCatalogIntervalResponse struct {
+	MinTokens       int      `json:"min_tokens"`
+	MaxTokens       *int     `json:"max_tokens"`
+	TierLabel       string   `json:"tier_label,omitempty"`
+	InputPrice      *float64 `json:"input_price"`
+	OutputPrice     *float64 `json:"output_price"`
+	CacheWritePrice *float64 `json:"cache_write_price"`
+	CacheReadPrice  *float64 `json:"cache_read_price"`
+	PerRequestPrice *float64 `json:"per_request_price"`
+}
+
+type availableCatalogModelResponse struct {
+	Name     string                           `json:"name"`
+	Platform string                           `json:"platform"`
+	Pricing  *availableCatalogPricingResponse `json:"pricing"`
+}
+
+type availableCatalogPlatformSectionResponse struct {
+	Platform        string                          `json:"platform"`
+	Groups          []availableCatalogGroupResponse `json:"groups"`
+	SupportedModels []availableCatalogModelResponse `json:"supported_models"`
+}
+
+type availableCatalogChannelResponse struct {
+	ID          int64                                     `json:"id"`
+	Name        string                                    `json:"name"`
+	Description string                                    `json:"description"`
+	Status      string                                    `json:"status"`
+	Platforms   []availableCatalogPlatformSectionResponse `json:"platforms"`
 }
 
 type channelModelPricingResponse struct {
@@ -243,6 +295,116 @@ func intervalToResponse(iv service.PricingInterval) pricingIntervalResponse {
 	}
 }
 
+func availableCatalogToResponse(ch service.AvailableChannel) availableCatalogChannelResponse {
+	sections := buildAvailableCatalogPlatformSections(ch)
+	return availableCatalogChannelResponse{
+		ID:          ch.ID,
+		Name:        ch.Name,
+		Description: ch.Description,
+		Status:      ch.Status,
+		Platforms:   sections,
+	}
+}
+
+func buildAvailableCatalogPlatformSections(ch service.AvailableChannel) []availableCatalogPlatformSectionResponse {
+	groupsByPlatform := make(map[string][]availableCatalogGroupResponse, 4)
+	for _, group := range ch.Groups {
+		if group.Platform == "" {
+			continue
+		}
+		groupsByPlatform[group.Platform] = append(groupsByPlatform[group.Platform], availableCatalogGroupResponse{
+			ID:               group.ID,
+			Name:             group.Name,
+			Platform:         group.Platform,
+			SubscriptionType: group.SubscriptionType,
+			RateMultiplier:   group.RateMultiplier,
+			IsExclusive:      group.IsExclusive,
+		})
+	}
+
+	platformSet := make(map[string]struct{}, len(groupsByPlatform)+len(ch.SupportedModels))
+	for platform := range groupsByPlatform {
+		platformSet[platform] = struct{}{}
+	}
+	for _, model := range ch.SupportedModels {
+		if model.Platform == "" {
+			continue
+		}
+		platformSet[model.Platform] = struct{}{}
+	}
+	if len(platformSet) == 0 {
+		return nil
+	}
+
+	platforms := make([]string, 0, len(platformSet))
+	for platform := range platformSet {
+		platforms = append(platforms, platform)
+	}
+	sort.Strings(platforms)
+
+	sections := make([]availableCatalogPlatformSectionResponse, 0, len(platforms))
+	for _, platform := range platforms {
+		sort.SliceStable(groupsByPlatform[platform], func(i, j int) bool {
+			return groupsByPlatform[platform][i].Name < groupsByPlatform[platform][j].Name
+		})
+		sections = append(sections, availableCatalogPlatformSectionResponse{
+			Platform:        platform,
+			Groups:          groupsByPlatform[platform],
+			SupportedModels: availableCatalogSupportedModels(ch.SupportedModels, platform),
+		})
+	}
+	return sections
+}
+
+func availableCatalogSupportedModels(src []service.SupportedModel, platform string) []availableCatalogModelResponse {
+	models := make([]availableCatalogModelResponse, 0, len(src))
+	for i := range src {
+		model := src[i]
+		if model.Platform != platform {
+			continue
+		}
+		models = append(models, availableCatalogModelResponse{
+			Name:     model.Name,
+			Platform: model.Platform,
+			Pricing:  availableCatalogPricing(model.Pricing),
+		})
+	}
+	return models
+}
+
+func availableCatalogPricing(p *service.ChannelModelPricing) *availableCatalogPricingResponse {
+	if p == nil {
+		return nil
+	}
+	intervals := make([]availableCatalogIntervalResponse, 0, len(p.Intervals))
+	for _, interval := range p.Intervals {
+		intervals = append(intervals, availableCatalogIntervalResponse{
+			MinTokens:       interval.MinTokens,
+			MaxTokens:       interval.MaxTokens,
+			TierLabel:       interval.TierLabel,
+			InputPrice:      interval.InputPrice,
+			OutputPrice:     interval.OutputPrice,
+			CacheWritePrice: interval.CacheWritePrice,
+			CacheReadPrice:  interval.CacheReadPrice,
+			PerRequestPrice: interval.PerRequestPrice,
+		})
+	}
+	billingMode := string(p.BillingMode)
+	if billingMode == "" {
+		billingMode = string(service.BillingModeToken)
+	}
+	return &availableCatalogPricingResponse{
+		BillingMode:      billingMode,
+		InputPrice:       p.InputPrice,
+		OutputPrice:      p.OutputPrice,
+		CacheWritePrice:  p.CacheWritePrice,
+		CacheReadPrice:   p.CacheReadPrice,
+		ImageOutputPrice: p.ImageOutputPrice,
+		PerRequestPrice:  p.PerRequestPrice,
+		Intervals:        intervals,
+	}
+}
+
 func pricingRequestToService(reqs []channelModelPricingRequest) []service.ChannelModelPricing {
 	result := make([]service.ChannelModelPricing, 0, len(reqs))
 	for _, r := range reqs {
@@ -318,6 +480,22 @@ func (h *ChannelHandler) List(c *gin.Context) {
 		out = append(out, channelToResponse(&channels[i]))
 	}
 	response.Paginated(c, out, pag.Total, page, pageSize)
+}
+
+// ListAvailableCatalog returns the full admin-visible available-channel catalog.
+// GET /api/v1/admin/channels/available-catalog
+func (h *ChannelHandler) ListAvailableCatalog(c *gin.Context) {
+	channels, err := h.channelService.ListAvailable(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	out := make([]availableCatalogChannelResponse, 0, len(channels))
+	for _, ch := range channels {
+		out = append(out, availableCatalogToResponse(ch))
+	}
+	response.Success(c, out)
 }
 
 // GetByID handles getting a channel by ID
