@@ -2,6 +2,50 @@
 
 This file records upstream synchronization work for secondary-development branches.
 
+## 2026-06-06 - Sync upstream `main` into `dev-zz` for failed-request visibility and gateway fixes
+
+Branch:
+- Target: `dev-zz`
+- Upstream: `main`
+- Base: `f1aa5896`
+- Target before merge: `a3997b07`
+- Upstream head: `1cecd271`
+- Result commit: this merge commit
+
+Upstream highlights:
+- Added failed-request persistence and visibility across ops/admin/user usage surfaces, including API-key/account attribution, deleted-key audit lookup, and user-facing error-request tables behind a public setting.
+- Added gateway correctness fixes for Responses-to-Anthropic tool pairing, chat-completions failed responses, missing stream terminal output, OpenAI image rate-limit cooldown failover, and Claude Code client recognition.
+- Added DB pool connection-lifetime floors, scheduler sticky-health escape, EasyPay query-order status handling, admin moderation auto-ban exemption, group description clearing, Go 1.26.4 toolchain updates, and related regression tests.
+
+Merge strategy:
+- Read `secondary-dev/README.md`, `secondary-dev/PATCHES.md`, `secondary-dev/MERGELOG.md`, and `secondary-dev/CHANGELOG.md` before merging.
+- Refreshed local remote refs with `git fetch origin`; local `main` matched `origin/main` at `1cecd271`.
+- Used `git merge-tree --write-tree dev-zz main` before the live merge; it predicted two content conflicts.
+- Merged upstream `main` into `dev-zz` with `git merge --no-commit main`.
+- Accepted upstream failed-request visibility and backend gateway/runtime fixes because they are additive or correctness-oriented and do not change secondary-development account model probing/mapping behavior, frontend auth visibility policy, permanent retention defaults, or source-built deployment policy.
+
+Conflict files:
+- `frontend/src/views/admin/ops/components/OpsErrorLogTable.vue`
+- `frontend/src/views/user/UsageView.vue`
+
+Resolution notes:
+- Kept the secondary-development stone/emerald admin ops table styling while adding upstream API-key and account attribution columns, including the deleted-key badge and the widened empty-state colspan.
+- Kept the user usage page on secondary-development stone/emerald styling and image-usage display semantics while accepting upstream null-safe token/cost rendering and the new user error-request tab.
+- The frozen `secondary-dev/DEV_SEED_DESIGN.md` document remained isolated in `stash@{0}` and was not included in this merge.
+
+Verification:
+- `git diff --check`
+- `git diff --cached --check`
+- `rg -n "^(<<<<<<<|=======|>>>>>>>)$"`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/views/admin/ops/components/__tests__/OpsErrorLogTable.spec.ts src/views/admin/__tests__/UsageView.spec.ts src/views/user/__tests__/UsageView.spec.ts`
+- `mise x -C backend -- go test ./internal/server ./internal/server/middleware ./internal/handler ./internal/handler/admin ./internal/config ./internal/service ./internal/repository ./internal/pkg/apicompat ./internal/payment/provider`
+
+Not verified:
+- Full frontend test suite was not run.
+- Full backend test suite was not run.
+
 ## 2026-06-05 - Sync upstream `main` into `dev-zz` for OpenAI 5h usage semantics
 
 Branch:
