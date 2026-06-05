@@ -2,6 +2,46 @@
 
 This file records upstream synchronization work for secondary-development branches.
 
+## 2026-06-05 - Sync upstream `main` into `dev-zz` for OpenAI 5h usage semantics
+
+Branch:
+- Target: `dev-zz`
+- Upstream: `main`
+- Base: `aa69e394`
+- Target before merge: `437e2df5`
+- Upstream head: `f1aa5896`
+- Result commit: this merge commit
+
+Upstream highlights:
+- Reverted the OpenAI Codex 5h usage percentage normalization so stored 5h usage follows upstream's direct `used_percent` semantics again.
+- Removed the now-obsolete 5h remaining-to-used normalization helper and associated snapshot/account-usage tests.
+- Updated OpenAI rate-limit and account usage tests to match the reverted 5h percentage behavior.
+
+Merge strategy:
+- Read `secondary-dev/README.md`, `secondary-dev/PATCHES.md`, and `secondary-dev/MERGELOG.md` before merging.
+- Refreshed local remote refs with `git fetch origin`.
+- Merged upstream `main` into `dev-zz` with `git merge --no-commit main`.
+- No content conflicts were reported by `git merge-tree --write-tree dev-zz main` or the live merge.
+- Accepted the upstream OpenAI 5h usage semantics revert because it is isolated to backend OpenAI Codex usage accounting and does not change secondary-development frontend auth visibility, account model probing/mapping behavior, available-channel export behavior, retention defaults, or deployment policy.
+
+Conflict files:
+- None.
+
+Resolution notes:
+- Automatic merge applied the upstream removal of `normalizeCodexFiveHourUsedPercent` and restored direct assignment from OpenAI Codex primary/secondary `used_percent` headers.
+- Automatic merge kept secondary-development commits after the previous upstream sync, including available-channel table/export work and secondary deployment documentation alignment.
+- The previously stashed billing-dimensional-pricing design document remained in stash and was not included in this merge.
+
+Verification:
+- `git diff --check`
+- `git diff --cached --check`
+- `rg -n "^(<<<<<<<|=======|>>>>>>>)$"`
+- `mise x -C backend -- go test ./internal/service`
+
+Not verified:
+- Frontend typecheck, lint, and tests were not run because this upstream sync only changed backend OpenAI service files and tests.
+- Full backend test suite was not run.
+
 ## 2026-06-02 - Sync upstream `main` into `dev-zz` for Codex bridge follow-up
 
 Branch:
