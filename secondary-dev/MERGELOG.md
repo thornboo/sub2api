@@ -2,6 +2,53 @@
 
 This file records upstream synchronization work for secondary-development branches.
 
+## 2026-06-10 - Sync upstream `main` into `dev-zz` for proxy fallback, cache-token usage, and OpenAI fixes
+
+Branch:
+- Target: `dev-zz`
+- Upstream: `main`
+- Base: `1cecd271`
+- Target before merge: `c293f3f4`
+- Upstream head: `434af38f`
+- Result commit: this merge commit
+
+Upstream highlights:
+- Added proxy expiry and fallback behavior, including backend schema/service/repository support, proxy UI updates, account proxy fallback display, and revert-to-origin handling.
+- Added admin user filtering by API Key group and tightened exclusive group access validation for API keys.
+- Split usage cache-create/cache-hit token statistics and added image-output token/cost display helpers.
+- Added OpenAI gateway and compatibility fixes for transport-error failover, sticky group validation, cross-group `previous_response_id` handling, non-streaming JSON content type, response failure preservation, and prompt cache key propagation.
+- Added multi-instance background job leader locking, setup/bootstrap fixes, Go/OpenAI prompt instruction updates, version/docs updates, and the upstream `skills/sub2api-admin` helper.
+
+Merge strategy:
+- Read `secondary-dev/README.md`, `secondary-dev/PATCHES.md`, `secondary-dev/MERGELOG.md`, and `secondary-dev/CHANGELOG.md` before merging.
+- Refreshed local remote refs with `git fetch origin`; local `main` matched `origin/main` at `434af38f`.
+- Used `git merge-tree --write-tree dev-zz main` before the live merge; it predicted two content conflicts.
+- Merged upstream `main` into `dev-zz` with `git merge --no-commit main`.
+- Accepted upstream backend/runtime correctness fixes and proxy/usage/admin additions because they do not replace the secondary-development frontend auth visibility policy, source-built deployment policy, permanent retention defaults, or account model probe/mapping behavior.
+
+Conflict files:
+- `frontend/src/views/admin/AccountsView.vue`
+- `frontend/src/views/user/UsageView.vue`
+
+Resolution notes:
+- Kept the secondary-development account table empty-state styling while accepting upstream proxy expiry display, fallback badge, and revert action.
+- Kept the user usage page on the secondary-development stone/emerald visual direction while accepting upstream cache-hit/cache-create totals, cache hit rate, image-output token/cost details, and text-output token price splitting.
+- Preserved the secondary-development image-usage display semantics by keeping image rows classified as image billing unless the row is explicitly token-billed, so legacy image rows with missing `billing_mode` still render as image usage.
+- Removed a trailing space from upstream `backend/internal/pkg/openai/instructions_gpt5_2.txt` so the staged merge passes `git diff --cached --check`.
+
+Verification:
+- `git diff --check`
+- `git diff --cached --check`
+- `rg -n "^(<<<<<<<|=======|>>>>>>>)$"`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/views/user/__tests__/UsageView.spec.ts src/views/admin/__tests__/UsageView.spec.ts src/views/admin/__tests__/apiKeyGroupFilterOptions.spec.ts src/utils/__tests__/proxyExpiry.spec.ts src/components/account/__tests__/UsageProgressBar.spec.ts`
+- `mise x -C backend -- go test ./internal/server ./internal/server/middleware ./internal/handler ./internal/handler/admin ./internal/config ./internal/service ./internal/repository ./internal/pkg/apicompat ./internal/pkg/openai ./internal/pkg/usagestats`
+
+Not verified:
+- Full frontend test suite was not run.
+- Full backend test suite was not run.
+
 ## 2026-06-06 - Sync upstream `main` into `dev-zz` for failed-request visibility and gateway fixes
 
 Branch:
