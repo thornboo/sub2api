@@ -1,0 +1,83 @@
+# =============================================================================
+# Sub2API Dockerfile for local multi-arch image distribution (dev-zz)
+# =============================================================================
+# Packages a PRE-BUILT binary into the runtime image. No compilation happens
+# here -- the Go binary is cross-compiled on the host by build-image-dev-zz.sh
+# (one binary per target arch) and passed in via the SUB2API_BINARY build arg.
+#
+# This mirrors the upstream Dockerfile.goreleaser, with one addition: it also
+# copies backend/resources so the offline pricing fallback file is present,
+# matching the behaviour of the source-build Dockerfile.
+# =============================================================================
+
+ARG ALPINE_IMAGE=alpine:3.21
+ARG POSTGRES_IMAGE=postgres:18-alpine
+
+# Path to the pre-built binary inside the build context (set by the build script).
+ARG SUB2API_BINARY=dist/sub2api
+
+# -----------------------------------------------------------------------------
+# pg client (version-matched with docker-compose) for in-container pg_dump/psql
+# -----------------------------------------------------------------------------
+FROM ${POSTGRES_IMAGE} AS pg-client
+
+# -----------------------------------------------------------------------------
+# Runtime image
+# -----------------------------------------------------------------------------
+FROM ${ALPINE_IMAGE}
+
+LABEL maintainer="Wei-Shaw <github.com/Wei-Shaw>"
+LABEL description="Sub2API - AI API Gateway Platform (dev-zz local build)"
+LABEL org.opencontainers.image.source="https://github.com/Wei-Shaw/sub2api"
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+    ca-certificates \
+    tzdata \
+    curl \
+    su-exec \
+    libpq \
+    zstd-libs \
+    lz4-libs \
+    krb5-libs \
+    libldap \
+    libedit \
+    && rm -rf /var/cache/apk/*
+
+# Copy pg_dump and psql from a version-matched PostgreSQL image so backup and
+# restore work in the runtime container without requiring Docker socket access.
+COPY --from=pg-client /usr/local/bin/pg_dump /usr/local/bin/pg_dump
+COPY --from=pg-client /usr/local/bin/psql /usr/local/bin/psql
+COPY --from=pg-client /usr/local/lib/libpq.so.5* /usr/local/lib/
+
+# Create non-root user
+RUN addgroup -g 1000 sub2api && \
+    adduser -u 1000 -G sub2api -s /bin/sh -D sub2api
+
+WORKDIR /app
+
+# Re-declare ARG after FROM so it is in scope for the COPY below.
+ARG SUB2API_BINARY
+
+# Copy the pre-built binary (frontend is embedded via -tags embed).
+COPY ${SUB2API_BINARY} /app/sub2api
+
+# Copy backend resources (offline pricing fallback file, read at runtime via
+# pricing.fallback_file -> ./resources/model-pricing/...).
+COPY backend/resources /app/resources
+
+# Create data directory and hand ownership of /app to the runtime user.
+RUN mkdir -p /app/data && chown -R sub2api:sub2api /app
+
+# Copy entrypoint script (fixes volume permissions then drops to sub2api)
+COPY deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:${SERVER_PORT:-8080}/health || exit 1
+
+# Run the application (entrypoint fixes /app/data ownership then execs as sub2api)
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["/app/sub2api"]

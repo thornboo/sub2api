@@ -24,6 +24,10 @@ Thumbs.db
 
 # Build artifacts
 dist/
+# Exception: the pre-built binaries consumed by Dockerfile.dist must stay in the
+# build context (build-image-dev-zz.sh cross-compiles them into dist/).
+!dist/sub2api-amd64
+!dist/sub2api-arm64
 build/
 
 # Node modules (will be installed in container)
