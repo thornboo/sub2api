@@ -1,0 +1,410 @@
+# 上游合并记录
+
+本文件记录二开分支吸收上游变更的同步工作。
+
+## 2026-06-10 - 将上游 `main` 合并到 `dev-zz`：代理回落、缓存 token 用量与 OpenAI 修复
+
+分支：
+- 目标：`dev-zz`
+- 上游：`main`
+- Base：`1cecd271`
+- 合并前目标：`c293f3f4`
+- 上游 head：`434af38f`
+- 结果提交：本次合并提交
+
+上游要点：
+- 新增代理过期与回落行为，包括后端 schema/service/repository 支持、代理 UI 更新、账号代理回落展示，以及回退到源站的处理。
+- 新增管理端按 API Key 分组过滤用户，并收紧 API Key 的专属分组访问校验。
+- 拆分用量的缓存创建/缓存命中 token 统计，并新增图片输出 token/费用展示辅助函数。
+- 新增 OpenAI 网关与兼容性修复：传输错误故障转移、粘性分组校验、跨分组 `previous_response_id` 处理、非流式 JSON content type、响应失败保留，以及 prompt 缓存 key 传递。
+- 新增多实例后台任务的 leader 锁、setup/bootstrap 修复、Go/OpenAI prompt 指令更新、版本/文档更新，以及上游 `skills/sub2api-admin` 辅助工具。
+
+合并策略：
+- 合并前先阅读 `secondary-dev/README.md`、`secondary-dev/PATCHES.md`、`secondary-dev/MERGELOG.md` 和 `secondary-dev/CHANGELOG.md`。
+- 用 `git fetch origin` 刷新本地远程引用；本地 `main` 与 `origin/main` 在 `434af38f` 一致。
+- 在正式合并前用 `git merge-tree --write-tree dev-zz main` 预检，预测到两处内容冲突。
+- 用 `git merge --no-commit main` 把上游 `main` 合并进 `dev-zz`。
+- 接受上游后端/运行时正确性修复和代理/用量/管理端新增功能，因为它们不替换二开的前端认证可见性策略、源码构建部署策略、永久保留默认值，或账号模型探测/映射行为。
+
+冲突文件：
+- `frontend/src/views/admin/AccountsView.vue`
+- `frontend/src/views/user/UsageView.vue`
+
+解决说明：
+- 保留二开的账号表格空状态样式，同时接受上游的代理过期展示、回落标记和回退操作。
+- 让用户用量页保持二开的 stone/emerald 视觉方向，同时接受上游的缓存命中/缓存创建总量、缓存命中率、图片输出 token/费用明细，以及文本输出 token 价格拆分。
+- 保留二开的图片用量展示语义：除非行被显式标为 token 计费，否则图片行仍归类为图片计费，使缺失 `billing_mode` 的旧图片行仍渲染为图片用量。
+- 移除上游 `backend/internal/pkg/openai/instructions_gpt5_2.txt` 的一个行尾空格，使暂存的合并通过 `git diff --cached --check`。
+
+验证：
+- `git diff --check`
+- `git diff --cached --check`
+- `rg -n "^(<<<<<<<|=======|>>>>>>>)$"`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/views/user/__tests__/UsageView.spec.ts src/views/admin/__tests__/UsageView.spec.ts src/views/admin/__tests__/apiKeyGroupFilterOptions.spec.ts src/utils/__tests__/proxyExpiry.spec.ts src/components/account/__tests__/UsageProgressBar.spec.ts`
+- `mise x -C backend -- go test ./internal/server ./internal/server/middleware ./internal/handler ./internal/handler/admin ./internal/config ./internal/service ./internal/repository ./internal/pkg/apicompat ./internal/pkg/openai ./internal/pkg/usagestats`
+
+未验证：
+- 未运行完整前端测试套件。
+- 未运行完整后端测试套件。
+
+## 2026-06-06 - 将上游 `main` 合并到 `dev-zz`：失败请求可见性与网关修复
+
+分支：
+- 目标：`dev-zz`
+- 上游：`main`
+- Base：`f1aa5896`
+- 合并前目标：`a3997b07`
+- 上游 head：`1cecd271`
+- 结果提交：本次合并提交
+
+上游要点：
+- 在运维/管理端/用户端用量界面新增失败请求的持久化与可见性，包括 API Key/账号归属、已删除 Key 的审计查询，以及受公开设置控制的面向用户的错误请求表。
+- 新增网关正确性修复：Responses 转 Anthropic 的工具配对、chat-completions 失败响应、缺失的流式终止输出、OpenAI 图片限流冷却故障转移，以及 Claude Code 客户端识别。
+- 新增数据库连接池生命周期下限、调度器粘性健康逃逸、EasyPay 查单状态处理、管理端审核自动封禁豁免、分组描述清空、Go 1.26.4 工具链更新，以及相关回归测试。
+
+合并策略：
+- 合并前先阅读 `secondary-dev/README.md`、`secondary-dev/PATCHES.md`、`secondary-dev/MERGELOG.md` 和 `secondary-dev/CHANGELOG.md`。
+- 用 `git fetch origin` 刷新本地远程引用；本地 `main` 与 `origin/main` 在 `1cecd271` 一致。
+- 在正式合并前用 `git merge-tree --write-tree dev-zz main` 预检，预测到两处内容冲突。
+- 用 `git merge --no-commit main` 把上游 `main` 合并进 `dev-zz`。
+- 接受上游失败请求可见性和后端网关/运行时修复，因为它们是增量或正确性导向的，不改变二开的账号模型探测/映射行为、前端认证可见性策略、永久保留默认值，或源码构建部署策略。
+
+冲突文件：
+- `frontend/src/views/admin/ops/components/OpsErrorLogTable.vue`
+- `frontend/src/views/user/UsageView.vue`
+
+解决说明：
+- 保留二开的 stone/emerald 管理端运维表格样式，同时新增上游的 API Key 和账号归属列，包括已删除 Key 标记和加宽的空状态 colspan。
+- 让用户用量页保持二开的 stone/emerald 样式和图片用量展示语义，同时接受上游的 null 安全 token/费用渲染和新的用户错误请求标签页。
+- 冻结的 `secondary-dev/DEV_SEED_DESIGN.md` 文档仍隔离在 `stash@{0}`，未包含在本次合并中。
+
+验证：
+- `git diff --check`
+- `git diff --cached --check`
+- `rg -n "^(<<<<<<<|=======|>>>>>>>)$"`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/views/admin/ops/components/__tests__/OpsErrorLogTable.spec.ts src/views/admin/__tests__/UsageView.spec.ts src/views/user/__tests__/UsageView.spec.ts`
+- `mise x -C backend -- go test ./internal/server ./internal/server/middleware ./internal/handler ./internal/handler/admin ./internal/config ./internal/service ./internal/repository ./internal/pkg/apicompat ./internal/payment/provider`
+
+未验证：
+- 未运行完整前端测试套件。
+- 未运行完整后端测试套件。
+
+## 2026-06-05 - 将上游 `main` 合并到 `dev-zz`：OpenAI 5 小时用量语义
+
+分支：
+- 目标：`dev-zz`
+- 上游：`main`
+- Base：`aa69e394`
+- 合并前目标：`437e2df5`
+- 上游 head：`f1aa5896`
+- 结果提交：本次合并提交
+
+上游要点：
+- 回退 OpenAI Codex 5 小时用量百分比归一化，使存储的 5 小时用量重新遵循上游直接的 `used_percent` 语义。
+- 移除已废弃的 5 小时“剩余转已用”归一化辅助函数及相关的快照/账号用量测试。
+- 更新 OpenAI 限流和账号用量测试，以匹配回退后的 5 小时百分比行为。
+
+合并策略：
+- 合并前先阅读 `secondary-dev/README.md`、`secondary-dev/PATCHES.md` 和 `secondary-dev/MERGELOG.md`。
+- 用 `git fetch origin` 刷新本地远程引用。
+- 用 `git merge --no-commit main` 把上游 `main` 合并进 `dev-zz`。
+- `git merge-tree --write-tree dev-zz main` 和正式合并均未报告内容冲突。
+- 接受上游 OpenAI 5 小时用量语义回退，因为它仅限于后端 OpenAI Codex 用量统计，不改变二开的前端认证可见性、账号模型探测/映射行为、可用渠道导出行为、保留默认值，或部署策略。
+
+冲突文件：
+- 无。
+
+解决说明：
+- 自动合并应用了上游对 `normalizeCodexFiveHourUsedPercent` 的移除，并恢复了从 OpenAI Codex 主/次 `used_percent` 头的直接赋值。
+- 自动合并保留了上次上游同步之后的二开提交，包括可用渠道表格/导出工作和二开部署文档对齐。
+- 之前暂存的计费维度定价设计文档仍留在 stash，未包含在本次合并中。
+
+验证：
+- `git diff --check`
+- `git diff --cached --check`
+- `rg -n "^(<<<<<<<|=======|>>>>>>>)$"`
+- `mise x -C backend -- go test ./internal/service`
+
+未验证：
+- 未运行前端 typecheck、lint 和测试，因为本次上游同步只改动了后端 OpenAI service 文件和测试。
+- 未运行完整后端测试套件。
+
+## 2026-06-02 - 将上游 `main` 合并到 `dev-zz`：Codex bridge 后续
+
+分支：
+- 目标：`dev-zz`
+- 上游：`main`
+- Base：`bc5813f0`
+- 合并前目标：`8bd61b24`
+- 上游 head：`aa69e394`
+- 结果提交：本次合并提交
+
+上游要点：
+- 重新设计 Codex Responses 转 Chat Completions 的 bridge，包括请求不变量覆盖和响应流事件 wire 辅助函数。
+- WebSocket Codex 图片 bridge 工具注入，以及额外的 WebSocket ingress-session 覆盖。
+- Antigravity Gemini 限流、调度器缓存、配额范围和账号调度修复。
+- 管理端用户余额处理改为基于指针的输入，使零余额和未填余额可以区分。
+
+合并策略：
+- 用 `git merge --no-commit main` 把上游 `main` 合并进 `dev-zz`。
+- `git merge-tree --write-tree dev-zz main` 和正式合并均未报告内容冲突。
+- 接受上游后端兼容性、调度器、Antigravity 和管理端用户修复，因为它们是增量或正确性导向的，不改变二开的前端认证可见性策略。
+- 保留已有的二开记录、账号模型探测/映射行为、永久数据保留默认值,以及源码构建部署指引。
+
+冲突文件：
+- 无。
+
+解决说明：
+- 自动合并保持上次 `dev-zz` 同步结果不变，同时新增上游 `apicompat` bridge 重新设计和新的回归测试。
+- 自动合并接受了管理端创建用户的余额指针改动及其 API 类型更新，因为它保留了显式的零余额输入行为。
+- 自动合并接受了 Antigravity 调度器/限流修复，未触碰二开的 UI 策略或部署记录。
+
+验证：
+- `git diff --check`
+- `git diff --cached --check`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/views/admin/__tests__/UsersView.spec.ts`
+- `mise x -C backend -- go test ./internal/pkg/apicompat ./internal/service ./internal/repository ./internal/handler/admin ./internal/handler`
+
+未验证：
+- 未运行完整前端测试套件。
+- 未运行完整后端测试套件。
+
+## 2026-06-02 - 将上游 `main` 合并到 `dev-zz`
+
+分支：
+- 目标：`dev-zz`
+- 上游：`main`
+- Base：`f18451e5`
+- 合并前目标：`e6e7e5b9`
+- 上游 head：`bc5813f0`
+- 结果提交：本次合并提交
+
+上游要点：
+- OpenAI 请求体保留/重构、OOM 处理、故障转移缓存体重映射覆盖、WebSocket 用量去重修复、超大 WebSocket 请求桥接，以及 WebSocket 转 HTTP bridge 恢复。
+- 账号创建流程可在账号持久化前，从已输入的凭据同步上游模型。
+- 管理端用量性能/查询缓存更新、从当前统计加载模型筛选选项,以及支持查看已删除用户的历史用量。
+- OpenAI OAuth 刷新增强、Claude Code count_tokens 配额、OpenAI 5 小时用量窗口百分比修复,以及账号用量窗口提示文案。
+
+合并策略：
+- 用 `git merge --no-commit main` 把上游 `main` 合并进 `dev-zz`。
+- 保留二开的账号模型探测、models.dev 搜索、映射填充、同名映射持久化、清空全部模型映射、永久数据保留默认值、首页/控制台视觉方向,以及源码构建部署记录。
+- 接受上游创建账号时的上游模型同步，因为它是增量的，可与二开基于凭据的探测流程共存。
+- 接受上游管理端用量的已删除用户和用量窗口改进，同时保留二开的 popover/stone UI 样式。
+
+冲突文件：
+- `frontend/src/components/account/CreateAccountModal.vue`
+- `frontend/src/components/admin/usage/UsageFilters.vue`
+
+解决说明：
+- 在创建账号白名单区合并 `ModelWhitelistSelector` 的 props，使二开的 `/probe-models` 加载/新增/缺失标记和上游的 `syncCredentials` 预览都可用。
+- 让 Bedrock/Anthropic 白名单行为与已有的二开探测流程保持一致，同时在存在凭据时启用上游预览同步。
+- 让 `UsageFilters` 保持二开的 `popover-item` 样式，并新增上游的已删除用户标记和已删除用户排序。
+
+验证：
+- `git diff --check`
+- `git diff --cached --check`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/components/account/__tests__/EditAccountModal.spec.ts src/components/account/__tests__/BulkEditAccountModal.spec.ts src/components/admin/usage/__tests__/UsageFilters.spec.ts src/components/admin/usage/__tests__/UsageTable.spec.ts src/views/admin/__tests__/AccountsView.usageWindowsHint.spec.ts src/views/admin/__tests__/UsageView.spec.ts src/components/user/profile/__tests__/ProfileIdentityBindingsSection.spec.ts src/components/auth/__tests__/EmailOAuthButtons.spec.ts src/views/auth/__tests__/OAuthCallbackView.spec.ts`
+- `mise x -C backend -- go test ./internal/server ./internal/handler/admin ./internal/config ./internal/service ./internal/repository ./internal/handler`
+
+未验证：
+- 未运行完整前端测试套件。
+- 未运行完整后端测试套件。
+
+## 2026-06-01 - 将上游 `main` 合并到 `dev-zz`
+
+分支：
+- 目标：`dev-zz`
+- 上游：`main`
+- Base：`bebc0823`
+- 合并前目标：`f1ca9454`
+- 上游 head：`f18451e5`
+- 结果提交：本次合并提交
+
+上游要点：
+- 用户平台配额的数据库聚合 flusher 和哨兵回填，减少重复的预检数据库读取。
+- 账号 5 小时/7 天用量阈值自动暂停、同账号重试状态码配置,以及账号创建时间展示。
+- 自定义分组级 `/v1/models` 列表配置和候选模型加载。
+- OpenAI embeddings 网关支持、端点能力门控、Codex CLI/Claude Code 允许客户端处理,以及 Responses/WebSocket 兼容性修复。
+- 用量请求上下文保留、并发错误分类、模型未找到冷却行为,以及本地业务限制原因分类。
+- 计费、长上下文缓存定价、Gemini messages、Anthropic/Responses 转换、Bedrock 上下文管理、定价元数据,以及直到 `0.1.133` 的版本更新。
+
+合并策略：
+- 用 `git merge --no-commit main` 把上游 `main` 合并进 `dev-zz`，`git merge-tree --write-tree dev-zz main` 和正式的 `git merge --no-commit main` 均未报告内容冲突。
+- 保留二开的账号模型探测、models.dev 搜索、映射填充、同名映射模式持久化、清空全部模型映射、永久数据保留默认值、首页/控制台视觉方向,以及源码构建部署记录。
+- 接受上游的配额、自动暂停、分组模型列表、embeddings、端点能力、请求上下文、重试状态、账号创建时间、定价、计费、兼容性,以及运维/风控更新。
+- 延续二开前端隐藏 LinuxDo 和微信认证入口的策略，同时保持上游可见的其他提供商和后端设置/数据不变。
+
+冲突文件：
+- 无。
+
+解决说明：
+- 自动合并保留了两条账号模型发现路径：二开基于凭据的 `/probe-models` 和上游基于已保存账号的 `/models/sync-upstream`。
+- 自动合并保留了显式的 `model_restriction_mode: mapping` 处理和二开的清空全部映射回归覆盖，同时接受上游的账号自动暂停和重试状态配置。
+- 自动合并在登录/资料/管理端界面保持仅前端的 LinuxDo/微信可见性策略，同时在适用处接受上游的 DingTalk 和微信后端/设置/支付代码。
+- 接受上游自定义分组 `/v1/models` 列表配置，因为它是增量的，不改变二开的账号白名单、映射或调度器行为。
+
+验证：
+- `git diff --check`
+- `git diff --cached --check`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/components/account/__tests__/EditAccountModal.spec.ts src/components/account/__tests__/BulkEditAccountModal.spec.ts src/composables/__tests__/useModelWhitelist.spec.ts src/views/admin/__tests__/groupsModelsList.spec.ts src/views/admin/__tests__/groupsModelsListCandidates.spec.ts src/views/admin/__tests__/groupsModelsListLayout.spec.ts src/views/admin/__tests__/AccountsView.bulkEdit.spec.ts src/views/admin/__tests__/RiskControlView.spec.ts src/components/user/profile/__tests__/ProfileIdentityBindingsSection.spec.ts src/components/auth/__tests__/EmailOAuthButtons.spec.ts src/views/auth/__tests__/OAuthCallbackView.spec.ts src/components/admin/usage/__tests__/UsageTable.spec.ts`
+- `mise x -C backend -- go test ./internal/server ./internal/handler/admin ./internal/config ./internal/service ./internal/repository ./internal/handler`
+
+未验证：
+- 未运行完整前端测试套件。
+- 未运行完整后端测试套件。
+
+## 2026-05-27 - 将上游 `main` 合并到 `dev-zz`
+
+分支：
+- 目标：`dev-zz`
+- 上游：`main`
+- Base：`18790386`
+- 合并前目标：`68877dcc`
+- 上游 head：`bebc0823`
+- 结果提交：本次合并提交
+
+上游要点：
+- 用户平台美元配额支持。
+- DingTalk OAuth 和提供商默认授权支持。
+- 内容审核的按模型控制和风险阈值配置。
+- 账号上游模型同步,以及 OpenAI API Key 的 Responses 支持控制。
+- 渠道监控的 API 模式/模板更新。
+- 用户/管理端用量的图片计费元数据和每日用量视图。
+- 兑换码批量更新、邮件模板、订阅提醒邮件,以及相关管理端 UI 更新。
+- OpenAI Responses/WebSocket/工具输出续传修复、HTTP/2 超时修复,以及依赖/安全更新。
+
+合并策略：
+- 把上游 `main` 合并进 `dev-zz`。
+- 保留二开的账号模型探测、models.dev 搜索、映射填充、同名映射模式持久化、清空全部模型映射、永久数据保留默认值、首页/控制台视觉方向,以及源码构建部署记录。
+- 接受上游的 DingTalk、用户平台配额、账号上游模型同步、OpenAI Responses 控制、风控、渠道监控、图片用量、兑换、邮件模板、订阅提醒,以及网关兼容性更新。
+- 延续二开前端隐藏 LinuxDo 和微信认证入口的策略，同时接受上游可见的 DingTalk 入口。
+
+冲突文件：
+- `frontend/src/api/admin/accounts.ts`
+- `frontend/src/components/account/EditAccountModal.vue`
+- `frontend/src/components/account/ModelWhitelistSelector.vue`
+- `frontend/src/components/account/__tests__/EditAccountModal.spec.ts`
+- `frontend/src/components/user/profile/ProfileIdentityBindingsSection.vue`
+- `frontend/src/components/user/profile/ProfileInfoCard.vue`
+- `frontend/src/i18n/locales/en.ts`
+- `frontend/src/i18n/locales/zh.ts`
+- `frontend/src/views/admin/ChannelsView.vue`
+- `frontend/src/views/admin/SettingsView.vue`
+- `frontend/src/views/admin/UsersView.vue`
+- `frontend/src/views/auth/LoginView.vue`
+- `frontend/src/views/user/UsageView.vue`
+
+解决说明：
+- 保留两条账号模型发现路径：二开基于凭据的 `/probe-models` 和上游基于已保存账号的 `/models/sync-upstream`。
+- 保留二开的“填入相关模型” / "Fill related models" 操作标签，并新增独立的上游同步标签。
+- 保留显式的 `model_restriction_mode: mapping`，使同名映射以映射模式重新打开，同时对没有显式模式的旧映射保留上游混合白名单/映射行为。
+- 保留二开的清空全部映射回归覆盖和上游的 OpenAI Responses 覆写回归覆盖。
+- 在前端登录/资料/管理端默认来源界面保持隐藏 LinuxDo/微信；DingTalk 保持可见，因为它是现有隐藏策略之外的上游功能。
+- 把上游的渠道定价同步和用户列强制可见行为合并进二开的 popover/emerald 视觉风格。
+- 修复用户用量提示的解析，使存在图片用量时始终显示图片元数据，即使存储的 `billing_mode` 为空。
+
+验证：
+- `git diff --check`
+- `git diff --cached --check`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/components/account/__tests__/EditAccountModal.spec.ts src/views/user/__tests__/UsageView.spec.ts src/components/user/profile/__tests__/ProfileIdentityBindingsSection.spec.ts src/components/auth/__tests__/EmailOAuthButtons.spec.ts src/views/auth/__tests__/OAuthCallbackView.spec.ts src/components/admin/usage/__tests__/UsageTable.spec.ts`
+- `mise x -C backend -- go test ./internal/server ./internal/handler/admin ./internal/config`
+
+未验证：
+- 未运行完整前端测试套件。
+- 未运行完整后端测试套件。
+
+## 2026-05-14 - 将上游 `main` 合并到 `dev-zz`
+
+分支：
+- 目标：`dev-zz`
+- 上游：`main`
+- Base：`a1106e81`
+- 合并前目标：`6bdd4f1b`
+- 上游 head：`18790386`
+- 结果提交：本次合并提交
+
+上游提交：
+- `af550fa6` feat: 增加 GitHub 和 Google 邮箱快捷登录
+- `e872cbec` feat: 添加登录注册条款确认
+- `b23055af` feat: add Airwallex payments and multi-currency support
+- `fff4a300` feat(risk-control): add content moderation audit
+- `7a9c1d7e` feat(frontend): add account Codex image bridge control
+- `18790386` fix(deploy): 移除数据库与 Redis 宿主机端口映射
+
+合并策略：
+- 把上游 `main` 合并进 `dev-zz`。
+- 保留二开的账号模型探测、映射填充、清空全部模型映射、首页定价文案、永久数据保留默认值,以及源码构建部署记录。
+- 接受上游的支付、邮箱 OAuth、登录协议、内容审核、Codex 图片 bridge、OpenAI/Gemini 兼容性,以及部署更新。
+
+冲突文件：
+- `backend/internal/server/routes/admin.go`
+- `frontend/src/components/account/__tests__/EditAccountModal.spec.ts`
+- `frontend/src/components/user/profile/ProfileInfoCard.vue`
+- `frontend/src/i18n/locales/en.ts`
+- `frontend/src/i18n/locales/zh.ts`
+- `frontend/src/views/admin/AccountsView.vue`
+- `frontend/src/views/admin/SettingsView.vue`
+- `frontend/src/views/auth/LoginView.vue`
+- `frontend/src/views/auth/RegisterView.vue`
+
+解决说明：
+- 保留两条管理端账号路由：二开的 `/probe-models` 和上游的 `/import/codex-session`。
+- 保留两个编辑账号回归测试：清空映射模式模型,以及上游 Codex 图片 bridge 覆写。
+- 保留上游的 GitHub/Google 资料、登录、注册和认证来源默认支持，同时继续在前端登录/注册/资料/设置界面隐藏 LinuxDo/微信。
+- 保留二开的账号模型探测语言 key 和已有的“填入相关模型” / "Fill related models" 操作标签。
+- 把上游的账号工具菜单操作合并进二开的 popover 样式。
+- 保留上游的登录协议门控，同时保持二开认证页的视觉风格。
+
+验证：
+- `git diff --check`
+- `git diff --cached --check`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend test:run src/components/account/__tests__/EditAccountModal.spec.ts src/components/user/profile/__tests__/ProfileIdentityBindingsSection.spec.ts src/components/auth/__tests__/EmailOAuthButtons.spec.ts src/views/auth/__tests__/OAuthCallbackView.spec.ts`
+- `mise x -C backend -- go test ./internal/server ./internal/handler/admin ./internal/config`
+
+未验证：
+- 未运行完整前端测试套件。
+- 未运行完整后端测试套件。
+
+## 2026-05-05 - 将上游 WebSocket 恢复修复合并到 `dev-zz`
+
+分支：
+- 目标：`dev-zz`
+- 上游：`main`
+- 结果提交：`2d6e114a`
+
+上游提交：
+- `e71b55ec` fix: skip previous_response_id recovery when payload has function_call_output
+- `94e49431` Merge pull request #2197 from learnerLj/fix/ws-preflight-ping-fc-output-recovery
+
+合并策略：
+- 把 `main` 合并进 `dev-zz`。
+- 保留 `dev-zz` 上已有的二开提交。
+- 未发生冲突。
+
+解决说明：
+- 接受上游在 `backend/internal/service/openai_ws_forwarder.go` 的后端改动。
+- 已有的首页/认证/控制台 UI 二开改动保持不变。
+
+验证：
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `git diff --check`
+
+未验证：
+- 未运行后端 Go 测试，因为当前 shell 中没有 `go`。
+
+备注：
+- `stash@{0}: On main: 数据永久保存` 仍保留在本地，未被合并。

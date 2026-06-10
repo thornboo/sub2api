@@ -28,7 +28,7 @@ print_error() {
 
 usage() {
   cat <<'EOF'
-Usage: ./secondary-dev/deploy-dev-zz.sh [options]
+Usage: ./deploy/deploy-dev-zz.sh [options]
 
 Build and deploy the dev-zz secondary-development Docker image from source.
 

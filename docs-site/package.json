@@ -1,0 +1,18 @@
+{
+  "name": "sub2api-docs-site",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "docs:dev": "vitepress dev . --host 127.0.0.1",
+    "docs:build": "vitepress build .",
+    "docs:preview": "vitepress preview . --host 127.0.0.1",
+    "dev": "pnpm run docs:dev",
+    "build": "pnpm run docs:build",
+    "preview": "pnpm run docs:preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4",
+    "vue": "^3.4.0"
+  }
+}
