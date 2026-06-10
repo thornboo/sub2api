@@ -1,0 +1,16 @@
+# =============================================================================
+# Local test override for the locally-built dev-zz image.
+# Use together with docker-compose.yml (the all-in-one stack with bundled
+# postgres + redis). It only swaps the sub2api image to the one produced by
+# deploy/build-image-dev-zz.sh and loaded via `docker load`.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev-zz.yml up -d
+#
+# pull_policy: never ensures Docker uses the locally-loaded image and never
+# tries to fetch sub2api:dev-zz from a registry.
+# =============================================================================
+
+services:
+  sub2api:
+    image: sub2api:dev-zz
+    pull_policy: never
