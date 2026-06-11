@@ -18,6 +18,7 @@
               {{ title }}
             </h3>
             <button
+              v-if="showCloseButton"
               @click="emit('close')"
               class="-mr-2 rounded-xl p-2 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-600 dark:text-stone-500 dark:hover:bg-white/[0.06] dark:hover:text-stone-300"
               aria-label="Close modal"
@@ -61,6 +62,7 @@ interface Props {
   width?: DialogWidth
   closeOnEscape?: boolean
   closeOnClickOutside?: boolean
+  showCloseButton?: boolean
   zIndex?: number
 }
 
@@ -72,6 +74,7 @@ const props = withDefaults(defineProps<Props>(), {
   width: 'normal',
   closeOnEscape: true,
   closeOnClickOutside: false,
+  showCloseButton: true,
   zIndex: 50
 })
 

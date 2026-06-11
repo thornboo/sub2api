@@ -1,5 +1,30 @@
 # 补丁记录
 
+## 2026-06-12 - 上游 main 同步：合规确认与网关修复
+
+范围：
+- `.gitignore`
+- `backend/internal/{handler,server,service,pkg}/**`
+- `backend/migrations/150_account_group_scheduler_indexes_notx.sql`
+- `docs/legal/**`
+- `frontend/src/{api,components,composables,i18n,router,stores,views}/**`
+- `docs-site/dev-zz/{changelog.md,patches.md,maintenance/merge-log.md}`
+
+改动：
+- 合并上游管理端部署与运营合规确认 gate，包括后端接口/中间件、前端确认弹窗、合规状态 store、公开法律文档和中英文文案。
+- 合并上游网关正确性修复：错误透传/非流式错误帧重复写入保护、`MarkResponseCommitted` 覆盖、OpenAI failover 模型请求体替换，以及 idempotency 响应 UTF-8 截断。
+- 合并上游 Bedrock / Claude 兼容修复、账号分组调度索引优化、调度日志循环优化、`claude-fable-5` 常量与 sponsor 资料更新。
+- 解决 `.gitignore` 冲突时同时保留 dev-zz 的 `docs-site` 缓存忽略规则和上游 `docs/legal/*.md` 反忽略规则。
+
+验证：
+- `git diff --check`
+- `git diff --cached --check`
+- `rg -n "^(<<<<<<<|=======|>>>>>>>)$"`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/components/keys/__tests__/UseKeyModal.spec.ts src/api/__tests__/client.spec.ts src/composables/__tests__/useModelWhitelist.spec.ts`
+- `mise x -C backend -- go test ./internal/server ./internal/server/middleware ./internal/handler ./internal/handler/admin ./internal/config ./internal/service ./internal/repository ./internal/pkg/apicompat ./internal/pkg/openai`
+
 ## 2026-06-10 - dev-zz 文档中心迁移
 
 范围：

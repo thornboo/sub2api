@@ -2,6 +2,50 @@
 
 本文件记录二开分支吸收上游变更的同步工作。
 
+## 2026-06-12 - 将上游 `main` 合并到 `dev-zz`：合规确认、网关修复与 Bedrock 兼容
+
+分支：
+- 目标：`dev-zz`
+- 上游：`main`
+- Base：`434af38f`
+- 合并前目标：`a7dc462f`
+- 上游 head：`e34ad2b1`
+- 结果提交：本次合并提交
+
+上游要点：
+- 新增管理端部署与运营合规确认 gate，包括后端状态/确认接口、中间件守卫、前端弹窗、状态 store、公开法律文档路由，以及中英文 `docs/legal/admin-compliance.*.md`。
+- 新增网关正确性修复：避免错误透传/非流式错误帧重复写入、完整覆盖 `MarkResponseCommitted`、修复 OpenAI failover 模型请求体替换，以及 idempotency 响应 UTF-8 截断。
+- 修复 Bedrock / Claude 兼容路径：过滤不支持的顶层字段、清理 beta token、合并 header filtering，并修复管理端 `bedrock_cc_compat` 开关回显。
+- 优化账号分组调度索引、调度日志循环开销，新增 `claude-fable-5` 常量与 sponsor 资料更新。
+
+合并策略：
+- 合并前阅读 `docs-site/dev-zz/branch-policy.md`、`docs-site/dev-zz/patches.md`、`docs-site/dev-zz/maintenance/merge-log.md` 和 `docs-site/dev-zz/changelog.md`。
+- 用 `git fetch origin` 刷新本地远程引用；本地 `main` 与 `origin/main` 在 `e34ad2b1` 一致。
+- 在正式合并前用 `git merge-tree --write-tree dev-zz main` 预检，预测到一处内容冲突。
+- 用 `git merge --no-commit main` 把上游 `main` 合并进 `dev-zz`。
+- 接受上游合规确认 gate、后端网关/运行时正确性修复、Bedrock 兼容修复和调度索引优化，因为它们不替换二开的前端视觉方向、认证入口可见性策略、永久保留默认值、账号模型探测/映射行为，或源码构建部署策略。
+
+冲突文件：
+- `.gitignore`
+
+解决说明：
+- 保留 dev-zz 的 `docs-site` 依赖、缓存和构建产物忽略规则。
+- 同时接受上游 `docs/legal/` 和 `docs/legal/*.md` 的反忽略规则，使新增合规法律文档可纳入版本控制。
+- `backend/internal/server/routes/admin.go`、`frontend/src/components/common/BaseDialog.vue`、`frontend/src/i18n/locales/{zh,en}.ts` 和 `frontend/src/views/admin/ChannelsView.vue` 自动合并；检查后保留上游合规确认、可隐藏关闭按钮文案、法律文档文案和 Bedrock 开关修复。
+
+验证：
+- `git diff --check`
+- `git diff --cached --check`
+- `rg -n "^(<<<<<<<|=======|>>>>>>>)$"`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/components/keys/__tests__/UseKeyModal.spec.ts src/api/__tests__/client.spec.ts src/composables/__tests__/useModelWhitelist.spec.ts`
+- `mise x -C backend -- go test ./internal/server ./internal/server/middleware ./internal/handler ./internal/handler/admin ./internal/config ./internal/service ./internal/repository ./internal/pkg/apicompat ./internal/pkg/openai`
+
+未验证：
+- 未运行完整前端测试套件。
+- 未运行完整后端测试套件。
+
 ## 2026-06-10 - 将上游 `main` 合并到 `dev-zz`：代理回落、缓存 token 用量与 OpenAI 修复
 
 分支：
