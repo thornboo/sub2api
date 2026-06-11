@@ -7228,7 +7228,7 @@ const authSourceDefaults = reactive<AuthSourceDefaultsState>(
 );
 
 function showAuthPlatform(source: AuthSourceType): boolean {
-  return source !== "linuxdo" && source !== "wechat";
+  return Boolean(source);
 }
 
 const authSourceDefaultsMeta = computed(() => [

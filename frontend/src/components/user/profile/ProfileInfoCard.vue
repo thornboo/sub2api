@@ -274,7 +274,14 @@ function formatCurrency(value: number): string {
 
 function normalizeProvider(value: string): UserAuthProvider | null {
   const normalized = value.trim().toLowerCase()
-  if (normalized === 'email' || normalized === 'github' || normalized === 'google') {
+  if (
+    normalized === 'email' ||
+    normalized === 'linuxdo' ||
+    normalized === 'dingtalk' ||
+    normalized === 'wechat' ||
+    normalized === 'github' ||
+    normalized === 'google'
+  ) {
     return normalized
   }
   if (normalized === 'oidc' || normalized.startsWith('oidc:') || normalized.startsWith('oidc/')) {

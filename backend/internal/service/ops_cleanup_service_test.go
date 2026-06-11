@@ -68,7 +68,9 @@ func TestOpsCleanupService_RunCleanupOnceAutoCleanupDisabledSkipsDeletes(t *test
 	if err != nil {
 		t.Fatalf("sqlmock.New() error = %v", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
 
 	svc := &OpsCleanupService{
 		opsRepo: &opsRepoMock{},
