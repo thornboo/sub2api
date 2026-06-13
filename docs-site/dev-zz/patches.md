@@ -1,5 +1,43 @@
 # 补丁记录
 
+## 2026-06-14 - 企业 Key 筛选批量操作
+
+范围：
+- `backend/internal/{handler,service}/**`
+- `frontend/src/{i18n,types,views/user}/**`
+- `docs-site/dev-zz/{changelog.md,patches.md,features/enterprise-key-member-management.md}`
+
+改动：
+- 用户侧 `POST /api/v1/keys/batch-update` 和 `POST /api/v1/keys/batch-delete` 支持 `apply_to=filtered`，可对当前筛选条件匹配的 Key 执行批量改/删。
+- 筛选批量支持 `search` / `status` / `group_id` / `tags`，要求至少一个筛选条件，避免空筛选误操作全量 Key。
+- 后端先将筛选结果解析为当前 owner 名下的 Key ID 集合，并限制单次最多 500 个，再复用现有按 ID 批量事务、越权检查和缓存失效链路。
+- 当前用户侧 Key 页面仍以列表勾选作为批量修改 / 删除入口，不在筛选下拉选择时自动显示批量操作。
+- 本轮不引入子账号 / 员工登录实体，也不改变 ADR 0002 的 Key-as-member 边界。
+
+验证：
+- `mise x -C backend -- go test ./internal/service -run 'TestAPIKeyServiceBatch(Update|Delete)'`
+
+## 2026-06-14 - 企业 Key 标签候选
+
+范围：
+- `backend/internal/{handler,repository,server,service}/**`
+- `frontend/src/{api,types,views/user}/**`
+
+改动：
+- 新增用户侧只读接口 `GET /api/v1/keys/tags`，返回当前 owner 未删除 Key 的去重标签候选。
+- 标签候选查询绑定当前 `user_id`，过滤软删除 Key，并限制单次最多返回 500 个标签。
+- 用户侧 Key 页面进入时加载完整标签候选，标签筛选下拉不再依赖当前分页已加载过的标签。
+
+验证：
+- `mise x -C backend -- go test ./internal/handler ./internal/repository ./internal/server/routes ./internal/service`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `mise x -C backend -- go test ./internal/...`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir docs-site docs:build`
+- `git diff --check`
+
 ## 2026-06-13 - 企业 Key 标签管理
 
 范围：
