@@ -2534,6 +2534,24 @@ func (s *SettingService) GetDefaultUserRPMLimit(ctx context.Context) int {
 	return 0
 }
 
+func (s *SettingService) GetAPIKeyBatchCreateMaxCount(ctx context.Context) int {
+	if s == nil || s.settingRepo == nil {
+		return DefaultAPIKeyBatchCreateMaxCount
+	}
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyAPIKeyBatchCreateMaxCount)
+	if err != nil || value == "" {
+		return DefaultAPIKeyBatchCreateMaxCount
+	}
+	v, err := strconv.Atoi(value)
+	if err != nil || v <= 0 {
+		return DefaultAPIKeyBatchCreateMaxCount
+	}
+	if v > HardAPIKeyBatchCreateMaxCount {
+		return HardAPIKeyBatchCreateMaxCount
+	}
+	return v
+}
+
 // GetDefaultSubscriptions 获取新用户默认订阅配置列表。
 func (s *SettingService) GetDefaultSubscriptions(ctx context.Context) []DefaultSubscriptionSetting {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyDefaultSubscriptions)
@@ -2752,6 +2770,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyAffiliateRebatePerInviteeCap:              strconv.FormatFloat(AffiliateRebatePerInviteeCapDefault, 'f', 2, 64),
 		SettingKeyDefaultUserRPMLimit:                       "0",
 		SettingKeyDefaultSubscriptions:                      "[]",
+		SettingKeyAPIKeyBatchCreateMaxCount:                 strconv.Itoa(DefaultAPIKeyBatchCreateMaxCount),
 		SettingKeyAuthSourceDefaultEmailBalance:             "0",
 		SettingKeyAuthSourceDefaultEmailConcurrency:         "5",
 		SettingKeyAuthSourceDefaultEmailSubscriptions:       "[]",

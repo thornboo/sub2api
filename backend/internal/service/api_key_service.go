@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"html"
 	"strconv"
@@ -21,13 +23,26 @@ import (
 )
 
 var (
-	ErrAPIKeyNotFound     = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
-	ErrGroupNotAllowed    = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
-	ErrAPIKeyExists       = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
-	ErrAPIKeyTooShort     = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
-	ErrAPIKeyInvalidChars = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
-	ErrAPIKeyRateLimited  = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
-	ErrInvalidIPPattern   = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
+	ErrAPIKeyNotFound      = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
+	ErrGroupNotAllowed     = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
+	ErrAPIKeyExists        = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
+	ErrAPIKeyTooShort      = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
+	ErrAPIKeyInvalidChars  = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
+	ErrAPIKeyRateLimited   = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
+	ErrInvalidIPPattern    = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
+	ErrAPIKeyBatchInvalid  = infraerrors.BadRequest("API_KEY_BATCH_INVALID", "invalid api key batch create request")
+	ErrAPIKeyBatchTooLarge = infraerrors.BadRequest(
+		"API_KEY_BATCH_TOO_LARGE",
+		"api key batch count exceeds the allowed limit",
+	)
+	ErrAPIKeyStatusLookupRateLimited = infraerrors.TooManyRequests(
+		"API_KEY_STATUS_LOOKUP_RATE_LIMITED",
+		"api key status lookup is too frequent, please try again later",
+	)
+	ErrAPIKeyStatusLookupUnavailable = infraerrors.ServiceUnavailable(
+		"API_KEY_STATUS_LOOKUP_UNAVAILABLE",
+		"api key status lookup is temporarily unavailable",
+	)
 	// ErrAPIKeyExpired        = infraerrors.Forbidden("API_KEY_EXPIRED", "api key has expired")
 	ErrAPIKeyExpired = infraerrors.Forbidden("API_KEY_EXPIRED", "api key 已过期")
 	// ErrAPIKeyQuotaExhausted = infraerrors.TooManyRequests("API_KEY_QUOTA_EXHAUSTED", "api key quota exhausted")
@@ -42,8 +57,11 @@ var (
 const (
 	apiKeyMaxErrorsPerHour = 20
 	apiKeyLastUsedMinTouch = 30 * time.Second
+	apiKeyNameMaxLength    = 100
 	// DB 写失败后的短退避，避免请求路径持续同步重试造成写风暴与高延迟。
-	apiKeyLastUsedFailBackoff = 5 * time.Second
+	apiKeyLastUsedFailBackoff  = 5 * time.Second
+	apiKeyStatusLookupCooldown = 10 * time.Second
+	apiKeyStatusLookupLocalMax = 4096
 )
 
 type APIKeyRepository interface {
@@ -60,6 +78,7 @@ type APIKeyRepository interface {
 	DeleteWithAudit(ctx context.Context, id int64) error
 
 	ListByUserID(ctx context.Context, userID int64, params pagination.PaginationParams, filters APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error)
+	ListByIDsForUser(ctx context.Context, userID int64, ids []int64) ([]APIKey, error)
 	VerifyOwnership(ctx context.Context, userID int64, apiKeyIDs []int64) ([]int64, error)
 	CountByUserID(ctx context.Context, userID int64) (int64, error)
 	ExistsByKey(ctx context.Context, key string) (bool, error)
@@ -123,6 +142,14 @@ type APIKeyQuotaUsageState struct {
 	Quota     float64
 	Key       string
 	Status    string
+}
+
+type apiKeyTransactionalRepository interface {
+	RunInTx(ctx context.Context, fn func(context.Context) error) error
+}
+
+type apiKeyStatusLookupCooldownCache interface {
+	ClaimStatusLookupCooldown(ctx context.Context, keyHash string, ttl time.Duration) (bool, error)
 }
 
 // APIKeyCache defines cache operations for API key service
@@ -203,12 +230,15 @@ type APIKeyService struct {
 	userGroupRateRepo     UserGroupRateRepository
 	cache                 APIKeyCache
 	rateLimitCacheInvalid RateLimitCacheInvalidator // optional: invalidate Redis rate limit cache
+	settingService        *SettingService
 	cfg                   *config.Config
 	authCacheL1           *ristretto.Cache
 	authCfg               apiKeyAuthCacheConfig
 	authGroup             singleflight.Group
 	lastUsedTouchL1       sync.Map // keyID -> nextAllowedAt(time.Time)
 	lastUsedTouchSF       singleflight.Group
+	statusLookupL1        sync.Map // keyHash -> nextAllowedAt(time.Time)
+	statusLookupJanitorSF singleflight.Group
 }
 
 // NewAPIKeyService 创建API Key服务实例
@@ -240,6 +270,10 @@ func (s *APIKeyService) SetRateLimitCacheInvalidator(inv RateLimitCacheInvalidat
 	s.rateLimitCacheInvalid = inv
 }
 
+func (s *APIKeyService) SetSettingService(settingService *SettingService) {
+	s.settingService = settingService
+}
+
 func (s *APIKeyService) compileAPIKeyIPRules(apiKey *APIKey) {
 	if apiKey == nil {
 		return
@@ -257,9 +291,9 @@ func (s *APIKeyService) GenerateKey() (string, error) {
 	}
 
 	// 转换为十六进制字符串并添加前缀
-	prefix := s.cfg.Default.APIKeyPrefix
-	if prefix == "" {
-		prefix = "sk-"
+	prefix := "sk-"
+	if s.cfg != nil && s.cfg.Default.APIKeyPrefix != "" {
+		prefix = s.cfg.Default.APIKeyPrefix
 	}
 
 	key := prefix + hex.EncodeToString(bytes)
@@ -285,6 +319,568 @@ func (s *APIKeyService) ValidateCustomKey(key string) error {
 	}
 
 	return nil
+}
+
+func (s *APIKeyService) GetAPIKeyBatchCreateMaxCount(ctx context.Context) int {
+	if s != nil && s.settingService != nil {
+		return s.settingService.GetAPIKeyBatchCreateMaxCount(ctx)
+	}
+	return DefaultAPIKeyBatchCreateMaxCount
+}
+
+func validateAPIKeyIPLists(whitelist, blacklist []string) error {
+	if len(whitelist) > 0 {
+		if invalid := ip.ValidateIPPatterns(whitelist); len(invalid) > 0 {
+			return fmt.Errorf("%w: %v", ErrInvalidIPPattern, invalid)
+		}
+	}
+	if len(blacklist) > 0 {
+		if invalid := ip.ValidateIPPatterns(blacklist); len(invalid) > 0 {
+			return fmt.Errorf("%w: %v", ErrInvalidIPPattern, invalid)
+		}
+	}
+	return nil
+}
+
+func validateAPIKeySpendingLimits(quota, rate5h, rate1d, rate7d float64) error {
+	if quota < 0 || rate5h < 0 || rate1d < 0 || rate7d < 0 {
+		return ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{
+			"field": "quota_or_rate_limit",
+		})
+	}
+	return nil
+}
+
+func validateBatchAPIKeyName(name string, seen map[string]struct{}) error {
+	if name == "" || len([]rune(name)) > apiKeyNameMaxLength {
+		return ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "names"})
+	}
+	if _, ok := seen[name]; ok {
+		return ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "names"})
+	}
+	seen[name] = struct{}{}
+	return nil
+}
+
+func buildBatchAPIKeyNames(req BatchCreateAPIKeysRequest) ([]string, error) {
+	hasTemplate := req.NameTemplate != nil && strings.TrimSpace(*req.NameTemplate) != ""
+	hasNames := len(req.Names) > 0
+	if hasTemplate == hasNames {
+		return nil, ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{
+			"field": "name_template_or_names",
+		})
+	}
+
+	if hasNames {
+		if req.Count <= 0 || len(req.Names) != req.Count {
+			return nil, ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "count"})
+		}
+		names := make([]string, 0, len(req.Names))
+		seen := make(map[string]struct{}, len(req.Names))
+		for _, raw := range req.Names {
+			name := strings.TrimSpace(raw)
+			if err := validateBatchAPIKeyName(name, seen); err != nil {
+				return nil, err
+			}
+			names = append(names, name)
+		}
+		return names, nil
+	}
+
+	if req.Count <= 0 {
+		return nil, ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "count"})
+	}
+	template := strings.TrimSpace(*req.NameTemplate)
+	if !strings.Contains(template, "{seq}") {
+		return nil, ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "name_template"})
+	}
+
+	width := len(strconv.Itoa(req.Count))
+	if width < 3 {
+		width = 3
+	}
+	names := make([]string, 0, req.Count)
+	seen := make(map[string]struct{}, req.Count)
+	for i := 1; i <= req.Count; i++ {
+		seq := fmt.Sprintf("%0*d", width, i)
+		name := strings.ReplaceAll(template, "{seq}", seq)
+		if err := validateBatchAPIKeyName(name, seen); err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
+// BatchCreate creates API keys as one service-level unit of work. The handler must not loop over Create:
+// this method performs shared validation once and persists the whole batch in one transaction.
+func (s *APIKeyService) BatchCreate(ctx context.Context, userID int64, req BatchCreateAPIKeysRequest) (*BatchCreateAPIKeysResult, error) {
+	names, err := buildBatchAPIKeyNames(req)
+	if err != nil {
+		return nil, err
+	}
+
+	maxAllowed := s.GetAPIKeyBatchCreateMaxCount(ctx)
+	if len(names) > maxAllowed {
+		return nil, ErrAPIKeyBatchTooLarge.WithMetadata(map[string]string{
+			"max_count": strconv.Itoa(maxAllowed),
+		})
+	}
+	if err := validateAPIKeySpendingLimits(req.Quota, req.RateLimit5h, req.RateLimit1d, req.RateLimit7d); err != nil {
+		return nil, err
+	}
+	if err := validateAPIKeyIPLists(req.IPWhitelist, req.IPBlacklist); err != nil {
+		return nil, err
+	}
+
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+	if req.GroupID != nil {
+		group, err := s.groupRepo.GetByID(ctx, *req.GroupID)
+		if err != nil {
+			return nil, fmt.Errorf("get group: %w", err)
+		}
+		if !s.canUserBindGroup(ctx, user, group) {
+			return nil, ErrGroupNotAllowed
+		}
+	}
+
+	txRepo, ok := s.apiKeyRepo.(apiKeyTransactionalRepository)
+	if !ok {
+		return nil, infraerrors.InternalServer("API_KEY_TRANSACTION_UNAVAILABLE", "api key repository does not support transactions")
+	}
+
+	var expiresAt *time.Time
+	if req.ExpiresInDays != nil && *req.ExpiresInDays > 0 {
+		t := time.Now().AddDate(0, 0, *req.ExpiresInDays)
+		expiresAt = &t
+	}
+
+	created := make([]APIKey, 0, len(names))
+	err = txRepo.RunInTx(ctx, func(txCtx context.Context) error {
+		for _, name := range names {
+			var createdKey *APIKey
+			var lastErr error
+			for attempt := 0; attempt < 5; attempt++ {
+				key, err := s.GenerateKey()
+				if err != nil {
+					return fmt.Errorf("generate key: %w", err)
+				}
+				apiKey := &APIKey{
+					UserID:      userID,
+					Key:         key,
+					Name:        html.EscapeString(name),
+					GroupID:     req.GroupID,
+					Status:      StatusActive,
+					IPWhitelist: req.IPWhitelist,
+					IPBlacklist: req.IPBlacklist,
+					Quota:       req.Quota,
+					QuotaUsed:   0,
+					ExpiresAt:   expiresAt,
+					RateLimit5h: req.RateLimit5h,
+					RateLimit1d: req.RateLimit1d,
+					RateLimit7d: req.RateLimit7d,
+				}
+				if err := s.apiKeyRepo.Create(txCtx, apiKey); err != nil {
+					lastErr = err
+					if errors.Is(err, ErrAPIKeyExists) {
+						continue
+					}
+					return fmt.Errorf("create api key: %w", err)
+				}
+				createdKey = apiKey
+				break
+			}
+			if createdKey == nil {
+				if lastErr != nil {
+					return fmt.Errorf("create api key: %w", lastErr)
+				}
+				return ErrAPIKeyExists
+			}
+			created = append(created, *createdKey)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range created {
+		s.InvalidateAuthCacheByKey(ctx, created[i].Key)
+		s.compileAPIKeyIPRules(&created[i])
+	}
+
+	return &BatchCreateAPIKeysResult{
+		Keys:       created,
+		Created:    len(created),
+		MaxAllowed: maxAllowed,
+	}, nil
+}
+
+func normalizeAPIKeyBatchIDs(ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "ids"})
+	}
+	seen := make(map[int64]struct{}, len(ids))
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			return nil, ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "ids"})
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	if len(out) > HardAPIKeyBatchCreateMaxCount {
+		return nil, ErrAPIKeyBatchTooLarge.WithMetadata(map[string]string{
+			"max_count": strconv.Itoa(HardAPIKeyBatchCreateMaxCount),
+		})
+	}
+	return out, nil
+}
+
+func (s *APIKeyService) listOwnedAPIKeysForBatch(ctx context.Context, userID int64, ids []int64) (map[int64]APIKey, error) {
+	keys, err := s.apiKeyRepo.ListByIDsForUser(ctx, userID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("list api keys for batch: %w", err)
+	}
+	if len(keys) != len(ids) {
+		return nil, ErrInsufficientPerms
+	}
+	byID := make(map[int64]APIKey, len(keys))
+	for _, key := range keys {
+		byID[key.ID] = key
+	}
+	for _, id := range ids {
+		if _, ok := byID[id]; !ok {
+			return nil, ErrInsufficientPerms
+		}
+	}
+	return byID, nil
+}
+
+func validateBatchUpdateRequest(req BatchUpdateAPIKeysRequest) error {
+	hasUpdate := req.UpdateGroup ||
+		req.UpdateStatus ||
+		req.UpdateQuota ||
+		req.UpdateExpiration ||
+		req.UpdateRateLimit ||
+		req.ResetRateLimitUsage ||
+		req.UpdateIPAccessControl
+	if !hasUpdate {
+		return ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "updates"})
+	}
+	if req.UpdateStatus && req.Status != StatusActive && req.Status != "inactive" {
+		return ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "status"})
+	}
+	if req.UpdateQuota {
+		switch req.QuotaMode {
+		case APIKeyBatchQuotaModeSet:
+			if req.QuotaValue < 0 {
+				return ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "quota_value"})
+			}
+		case APIKeyBatchQuotaModeAdd:
+			if req.QuotaValue <= 0 {
+				return ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "quota_value"})
+			}
+		case APIKeyBatchQuotaModeUnlimited:
+		default:
+			return ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "quota_mode"})
+		}
+	}
+	if req.UpdateRateLimit {
+		if err := validateAPIKeySpendingLimits(0, req.RateLimit5h, req.RateLimit1d, req.RateLimit7d); err != nil {
+			return err
+		}
+	}
+	if req.UpdateIPAccessControl {
+		if err := validateAPIKeyIPLists(req.IPWhitelist, req.IPBlacklist); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func applyBatchAPIKeyUpdate(key *APIKey, req BatchUpdateAPIKeysRequest, now time.Time) bool {
+	resetRateLimit := false
+	if req.UpdateGroup {
+		key.GroupID = req.GroupID
+	}
+	if req.UpdateStatus {
+		key.Status = req.Status
+	}
+	if req.UpdateQuota {
+		switch req.QuotaMode {
+		case APIKeyBatchQuotaModeSet:
+			key.Quota = req.QuotaValue
+		case APIKeyBatchQuotaModeAdd:
+			if key.Quota <= 0 {
+				key.Quota = req.QuotaValue
+			} else {
+				key.Quota += req.QuotaValue
+			}
+		case APIKeyBatchQuotaModeUnlimited:
+			key.Quota = 0
+		}
+		if key.Status == StatusAPIKeyQuotaExhausted && key.Quota > key.QuotaUsed {
+			key.Status = StatusActive
+		}
+	}
+	if req.UpdateExpiration {
+		key.ExpiresAt = req.ExpiresAt
+		if key.Status == StatusAPIKeyExpired && (req.ExpiresAt == nil || now.Before(*req.ExpiresAt)) {
+			key.Status = StatusActive
+		}
+	}
+	if req.UpdateRateLimit {
+		key.RateLimit5h = req.RateLimit5h
+		key.RateLimit1d = req.RateLimit1d
+		key.RateLimit7d = req.RateLimit7d
+	}
+	if req.ResetRateLimitUsage {
+		key.Usage5h = 0
+		key.Usage1d = 0
+		key.Usage7d = 0
+		key.Window5hStart = nil
+		key.Window1dStart = nil
+		key.Window7dStart = nil
+		resetRateLimit = true
+	}
+	if req.UpdateIPAccessControl {
+		key.IPWhitelist = req.IPWhitelist
+		key.IPBlacklist = req.IPBlacklist
+	}
+	return resetRateLimit
+}
+
+func (s *APIKeyService) BatchUpdate(ctx context.Context, userID int64, req BatchUpdateAPIKeysRequest) (*BatchUpdateAPIKeysResult, error) {
+	ids, err := normalizeAPIKeyBatchIDs(req.IDs)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateBatchUpdateRequest(req); err != nil {
+		return nil, err
+	}
+
+	if req.UpdateGroup && req.GroupID != nil {
+		user, err := s.userRepo.GetByID(ctx, userID)
+		if err != nil {
+			return nil, fmt.Errorf("get user: %w", err)
+		}
+		group, err := s.groupRepo.GetByID(ctx, *req.GroupID)
+		if err != nil {
+			return nil, fmt.Errorf("get group: %w", err)
+		}
+		if !s.canUserBindGroup(ctx, user, group) {
+			return nil, ErrGroupNotAllowed
+		}
+	}
+
+	ownedKeys, err := s.listOwnedAPIKeysForBatch(ctx, userID, ids)
+	if err != nil {
+		return nil, err
+	}
+	txRepo, ok := s.apiKeyRepo.(apiKeyTransactionalRepository)
+	if !ok {
+		return nil, infraerrors.InternalServer("API_KEY_TRANSACTION_UNAVAILABLE", "api key repository does not support transactions")
+	}
+
+	now := time.Now()
+	updatedKeys := make([]APIKey, 0, len(ids))
+	resetRateLimitIDs := make([]int64, 0, len(ids))
+	err = txRepo.RunInTx(ctx, func(txCtx context.Context) error {
+		for _, id := range ids {
+			key := ownedKeys[id]
+			resetRateLimit := applyBatchAPIKeyUpdate(&key, req, now)
+			if err := s.apiKeyRepo.Update(txCtx, &key); err != nil {
+				return fmt.Errorf("update api key: %w", err)
+			}
+			updatedKeys = append(updatedKeys, key)
+			if resetRateLimit {
+				resetRateLimitIDs = append(resetRateLimitIDs, id)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range updatedKeys {
+		s.InvalidateAuthCacheByKey(ctx, updatedKeys[i].Key)
+		s.compileAPIKeyIPRules(&updatedKeys[i])
+	}
+	if s.rateLimitCacheInvalid != nil {
+		for _, id := range resetRateLimitIDs {
+			_ = s.rateLimitCacheInvalid.InvalidateAPIKeyRateLimit(ctx, id)
+		}
+	}
+
+	return &BatchUpdateAPIKeysResult{Updated: len(updatedKeys)}, nil
+}
+
+func (s *APIKeyService) BatchDelete(ctx context.Context, userID int64, req BatchDeleteAPIKeysRequest) (*BatchDeleteAPIKeysResult, error) {
+	ids, err := normalizeAPIKeyBatchIDs(req.IDs)
+	if err != nil {
+		return nil, err
+	}
+	ownedKeys, err := s.listOwnedAPIKeysForBatch(ctx, userID, ids)
+	if err != nil {
+		return nil, err
+	}
+	txRepo, ok := s.apiKeyRepo.(apiKeyTransactionalRepository)
+	if !ok {
+		return nil, infraerrors.InternalServer("API_KEY_TRANSACTION_UNAVAILABLE", "api key repository does not support transactions")
+	}
+
+	deletedKeys := make([]APIKey, 0, len(ids))
+	err = txRepo.RunInTx(ctx, func(txCtx context.Context) error {
+		for _, id := range ids {
+			if err := s.apiKeyRepo.DeleteWithAudit(txCtx, id); err != nil {
+				return fmt.Errorf("delete api key: %w", err)
+			}
+			deletedKeys = append(deletedKeys, ownedKeys[id])
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if s.cache != nil {
+		_ = s.cache.DeleteCreateAttemptCount(ctx, userID)
+	}
+	for i := range deletedKeys {
+		s.InvalidateAuthCacheByKey(ctx, deletedKeys[i].Key)
+		s.lastUsedTouchL1.Delete(deletedKeys[i].ID)
+	}
+
+	return &BatchDeleteAPIKeysResult{Deleted: len(deletedKeys)}, nil
+}
+
+func apiKeyLookupHash(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:])
+}
+
+func (s *APIKeyService) claimPublicStatusLookup(ctx context.Context, key string) error {
+	keyHash := apiKeyLookupHash(key)
+	if s.cache != nil {
+		if cache, ok := s.cache.(apiKeyStatusLookupCooldownCache); ok {
+			allowed, err := cache.ClaimStatusLookupCooldown(ctx, keyHash, apiKeyStatusLookupCooldown)
+			if err != nil {
+				return ErrAPIKeyStatusLookupUnavailable.WithCause(err)
+			}
+			if !allowed {
+				return ErrAPIKeyStatusLookupRateLimited.WithMetadata(map[string]string{
+					"retry_after": strconv.Itoa(int(apiKeyStatusLookupCooldown.Seconds())),
+				})
+			}
+			return nil
+		}
+	}
+
+	now := time.Now()
+	if v, ok := s.statusLookupL1.Load(keyHash); ok {
+		if nextAllowedAt, ok := v.(time.Time); ok && now.Before(nextAllowedAt) {
+			return ErrAPIKeyStatusLookupRateLimited.WithMetadata(map[string]string{
+				"retry_after": strconv.Itoa(int(nextAllowedAt.Sub(now).Seconds()) + 1),
+			})
+		}
+	}
+	s.statusLookupL1.Store(keyHash, now.Add(apiKeyStatusLookupCooldown))
+	s.cleanupPublicStatusLookupCooldowns(now)
+	return nil
+}
+
+func (s *APIKeyService) cleanupPublicStatusLookupCooldowns(now time.Time) {
+	_, _, _ = s.statusLookupJanitorSF.Do("cleanup", func() (any, error) {
+		count := 0
+		s.statusLookupL1.Range(func(k, v any) bool {
+			count++
+			if nextAllowedAt, ok := v.(time.Time); ok && now.After(nextAllowedAt.Add(apiKeyStatusLookupCooldown)) {
+				s.statusLookupL1.Delete(k)
+			}
+			return count <= apiKeyStatusLookupLocalMax
+		})
+		if count > apiKeyStatusLookupLocalMax {
+			s.statusLookupL1.Range(func(k, v any) bool {
+				if nextAllowedAt, ok := v.(time.Time); ok && now.After(nextAllowedAt) {
+					s.statusLookupL1.Delete(k)
+				}
+				return true
+			})
+		}
+		return nil, nil
+	})
+}
+
+func resetAt(windowStart *time.Time, window time.Duration) *time.Time {
+	if IsWindowExpired(windowStart, window) {
+		return nil
+	}
+	t := windowStart.Add(window)
+	return &t
+}
+
+func (s *APIKeyService) GetPublicStatusByKey(ctx context.Context, key string) (*APIKeyPublicStatus, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil, ErrAPIKeyNotFound
+	}
+	if err := s.claimPublicStatusLookup(ctx, key); err != nil {
+		return nil, err
+	}
+
+	apiKey, err := s.apiKeyRepo.GetByKey(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("get api key: %w", err)
+	}
+
+	status := apiKey.Status
+	isExpired := apiKey.IsExpired()
+	isQuotaExhausted := apiKey.IsQuotaExhausted()
+	if isExpired {
+		status = StatusAPIKeyExpired
+	} else if isQuotaExhausted {
+		status = StatusAPIKeyQuotaExhausted
+	}
+
+	userActive := apiKey.User == nil || apiKey.User.IsActive()
+	isActive := status == StatusActive && userActive
+	out := &APIKeyPublicStatus{
+		ID:               apiKey.ID,
+		Name:             apiKey.Name,
+		Status:           status,
+		GroupID:          apiKey.GroupID,
+		Quota:            apiKey.Quota,
+		QuotaUsed:        apiKey.QuotaUsed,
+		QuotaRemaining:   apiKey.GetQuotaRemaining(),
+		ExpiresAt:        apiKey.ExpiresAt,
+		LastUsedAt:       apiKey.LastUsedAt,
+		CreatedAt:        apiKey.CreatedAt,
+		RateLimit5h:      apiKey.RateLimit5h,
+		RateLimit1d:      apiKey.RateLimit1d,
+		RateLimit7d:      apiKey.RateLimit7d,
+		Usage5h:          apiKey.EffectiveUsage5h(),
+		Usage1d:          apiKey.EffectiveUsage1d(),
+		Usage7d:          apiKey.EffectiveUsage7d(),
+		Reset5hAt:        resetAt(apiKey.Window5hStart, RateLimitWindow5h),
+		Reset1dAt:        resetAt(apiKey.Window1dStart, RateLimitWindow1d),
+		Reset7dAt:        resetAt(apiKey.Window7dStart, RateLimitWindow7d),
+		IsActive:         isActive,
+		IsExpired:        isExpired,
+		IsQuotaExhausted: isQuotaExhausted,
+	}
+	if apiKey.Group != nil {
+		out.GroupName = apiKey.Group.Name
+		out.GroupPlatform = apiKey.Group.Platform
+	}
+	return out, nil
 }
 
 // checkAPIKeyRateLimit 检查用户创建自定义Key的错误次数是否超限

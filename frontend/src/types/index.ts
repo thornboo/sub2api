@@ -605,6 +605,86 @@ export interface CreateApiKeyRequest {
   rate_limit_7d?: number
 }
 
+export interface BatchCreateApiKeysRequest {
+  count?: number
+  name_template?: string
+  names?: string[]
+  group_id?: number | null
+  ip_whitelist?: string[]
+  ip_blacklist?: string[]
+  quota?: number
+  expires_in_days?: number
+  rate_limit_5h?: number
+  rate_limit_1d?: number
+  rate_limit_7d?: number
+}
+
+export interface BatchCreateApiKeysResponse {
+  keys: ApiKey[]
+  created: number
+  max_allowed: number
+  plaintext_available: boolean
+}
+
+export type BatchApiKeyQuotaMode = 'set' | 'add' | 'unlimited'
+
+export interface BatchUpdateApiKeysRequest {
+  ids: number[]
+  update_group?: boolean
+  group_id?: number | null
+  update_status?: boolean
+  status?: 'active' | 'inactive'
+  update_quota?: boolean
+  quota_mode?: BatchApiKeyQuotaMode
+  quota_value?: number
+  update_expiration?: boolean
+  expires_at?: string | null
+  update_rate_limit?: boolean
+  rate_limit_5h?: number
+  rate_limit_1d?: number
+  rate_limit_7d?: number
+  reset_rate_limit_usage?: boolean
+  update_ip_access_control?: boolean
+  ip_whitelist?: string[]
+  ip_blacklist?: string[]
+}
+
+export interface BatchUpdateApiKeysResponse {
+  updated: number
+}
+
+export interface BatchDeleteApiKeysRequest {
+  ids: number[]
+}
+
+export interface BatchDeleteApiKeysResponse {
+  deleted: number
+}
+
+export interface PublicApiKeyStatus {
+  name: string
+  status: ApiKey['status']
+  is_active: boolean
+  group_id: number | null
+  group_name?: string
+  platform?: string
+  last_used_at: string | null
+  created_at: string
+  expires_at: string | null
+  quota: number
+  quota_used: number
+  quota_remaining: number
+  rate_limit_5h: number
+  rate_limit_1d: number
+  rate_limit_7d: number
+  usage_5h: number
+  usage_1d: number
+  usage_7d: number
+  reset_5h_at: string | null
+  reset_1d_at: string | null
+  reset_7d_at: string | null
+}
+
 export interface UpdateApiKeyRequest {
   name?: string
   group_id?: number | null

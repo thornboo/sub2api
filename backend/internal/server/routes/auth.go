@@ -210,6 +210,15 @@ func RegisterAuthRoutes(
 		)
 	}
 
+	// API Key 自助查询（无需站点账号，但需要持有完整 Key）
+	key := v1.Group("/key")
+	key.Use(servermiddleware.BackendModeAuthGuard(settingService))
+	{
+		key.POST("/status", rateLimiter.LimitWithOptions("key-status", 30, time.Minute, middleware.RateLimitOptions{
+			FailureMode: middleware.RateLimitFailClose,
+		}), h.APIKey.PublicStatus)
+	}
+
 	// 公开设置（无需认证）
 	settings := v1.Group("/settings")
 	{

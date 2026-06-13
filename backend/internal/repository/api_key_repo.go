@@ -39,7 +39,8 @@ func (r *apiKeyRepository) activeQuery() *dbent.APIKeyQuery {
 }
 
 func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) error {
-	builder := r.client.APIKey.Create().
+	client := clientFromContext(ctx, r.client)
+	builder := client.APIKey.Create().
 		SetUserID(key.UserID).
 		SetKey(key.Key).
 		SetName(key.Name).
@@ -68,6 +69,27 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 		key.UpdatedAt = created.UpdatedAt
 	}
 	return translatePersistenceError(err, nil, service.ErrAPIKeyExists)
+}
+
+func (r *apiKeyRepository) RunInTx(ctx context.Context, fn func(context.Context) error) error {
+	if fn == nil {
+		return nil
+	}
+	if tx := dbent.TxFromContext(ctx); tx != nil {
+		return fn(ctx)
+	}
+
+	tx, err := r.client.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	txCtx := dbent.NewTxContext(ctx, tx)
+	defer func() { _ = tx.Rollback() }()
+
+	if err := fn(txCtx); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIKey, error) {
@@ -428,6 +450,27 @@ func (r *apiKeyRepository) ListByUserID(ctx context.Context, userID int64, param
 	}
 
 	return outKeys, paginationResultFromTotal(int64(total), params), nil
+}
+
+func (r *apiKeyRepository) ListByIDsForUser(ctx context.Context, userID int64, ids []int64) ([]service.APIKey, error) {
+	if len(ids) == 0 {
+		return []service.APIKey{}, nil
+	}
+
+	keys, err := r.activeQuery().
+		Where(apikey.UserIDEQ(userID), apikey.IDIn(ids...)).
+		WithGroup().
+		Order(dbent.Asc(apikey.FieldID)).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	outKeys := make([]service.APIKey, 0, len(keys))
+	for i := range keys {
+		outKeys = append(outKeys, *apiKeyEntityToService(keys[i]))
+	}
+	return outKeys, nil
 }
 
 func (r *apiKeyRepository) VerifyOwnership(ctx context.Context, userID int64, apiKeyIDs []int64) ([]int64, error) {

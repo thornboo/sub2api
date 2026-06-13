@@ -256,10 +256,11 @@ const (
 	SettingKeyCustomEndpoints             = "custom_endpoints"              // 自定义端点列表（JSON 数组）
 
 	// 默认配置
-	SettingKeyDefaultConcurrency   = "default_concurrency"    // 新用户默认并发量
-	SettingKeyDefaultBalance       = "default_balance"        // 新用户默认余额
-	SettingKeyDefaultSubscriptions = "default_subscriptions"  // 新用户默认订阅列表（JSON）
-	SettingKeyDefaultUserRPMLimit  = "default_user_rpm_limit" // 新用户默认 RPM 限制（0 = 不限制）
+	SettingKeyDefaultConcurrency        = "default_concurrency"            // 新用户默认并发量
+	SettingKeyDefaultBalance            = "default_balance"                // 新用户默认余额
+	SettingKeyDefaultSubscriptions      = "default_subscriptions"          // 新用户默认订阅列表（JSON）
+	SettingKeyDefaultUserRPMLimit       = "default_user_rpm_limit"         // 新用户默认 RPM 限制（0 = 不限制）
+	SettingKeyAPIKeyBatchCreateMaxCount = "api_key_batch_create_max_count" // 用户侧 API Key 批量创建数量上限
 
 	// 第三方认证来源默认授予配置
 	SettingKeyAuthSourceDefaultEmailBalance             = "auth_source_default_email_balance"

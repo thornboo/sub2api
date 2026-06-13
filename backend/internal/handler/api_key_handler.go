@@ -44,6 +44,95 @@ type CreateAPIKeyRequest struct {
 	RateLimit7d *float64 `json:"rate_limit_7d"`
 }
 
+type BatchCreateAPIKeysRequest struct {
+	Count         *int     `json:"count"`
+	NameTemplate  *string  `json:"name_template"`
+	Names         []string `json:"names"`
+	GroupID       *int64   `json:"group_id"`
+	IPWhitelist   []string `json:"ip_whitelist"`
+	IPBlacklist   []string `json:"ip_blacklist"`
+	Quota         *float64 `json:"quota"`
+	ExpiresInDays *int     `json:"expires_in_days"`
+	RateLimit5h   *float64 `json:"rate_limit_5h"`
+	RateLimit1d   *float64 `json:"rate_limit_1d"`
+	RateLimit7d   *float64 `json:"rate_limit_7d"`
+}
+
+type BatchCreateAPIKeysResponse struct {
+	Keys               []dto.APIKey `json:"keys"`
+	Created            int          `json:"created"`
+	MaxAllowed         int          `json:"max_allowed"`
+	PlaintextAvailable bool         `json:"plaintext_available"`
+}
+
+type BatchUpdateAPIKeysRequest struct {
+	IDs []int64 `json:"ids" binding:"required,min=1"`
+
+	UpdateGroup bool   `json:"update_group"`
+	GroupID     *int64 `json:"group_id"`
+
+	UpdateStatus bool   `json:"update_status"`
+	Status       string `json:"status"`
+
+	UpdateQuota bool    `json:"update_quota"`
+	QuotaMode   string  `json:"quota_mode"`
+	QuotaValue  float64 `json:"quota_value"`
+
+	UpdateExpiration bool    `json:"update_expiration"`
+	ExpiresAt        *string `json:"expires_at"`
+
+	UpdateRateLimit       bool     `json:"update_rate_limit"`
+	RateLimit5h           float64  `json:"rate_limit_5h"`
+	RateLimit1d           float64  `json:"rate_limit_1d"`
+	RateLimit7d           float64  `json:"rate_limit_7d"`
+	ResetRateLimitUsage   bool     `json:"reset_rate_limit_usage"`
+	UpdateIPAccessControl bool     `json:"update_ip_access_control"`
+	IPWhitelist           []string `json:"ip_whitelist"`
+	IPBlacklist           []string `json:"ip_blacklist"`
+}
+
+type BatchUpdateAPIKeysResponse struct {
+	Updated int `json:"updated"`
+}
+
+type BatchDeleteAPIKeysRequest struct {
+	IDs []int64 `json:"ids" binding:"required,min=1"`
+}
+
+type BatchDeleteAPIKeysResponse struct {
+	Deleted int `json:"deleted"`
+}
+
+type PublicAPIKeyStatusRequest struct {
+	Key string `json:"key" binding:"required"`
+}
+
+type PublicAPIKeyStatusResponse struct {
+	Name       string     `json:"name"`
+	Status     string     `json:"status"`
+	IsActive   bool       `json:"is_active"`
+	GroupID    *int64     `json:"group_id"`
+	GroupName  string     `json:"group_name,omitempty"`
+	Platform   string     `json:"platform,omitempty"`
+	LastUsedAt *time.Time `json:"last_used_at"`
+	CreatedAt  time.Time  `json:"created_at"`
+	ExpiresAt  *time.Time `json:"expires_at"`
+
+	Quota          float64 `json:"quota"`
+	QuotaUsed      float64 `json:"quota_used"`
+	QuotaRemaining float64 `json:"quota_remaining"`
+
+	RateLimit5h float64    `json:"rate_limit_5h"`
+	RateLimit1d float64    `json:"rate_limit_1d"`
+	RateLimit7d float64    `json:"rate_limit_7d"`
+	Usage5h     float64    `json:"usage_5h"`
+	Usage1d     float64    `json:"usage_1d"`
+	Usage7d     float64    `json:"usage_7d"`
+	Reset5hAt   *time.Time `json:"reset_5h_at"`
+	Reset1dAt   *time.Time `json:"reset_1d_at"`
+	Reset7dAt   *time.Time `json:"reset_7d_at"`
+}
+
 // UpdateAPIKeyRequest represents the update API key request payload
 type UpdateAPIKeyRequest struct {
 	Name        string   `json:"name"`
@@ -60,6 +149,29 @@ type UpdateAPIKeyRequest struct {
 	RateLimit1d         *float64 `json:"rate_limit_1d"`
 	RateLimit7d         *float64 `json:"rate_limit_7d"`
 	ResetRateLimitUsage *bool    `json:"reset_rate_limit_usage"` // 重置限速用量
+}
+
+func maskAPIKeyForIdempotencyReplay(key string) string {
+	key = strings.TrimSpace(key)
+	if len(key) <= 12 {
+		return "***"
+	}
+	return key[:6] + "..." + key[len(key)-4:]
+}
+
+func redactBatchCreateResponseForIdempotency(data any) (any, error) {
+	resp, ok := data.(*BatchCreateAPIKeysResponse)
+	if !ok || resp == nil {
+		return data, nil
+	}
+	redacted := *resp
+	redacted.PlaintextAvailable = false
+	redacted.Keys = make([]dto.APIKey, len(resp.Keys))
+	for i := range resp.Keys {
+		redacted.Keys[i] = resp.Keys[i]
+		redacted.Keys[i].Key = maskAPIKeyForIdempotencyReplay(resp.Keys[i].Key)
+	}
+	return &redacted, nil
 }
 
 // List handles listing user's API keys with pagination
@@ -180,6 +292,186 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 			return nil, err
 		}
 		return dto.APIKeyFromService(key), nil
+	})
+}
+
+// BatchCreate handles creating API keys as one all-or-nothing batch.
+// POST /api/v1/keys/batch
+func (h *APIKeyHandler) BatchCreate(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	var req BatchCreateAPIKeysRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	svcReq := service.BatchCreateAPIKeysRequest{
+		NameTemplate:  req.NameTemplate,
+		Names:         req.Names,
+		GroupID:       req.GroupID,
+		IPWhitelist:   req.IPWhitelist,
+		IPBlacklist:   req.IPBlacklist,
+		ExpiresInDays: req.ExpiresInDays,
+	}
+	if req.Count != nil {
+		svcReq.Count = *req.Count
+	}
+	if req.Quota != nil {
+		svcReq.Quota = *req.Quota
+	}
+	if req.RateLimit5h != nil {
+		svcReq.RateLimit5h = *req.RateLimit5h
+	}
+	if req.RateLimit1d != nil {
+		svcReq.RateLimit1d = *req.RateLimit1d
+	}
+	if req.RateLimit7d != nil {
+		svcReq.RateLimit7d = *req.RateLimit7d
+	}
+
+	executeUserIdempotentJSONWithStoredResponse(
+		c,
+		"user.api_keys.batch_create",
+		req,
+		service.DefaultWriteIdempotencyTTL(),
+		redactBatchCreateResponseForIdempotency,
+		func(ctx context.Context) (any, error) {
+			result, err := h.apiKeyService.BatchCreate(ctx, subject.UserID, svcReq)
+			if err != nil {
+				return nil, err
+			}
+			keys := make([]dto.APIKey, 0, len(result.Keys))
+			for i := range result.Keys {
+				keys = append(keys, *dto.APIKeyFromService(&result.Keys[i]))
+			}
+			return &BatchCreateAPIKeysResponse{
+				Keys:               keys,
+				Created:            result.Created,
+				MaxAllowed:         result.MaxAllowed,
+				PlaintextAvailable: true,
+			}, nil
+		},
+	)
+}
+
+// BatchUpdate handles all-or-nothing user API key configuration updates.
+// POST /api/v1/keys/batch-update
+func (h *APIKeyHandler) BatchUpdate(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	var req BatchUpdateAPIKeysRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	svcReq := service.BatchUpdateAPIKeysRequest{
+		IDs:                   req.IDs,
+		UpdateGroup:           req.UpdateGroup,
+		GroupID:               req.GroupID,
+		UpdateStatus:          req.UpdateStatus,
+		Status:                req.Status,
+		UpdateQuota:           req.UpdateQuota,
+		QuotaMode:             req.QuotaMode,
+		QuotaValue:            req.QuotaValue,
+		UpdateExpiration:      req.UpdateExpiration,
+		UpdateRateLimit:       req.UpdateRateLimit,
+		RateLimit5h:           req.RateLimit5h,
+		RateLimit1d:           req.RateLimit1d,
+		RateLimit7d:           req.RateLimit7d,
+		ResetRateLimitUsage:   req.ResetRateLimitUsage,
+		UpdateIPAccessControl: req.UpdateIPAccessControl,
+		IPWhitelist:           req.IPWhitelist,
+		IPBlacklist:           req.IPBlacklist,
+	}
+	if req.UpdateExpiration && req.ExpiresAt != nil && strings.TrimSpace(*req.ExpiresAt) != "" {
+		t, err := time.Parse(time.RFC3339, *req.ExpiresAt)
+		if err != nil {
+			response.BadRequest(c, "Invalid expires_at format: "+err.Error())
+			return
+		}
+		svcReq.ExpiresAt = &t
+	}
+
+	executeUserIdempotentJSON(c, "user.api_keys.batch_update", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
+		result, err := h.apiKeyService.BatchUpdate(ctx, subject.UserID, svcReq)
+		if err != nil {
+			return nil, err
+		}
+		return &BatchUpdateAPIKeysResponse{Updated: result.Updated}, nil
+	})
+}
+
+// BatchDelete handles all-or-nothing user API key soft deletion.
+// POST /api/v1/keys/batch-delete
+func (h *APIKeyHandler) BatchDelete(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	var req BatchDeleteAPIKeysRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	executeUserIdempotentJSON(c, "user.api_keys.batch_delete", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
+		result, err := h.apiKeyService.BatchDelete(ctx, subject.UserID, service.BatchDeleteAPIKeysRequest{IDs: req.IDs})
+		if err != nil {
+			return nil, err
+		}
+		return &BatchDeleteAPIKeysResponse{Deleted: result.Deleted}, nil
+	})
+}
+
+// PublicStatus returns a read-only status summary for callers that only possess an API key.
+// POST /api/v1/key/status
+func (h *APIKeyHandler) PublicStatus(c *gin.Context) {
+	var req PublicAPIKeyStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	status, err := h.apiKeyService.GetPublicStatusByKey(c.Request.Context(), req.Key)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, PublicAPIKeyStatusResponse{
+		Name:           status.Name,
+		Status:         status.Status,
+		IsActive:       status.IsActive,
+		GroupID:        status.GroupID,
+		GroupName:      status.GroupName,
+		Platform:       status.GroupPlatform,
+		LastUsedAt:     status.LastUsedAt,
+		CreatedAt:      status.CreatedAt,
+		ExpiresAt:      status.ExpiresAt,
+		Quota:          status.Quota,
+		QuotaUsed:      status.QuotaUsed,
+		QuotaRemaining: status.QuotaRemaining,
+		RateLimit5h:    status.RateLimit5h,
+		RateLimit1d:    status.RateLimit1d,
+		RateLimit7d:    status.RateLimit7d,
+		Usage5h:        status.Usage5h,
+		Usage1d:        status.Usage1d,
+		Usage7d:        status.Usage7d,
+		Reset5hAt:      status.Reset5hAt,
+		Reset1dAt:      status.Reset1dAt,
+		Reset7dAt:      status.Reset7dAt,
 	})
 }
 

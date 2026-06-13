@@ -79,14 +79,15 @@ func DefaultIdempotencyConfig() IdempotencyConfig {
 }
 
 type IdempotencyExecuteOptions struct {
-	Scope          string
-	ActorScope     string
-	Method         string
-	Route          string
-	IdempotencyKey string
-	Payload        any
-	TTL            time.Duration
-	RequireKey     bool
+	Scope                   string
+	ActorScope              string
+	Method                  string
+	Route                   string
+	IdempotencyKey          string
+	Payload                 any
+	TTL                     time.Duration
+	RequireKey              bool
+	StoredResponseTransform func(data any) (any, error)
 }
 
 type IdempotencyExecuteResult struct {
@@ -417,7 +418,19 @@ func (c *IdempotencyCoordinator) Execute(
 		return nil, execErr
 	}
 
-	storedBody, marshalErr := c.marshalStoredResponse(data)
+	storedData := data
+	if opts.StoredResponseTransform != nil {
+		transformed, transformErr := opts.StoredResponseTransform(data)
+		if transformErr != nil {
+			RecordIdempotencyStoreUnavailable(opts.Route, opts.Scope, "transform_response_error")
+			logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "processing->store_unavailable", false, map[string]string{
+				"operation": "transform_response",
+			})
+			return nil, ErrIdempotencyStoreUnavail.WithCause(transformErr)
+		}
+		storedData = transformed
+	}
+	storedBody, marshalErr := c.marshalStoredResponse(storedData)
 	if marshalErr != nil {
 		RecordIdempotencyStoreUnavailable(opts.Route, opts.Scope, "marshal_response_error")
 		logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "processing->store_unavailable", false, map[string]string{

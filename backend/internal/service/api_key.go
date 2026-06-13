@@ -21,6 +21,11 @@ const (
 	RateLimitWindow7d = 7 * 24 * time.Hour
 )
 
+const (
+	DefaultAPIKeyBatchCreateMaxCount = 200
+	HardAPIKeyBatchCreateMaxCount    = 500
+)
+
 // IsWindowExpired returns true if the window starting at windowStart has exceeded the given duration.
 // A nil windowStart is treated as expired — no initialized window means any accumulated usage is stale.
 func IsWindowExpired(windowStart *time.Time, duration time.Duration) bool {
@@ -140,4 +145,97 @@ type APIKeyListFilters struct {
 	Search  string
 	Status  string
 	GroupID *int64 // nil=不筛选, 0=无分组, >0=指定分组
+}
+
+type BatchCreateAPIKeysRequest struct {
+	Count        int
+	NameTemplate *string
+	Names        []string
+	GroupID      *int64
+	IPWhitelist  []string
+	IPBlacklist  []string
+
+	Quota         float64
+	ExpiresInDays *int
+
+	RateLimit5h float64
+	RateLimit1d float64
+	RateLimit7d float64
+}
+
+type BatchCreateAPIKeysResult struct {
+	Keys       []APIKey
+	Created    int
+	MaxAllowed int
+}
+
+const (
+	APIKeyBatchQuotaModeSet       = "set"
+	APIKeyBatchQuotaModeAdd       = "add"
+	APIKeyBatchQuotaModeUnlimited = "unlimited"
+)
+
+type BatchUpdateAPIKeysRequest struct {
+	IDs []int64
+
+	UpdateGroup bool
+	GroupID     *int64
+
+	UpdateStatus bool
+	Status       string
+
+	UpdateQuota bool
+	QuotaMode   string
+	QuotaValue  float64
+
+	UpdateExpiration bool
+	ExpiresAt        *time.Time
+
+	UpdateRateLimit      bool
+	RateLimit5h          float64
+	RateLimit1d          float64
+	RateLimit7d          float64
+	ResetRateLimitUsage  bool
+	UpdateIPAccessControl bool
+	IPWhitelist          []string
+	IPBlacklist          []string
+}
+
+type BatchUpdateAPIKeysResult struct {
+	Updated int
+}
+
+type BatchDeleteAPIKeysRequest struct {
+	IDs []int64
+}
+
+type BatchDeleteAPIKeysResult struct {
+	Deleted int
+}
+
+type APIKeyPublicStatus struct {
+	ID               int64
+	Name             string
+	Status           string
+	GroupID          *int64
+	GroupName        string
+	GroupPlatform    string
+	Quota            float64
+	QuotaUsed        float64
+	QuotaRemaining   float64
+	ExpiresAt        *time.Time
+	LastUsedAt       *time.Time
+	CreatedAt        time.Time
+	RateLimit5h      float64
+	RateLimit1d      float64
+	RateLimit7d      float64
+	Usage5h          float64
+	Usage1d          float64
+	Usage7d          float64
+	Reset5hAt        *time.Time
+	Reset1dAt        *time.Time
+	Reset7dAt        *time.Time
+	IsActive         bool
+	IsExpired        bool
+	IsQuotaExhausted bool
 }

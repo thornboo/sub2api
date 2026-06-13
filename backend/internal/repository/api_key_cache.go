@@ -16,6 +16,7 @@ const (
 	apiKeyRateLimitKeyPrefix   = "apikey:ratelimit:"
 	apiKeyRateLimitDuration    = 24 * time.Hour
 	apiKeyAuthCachePrefix      = "apikey:auth:"
+	apiKeyStatusLookupPrefix   = "apikey:status-lookup:"
 	authCacheInvalidateChannel = "auth:cache:invalidate"
 )
 
@@ -26,6 +27,10 @@ func apiKeyRateLimitKey(userID int64) string {
 
 func apiKeyAuthCacheKey(key string) string {
 	return fmt.Sprintf("%s%s", apiKeyAuthCachePrefix, key)
+}
+
+func apiKeyStatusLookupKey(keyHash string) string {
+	return fmt.Sprintf("%s%s", apiKeyStatusLookupPrefix, keyHash)
 }
 
 type apiKeyCache struct {
@@ -92,6 +97,10 @@ func (c *apiKeyCache) SetAuthCache(ctx context.Context, key string, entry *servi
 
 func (c *apiKeyCache) DeleteAuthCache(ctx context.Context, key string) error {
 	return c.rdb.Del(ctx, apiKeyAuthCacheKey(key)).Err()
+}
+
+func (c *apiKeyCache) ClaimStatusLookupCooldown(ctx context.Context, keyHash string, ttl time.Duration) (bool, error) {
+	return c.rdb.SetNX(ctx, apiKeyStatusLookupKey(keyHash), "1", ttl).Result()
 }
 
 // PublishAuthCacheInvalidation publishes a cache invalidation message to all instances

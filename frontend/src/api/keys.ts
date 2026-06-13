@@ -4,7 +4,26 @@
  */
 
 import { apiClient } from './client'
-import type { ApiKey, CreateApiKeyRequest, UpdateApiKeyRequest, PaginatedResponse } from '@/types'
+import type {
+  ApiKey,
+  BatchCreateApiKeysRequest,
+  BatchCreateApiKeysResponse,
+  BatchDeleteApiKeysRequest,
+  BatchDeleteApiKeysResponse,
+  BatchUpdateApiKeysRequest,
+  BatchUpdateApiKeysResponse,
+  CreateApiKeyRequest,
+  PublicApiKeyStatus,
+  UpdateApiKeyRequest,
+  PaginatedResponse
+} from '@/types'
+
+function createIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `key-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
 
 /**
  * List all API keys for current user
@@ -100,6 +119,44 @@ export async function create(
   return data
 }
 
+export async function batchCreate(
+  payload: BatchCreateApiKeysRequest
+): Promise<BatchCreateApiKeysResponse> {
+  const { data } = await apiClient.post<BatchCreateApiKeysResponse>('/keys/batch', payload, {
+    headers: {
+      'Idempotency-Key': createIdempotencyKey()
+    }
+  })
+  return data
+}
+
+export async function batchUpdate(
+  payload: BatchUpdateApiKeysRequest
+): Promise<BatchUpdateApiKeysResponse> {
+  const { data } = await apiClient.post<BatchUpdateApiKeysResponse>('/keys/batch-update', payload, {
+    headers: {
+      'Idempotency-Key': createIdempotencyKey()
+    }
+  })
+  return data
+}
+
+export async function batchDelete(
+  payload: BatchDeleteApiKeysRequest
+): Promise<BatchDeleteApiKeysResponse> {
+  const { data } = await apiClient.post<BatchDeleteApiKeysResponse>('/keys/batch-delete', payload, {
+    headers: {
+      'Idempotency-Key': createIdempotencyKey()
+    }
+  })
+  return data
+}
+
+export async function getPublicStatus(key: string): Promise<PublicApiKeyStatus> {
+  const { data } = await apiClient.post<PublicApiKeyStatus>('/key/status', { key })
+  return data
+}
+
 /**
  * Update API key
  * @param id - API key ID
@@ -135,6 +192,10 @@ export const keysAPI = {
   list,
   getById,
   create,
+  batchCreate,
+  batchUpdate,
+  batchDelete,
+  getPublicStatus,
   update,
   delete: deleteKey,
   toggleStatus
