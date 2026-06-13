@@ -1,5 +1,74 @@
 # 补丁记录
 
+## 2026-06-13 - 企业 Key 批量维护
+
+范围：
+- `backend/internal/{handler,repository,server,service}/**`
+- `frontend/src/{api,i18n,types,views/user}/**`
+- `docs-site/dev-zz/{changelog.md,patches.md,features/enterprise-key-member-management.md}`
+
+改动：
+- 用户侧 Key 列表新增按 `api_keys.id` 勾选的批量操作栏，批量动作只提交 ID，不依赖名称或脱敏 Key，避免同名 Key 或 Key 展示脱敏导致误操作。
+- 新增 `POST /api/v1/keys/batch-update`，支持统一修改分组、状态、quota、过期时间、5h/1d/7d 限流、限流窗口用量和 IP 黑白名单。
+- quota 批量更新支持设置固定额度、追加额度和改为无限制；过期时间支持统一设置或清空。
+- 新增 `POST /api/v1/keys/batch-delete`，对选中 Key 做批量软删除。
+- 批量更新和批量删除均先校验全部 ID 属于当前用户，再在单个事务内执行；任一写入失败时整批回滚。
+- 事务提交后再失效认证缓存；重置限流用量时同步失效 Redis 限流缓存。
+- 前端批量创建结果表为每把新 Key 增加单独复制按钮，保留复制全部与 CSV 导出。
+- 本轮不引入 `api_keys.tags`，也不实现按筛选条件批量操作；当前批量维护范围限定为页面勾选的 ID 集合。
+
+验证：
+- `go test ./internal/service -run 'Test(APIKeyServiceBatch|BuildBatchAPIKeyNames)'`
+- `go test ./internal/server/routes -run 'TestUserRoutesAPIKeyBatchPathsAreRegisteredBeforeIDRoute'`
+- `go test ./...`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend build`
+- `git diff --check`
+
+## 2026-06-13 - 企业 Key 批量创建
+
+范围：
+- `backend/internal/{handler,repository,server,service}/**`
+- `frontend/src/{api,i18n,types,views/user}/**`
+- `docs-site/dev-zz/{changelog.md,patches.md,decisions/adr-0002-key-as-enterprise-member.md,features/enterprise-key-member-management.md}`
+
+改动：
+- 新增用户侧 `POST /api/v1/keys/batch`，支持按名称模板或名称列表批量创建 API Key，并统一配置分组、quota、有效期、5h/1d/7d 限流和 IP 黑白名单。
+- 批量创建在 service 层集中校验并通过 repository 事务一次性写入，任意一把失败时整批回滚；Key 唯一冲突做有界重试，事务提交后再失效认证缓存和编译 IP 规则。
+- 新增设置项 `api_key_batch_create_max_count`，默认 `200`，服务端硬上限 `500`。
+- 批量创建使用用户写幂等，但成功记录落库前会脱敏完整 Key；首次响应展示完整 Key，幂等重放只返回不可再次展示明文的摘要。
+- 用户侧 Key 页面新增批量创建弹窗、结果弹窗、一次性明文提示、复制全部和包含完整字段的 CSV 导出。
+- 阶段一不修改 `api_keys` schema，不引入子账号实体，不影响个人用户已有 Key 的认证、扣费、限流和使用链路。
+
+验证：
+- `go test ./internal/service ./internal/handler ./internal/server/routes ./internal/repository`
+- `pnpm --dir frontend run typecheck`
+- `pnpm --dir frontend run lint:check`
+- `pnpm --dir docs-site docs:build`
+- `git diff --check`
+
+## 2026-06-13 - Key 自助状态查询
+
+范围：
+- `backend/internal/{handler,repository,server,service}/**`
+- `frontend/src/{api,types}/**`
+- `docs-site/dev-zz/{changelog.md,patches.md,decisions/adr-0002-key-as-enterprise-member.md,features/enterprise-key-member-management.md}`
+
+改动：
+- 作为企业 Key 成员管理阶段一的补充需求，新增公共只读 `POST /api/v1/key/status`，允许只有 Key、没有站点账号的员工查询本人 Key 状态、quota 用量、过期时间、最近使用和限流配置。
+- 查询结果只返回当前 Key 自身信息，不返回 owner 账号余额、邮箱、角色、其它 Key 或企业全局数据。
+- 查询不走网关认证缓存，不更新 `last_used_at`，不扣 quota，不改限流窗口，只做读查询和状态推导。
+- 同一 Key 10 秒内限查一次，限流标识使用 Key 哈希；Redis 冷却写入失败时 fail-close 返回不可用，不静默降级为多实例不一致的进程内限流。
+- 路由层叠加 IP 级 `30/min` fail-close 限流，降低暴力枚举风险。
+
+验证：
+- `go test ./internal/service ./internal/handler ./internal/server/routes ./internal/repository`
+- `pnpm --dir frontend run typecheck`
+- `pnpm --dir frontend run lint:check`
+- `pnpm --dir docs-site docs:build`
+- `git diff --check`
+
 ## 2026-06-13 - 运维明细弹窗栈与筛选体验优化
 
 范围：
