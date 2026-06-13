@@ -10,11 +10,15 @@
               class="w-full sm:w-64"
               @search="onFilterChange"
             />
-            <SearchInput
+            <TagFilterSelect
               v-model="filterTags"
+              :options="tagFilterOptions"
               :placeholder="t('keys.tagFilterPlaceholder')"
-              class="w-full sm:w-52"
-              @search="onFilterChange"
+              :empty-label="t('keys.noTagOptions')"
+              :clear-label="t('common.reset')"
+              :remove-label="t('common.delete')"
+              class="w-full sm:w-64"
+              @change="onTagFilterChange"
             />
             <Select
               :model-value="filterGroupId"
@@ -66,17 +70,30 @@
           <div class="text-sm text-primary-800 dark:text-primary-200">
             {{ t('keys.batchActions.selected', { count: selectedKeyCount }) }}
           </div>
-          <div class="flex flex-wrap gap-2">
-            <button type="button" class="btn btn-secondary btn-sm" @click="openBatchUpdateModal">
-              <Icon name="edit" size="sm" class="mr-1.5" />
-              {{ t('keys.batchActions.update') }}
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              class="btn btn-secondary h-10 min-w-[112px] whitespace-nowrap px-4 text-sm"
+              @click="openBatchUpdateModal('selected')"
+            >
+              <Icon name="edit" size="sm" class="shrink-0" />
+              <span>{{ t('keys.batchActions.update') }}</span>
             </button>
-            <button type="button" class="btn btn-danger btn-sm" @click="showBatchDeleteDialog = true">
-              <Icon name="trash" size="sm" class="mr-1.5" />
-              {{ t('keys.batchActions.delete') }}
+            <button
+              type="button"
+              class="btn btn-danger h-10 min-w-[112px] whitespace-nowrap px-4 text-sm"
+              @click="openBatchDeleteDialog('selected')"
+            >
+              <Icon name="trash" size="sm" class="shrink-0" />
+              <span>{{ t('keys.batchActions.delete') }}</span>
             </button>
-            <button type="button" class="btn btn-ghost btn-sm" @click="clearSelectedKeys">
-              {{ t('keys.batchActions.clear') }}
+            <button
+              type="button"
+              class="btn btn-secondary h-10 min-w-[112px] whitespace-nowrap px-4 text-sm"
+              @click="clearSelectedKeys"
+            >
+              <Icon name="x" size="sm" class="shrink-0" />
+              <span>{{ t('keys.batchActions.clear') }}</span>
             </button>
           </div>
         </div>
@@ -159,23 +176,7 @@
           </template>
 
           <template #cell-tags="{ row }">
-            <div v-if="row.tags?.length" class="flex max-w-[220px] flex-wrap gap-1">
-              <span
-                v-for="tag in visibleTags(row.tags)"
-                :key="tag"
-                class="inline-flex max-w-[96px] items-center truncate rounded-md border border-emerald-200/70 bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200"
-                :title="tag"
-              >
-                {{ tag }}
-              </span>
-              <span
-                v-if="row.tags.length > visibleTagLimit"
-                class="inline-flex items-center rounded-md border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-xs font-medium text-gray-500 dark:border-white/10 dark:bg-white/5 dark:text-dark-300"
-              >
-                +{{ row.tags.length - visibleTagLimit }}
-              </span>
-            </div>
-            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+            <TagPills :tags="row.tags" :limit="visibleTagLimit" empty-label="-" class="max-w-[220px]" />
           </template>
 
           <template #cell-group="{ row }">
@@ -487,11 +488,13 @@
 
         <div>
           <label class="input-label">{{ t('keys.tagsLabel') }}</label>
-          <textarea
+          <TagEditor
             v-model="formData.tags"
-            rows="2"
-            class="input text-sm"
             :placeholder="t('keys.tagsPlaceholder')"
+            :add-placeholder="t('keys.tagsAddPlaceholder')"
+            :add-label="t('common.add')"
+            :remove-label="t('common.delete')"
+            @invalid="handleTagEditorInvalid"
           />
           <p class="input-hint">{{ t('keys.tagsHint') }}</p>
         </div>
@@ -1019,11 +1022,13 @@
 
         <div>
           <label class="input-label">{{ t('keys.tagsLabel') }}</label>
-          <textarea
+          <TagEditor
             v-model="batchForm.tags"
-            rows="2"
-            class="input text-sm"
             :placeholder="t('keys.tagsPlaceholder')"
+            :add-placeholder="t('keys.tagsAddPlaceholder')"
+            :add-label="t('common.add')"
+            :remove-label="t('common.delete')"
+            @invalid="handleTagEditorInvalid"
           />
           <p class="input-hint">{{ t('keys.batchCreate.tagsHint') }}</p>
         </div>
@@ -1233,17 +1238,7 @@
                   </div>
                 </td>
                 <td class="px-3 py-2 text-gray-500 dark:text-dark-400">
-                  <div v-if="key.tags?.length" class="flex max-w-[180px] flex-wrap gap-1">
-                    <span
-                      v-for="tag in visibleTags(key.tags)"
-                      :key="tag"
-                      class="inline-flex max-w-[96px] items-center truncate rounded-md border border-emerald-200/70 bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200"
-                      :title="tag"
-                    >
-                      {{ tag }}
-                    </span>
-                  </div>
-                  <span v-else>{{ t('keys.noTags') }}</span>
+                  <TagPills :tags="key.tags" :limit="visibleTagLimit" :empty-label="t('keys.noTags')" class="max-w-[180px]" />
                 </td>
                 <td class="px-3 py-2 text-gray-500 dark:text-dark-400">
                   {{ key.group?.name || t('keys.noGroup') }}
@@ -1311,65 +1306,103 @@
     >
       <form id="batch-update-key-form" class="space-y-5" @submit.prevent="handleBatchUpdate">
         <div class="rounded-lg border border-primary-200 bg-primary-50 p-3 text-sm text-primary-800 dark:border-primary-900/50 dark:bg-primary-900/20 dark:text-primary-200">
-          {{ t('keys.batchActions.updateHint', { count: selectedKeyCount }) }}
+          {{
+            batchActionScope === 'filtered'
+              ? t('keys.batchActions.updateFilteredHint', { count: batchActionCount })
+              : t('keys.batchActions.updateHint', { count: batchActionCount })
+          }}
         </div>
 
         <div class="grid gap-4 md:grid-cols-2">
-          <label class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 dark:border-dark-700">
-            <input v-model="batchUpdateForm.update_group" type="checkbox" class="mt-1 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+          <div :class="batchUpdateFieldCardClasses(batchUpdateForm.update_group)">
+            <button
+              type="button"
+              role="checkbox"
+              :aria-checked="batchUpdateForm.update_group"
+              :aria-label="t('keys.batchActions.fields.group')"
+              :class="[selectionCheckboxClasses(batchUpdateForm.update_group), 'mt-1 shrink-0']"
+              @click="toggleBatchUpdateBoolean('update_group')"
+            >
+              <Icon v-if="batchUpdateForm.update_group" name="check" size="xs" :stroke-width="2.5" />
+            </button>
             <div class="min-w-0 flex-1">
               <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('keys.batchActions.fields.group') }}</div>
               <Select
-                v-if="batchUpdateForm.update_group"
                 v-model="batchUpdateForm.group_id"
                 class="mt-2"
                 :options="groupOptions"
                 :placeholder="t('keys.batchActions.clearGroup')"
                 :searchable="true"
                 :search-placeholder="t('keys.searchGroup')"
+                :disabled="!batchUpdateForm.update_group"
               />
               <button
-                v-if="batchUpdateForm.update_group && batchUpdateForm.group_id !== null"
+                v-if="batchUpdateForm.group_id !== null"
                 type="button"
-                class="mt-2 text-xs text-primary-600 hover:text-primary-700 dark:text-primary-300"
+                class="mt-2 text-xs text-primary-600 transition hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-primary-300"
+                :disabled="!batchUpdateForm.update_group"
                 @click.prevent="batchUpdateForm.group_id = null"
               >
                 {{ t('keys.batchActions.clearGroup') }}
               </button>
             </div>
-          </label>
+          </div>
 
-          <label class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 dark:border-dark-700">
-            <input v-model="batchUpdateForm.update_status" type="checkbox" class="mt-1 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+          <div :class="batchUpdateFieldCardClasses(batchUpdateForm.update_status)">
+            <button
+              type="button"
+              role="checkbox"
+              :aria-checked="batchUpdateForm.update_status"
+              :aria-label="t('keys.batchActions.fields.status')"
+              :class="[selectionCheckboxClasses(batchUpdateForm.update_status), 'mt-1 shrink-0']"
+              @click="toggleBatchUpdateBoolean('update_status')"
+            >
+              <Icon v-if="batchUpdateForm.update_status" name="check" size="xs" :stroke-width="2.5" />
+            </button>
             <div class="min-w-0 flex-1">
               <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('keys.batchActions.fields.status') }}</div>
-              <select v-if="batchUpdateForm.update_status" v-model="batchUpdateForm.status" class="input mt-2">
-                <option value="active">{{ t('keys.status.active') }}</option>
-                <option value="inactive">{{ t('keys.status.inactive') }}</option>
-              </select>
+              <Select
+                v-model="batchUpdateForm.status"
+                class="mt-2"
+                :options="batchUpdateStatusOptions"
+                :searchable="false"
+                :disabled="!batchUpdateForm.update_status"
+              />
             </div>
-          </label>
+          </div>
         </div>
 
-        <label class="block rounded-lg border border-gray-200 p-3 dark:border-dark-700">
-          <div class="flex items-start gap-3">
-            <input v-model="batchUpdateForm.update_tags" type="checkbox" class="mt-1 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+        <div :class="batchUpdateFieldCardClasses(batchUpdateForm.update_tags)">
+          <div class="flex w-full items-start gap-3">
+            <button
+              type="button"
+              role="checkbox"
+              :aria-checked="batchUpdateForm.update_tags"
+              :aria-label="t('keys.batchActions.fields.tags')"
+              :class="[selectionCheckboxClasses(batchUpdateForm.update_tags), 'mt-1 shrink-0']"
+              @click="toggleBatchUpdateBoolean('update_tags')"
+            >
+              <Icon v-if="batchUpdateForm.update_tags" name="check" size="xs" :stroke-width="2.5" />
+            </button>
             <div class="min-w-0 flex-1">
               <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('keys.batchActions.fields.tags') }}</div>
-              <div v-if="batchUpdateForm.update_tags" class="mt-3 grid gap-3 md:grid-cols-[180px_1fr]">
-                <select v-model="batchUpdateForm.tags_mode" class="input">
-                  <option value="add">{{ t('keys.batchActions.tagModes.add') }}</option>
-                  <option value="set">{{ t('keys.batchActions.tagModes.set') }}</option>
-                  <option value="remove">{{ t('keys.batchActions.tagModes.remove') }}</option>
-                  <option value="clear">{{ t('keys.batchActions.tagModes.clear') }}</option>
-                </select>
+              <div class="mt-3 grid gap-3 md:grid-cols-[180px_1fr]">
+                <Select
+                  v-model="batchUpdateForm.tags_mode"
+                  :options="batchUpdateTagModeOptions"
+                  :searchable="false"
+                  :disabled="!batchUpdateForm.update_tags"
+                />
                 <div>
-                  <textarea
+                  <TagEditor
                     v-if="batchUpdateForm.tags_mode !== 'clear'"
                     v-model="batchUpdateForm.tags"
-                    rows="3"
-                    class="input text-sm"
                     :placeholder="t('keys.tagsPlaceholder')"
+                    :add-placeholder="t('keys.tagsAddPlaceholder')"
+                    :add-label="t('common.add')"
+                    :remove-label="t('common.delete')"
+                    :disabled="!batchUpdateForm.update_tags"
+                    @invalid="handleTagEditorInvalid"
                   />
                   <p class="input-hint">
                     {{
@@ -1382,74 +1415,123 @@
               </div>
             </div>
           </div>
-        </label>
+        </div>
 
-        <label class="block rounded-lg border border-gray-200 p-3 dark:border-dark-700">
-          <div class="flex items-start gap-3">
-            <input v-model="batchUpdateForm.update_quota" type="checkbox" class="mt-1 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+        <div :class="batchUpdateFieldCardClasses(batchUpdateForm.update_quota)">
+          <div class="flex w-full items-start gap-3">
+            <button
+              type="button"
+              role="checkbox"
+              :aria-checked="batchUpdateForm.update_quota"
+              :aria-label="t('keys.batchActions.fields.quota')"
+              :class="[selectionCheckboxClasses(batchUpdateForm.update_quota), 'mt-1 shrink-0']"
+              @click="toggleBatchUpdateBoolean('update_quota')"
+            >
+              <Icon v-if="batchUpdateForm.update_quota" name="check" size="xs" :stroke-width="2.5" />
+            </button>
             <div class="min-w-0 flex-1">
               <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('keys.batchActions.fields.quota') }}</div>
-              <div v-if="batchUpdateForm.update_quota" class="mt-3 grid gap-3 md:grid-cols-[180px_1fr]">
-                <select v-model="batchUpdateForm.quota_mode" class="input">
-                  <option value="set">{{ t('keys.batchActions.quotaModes.set') }}</option>
-                  <option value="add">{{ t('keys.batchActions.quotaModes.add') }}</option>
-                  <option value="unlimited">{{ t('keys.batchActions.quotaModes.unlimited') }}</option>
-                </select>
+              <div class="mt-3 grid gap-3 md:grid-cols-[180px_1fr]">
+                <Select
+                  v-model="batchUpdateForm.quota_mode"
+                  :options="batchUpdateQuotaModeOptions"
+                  :searchable="false"
+                  :disabled="!batchUpdateForm.update_quota"
+                />
                 <div v-if="batchUpdateForm.quota_mode !== 'unlimited'" class="relative">
                   <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
-                  <input v-model.number="batchUpdateForm.quota_value" type="number" min="0" step="0.01" class="input pl-7" />
+                  <input v-model.number="batchUpdateForm.quota_value" type="number" min="0" step="0.01" class="input pl-7" :disabled="!batchUpdateForm.update_quota" />
                 </div>
               </div>
             </div>
           </div>
-        </label>
+        </div>
 
-        <label class="block rounded-lg border border-gray-200 p-3 dark:border-dark-700">
-          <div class="flex items-start gap-3">
-            <input v-model="batchUpdateForm.update_expiration" type="checkbox" class="mt-1 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+        <div :class="batchUpdateFieldCardClasses(batchUpdateForm.update_expiration)">
+          <div class="flex w-full items-start gap-3">
+            <button
+              type="button"
+              role="checkbox"
+              :aria-checked="batchUpdateForm.update_expiration"
+              :aria-label="t('keys.batchActions.fields.expiration')"
+              :class="[selectionCheckboxClasses(batchUpdateForm.update_expiration), 'mt-1 shrink-0']"
+              @click="toggleBatchUpdateBoolean('update_expiration')"
+            >
+              <Icon v-if="batchUpdateForm.update_expiration" name="check" size="xs" :stroke-width="2.5" />
+            </button>
             <div class="min-w-0 flex-1">
               <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('keys.batchActions.fields.expiration') }}</div>
-              <div v-if="batchUpdateForm.update_expiration" class="mt-3 grid gap-3 md:grid-cols-[180px_1fr]">
-                <select v-model="batchUpdateForm.expiration_mode" class="input">
-                  <option value="clear">{{ t('keys.batchActions.expirationModes.clear') }}</option>
-                  <option value="set">{{ t('keys.batchActions.expirationModes.set') }}</option>
-                </select>
-                <input v-if="batchUpdateForm.expiration_mode === 'set'" v-model="batchUpdateForm.expires_at" type="datetime-local" class="input" />
+              <div class="mt-3 grid gap-3 md:grid-cols-[180px_1fr]">
+                <Select
+                  v-model="batchUpdateForm.expiration_mode"
+                  :options="batchUpdateExpirationModeOptions"
+                  :searchable="false"
+                  :disabled="!batchUpdateForm.update_expiration"
+                />
+                <input v-if="batchUpdateForm.expiration_mode === 'set'" v-model="batchUpdateForm.expires_at" type="datetime-local" class="input" :disabled="!batchUpdateForm.update_expiration" />
               </div>
             </div>
           </div>
-        </label>
+        </div>
 
-        <label class="block rounded-lg border border-gray-200 p-3 dark:border-dark-700">
-          <div class="flex items-start gap-3">
-            <input v-model="batchUpdateForm.update_rate_limit" type="checkbox" class="mt-1 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+        <div :class="batchUpdateFieldCardClasses(batchUpdateForm.update_rate_limit)">
+          <div class="flex w-full items-start gap-3">
+            <button
+              type="button"
+              role="checkbox"
+              :aria-checked="batchUpdateForm.update_rate_limit"
+              :aria-label="t('keys.batchActions.fields.rateLimit')"
+              :class="[selectionCheckboxClasses(batchUpdateForm.update_rate_limit), 'mt-1 shrink-0']"
+              @click="toggleBatchUpdateBoolean('update_rate_limit')"
+            >
+              <Icon v-if="batchUpdateForm.update_rate_limit" name="check" size="xs" :stroke-width="2.5" />
+            </button>
             <div class="min-w-0 flex-1">
               <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('keys.batchActions.fields.rateLimit') }}</div>
-              <div v-if="batchUpdateForm.update_rate_limit" class="mt-3 grid gap-3 md:grid-cols-3">
-                <input v-model.number="batchUpdateForm.rate_limit_5h" type="number" min="0" step="0.01" class="input" :placeholder="t('keys.rateLimit5h')" />
-                <input v-model.number="batchUpdateForm.rate_limit_1d" type="number" min="0" step="0.01" class="input" :placeholder="t('keys.rateLimit1d')" />
-                <input v-model.number="batchUpdateForm.rate_limit_7d" type="number" min="0" step="0.01" class="input" :placeholder="t('keys.rateLimit7d')" />
+              <div class="mt-3 grid gap-3 md:grid-cols-3">
+                <input v-model.number="batchUpdateForm.rate_limit_5h" type="number" min="0" step="0.01" class="input" :placeholder="t('keys.rateLimit5h')" :disabled="!batchUpdateForm.update_rate_limit" />
+                <input v-model.number="batchUpdateForm.rate_limit_1d" type="number" min="0" step="0.01" class="input" :placeholder="t('keys.rateLimit1d')" :disabled="!batchUpdateForm.update_rate_limit" />
+                <input v-model.number="batchUpdateForm.rate_limit_7d" type="number" min="0" step="0.01" class="input" :placeholder="t('keys.rateLimit7d')" :disabled="!batchUpdateForm.update_rate_limit" />
               </div>
-              <label v-if="batchUpdateForm.update_rate_limit" class="mt-3 flex items-center gap-2 text-sm text-gray-600 dark:text-dark-300">
-                <input v-model="batchUpdateForm.reset_rate_limit_usage" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-                {{ t('keys.batchActions.resetRateUsage') }}
-              </label>
+              <div class="mt-3 flex items-center gap-2 text-sm text-gray-600 dark:text-dark-300">
+                <button
+                  type="button"
+                  role="checkbox"
+                  :aria-checked="batchUpdateForm.reset_rate_limit_usage"
+                  :aria-label="t('keys.batchActions.resetRateUsage')"
+                  :class="[selectionCheckboxClasses(batchUpdateForm.reset_rate_limit_usage), 'shrink-0', !batchUpdateForm.update_rate_limit && 'cursor-not-allowed opacity-50']"
+                  :disabled="!batchUpdateForm.update_rate_limit"
+                  @click="toggleBatchUpdateBoolean('reset_rate_limit_usage')"
+                >
+                  <Icon v-if="batchUpdateForm.reset_rate_limit_usage" name="check" size="xs" :stroke-width="2.5" />
+                </button>
+                <span>{{ t('keys.batchActions.resetRateUsage') }}</span>
+              </div>
             </div>
           </div>
-        </label>
+        </div>
 
-        <label class="block rounded-lg border border-gray-200 p-3 dark:border-dark-700">
-          <div class="flex items-start gap-3">
-            <input v-model="batchUpdateForm.update_ip_access_control" type="checkbox" class="mt-1 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+        <div :class="batchUpdateFieldCardClasses(batchUpdateForm.update_ip_access_control)">
+          <div class="flex w-full items-start gap-3">
+            <button
+              type="button"
+              role="checkbox"
+              :aria-checked="batchUpdateForm.update_ip_access_control"
+              :aria-label="t('keys.batchActions.fields.ipAccess')"
+              :class="[selectionCheckboxClasses(batchUpdateForm.update_ip_access_control), 'mt-1 shrink-0']"
+              @click="toggleBatchUpdateBoolean('update_ip_access_control')"
+            >
+              <Icon v-if="batchUpdateForm.update_ip_access_control" name="check" size="xs" :stroke-width="2.5" />
+            </button>
             <div class="min-w-0 flex-1">
               <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('keys.batchActions.fields.ipAccess') }}</div>
-              <div v-if="batchUpdateForm.update_ip_access_control" class="mt-3 grid gap-3 md:grid-cols-2">
-                <textarea v-model="batchUpdateForm.ip_whitelist" rows="3" class="input font-mono text-sm" :placeholder="t('keys.ipWhitelistPlaceholder')" />
-                <textarea v-model="batchUpdateForm.ip_blacklist" rows="3" class="input font-mono text-sm" :placeholder="t('keys.ipBlacklistPlaceholder')" />
+              <div class="mt-3 grid gap-3 md:grid-cols-2">
+                <textarea v-model="batchUpdateForm.ip_whitelist" rows="3" class="input font-mono text-sm" :placeholder="t('keys.ipWhitelistPlaceholder')" :disabled="!batchUpdateForm.update_ip_access_control" />
+                <textarea v-model="batchUpdateForm.ip_blacklist" rows="3" class="input font-mono text-sm" :placeholder="t('keys.ipBlacklistPlaceholder')" :disabled="!batchUpdateForm.update_ip_access_control" />
               </div>
             </div>
           </div>
-        </label>
+        </div>
       </form>
 
       <template #footer>
@@ -1467,7 +1549,11 @@
     <ConfirmDialog
       :show="showBatchDeleteDialog"
       :title="t('keys.batchActions.deleteTitle')"
-      :message="t('keys.batchActions.deleteConfirm', { count: selectedKeyCount })"
+      :message="
+        batchActionScope === 'filtered'
+          ? t('keys.batchActions.deleteFilteredConfirm', { count: batchActionCount })
+          : t('keys.batchActions.deleteConfirm', { count: batchActionCount })
+      "
       :confirm-text="t('common.delete')"
       :cancel-text="t('common.cancel')"
       :danger="true"
@@ -1652,6 +1738,9 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Select from '@/components/common/Select.vue'
 import SearchInput from '@/components/common/SearchInput.vue'
+import TagEditor from '@/components/common/TagEditor.vue'
+import TagFilterSelect from '@/components/common/TagFilterSelect.vue'
+import TagPills from '@/components/common/TagPills.vue'
 import Icon from '@/components/icons/Icon.vue'
 import UseKeyModal from '@/components/keys/UseKeyModal.vue'
 import EndpointPopover from '@/components/keys/EndpointPopover.vue'
@@ -1663,6 +1752,7 @@ import type {
   BatchApiKeyTagsMode,
   BatchCreateApiKeysResponse,
   BatchUpdateApiKeysRequest,
+  ApiKeyBatchFilters,
   Group,
   PublicSettings,
   SubscriptionType,
@@ -1758,6 +1848,9 @@ const batchResult = ref<BatchCreateApiKeysResponse | null>(null)
 const batchSubmitting = ref(false)
 const batchActionSubmitting = ref(false)
 const selectedKeyIds = ref<Set<number>>(new Set())
+type BatchActionScope = 'selected' | 'filtered'
+const batchActionScope = ref<BatchActionScope>('selected')
+const knownFilterTags = ref<string[]>([])
 const copiedKeyId = ref<number | null>(null)
 const groupSelectorKeyId = ref<number | null>(null)
 const publicSettings = ref<PublicSettings | null>(null)
@@ -1871,8 +1964,7 @@ const batchNameError = computed(() => {
   return ''
 })
 
-const visibleTagLimit = 3
-const visibleTags = (tags: string[]) => tags.slice(0, visibleTagLimit)
+const visibleTagLimit = 2
 const apiKeyTagMaxLength = 40
 const apiKeyTagsMaxCount = 20
 
@@ -1880,7 +1972,7 @@ const parseTagList = (text: string): string[] => {
   const seen = new Set<string>()
   const tags: string[] = []
   text
-    .split(/[,\n\r]+/)
+    .split(/[,\n\r，；;]+/)
     .map((tag) => tag.trim().toLowerCase())
     .filter((tag) => tag.length > 0)
     .forEach((tag) => {
@@ -1904,8 +1996,62 @@ const validateTagList = (tags: string[]): boolean => {
   return true
 }
 
+const handleTagEditorInvalid = (reason: 'too_many' | 'too_long') => {
+  if (reason === 'too_many') {
+    appStore.showError(t('keys.tagsTooMany', { count: apiKeyTagsMaxCount }))
+    return
+  }
+  appStore.showError(t('keys.tagTooLong', { count: apiKeyTagMaxLength }))
+}
+
+const normalizeTagOptions = (tags: string[]) => {
+  const seen = new Set<string>()
+  for (const rawTag of tags) {
+    const tag = rawTag.trim().toLowerCase()
+    if (tag) seen.add(tag)
+  }
+  return Array.from(seen).sort((a, b) => a.localeCompare(b))
+}
+
+const rememberFilterTags = (keys: ApiKey[]) => {
+  const tags = [...knownFilterTags.value]
+  for (const key of keys) {
+    for (const tag of key.tags || []) {
+      tags.push(tag)
+    }
+  }
+  knownFilterTags.value = normalizeTagOptions(tags)
+}
+
+const tagFilterOptions = computed(() => {
+  const selected = parseTagList(filterTags.value)
+  const seen = new Set([...knownFilterTags.value, ...selected])
+  return Array.from(seen).sort((a, b) => a.localeCompare(b))
+})
+
+const apiKeyFilterBatchMaxCount = 500
+
+const filteredBatchTooLarge = computed(() => pagination.value.total > apiKeyFilterBatchMaxCount)
+
+const buildCurrentBatchFilters = (): ApiKeyBatchFilters | null => {
+  const tags = parseTagList(filterTags.value)
+  if (!validateTagList(tags)) return null
+
+  const filters: ApiKeyBatchFilters = {}
+  const search = filterSearch.value.trim()
+  if (search) filters.search = search
+  if (tags.length > 0) filters.tags = tags
+  if (filterStatus.value) filters.status = filterStatus.value as ApiKey['status']
+  if (filterGroupId.value !== '') filters.group_id = Number(filterGroupId.value)
+
+  return Object.keys(filters).length > 0 ? filters : null
+}
+
 const selectedKeyIdList = computed(() => Array.from(selectedKeyIds.value))
 const selectedKeyCount = computed(() => selectedKeyIds.value.size)
+const batchActionCount = computed(() =>
+  batchActionScope.value === 'filtered' ? pagination.value.total : selectedKeyCount.value
+)
 const pageKeyIds = computed(() => apiKeys.value.map((key) => key.id))
 const allPageKeysSelected = computed(() =>
   pageKeyIds.value.length > 0 && pageKeyIds.value.every((id) => selectedKeyIds.value.has(id))
@@ -1922,6 +2068,32 @@ const selectionCheckboxClasses = (active: boolean) => [
     ? 'border-emerald-500 bg-emerald-500 text-neutral-950 shadow-emerald-500/20 hover:border-emerald-400 hover:bg-emerald-400 dark:border-emerald-400 dark:bg-emerald-400 dark:text-black dark:hover:bg-emerald-300'
     : 'border-stone-300/80 bg-white/80 text-transparent hover:border-emerald-500/40 hover:bg-emerald-50/60 dark:border-white/10 dark:bg-neutral-950/70 dark:shadow-black/20 dark:hover:border-emerald-400/45 dark:hover:bg-emerald-500/5'
 ]
+
+const batchUpdateFieldCardClasses = (active: boolean) => [
+  'flex items-start gap-3 rounded-lg border p-3 transition-colors duration-150',
+  active
+    ? 'border-primary-300 bg-primary-50/45 dark:border-primary-500/55 dark:bg-primary-900/10'
+    : 'border-gray-200 bg-white/40 dark:border-dark-700 dark:bg-black/10'
+]
+
+type BatchUpdateBooleanField =
+  | 'update_group'
+  | 'update_status'
+  | 'update_quota'
+  | 'update_expiration'
+  | 'update_rate_limit'
+  | 'reset_rate_limit_usage'
+  | 'update_ip_access_control'
+  | 'update_tags'
+
+const toggleBatchUpdateBoolean = (field: BatchUpdateBooleanField) => {
+  const next = !batchUpdateForm.value[field]
+  batchUpdateForm.value[field] = next
+
+  if (field === 'update_rate_limit' && !next) {
+    batchUpdateForm.value.reset_rate_limit_usage = false
+  }
+}
 
 const clearSelectedKeys = () => {
   selectedKeyIds.value = new Set()
@@ -1956,13 +2128,46 @@ const closeBatchUpdateModal = () => {
   resetBatchUpdateForm()
 }
 
-const openBatchUpdateModal = () => {
-  if (selectedKeyCount.value === 0) {
+const ensureFilteredBatchTarget = (): ApiKeyBatchFilters | null => {
+  const filters = buildCurrentBatchFilters()
+  if (!filters) {
+    appStore.showError(t('keys.batchActions.filtersRequired'))
+    return null
+  }
+  if (pagination.value.total <= 0) {
+    appStore.showError(t('keys.batchActions.emptyFilteredResult'))
+    return null
+  }
+  if (filteredBatchTooLarge.value) {
+    appStore.showError(t('keys.batchActions.filterLimitExceeded', { max: apiKeyFilterBatchMaxCount }))
+    return null
+  }
+  return filters
+}
+
+const openBatchUpdateModal = (scope: BatchActionScope = 'selected') => {
+  if (scope === 'selected' && selectedKeyCount.value === 0) {
     appStore.showError(t('keys.batchActions.selectRequired'))
     return
   }
+  if (scope === 'filtered' && !ensureFilteredBatchTarget()) {
+    return
+  }
+  batchActionScope.value = scope
   resetBatchUpdateForm()
   showBatchUpdateModal.value = true
+}
+
+const openBatchDeleteDialog = (scope: BatchActionScope) => {
+  if (scope === 'selected' && selectedKeyCount.value === 0) {
+    appStore.showError(t('keys.batchActions.selectRequired'))
+    return
+  }
+  if (scope === 'filtered' && !ensureFilteredBatchTarget()) {
+    return
+  }
+  batchActionScope.value = scope
+  showBatchDeleteDialog.value = true
 }
 
 // 自定义Key验证
@@ -1986,6 +2191,29 @@ const statusOptions = computed(() => [
   { value: 'inactive', label: t('common.inactive') }
 ])
 
+const batchUpdateStatusOptions = computed(() => [
+  { value: 'active', label: t('keys.status.active') },
+  { value: 'inactive', label: t('keys.status.inactive') }
+])
+
+const batchUpdateTagModeOptions = computed(() => [
+  { value: 'add', label: t('keys.batchActions.tagModes.add') },
+  { value: 'set', label: t('keys.batchActions.tagModes.set') },
+  { value: 'remove', label: t('keys.batchActions.tagModes.remove') },
+  { value: 'clear', label: t('keys.batchActions.tagModes.clear') }
+])
+
+const batchUpdateQuotaModeOptions = computed(() => [
+  { value: 'set', label: t('keys.batchActions.quotaModes.set') },
+  { value: 'add', label: t('keys.batchActions.quotaModes.add') },
+  { value: 'unlimited', label: t('keys.batchActions.quotaModes.unlimited') }
+])
+
+const batchUpdateExpirationModeOptions = computed(() => [
+  { value: 'clear', label: t('keys.batchActions.expirationModes.clear') },
+  { value: 'set', label: t('keys.batchActions.expirationModes.set') }
+])
+
 // Filter dropdown options
 const groupFilterOptions = computed(() => [
   { value: '', label: t('keys.allGroups') },
@@ -2004,6 +2232,11 @@ const statusFilterOptions = computed(() => [
 const onFilterChange = () => {
   pagination.value.page = 1
   loadApiKeys()
+}
+
+const onTagFilterChange = (tags: string[]) => {
+  filterTags.value = tags.join(', ')
+  onFilterChange()
 }
 
 const onGroupFilterChange = (value: string | number | boolean | null) => {
@@ -2053,7 +2286,7 @@ const copyToClipboard = async (text: string, keyId: number) => {
 const isAbortError = (error: unknown) => {
   if (!error || typeof error !== 'object') return false
   const { name, code } = error as { name?: string; code?: string }
-  return name === 'AbortError' || code === 'ERR_CANCELED'
+  return name === 'AbortError' || name === 'CanceledError' || code === 'ERR_CANCELED'
 }
 
 const parseIPList = (text: string): string[] =>
@@ -2089,6 +2322,7 @@ const loadApiKeys = async () => {
     })
     if (signal.aborted) return
     apiKeys.value = response.items
+    rememberFilterTags(response.items)
     clearSelectedKeys()
     pagination.value.total = response.total
     pagination.value.pages = response.pages
@@ -2118,6 +2352,22 @@ const loadApiKeys = async () => {
       loading.value = false
     }
   }
+}
+
+const loadApiKeyTagOptions = async () => {
+  try {
+    const tags = await keysAPI.listTags()
+    knownFilterTags.value = normalizeTagOptions(tags)
+  } catch (error) {
+    console.error('Failed to load API key tag options:', error)
+  }
+}
+
+const refreshApiKeysAndTagOptions = async () => {
+  await Promise.all([
+    loadApiKeys(),
+    loadApiKeyTagOptions()
+  ])
 }
 
 const loadGroups = async () => {
@@ -2364,7 +2614,7 @@ const handleBatchCreate = async () => {
     showBatchResultModal.value = true
     resetBatchForm()
     appStore.showSuccess(t('keys.batchCreate.success', { count: batchResult.value.created }))
-    await loadApiKeys()
+    await refreshApiKeysAndTagOptions()
   } catch (error: any) {
     const errorMsg = error.response?.data?.detail || error?.message || t('keys.batchCreate.failed')
     appStore.showError(errorMsg)
@@ -2436,7 +2686,6 @@ const batchUpdateHasFields = () =>
   batchUpdateForm.value.update_quota ||
   batchUpdateForm.value.update_expiration ||
   batchUpdateForm.value.update_rate_limit ||
-  batchUpdateForm.value.reset_rate_limit_usage ||
   batchUpdateForm.value.update_ip_access_control ||
   batchUpdateForm.value.update_tags
 
@@ -2447,19 +2696,34 @@ const localDateTimeToISOString = (value: string): string | null => {
   return date.toISOString()
 }
 
+const buildBatchTargetPayload = (): Pick<BatchUpdateApiKeysRequest, 'ids' | 'apply_to' | 'filters'> | null => {
+  if (batchActionScope.value === 'selected') {
+    if (selectedKeyCount.value === 0) {
+      appStore.showError(t('keys.batchActions.selectRequired'))
+      return null
+    }
+    return { ids: selectedKeyIdList.value }
+  }
+
+  const filters = ensureFilteredBatchTarget()
+  if (!filters) return null
+  return {
+    apply_to: 'filtered',
+    filters
+  }
+}
+
 const handleBatchUpdate = async () => {
   if (batchActionSubmitting.value) return
-  if (selectedKeyCount.value === 0) {
-    appStore.showError(t('keys.batchActions.selectRequired'))
-    return
-  }
+  const target = buildBatchTargetPayload()
+  if (!target) return
   if (!batchUpdateHasFields()) {
     appStore.showError(t('keys.batchActions.noFields'))
     return
   }
 
   const payload: BatchUpdateApiKeysRequest = {
-    ids: selectedKeyIdList.value
+    ...target
   }
 
   if (batchUpdateForm.value.update_group) {
@@ -2500,7 +2764,7 @@ const handleBatchUpdate = async () => {
     payload.rate_limit_1d = nonNegativeNumber(batchUpdateForm.value.rate_limit_1d)
     payload.rate_limit_7d = nonNegativeNumber(batchUpdateForm.value.rate_limit_7d)
   }
-  if (batchUpdateForm.value.reset_rate_limit_usage) {
+  if (batchUpdateForm.value.update_rate_limit && batchUpdateForm.value.reset_rate_limit_usage) {
     payload.reset_rate_limit_usage = true
   }
   if (batchUpdateForm.value.update_ip_access_control) {
@@ -2530,7 +2794,7 @@ const handleBatchUpdate = async () => {
     const result = await keysAPI.batchUpdate(payload)
     appStore.showSuccess(t('keys.batchActions.updateSuccess', { count: result.updated }))
     closeBatchUpdateModal()
-    await loadApiKeys()
+    await refreshApiKeysAndTagOptions()
   } catch (error: any) {
     const errorMsg = error.response?.data?.detail || error?.message || t('keys.batchActions.updateFailed')
     appStore.showError(errorMsg)
@@ -2541,8 +2805,8 @@ const handleBatchUpdate = async () => {
 
 const handleBatchDelete = async () => {
   if (batchActionSubmitting.value) return
-  if (selectedKeyCount.value === 0) {
-    appStore.showError(t('keys.batchActions.selectRequired'))
+  const target = buildBatchTargetPayload()
+  if (!target) {
     showBatchDeleteDialog.value = false
     return
   }
@@ -2550,9 +2814,9 @@ const handleBatchDelete = async () => {
   batchActionSubmitting.value = true
   showBatchDeleteDialog.value = false
   try {
-    const result = await keysAPI.batchDelete({ ids: selectedKeyIdList.value })
+    const result = await keysAPI.batchDelete(target)
     appStore.showSuccess(t('keys.batchActions.deleteSuccess', { count: result.deleted }))
-    await loadApiKeys()
+    await refreshApiKeysAndTagOptions()
   } catch (error: any) {
     const errorMsg = error.response?.data?.detail || error?.message || t('keys.batchActions.deleteFailed')
     appStore.showError(errorMsg)
@@ -2653,7 +2917,7 @@ const handleSubmit = async () => {
       }
     }
     closeModals()
-    loadApiKeys()
+    refreshApiKeysAndTagOptions()
   } catch (error: any) {
     const errorMsg = error.response?.data?.detail || t('keys.failedToSave')
     appStore.showError(errorMsg)
@@ -2675,7 +2939,7 @@ const handleDelete = async () => {
     await keysAPI.delete(selectedKey.value.id)
     appStore.showSuccess(t('keys.keyDeletedSuccess'))
     showDeleteDialog.value = false
-    loadApiKeys()
+    refreshApiKeysAndTagOptions()
   } catch (error: any) {
     // 优先使用后端返回的错误消息，提供更具体的错误信息给用户
     const errorMsg = error?.message || t('keys.failedToDelete')
@@ -2855,6 +3119,7 @@ function formatResetTime(resetAt: string | null): string {
 }
 
 onMounted(() => {
+  loadApiKeyTagOptions()
   loadApiKeys()
   loadGroups()
   loadUserGroupRates()

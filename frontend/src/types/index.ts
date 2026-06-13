@@ -631,9 +631,19 @@ export interface BatchCreateApiKeysResponse {
 
 export type BatchApiKeyQuotaMode = 'set' | 'add' | 'unlimited'
 export type BatchApiKeyTagsMode = 'set' | 'add' | 'remove' | 'clear'
+export type BatchApiKeyApplyTo = 'selected' | 'filtered'
+
+export interface ApiKeyBatchFilters {
+  search?: string
+  status?: ApiKey['status']
+  group_id?: number
+  tags?: string[]
+}
 
 export interface BatchUpdateApiKeysRequest {
-  ids: number[]
+  ids?: number[]
+  apply_to?: BatchApiKeyApplyTo
+  filters?: ApiKeyBatchFilters
   update_group?: boolean
   group_id?: number | null
   update_status?: boolean
@@ -661,11 +671,17 @@ export interface BatchUpdateApiKeysResponse {
 }
 
 export interface BatchDeleteApiKeysRequest {
-  ids: number[]
+  ids?: number[]
+  apply_to?: BatchApiKeyApplyTo
+  filters?: ApiKeyBatchFilters
 }
 
 export interface BatchDeleteApiKeysResponse {
   deleted: number
+}
+
+export interface ApiKeyTagOptionsResponse {
+  tags: string[]
 }
 
 export interface PublicApiKeyStatus {

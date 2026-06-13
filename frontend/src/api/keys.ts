@@ -12,6 +12,7 @@ import type {
   BatchDeleteApiKeysResponse,
   BatchUpdateApiKeysRequest,
   BatchUpdateApiKeysResponse,
+  ApiKeyTagOptionsResponse,
   CreateApiKeyRequest,
   PublicApiKeyStatus,
   UpdateApiKeyRequest,
@@ -157,6 +158,11 @@ export async function batchDelete(
   return data
 }
 
+export async function listTags(): Promise<string[]> {
+  const { data } = await apiClient.get<ApiKeyTagOptionsResponse>('/keys/tags')
+  return data.tags || []
+}
+
 export async function getPublicStatus(key: string): Promise<PublicApiKeyStatus> {
   const { data } = await apiClient.post<PublicApiKeyStatus>('/key/status', { key })
   return data
@@ -200,6 +206,7 @@ export const keysAPI = {
   batchCreate,
   batchUpdate,
   batchDelete,
+  listTags,
   getPublicStatus,
   update,
   delete: deleteKey,
