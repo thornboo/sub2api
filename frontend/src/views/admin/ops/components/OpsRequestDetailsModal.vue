@@ -6,15 +6,8 @@ import Pagination from '@/components/common/Pagination.vue'
 import { useClipboard } from '@/composables/useClipboard'
 import { useAppStore } from '@/stores'
 import { opsAPI, type OpsRequestDetailsParams, type OpsRequestDetail } from '@/api/admin/ops'
+import type { OpsErrorDetailType, OpsRequestDetailsPreset } from '../composables/useOpsModalStack'
 import { parseTimeRangeMinutes, formatDateTime } from '../utils/opsFormatters'
-
-export interface OpsRequestDetailsPreset {
-  title: string
-  kind?: OpsRequestDetailsParams['kind']
-  sort?: OpsRequestDetailsParams['sort']
-  min_duration_ms?: number
-  max_duration_ms?: number
-}
 
 interface Props {
   modelValue: boolean
@@ -27,7 +20,7 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
-  (e: 'openErrorDetail', errorId: number): void
+  (e: 'openErrorDetail', errorId: number, errorType: OpsErrorDetailType): void
 }>()
 
 const { t } = useI18n()
@@ -98,7 +91,8 @@ watch(
       pageSize.value = 10
       fetchData()
     }
-  }
+  },
+  { immediate: true }
 )
 
 watch(
@@ -138,8 +132,7 @@ async function handleCopyRequestId(requestId: string) {
 
 function openErrorDetail(errorId: number | null | undefined) {
   if (!errorId) return
-  close()
-  emit('openErrorDetail', errorId)
+  emit('openErrorDetail', errorId, 'request')
 }
 
 const kindBadgeClass = (kind: string) => {

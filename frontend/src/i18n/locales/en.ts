@@ -5149,8 +5149,15 @@ export default {
           network: 'Network',
           internal: 'Internal'
         },
+        filters: {
+          search: 'Search',
+          statusCode: 'Status Code',
+          phase: 'Error Phase',
+          owner: 'Owner',
+          scope: 'Display Scope'
+        },
         total: 'Total:',
-        searchPlaceholder: 'Search request_id / client_request_id / message',
+        searchPlaceholder: 'Search request ID, client request ID, or error message',
       },
       // Error Detail Modal
       errorDetail: {

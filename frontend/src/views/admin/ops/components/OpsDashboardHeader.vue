@@ -7,7 +7,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { adminAPI } from '@/api'
 import { opsAPI, type OpsDashboardOverview, type OpsMetricThresholds, type OpsRealtimeTrafficSummary } from '@/api/admin/ops'
-import type { OpsRequestDetailsPreset } from './OpsRequestDetailsModal.vue'
+import type { OpsRequestDetailsPreset } from '../composables/useOpsModalStack'
 import { useAdminSettingsStore } from '@/stores'
 import { formatNumber } from '@/utils/format'
 

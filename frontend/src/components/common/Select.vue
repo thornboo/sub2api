@@ -50,7 +50,6 @@
           v-if="isOpen"
           ref="dropdownRef"
           class="select-dropdown-portal"
-          :class="[instanceId]"
           :style="dropdownStyle"
           role="listbox"
           @click.stop
@@ -123,9 +122,6 @@ import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 
 const { t } = useI18n()
-
-// Instance ID for unique click-outside detection
-const instanceId = `select-${Math.random().toString(36).substring(2, 9)}`
 
 export interface SelectOption {
   value: string | number | boolean | null
@@ -432,10 +428,11 @@ const scrollToFocused = () => {
 }
 
 const handleClickOutside = (event: MouseEvent) => {
-  const target = event.target as HTMLElement
-  // Check if click is inside THIS specific instance's dropdown or trigger
-  const isInDropdown = !!target.closest(`.${instanceId}`)
-  const isInTrigger = containerRef.value?.contains(target)
+  const target = event.target
+  if (!(target instanceof Node)) return
+
+  const isInDropdown = dropdownRef.value?.contains(target) ?? false
+  const isInTrigger = containerRef.value?.contains(target) ?? false
 
   if (!isInDropdown && !isInTrigger && isOpen.value) {
     isOpen.value = false
@@ -443,11 +440,11 @@ const handleClickOutside = (event: MouseEvent) => {
 }
 
 onMounted(() => {
-  document.addEventListener('click', handleClickOutside)
+  document.addEventListener('click', handleClickOutside, { capture: true })
 })
 
 onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside)
+  document.removeEventListener('click', handleClickOutside, { capture: true })
   window.removeEventListener('scroll', updateTriggerRect, { capture: true })
   window.removeEventListener('resize', calculateDropdownPosition)
 })

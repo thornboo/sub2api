@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
 import OpsErrorLogTable from './OpsErrorLogTable.vue'
 import { opsAPI, type OpsErrorLog } from '@/api/admin/ops'
+import type { OpsErrorDetailType } from '../composables/useOpsModalStack'
 
 interface Props {
   show: boolean
@@ -17,7 +18,7 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits<{
   (e: 'update:show', value: boolean): void
-  (e: 'openErrorDetail', errorId: number): void
+  (e: 'openErrorDetail', errorId: number, errorType: OpsErrorDetailType): void
 }>()
 
 const { t } = useI18n()
@@ -34,6 +35,20 @@ const statusCode = ref<number | 'other' | null>(null)
 const phase = ref<string>('')
 const errorOwner = ref<string>('')
 const viewMode = ref<'errors' | 'excluded' | 'all'>('errors')
+let searchTimeout: number | null = null
+let resettingFilters = false
+let fetchErrorLogsRequestId = 0
+
+function clearSearchTimeout() {
+  if (!searchTimeout) return
+  window.clearTimeout(searchTimeout)
+  searchTimeout = null
+}
+
+function invalidateFetchErrorLogs() {
+  fetchErrorLogsRequestId += 1
+  loading.value = false
+}
 
 
 const modalTitle = computed(() => {
@@ -87,6 +102,7 @@ function close() {
 async function fetchErrorLogs() {
   if (!props.show) return
 
+  const requestId = ++fetchErrorLogsRequestId
   loading.value = true
   try {
     const params: Record<string, any> = {
@@ -114,64 +130,89 @@ async function fetchErrorLogs() {
     const res = props.errorType === 'upstream'
       ? await opsAPI.listUpstreamErrors(params)
       : await opsAPI.listRequestErrors(params)
+    if (requestId !== fetchErrorLogsRequestId) return
     rows.value = res.items || []
     total.value = res.total || 0
   } catch (err) {
+    if (requestId !== fetchErrorLogsRequestId) return
     console.error('[OpsErrorDetailsModal] Failed to fetch error logs', err)
     rows.value = []
     total.value = 0
   } finally {
-    loading.value = false
+    if (requestId === fetchErrorLogsRequestId) {
+      loading.value = false
+    }
   }
 }
 
-  function resetFilters() {
-    q.value = ''
-    statusCode.value = null
-    phase.value = props.errorType === 'upstream' ? 'upstream' : ''
-    errorOwner.value = ''
-    viewMode.value = 'errors'
-    page.value = 1
-    fetchErrorLogs()
+async function resetFilters(options: { resetPageSize?: boolean } = {}) {
+  // Keep filter/page watchers quiet for this Vue flush cycle; resetFilters owns
+  // the single fetch after it has put all filter refs into a consistent state.
+  // This relies on default watcher flush timing: related watchers run before
+  // the awaited nextTick resolves. Revisit this guard before using flush: 'post'.
+  resettingFilters = true
+  clearSearchTimeout()
+  q.value = ''
+  statusCode.value = null
+  phase.value = props.errorType === 'upstream' ? 'upstream' : ''
+  errorOwner.value = ''
+  viewMode.value = 'errors'
+  page.value = 1
+  if (options.resetPageSize) pageSize.value = 10
+  fetchErrorLogs()
+  try {
+    await nextTick()
+  } finally {
+    resettingFilters = false
   }
+}
+
+function fetchFirstPage() {
+  if (page.value === 1) {
+    fetchErrorLogs()
+    return
+  }
+  page.value = 1
+}
 
 
 watch(
-  () => props.show,
-  (open) => {
-    if (!open) return
-    page.value = 1
-    pageSize.value = 10
-    resetFilters()
-  }
+  () => [props.show, props.errorType] as const,
+  ([open]) => {
+    if (!open) {
+      clearSearchTimeout()
+      invalidateFetchErrorLogs()
+      return
+    }
+    resetFilters({ resetPageSize: true })
+  },
+  { immediate: true }
 )
 
 watch(
   () => [props.timeRange, props.platform, props.groupId] as const,
   () => {
     if (!props.show) return
-    page.value = 1
-    fetchErrorLogs()
+    fetchFirstPage()
   }
 )
 
 watch(
   () => [page.value, pageSize.value] as const,
   () => {
-    if (!props.show) return
+    if (!props.show || resettingFilters) return
     fetchErrorLogs()
   }
 )
 
-let searchTimeout: number | null = null
 watch(
   () => q.value,
   () => {
-    if (!props.show) return
-    if (searchTimeout) window.clearTimeout(searchTimeout)
+    if (!props.show || resettingFilters) return
+    clearSearchTimeout()
     searchTimeout = window.setTimeout(() => {
-      page.value = 1
-      fetchErrorLogs()
+      searchTimeout = null
+      fetchFirstPage()
     }, 350)
   }
 )
@@ -179,9 +220,8 @@ watch(
 watch(
   () => [statusCode.value, phase.value, errorOwner.value, viewMode.value] as const,
   () => {
-    if (!props.show) return
-    page.value = 1
-    fetchErrorLogs()
+    if (!props.show || resettingFilters) return
+    fetchFirstPage()
   }
 )
 </script>
@@ -191,8 +231,11 @@ watch(
     <div class="flex h-full min-h-0 flex-col">
       <!-- Filters -->
       <div class="mb-4 flex-shrink-0 border-b border-stone-200/80 pb-4 dark:border-white/10">
-        <div class="grid grid-cols-8 gap-2">
-          <div class="col-span-2 compact-select">
+        <div class="space-y-3">
+          <div>
+            <div class="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-stone-500">
+              {{ t('admin.ops.errorDetails.filters.search') }}
+            </div>
             <div class="relative group">
               <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                 <svg
@@ -213,28 +256,32 @@ watch(
             </div>
           </div>
 
-          <div class="compact-select">
-            <Select :model-value="statusCode" :options="statusCodeSelectOptions" @update:model-value="statusCode = $event as any" />
-          </div>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div class="ops-filter-field compact-select">
+              <div class="ops-filter-label">{{ t('admin.ops.errorDetails.filters.statusCode') }}</div>
+              <Select :model-value="statusCode" :options="statusCodeSelectOptions" @update:model-value="statusCode = $event as any" />
+            </div>
 
-          <div class="compact-select">
-            <Select :model-value="phase" :options="phaseSelectOptions" @update:model-value="phase = String($event ?? '')" />
-          </div>
+            <div class="ops-filter-field compact-select">
+              <div class="ops-filter-label">{{ t('admin.ops.errorDetails.filters.phase') }}</div>
+              <Select :model-value="phase" :options="phaseSelectOptions" @update:model-value="phase = String($event ?? '')" />
+            </div>
 
-          <div class="compact-select">
-            <Select :model-value="errorOwner" :options="ownerSelectOptions" @update:model-value="errorOwner = String($event ?? '')" />
-          </div>
+            <div class="ops-filter-field compact-select">
+              <div class="ops-filter-label">{{ t('admin.ops.errorDetails.filters.owner') }}</div>
+              <Select :model-value="errorOwner" :options="ownerSelectOptions" @update:model-value="errorOwner = String($event ?? '')" />
+            </div>
 
+            <div class="ops-filter-field compact-select">
+              <div class="ops-filter-label">{{ t('admin.ops.errorDetails.filters.scope') }}</div>
+              <Select :model-value="viewMode" :options="viewModeSelectOptions" @update:model-value="viewMode = $event as any" />
+            </div>
 
-
-          <div class="compact-select">
-            <Select :model-value="viewMode" :options="viewModeSelectOptions" @update:model-value="viewMode = $event as any" />
-          </div>
-
-          <div class="flex items-center justify-end">
-            <button type="button" class="rounded-lg bg-stone-100 px-3 py-1.5 text-xs font-semibold text-stone-700 transition-colors hover:bg-stone-200 dark:bg-white/[0.08] dark:text-stone-300 dark:hover:bg-white/[0.12]" @click="resetFilters">
-              {{ t('common.reset') }}
-            </button>
+            <div class="flex items-end">
+              <button type="button" class="h-9 w-full rounded-lg bg-stone-100 px-3 text-xs font-semibold text-stone-700 transition-colors hover:bg-stone-200 dark:bg-white/[0.08] dark:text-stone-300 dark:hover:bg-white/[0.12]" @click="resetFilters()">
+                {{ t('common.reset') }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -252,7 +299,7 @@ watch(
             :loading="loading"
             :page="page"
             :page-size="pageSize"
-            @openErrorDetail="emit('openErrorDetail', $event)"
+            @openErrorDetail="emit('openErrorDetail', $event, props.errorType)"
 
             @update:page="page = $event"
             @update:pageSize="pageSize = $event"
@@ -265,6 +312,14 @@ watch(
 
 <style>
 .compact-select .select-trigger {
-  @apply py-1.5 px-3 text-xs rounded-lg;
+  @apply w-full py-1.5 px-3 text-xs rounded-lg;
+}
+
+.ops-filter-field {
+  @apply min-w-0;
+}
+
+.ops-filter-label {
+  @apply mb-1.5 text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-stone-500;
 }
 </style>

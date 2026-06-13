@@ -1,5 +1,28 @@
 # 补丁记录
 
+## 2026-06-13 - 运维明细弹窗栈与筛选体验优化
+
+范围：
+- `frontend/src/components/common/{BaseDialog,Select}.vue`
+- `frontend/src/components/common/__tests__/{BaseDialog,Select}.spec.ts`
+- `frontend/src/views/admin/ops/**`
+- `frontend/src/i18n/locales/{zh,en}.ts`
+- `docs-site/dev-zz/{changelog.md,patches.md}`
+
+改动：
+- 将通用 `BaseDialog` 升级为模块级弹窗栈，自动按有效 z-index 分层，并确保 Escape、遮罩点击、关闭按钮和 body 滚动锁只由视觉最上层弹窗接管。
+- 将 Ops 运维看板的请求详情、错误列表和单条错误详情状态抽取到 `useOpsModalStack`，支持父级明细弹窗与子级错误详情叠加打开，关闭子级不再连带关闭父级。
+- 修复通用 `Select` 在弹窗等 `@click.stop` 容器内点击外部无法收起的问题，改用捕获阶段监听和真实 DOM ref 判断外部点击。
+- 优化错误明细筛选区布局，为搜索、状态码、错误阶段、归属方和显示范围提供明确标签，并将搜索占位文案改为用户可读描述。
+- 为错误列表取数增加请求序号，快速切换请求/上游错误类型时丢弃过期响应，避免旧数据覆盖新数据。
+- 让单条错误详情的响应内容和关联上游响应预览使用阅读型自动换行代码块，保留 JSON 缩进和纵向滚动，移除横向阅读负担。
+
+验证：
+- `pnpm --dir frontend test:run src/components/common/__tests__/BaseDialog.spec.ts src/components/common/__tests__/Select.spec.ts src/views/admin/ops/components/__tests__/OpsErrorDetailModal.spec.ts src/views/admin/ops/components/__tests__/OpsErrorDetailsModal.spec.ts src/views/admin/ops/components/__tests__/OpsRequestDetailsModal.spec.ts src/views/admin/ops/composables/__tests__/useOpsModalStack.spec.ts`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `git diff --check`
+
 ## 2026-06-12 - 上游 main 同步：合规确认与网关修复
 
 范围：

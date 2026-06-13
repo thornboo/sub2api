@@ -124,7 +124,7 @@
           @openErrorDetail="openError"
         />
 
-        <OpsErrorDetailModal v-model:show="showErrorModal" :error-id="selectedErrorId" :error-type="errorDetailsType" />
+        <OpsErrorDetailModal v-model:show="showErrorModal" :error-id="selectedErrorId" :error-type="selectedErrorType" />
 
         <OpsRequestDetailsModal
           v-model="showRequestDetails"
@@ -169,9 +169,10 @@ import OpsSwitchRateTrendChart from './components/OpsSwitchRateTrendChart.vue'
 import OpsAlertEventsCard from './components/OpsAlertEventsCard.vue'
 import OpsOpenAITokenStatsCard from './components/OpsOpenAITokenStatsCard.vue'
 import OpsSystemLogTable from './components/OpsSystemLogTable.vue'
-import OpsRequestDetailsModal, { type OpsRequestDetailsPreset } from './components/OpsRequestDetailsModal.vue'
+import OpsRequestDetailsModal from './components/OpsRequestDetailsModal.vue'
 import OpsSettingsDialog from './components/OpsSettingsDialog.vue'
 import OpsAlertRulesCard from './components/OpsAlertRulesCard.vue'
+import { useOpsModalStack, type OpsRequestDetailsPreset } from './composables/useOpsModalStack'
 
 const route = useRoute()
 const router = useRouter()
@@ -365,18 +366,18 @@ const loadingErrorTrend = ref(false)
 const errorDistribution = ref<OpsErrorDistributionResponse | null>(null)
 const loadingErrorDistribution = ref(false)
 
-const selectedErrorId = ref<number | null>(null)
-const showErrorModal = ref(false)
-
-const showErrorDetails = ref(false)
-const errorDetailsType = ref<'request' | 'upstream'>('request')
-
-const showRequestDetails = ref(false)
-const requestDetailsPreset = ref<OpsRequestDetailsPreset>({
-  title: '',
-  kind: 'all',
-  sort: 'created_at_desc'
-})
+const {
+  errorDetailsType,
+  requestDetailsPreset,
+  selectedErrorId,
+  selectedErrorType,
+  showErrorDetails,
+  showErrorModal,
+  showRequestDetails,
+  openRequestDetails,
+  openErrorDetails,
+  openErrorDetail: openError
+} = useOpsModalStack()
 
 const showSettingsDialog = ref(false)
 const showAlertRulesCard = ref(false)
@@ -443,26 +444,7 @@ function handleThroughputSelectGroup(nextGroupId: number) {
 }
 
 function handleOpenRequestDetails(preset?: OpsRequestDetailsPreset) {
-  const basePreset: OpsRequestDetailsPreset = {
-    title: t('admin.ops.requestDetails.title'),
-    kind: 'all',
-    sort: 'created_at_desc'
-  }
-
-  requestDetailsPreset.value = { ...basePreset, ...(preset ?? {}) }
-  if (!requestDetailsPreset.value.title) requestDetailsPreset.value.title = basePreset.title
-  // Ensure only one modal visible at a time.
-  showErrorDetails.value = false
-  showErrorModal.value = false
-  showRequestDetails.value = true
-}
-
-function openErrorDetails(kind: 'request' | 'upstream') {
-  errorDetailsType.value = kind
-  // Ensure only one modal visible at a time.
-  showRequestDetails.value = false
-  showErrorModal.value = false
-  showErrorDetails.value = true
+  openRequestDetails(preset, t('admin.ops.requestDetails.title'))
 }
 
 function onTimeRangeChange(v: string | number | boolean | null) {
@@ -505,14 +487,6 @@ function onQueryModeChange(v: string | number | boolean | null) {
   if (typeof v !== 'string') return
   if (!allowedQueryModes.has(v as QueryMode)) return
   queryMode.value = v as QueryMode
-}
-
-function openError(id: number) {
-  selectedErrorId.value = id
-  // Ensure only one modal visible at a time.
-  showErrorDetails.value = false
-  showRequestDetails.value = false
-  showErrorModal.value = true
 }
 
 function buildApiParams() {

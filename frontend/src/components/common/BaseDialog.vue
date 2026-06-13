@@ -19,7 +19,7 @@
             </h3>
             <button
               v-if="showCloseButton"
-              @click="emit('close')"
+              @click="handleCloseButton"
               class="-mr-2 rounded-xl p-2 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-600 dark:text-stone-500 dark:hover:bg-white/[0.06] dark:hover:text-stone-300"
               aria-label="Close modal"
             >
@@ -42,17 +42,89 @@
   </Teleport>
 </template>
 
+<script lang="ts">
+import { ref as createRef } from 'vue'
+
+let dialogIdCounter = 0
+let dialogInstanceIdCounter = 0
+interface DialogStackEntry {
+  id: number
+  explicitZIndex?: number
+}
+
+const dialogStack = createRef<DialogStackEntry[]>([])
+
+function getAutoDialogZIndex(index: number) {
+  return 50 + Math.max(index, 0) * 10
+}
+
+// Interaction ownership follows the same effective z-index that users see.
+// When z-index values tie, the later registered dialog wins, matching DOM paint order.
+function getDialogZIndex(entry: DialogStackEntry, index: number) {
+  return typeof entry.explicitZIndex === 'number'
+    ? entry.explicitZIndex
+    : getAutoDialogZIndex(index)
+}
+
+function getTopDialogId() {
+  if (dialogStack.value.length === 0) return null
+
+  let topEntry = dialogStack.value[0]
+  let topZIndex = getDialogZIndex(topEntry, 0)
+  let topStackIndex = 0
+
+  dialogStack.value.forEach((entry, index) => {
+    const zIndex = getDialogZIndex(entry, index)
+    if (zIndex > topZIndex || (zIndex === topZIndex && index > topStackIndex)) {
+      topEntry = entry
+      topZIndex = zIndex
+      topStackIndex = index
+    }
+  })
+
+  return topEntry.id
+}
+
+function syncBodyScrollLock() {
+  document.body.classList.toggle('modal-open', dialogStack.value.length > 0)
+}
+
+function registerDialog(id: number, explicitZIndex?: number) {
+  const existingIndex = dialogStack.value.findIndex((entry) => entry.id === id)
+  if (existingIndex >= 0) {
+    updateDialogZIndex(id, explicitZIndex)
+    return
+  }
+  dialogStack.value = [...dialogStack.value, { id, explicitZIndex }]
+  syncBodyScrollLock()
+}
+
+function updateDialogZIndex(id: number, explicitZIndex?: number) {
+  if (!dialogStack.value.some((entry) => entry.id === id)) return
+  dialogStack.value = dialogStack.value.map((entry) => {
+    if (entry.id !== id) return entry
+    return { ...entry, explicitZIndex }
+  })
+}
+
+function unregisterDialog(id: number) {
+  if (!dialogStack.value.some((entry) => entry.id === id)) return
+  dialogStack.value = dialogStack.value.filter((entry) => entry.id !== id)
+  syncBodyScrollLock()
+}
+</script>
+
 <script setup lang="ts">
 import { computed, watch, onMounted, onUnmounted, ref, nextTick } from 'vue'
 import Icon from '@/components/icons/Icon.vue'
 
 // 生成唯一ID以避免多个对话框时ID冲突
-let dialogIdCounter = 0
 const dialogId = `modal-title-${++dialogIdCounter}`
 
 // 焦点管理
 const dialogRef = ref<HTMLElement | null>(null)
 let previousActiveElement: HTMLElement | null = null
+const dialogInstanceId = ++dialogInstanceIdCounter
 
 type DialogWidth = 'narrow' | 'normal' | 'wide' | 'extra-wide' | 'full'
 
@@ -74,15 +146,22 @@ const props = withDefaults(defineProps<Props>(), {
   width: 'normal',
   closeOnEscape: true,
   closeOnClickOutside: false,
-  showCloseButton: true,
-  zIndex: 50
+  showCloseButton: true
 })
 
 const emit = defineEmits<Emits>()
 
-// Custom z-index style (overrides the default z-50 from CSS)
+const stackIndex = computed(() => dialogStack.value.findIndex((entry) => entry.id === dialogInstanceId))
+const isTopDialog = computed(() => {
+  return getTopDialogId() === dialogInstanceId
+})
+
+// Custom z-index overrides the auto stack order when a caller needs an explicit layer.
 const zIndexStyle = computed(() => {
-  return props.zIndex !== 50 ? { zIndex: props.zIndex } : undefined
+  const entry = dialogStack.value[stackIndex.value]
+  if (entry) return { zIndex: getDialogZIndex(entry, stackIndex.value) }
+  if (typeof props.zIndex === 'number') return { zIndex: props.zIndex }
+  return { zIndex: getAutoDialogZIndex(stackIndex.value) }
 })
 
 const widthClasses = computed(() => {
@@ -100,13 +179,19 @@ const widthClasses = computed(() => {
 })
 
 const handleClose = () => {
-  if (props.closeOnClickOutside) {
+  if (props.closeOnClickOutside && isTopDialog.value) {
+    emit('close')
+  }
+}
+
+const handleCloseButton = () => {
+  if (isTopDialog.value) {
     emit('close')
   }
 }
 
 const handleEscape = (event: KeyboardEvent) => {
-  if (props.show && props.closeOnEscape && event.key === 'Escape') {
+  if (props.show && props.closeOnEscape && isTopDialog.value && event.key === 'Escape') {
     emit('close')
   }
 }
@@ -118,8 +203,7 @@ watch(
     if (isOpen) {
       // 保存当前焦点元素
       previousActiveElement = document.activeElement as HTMLElement
-      // 使用CSS类而不是直接操作style,更易于管理多个对话框
-      document.body.classList.add('modal-open')
+      registerDialog(dialogInstanceId, props.zIndex)
 
       // 等待DOM更新后设置焦点到对话框
       await nextTick()
@@ -130,7 +214,7 @@ watch(
         firstFocusable?.focus()
       }
     } else {
-      document.body.classList.remove('modal-open')
+      unregisterDialog(dialogInstanceId)
       // 恢复之前的焦点
       if (previousActiveElement && typeof previousActiveElement.focus === 'function') {
         previousActiveElement.focus()
@@ -141,13 +225,21 @@ watch(
   { immediate: true }
 )
 
+watch(
+  () => props.zIndex,
+  (zIndex) => {
+    if (props.show) {
+      updateDialogZIndex(dialogInstanceId, zIndex)
+    }
+  }
+)
+
 onMounted(() => {
   document.addEventListener('keydown', handleEscape)
 })
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleEscape)
-  // 确保组件卸载时移除滚动锁定
-  document.body.classList.remove('modal-open')
+  unregisterDialog(dialogInstanceId)
 })
 </script>

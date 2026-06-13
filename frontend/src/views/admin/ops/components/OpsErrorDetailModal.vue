@@ -136,7 +136,7 @@
       <!-- Response content (client request -> error_body; upstream -> upstream_error_detail/message) -->
       <div class="rounded-xl bg-stone-50/80 p-6 dark:bg-white/[0.04]">
         <h3 class="text-sm font-black uppercase tracking-wider text-stone-950 dark:text-white">{{ t('admin.ops.errorDetail.responseBody') }}</h3>
-        <pre class="mt-4 max-h-[520px] overflow-auto rounded-xl border border-stone-200/80 bg-white/80 p-4 text-xs text-stone-800 dark:border-white/10 dark:bg-neutral-950/60 dark:text-stone-100"><code>{{ prettyJSON(primaryResponseBody || '') }}</code></pre>
+        <pre class="ops-response-block mt-4 max-h-[520px] overflow-y-auto rounded-xl border border-stone-200/80 bg-white/80 p-4 text-xs text-stone-800 dark:border-white/10 dark:bg-neutral-950/60 dark:text-stone-100"><code>{{ prettyJSON(primaryResponseBody || '') }}</code></pre>
       </div>
 
       <!-- Upstream errors list (only for request errors) -->
@@ -203,7 +203,7 @@
 
             <pre
               v-if="expandedUpstreamDetailIds.has(ev.id)"
-              class="mt-3 max-h-[240px] overflow-auto rounded-xl border border-stone-200/80 bg-stone-50/80 p-3 text-xs text-stone-800 dark:border-white/10 dark:bg-black/35 dark:text-stone-100"
+              class="ops-response-block mt-3 max-h-[240px] overflow-y-auto rounded-xl border border-stone-200/80 bg-stone-50/80 p-3 text-xs text-stone-800 dark:border-white/10 dark:bg-black/35 dark:text-stone-100"
             ><code>{{ prettyJSON(getUpstreamResponsePreview(ev)) }}</code></pre>
           </div>
         </div>
@@ -384,3 +384,10 @@ const statusClass = computed(() => {
 })
 
 </script>
+
+<style scoped>
+.ops-response-block {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+</style>

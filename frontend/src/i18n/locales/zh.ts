@@ -5308,8 +5308,15 @@ export default {
           network: '网络',
           internal: '内部'
         },
+        filters: {
+          search: '搜索',
+          statusCode: '状态码',
+          phase: '错误阶段',
+          owner: '归属方',
+          scope: '显示范围'
+        },
         total: '总计：',
-        searchPlaceholder: '搜索 request_id / client_request_id / message'
+        searchPlaceholder: '搜索请求 ID、客户端请求 ID、错误信息'
       },
       // Error Detail Modal
       errorDetail: {
