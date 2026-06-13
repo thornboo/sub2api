@@ -1,5 +1,28 @@
 # 补丁记录
 
+## 2026-06-13 - 企业 Key 标签管理
+
+范围：
+- `backend/{ent,migrations,internal}/**`
+- `frontend/src/{api,i18n,types,views/user}/**`
+- `docs-site/dev-zz/{changelog.md,patches.md,features/enterprise-key-member-management.md}`
+
+改动：
+- 在 `api_keys` 新增 `tags` jsonb 字段，默认空数组，并用 `_notx` migration 创建部分 GIN 索引支持 owner 侧标签筛选。
+- 用户侧 Key 列表支持 `tags` 查询参数，多个标签按“同时包含”过滤。
+- 单把创建 / 编辑、批量创建和批量更新均支持标签；批量更新支持 `set` / `add` / `remove` / `clear` 四种标签操作。
+- 后端统一规范化标签：trim、小写化、去重，最多 20 个标签，单个最多 40 个字符。
+- 用户侧 `KeysView.vue` 增加标签筛选、表格标签展示、批量创建结果标签列和 CSV 导出标签字段。
+- 本轮不引入子账号 / 员工登录实体，也不实现“对全部筛选结果执行批量操作”；批量维护仍限定为已选择的 Key ID。
+
+验证：
+- `mise x -C backend -- go test ./internal/service -run 'Test(APIKeyServiceBatch|BuildBatchAPIKeyNames|NormalizeAPIKeyTags)'`
+- `mise x -C backend -- go test ./internal/...`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir docs-site docs:build`
+- `git diff --check`
+
 ## 2026-06-13 - 企业 Key 批量维护
 
 范围：

@@ -10,6 +10,12 @@
               class="w-full sm:w-64"
               @search="onFilterChange"
             />
+            <SearchInput
+              v-model="filterTags"
+              :placeholder="t('keys.tagFilterPlaceholder')"
+              class="w-full sm:w-52"
+              @search="onFilterChange"
+            />
             <Select
               :model-value="filterGroupId"
               class="w-40"
@@ -150,6 +156,26 @@
                 :title="t('keys.ipRestrictionEnabled')"
               />
             </div>
+          </template>
+
+          <template #cell-tags="{ row }">
+            <div v-if="row.tags?.length" class="flex max-w-[220px] flex-wrap gap-1">
+              <span
+                v-for="tag in visibleTags(row.tags)"
+                :key="tag"
+                class="inline-flex max-w-[96px] items-center truncate rounded-md border border-emerald-200/70 bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200"
+                :title="tag"
+              >
+                {{ tag }}
+              </span>
+              <span
+                v-if="row.tags.length > visibleTagLimit"
+                class="inline-flex items-center rounded-md border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-xs font-medium text-gray-500 dark:border-white/10 dark:bg-white/5 dark:text-dark-300"
+              >
+                +{{ row.tags.length - visibleTagLimit }}
+              </span>
+            </div>
+            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
 
           <template #cell-group="{ row }">
@@ -457,6 +483,17 @@
             :placeholder="t('keys.namePlaceholder')"
             data-tour="key-form-name"
           />
+        </div>
+
+        <div>
+          <label class="input-label">{{ t('keys.tagsLabel') }}</label>
+          <textarea
+            v-model="formData.tags"
+            rows="2"
+            class="input text-sm"
+            :placeholder="t('keys.tagsPlaceholder')"
+          />
+          <p class="input-hint">{{ t('keys.tagsHint') }}</p>
         </div>
 
         <div>
@@ -980,6 +1017,17 @@
           </Select>
         </div>
 
+        <div>
+          <label class="input-label">{{ t('keys.tagsLabel') }}</label>
+          <textarea
+            v-model="batchForm.tags"
+            rows="2"
+            class="input text-sm"
+            :placeholder="t('keys.tagsPlaceholder')"
+          />
+          <p class="input-hint">{{ t('keys.batchCreate.tagsHint') }}</p>
+        </div>
+
         <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-700">
           <div class="mb-4 flex gap-2">
             <button
@@ -1155,6 +1203,7 @@
               <tr>
                 <th class="px-3 py-2">{{ t('keys.nameLabel') }}</th>
                 <th class="px-3 py-2">{{ t('keys.apiKey') }}</th>
+                <th class="px-3 py-2">{{ t('keys.tags') }}</th>
                 <th class="px-3 py-2">{{ t('keys.group') }}</th>
                 <th class="px-3 py-2">{{ t('keys.quota') }}</th>
                 <th class="px-3 py-2">{{ t('keys.expiresAt') }}</th>
@@ -1182,6 +1231,19 @@
                       <Icon v-else name="clipboard" size="sm" />
                     </button>
                   </div>
+                </td>
+                <td class="px-3 py-2 text-gray-500 dark:text-dark-400">
+                  <div v-if="key.tags?.length" class="flex max-w-[180px] flex-wrap gap-1">
+                    <span
+                      v-for="tag in visibleTags(key.tags)"
+                      :key="tag"
+                      class="inline-flex max-w-[96px] items-center truncate rounded-md border border-emerald-200/70 bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200"
+                      :title="tag"
+                    >
+                      {{ tag }}
+                    </span>
+                  </div>
+                  <span v-else>{{ t('keys.noTags') }}</span>
                 </td>
                 <td class="px-3 py-2 text-gray-500 dark:text-dark-400">
                   {{ key.group?.name || t('keys.noGroup') }}
@@ -1288,6 +1350,39 @@
             </div>
           </label>
         </div>
+
+        <label class="block rounded-lg border border-gray-200 p-3 dark:border-dark-700">
+          <div class="flex items-start gap-3">
+            <input v-model="batchUpdateForm.update_tags" type="checkbox" class="mt-1 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('keys.batchActions.fields.tags') }}</div>
+              <div v-if="batchUpdateForm.update_tags" class="mt-3 grid gap-3 md:grid-cols-[180px_1fr]">
+                <select v-model="batchUpdateForm.tags_mode" class="input">
+                  <option value="add">{{ t('keys.batchActions.tagModes.add') }}</option>
+                  <option value="set">{{ t('keys.batchActions.tagModes.set') }}</option>
+                  <option value="remove">{{ t('keys.batchActions.tagModes.remove') }}</option>
+                  <option value="clear">{{ t('keys.batchActions.tagModes.clear') }}</option>
+                </select>
+                <div>
+                  <textarea
+                    v-if="batchUpdateForm.tags_mode !== 'clear'"
+                    v-model="batchUpdateForm.tags"
+                    rows="3"
+                    class="input text-sm"
+                    :placeholder="t('keys.tagsPlaceholder')"
+                  />
+                  <p class="input-hint">
+                    {{
+                      batchUpdateForm.tags_mode === 'clear'
+                        ? t('keys.batchActions.clearTagsHint')
+                        : t('keys.batchActions.tagsHint')
+                    }}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </label>
 
         <label class="block rounded-lg border border-gray-200 p-3 dark:border-dark-700">
           <div class="flex items-start gap-3">
@@ -1565,6 +1660,7 @@ import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 import type {
   ApiKey,
   BatchApiKeyQuotaMode,
+  BatchApiKeyTagsMode,
   BatchCreateApiKeysResponse,
   BatchUpdateApiKeysRequest,
   Group,
@@ -1607,6 +1703,7 @@ const { copyToClipboard: clipboardCopy } = useClipboard()
 const columns = computed<Column[]>(() => [
   { key: 'select', label: '', sortable: false, class: 'w-12' },
   { key: 'name', label: t('common.name'), sortable: true },
+  { key: 'tags', label: t('keys.tags'), sortable: false },
   { key: 'key', label: t('keys.apiKey'), sortable: false },
   { key: 'group', label: t('keys.group'), sortable: false },
   { key: 'usage', label: t('keys.usage'), sortable: false },
@@ -1640,6 +1737,7 @@ const sortState = ref({
 
 // Filter state
 const filterSearch = ref('')
+const filterTags = ref('')
 const filterStatus = ref('')
 const filterGroupId = ref<string | number>('')
 
@@ -1684,6 +1782,7 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
 
 const formData = ref({
   name: '',
+  tags: '',
   group_id: null as number | null,
   status: 'active' as 'active' | 'inactive',
   use_custom_key: false,
@@ -1709,6 +1808,7 @@ const batchForm = ref({
   count: 10,
   name_template: '成员-{seq}',
   names: '',
+  tags: '',
   group_id: null as number | null,
   ip_whitelist: '',
   ip_blacklist: '',
@@ -1739,7 +1839,10 @@ const defaultBatchUpdateForm = () => ({
   reset_rate_limit_usage: false,
   update_ip_access_control: false,
   ip_whitelist: '',
-  ip_blacklist: ''
+  ip_blacklist: '',
+  update_tags: false,
+  tags_mode: 'add' as BatchApiKeyTagsMode,
+  tags: ''
 })
 
 const batchUpdateForm = ref(defaultBatchUpdateForm())
@@ -1767,6 +1870,39 @@ const batchNameError = computed(() => {
   }
   return ''
 })
+
+const visibleTagLimit = 3
+const visibleTags = (tags: string[]) => tags.slice(0, visibleTagLimit)
+const apiKeyTagMaxLength = 40
+const apiKeyTagsMaxCount = 20
+
+const parseTagList = (text: string): string[] => {
+  const seen = new Set<string>()
+  const tags: string[] = []
+  text
+    .split(/[,\n\r]+/)
+    .map((tag) => tag.trim().toLowerCase())
+    .filter((tag) => tag.length > 0)
+    .forEach((tag) => {
+      if (!seen.has(tag)) {
+        seen.add(tag)
+        tags.push(tag)
+      }
+    })
+  return tags
+}
+
+const validateTagList = (tags: string[]): boolean => {
+  if (tags.length > apiKeyTagsMaxCount) {
+    appStore.showError(t('keys.tagsTooMany', { count: apiKeyTagsMaxCount }))
+    return false
+  }
+  if (tags.some((tag) => Array.from(tag).length > apiKeyTagMaxLength)) {
+    appStore.showError(t('keys.tagTooLong', { count: apiKeyTagMaxLength }))
+    return false
+  }
+  return true
+}
 
 const selectedKeyIdList = computed(() => Array.from(selectedKeyIds.value))
 const selectedKeyCount = computed(() => selectedKeyIds.value.size)
@@ -1935,10 +2071,14 @@ const loadApiKeys = async () => {
       search?: string
       status?: string
       group_id?: number | string
+      tags?: string
       sort_by?: string
       sort_order?: 'asc' | 'desc'
     } = {}
     if (filterSearch.value) filters.search = filterSearch.value
+    const tagFilters = parseTagList(filterTags.value)
+    if (!validateTagList(tagFilters)) return
+    if (tagFilters.length > 0) filters.tags = tagFilters.join(',')
     if (filterStatus.value) filters.status = filterStatus.value
     if (filterGroupId.value !== '') filters.group_id = filterGroupId.value
     filters.sort_by = sortState.value.sort_by
@@ -2038,6 +2178,7 @@ const editKey = (key: ApiKey) => {
   const hasExpiration = !!key.expires_at
   formData.value = {
     name: key.name,
+    tags: (key.tags || []).join(', '),
     group_id: key.group_id,
     status: key.status === 'quota_exhausted' || key.status === 'expired' ? 'inactive' : key.status,
     use_custom_key: false,
@@ -2145,6 +2286,7 @@ const resetBatchForm = () => {
     count: 10,
     name_template: '成员-{seq}',
     names: '',
+    tags: '',
     group_id: null,
     ip_whitelist: '',
     ip_blacklist: '',
@@ -2167,6 +2309,7 @@ const handleBatchCreate = async () => {
 
   const payload = {
     group_id: batchForm.value.group_id,
+    tags: parseTagList(batchForm.value.tags),
     ip_whitelist: parseIPList(batchForm.value.ip_whitelist),
     ip_blacklist: parseIPList(batchForm.value.ip_blacklist),
     quota: positiveNumberOrUndefined(batchForm.value.quota),
@@ -2174,6 +2317,9 @@ const handleBatchCreate = async () => {
     rate_limit_5h: positiveNumberOrUndefined(batchForm.value.rate_limit_5h),
     rate_limit_1d: positiveNumberOrUndefined(batchForm.value.rate_limit_1d),
     rate_limit_7d: positiveNumberOrUndefined(batchForm.value.rate_limit_7d)
+  }
+  if (!validateTagList(payload.tags)) {
+    return
   }
 
   if (batchForm.value.mode === 'template') {
@@ -2232,6 +2378,7 @@ const batchResultCsv = computed(() => {
   const headers = [
     'name',
     'key',
+    'tags',
     'group',
     'quota',
     'expires_at',
@@ -2247,6 +2394,7 @@ const batchResultCsv = computed(() => {
     ...rows.map((key) => [
       key.name,
       key.key,
+      (key.tags || []).join(';'),
       key.group?.name || '',
       key.quota > 0 ? key.quota : '',
       key.expires_at || '',
@@ -2289,7 +2437,8 @@ const batchUpdateHasFields = () =>
   batchUpdateForm.value.update_expiration ||
   batchUpdateForm.value.update_rate_limit ||
   batchUpdateForm.value.reset_rate_limit_usage ||
-  batchUpdateForm.value.update_ip_access_control
+  batchUpdateForm.value.update_ip_access_control ||
+  batchUpdateForm.value.update_tags
 
 const localDateTimeToISOString = (value: string): string | null => {
   if (!value) return null
@@ -2359,6 +2508,22 @@ const handleBatchUpdate = async () => {
     payload.ip_whitelist = parseIPList(batchUpdateForm.value.ip_whitelist)
     payload.ip_blacklist = parseIPList(batchUpdateForm.value.ip_blacklist)
   }
+  if (batchUpdateForm.value.update_tags) {
+    const tags = parseTagList(batchUpdateForm.value.tags)
+    if (!validateTagList(tags)) {
+      return
+    }
+    if (
+      (batchUpdateForm.value.tags_mode === 'add' || batchUpdateForm.value.tags_mode === 'remove') &&
+      tags.length === 0
+    ) {
+      appStore.showError(t('keys.batchActions.tagsRequired'))
+      return
+    }
+    payload.update_tags = true
+    payload.tags_mode = batchUpdateForm.value.tags_mode
+    payload.tags = batchUpdateForm.value.tags_mode === 'clear' ? [] : tags
+  }
 
   batchActionSubmitting.value = true
   try {
@@ -2417,6 +2582,10 @@ const handleSubmit = async () => {
 
   const ipWhitelist = formData.value.enable_ip_restriction ? parseIPList(formData.value.ip_whitelist) : []
   const ipBlacklist = formData.value.enable_ip_restriction ? parseIPList(formData.value.ip_blacklist) : []
+  const tags = parseTagList(formData.value.tags)
+  if (!validateTagList(tags)) {
+    return
+  }
 
   // Calculate quota value (null/empty/0 = unlimited, stored as 0)
   const quota = formData.value.quota && formData.value.quota > 0 ? formData.value.quota : 0
@@ -2452,6 +2621,7 @@ const handleSubmit = async () => {
     if (showEditModal.value && selectedKey.value) {
       await keysAPI.update(selectedKey.value.id, {
         name: formData.value.name,
+        tags,
         group_id: formData.value.group_id,
         status: formData.value.status,
         ip_whitelist: ipWhitelist,
@@ -2473,7 +2643,8 @@ const handleSubmit = async () => {
         ipBlacklist,
         quota,
         expiresInDays,
-        rateLimitData
+        rateLimitData,
+        tags
       )
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       // Only advance tour if active, on submit step, and creation succeeded
@@ -2518,6 +2689,7 @@ const closeModals = () => {
   selectedKey.value = null
   formData.value = {
     name: '',
+    tags: '',
     group_id: null,
     status: 'active',
     use_custom_key: false,

@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -44,6 +45,7 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 		SetUserID(key.UserID).
 		SetKey(key.Key).
 		SetName(key.Name).
+		SetTags(key.Tags).
 		SetStatus(key.Status).
 		SetNillableGroupID(key.GroupID).
 		SetNillableLastUsedAt(key.LastUsedAt).
@@ -239,6 +241,7 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey) erro
 	builder := client.APIKey.Update().
 		Where(apikey.IDEQ(key.ID), apikey.DeletedAtIsNil()).
 		SetName(key.Name).
+		SetTags(key.Tags).
 		SetStatus(key.Status).
 		SetQuota(key.Quota).
 		SetQuotaUsed(key.QuotaUsed).
@@ -405,6 +408,15 @@ func (r *apiKeyRepository) deleteWithAudit(ctx context.Context, exec *dbent.Clie
 	return nil
 }
 
+func apiKeyTagsContainAll(tags []string) func(*entsql.Selector) {
+	return func(s *entsql.Selector) {
+		for _, tag := range tags {
+			encoded, _ := json.Marshal([]string{tag})
+			s.Where(entsql.ExprP(fmt.Sprintf("%s @> ?::jsonb", s.C(apikey.FieldTags)), string(encoded)))
+		}
+	}
+}
+
 func (r *apiKeyRepository) ListByUserID(ctx context.Context, userID int64, params pagination.PaginationParams, filters service.APIKeyListFilters) ([]service.APIKey, *pagination.PaginationResult, error) {
 	q := r.activeQuery().Where(apikey.UserIDEQ(userID))
 
@@ -424,6 +436,9 @@ func (r *apiKeyRepository) ListByUserID(ctx context.Context, userID int64, param
 		} else {
 			q = q.Where(apikey.GroupIDEQ(*filters.GroupID))
 		}
+	}
+	if len(filters.Tags) > 0 {
+		q = q.Where(apiKeyTagsContainAll(filters.Tags))
 	}
 
 	total, err := q.Count(ctx)
@@ -745,6 +760,7 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		UserID:        m.UserID,
 		Key:           m.Key,
 		Name:          m.Name,
+		Tags:          append([]string(nil), m.Tags...),
 		Status:        m.Status,
 		IPWhitelist:   m.IPWhitelist,
 		IPBlacklist:   m.IPBlacklist,

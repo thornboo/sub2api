@@ -41,6 +41,12 @@ func (APIKey) Fields() []ent.Field {
 		field.String("name").
 			MaxLen(100).
 			NotEmpty(),
+		field.JSON("tags", []string{}).
+			Default([]string{}).
+			SchemaType(map[string]string{
+				dialect.Postgres: "jsonb",
+			}).
+			Comment("owner-managed tags for grouping API keys"),
 		field.Int64("group_id").
 			Optional().
 			Nillable(),

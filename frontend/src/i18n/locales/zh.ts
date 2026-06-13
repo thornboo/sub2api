@@ -849,6 +849,14 @@ export default {
     title: 'API 密钥',
     description: '管理您的 API 密钥和访问令牌',
     searchPlaceholder: '搜索名称或Key...',
+    tagFilterPlaceholder: '按标签筛选...',
+    tags: '标签',
+    tagsLabel: '标签',
+    tagsPlaceholder: 'member-a, project-x',
+    tagsHint: '用逗号或换行分隔，最多 20 个，每个不超过 40 个字符。',
+    noTags: '无标签',
+    tagsTooMany: '标签最多 {count} 个',
+    tagTooLong: '单个标签不能超过 {count} 个字符',
     endpoints: {
       title: 'API 端点',
       default: '默认',
@@ -889,6 +897,7 @@ export default {
       namesRequired: '请输入至少一个密钥名称',
       namesDuplicate: '名称列表中存在重复名称',
       nameTooLong: '密钥名称不能超过 100 个字符',
+      tagsHint: '本次创建的每个密钥都会写入相同标签。',
       unlimited: '无限制'
     },
     batchActions: {
@@ -911,11 +920,15 @@ export default {
       noFields: '请至少选择一个要修改的字段',
       addQuotaRequired: '追加额度必须大于 0',
       expirationRequired: '请选择有效的过期时间',
+      tagsRequired: '请输入至少一个标签',
       clearGroup: '清空分组',
       resetRateUsage: '同时清零当前限速窗口用量',
+      tagsHint: '用逗号或换行分隔标签。',
+      clearTagsHint: '会清空已选择密钥上的全部标签。',
       fields: {
         group: '分组',
         status: '状态',
+        tags: '标签',
         quota: '额度',
         expiration: '过期时间',
         rateLimit: '限速',
@@ -929,6 +942,12 @@ export default {
       expirationModes: {
         clear: '永久有效',
         set: '设置过期时间'
+      },
+      tagModes: {
+        add: '追加标签',
+        set: '覆盖为这些标签',
+        remove: '移除标签',
+        clear: '清空全部标签'
       }
     },
     editKey: '编辑密钥',

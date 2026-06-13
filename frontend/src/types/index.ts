@@ -567,6 +567,7 @@ export interface ApiKey {
   user_id: number
   key: string
   name: string
+  tags: string[]
   group_id: number | null
   status: 'active' | 'inactive' | 'quota_exhausted' | 'expired'
   ip_whitelist: string[]
@@ -594,6 +595,7 @@ export interface ApiKey {
 
 export interface CreateApiKeyRequest {
   name: string
+  tags?: string[]
   group_id?: number | null
   custom_key?: string // Optional custom API Key
   ip_whitelist?: string[]
@@ -609,6 +611,7 @@ export interface BatchCreateApiKeysRequest {
   count?: number
   name_template?: string
   names?: string[]
+  tags?: string[]
   group_id?: number | null
   ip_whitelist?: string[]
   ip_blacklist?: string[]
@@ -627,6 +630,7 @@ export interface BatchCreateApiKeysResponse {
 }
 
 export type BatchApiKeyQuotaMode = 'set' | 'add' | 'unlimited'
+export type BatchApiKeyTagsMode = 'set' | 'add' | 'remove' | 'clear'
 
 export interface BatchUpdateApiKeysRequest {
   ids: number[]
@@ -647,6 +651,9 @@ export interface BatchUpdateApiKeysRequest {
   update_ip_access_control?: boolean
   ip_whitelist?: string[]
   ip_blacklist?: string[]
+  update_tags?: boolean
+  tags_mode?: BatchApiKeyTagsMode
+  tags?: string[]
 }
 
 export interface BatchUpdateApiKeysResponse {
@@ -687,6 +694,7 @@ export interface PublicApiKeyStatus {
 
 export interface UpdateApiKeyRequest {
   name?: string
+  tags?: string[]
   group_id?: number | null
   status?: 'active' | 'inactive'
   ip_whitelist?: string[]

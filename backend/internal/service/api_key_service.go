@@ -31,6 +31,7 @@ var (
 	ErrAPIKeyRateLimited   = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
 	ErrInvalidIPPattern    = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
 	ErrAPIKeyBatchInvalid  = infraerrors.BadRequest("API_KEY_BATCH_INVALID", "invalid api key batch create request")
+	ErrAPIKeyTagsInvalid   = infraerrors.BadRequest("API_KEY_TAGS_INVALID", "invalid api key tags")
 	ErrAPIKeyBatchTooLarge = infraerrors.BadRequest(
 		"API_KEY_BATCH_TOO_LARGE",
 		"api key batch count exceeds the allowed limit",
@@ -180,6 +181,7 @@ type APIKeyAuthCacheInvalidator interface {
 // CreateAPIKeyRequest 创建API Key请求
 type CreateAPIKeyRequest struct {
 	Name        string   `json:"name"`
+	Tags        []string `json:"tags"`
 	GroupID     *int64   `json:"group_id"`
 	CustomKey   *string  `json:"custom_key"`   // 可选的自定义key
 	IPWhitelist []string `json:"ip_whitelist"` // IP 白名单
@@ -197,11 +199,12 @@ type CreateAPIKeyRequest struct {
 
 // UpdateAPIKeyRequest 更新API Key请求
 type UpdateAPIKeyRequest struct {
-	Name        *string  `json:"name"`
-	GroupID     *int64   `json:"group_id"`
-	Status      *string  `json:"status"`
-	IPWhitelist []string `json:"ip_whitelist"` // IP 白名单（空数组清空）
-	IPBlacklist []string `json:"ip_blacklist"` // IP 黑名单（空数组清空）
+	Name        *string   `json:"name"`
+	Tags        *[]string `json:"tags"`
+	GroupID     *int64    `json:"group_id"`
+	Status      *string   `json:"status"`
+	IPWhitelist []string  `json:"ip_whitelist"` // IP 白名单（空数组清空）
+	IPBlacklist []string  `json:"ip_blacklist"` // IP 黑名单（空数组清空）
 
 	// Quota fields
 	Quota           *float64   `json:"quota"`       // Quota limit in USD (nil = no change, 0 = unlimited)
@@ -351,6 +354,66 @@ func validateAPIKeySpendingLimits(quota, rate5h, rate1d, rate7d float64) error {
 	return nil
 }
 
+func normalizeAPIKeyTags(tags []string) ([]string, error) {
+	if len(tags) == 0 {
+		return []string{}, nil
+	}
+
+	seen := make(map[string]struct{}, len(tags))
+	out := make([]string, 0, len(tags))
+	for _, raw := range tags {
+		tag := strings.ToLower(strings.TrimSpace(raw))
+		if tag == "" {
+			continue
+		}
+		if len([]rune(tag)) > APIKeyTagMaxLength {
+			return nil, ErrAPIKeyTagsInvalid.WithMetadata(map[string]string{"field": "tags"})
+		}
+		if _, ok := seen[tag]; ok {
+			continue
+		}
+		seen[tag] = struct{}{}
+		out = append(out, tag)
+	}
+	if len(out) > DefaultAPIKeyTagsMaxCount {
+		return nil, ErrAPIKeyTagsInvalid.WithMetadata(map[string]string{
+			"field":     "tags",
+			"max_count": strconv.Itoa(DefaultAPIKeyTagsMaxCount),
+		})
+	}
+	return out, nil
+}
+
+func applyAPIKeyTagsMode(current []string, mode string, tags []string) []string {
+	normalizedCurrent, _ := normalizeAPIKeyTags(current)
+	switch mode {
+	case APIKeyBatchTagsModeSet:
+		return append([]string(nil), tags...)
+	case APIKeyBatchTagsModeClear:
+		return []string{}
+	case APIKeyBatchTagsModeAdd:
+		merged := make([]string, 0, len(normalizedCurrent)+len(tags))
+		merged = append(merged, normalizedCurrent...)
+		merged = append(merged, tags...)
+		out, _ := normalizeAPIKeyTags(merged)
+		return out
+	case APIKeyBatchTagsModeRemove:
+		remove := make(map[string]struct{}, len(tags))
+		for _, tag := range tags {
+			remove[tag] = struct{}{}
+		}
+		out := make([]string, 0, len(normalizedCurrent))
+		for _, tag := range normalizedCurrent {
+			if _, ok := remove[tag]; !ok {
+				out = append(out, tag)
+			}
+		}
+		return out
+	default:
+		return normalizedCurrent
+	}
+}
+
 func validateBatchAPIKeyName(name string, seen map[string]struct{}) error {
 	if name == "" || len([]rune(name)) > apiKeyNameMaxLength {
 		return ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "names"})
@@ -432,6 +495,11 @@ func (s *APIKeyService) BatchCreate(ctx context.Context, userID int64, req Batch
 	if err := validateAPIKeyIPLists(req.IPWhitelist, req.IPBlacklist); err != nil {
 		return nil, err
 	}
+	tags, err := normalizeAPIKeyTags(req.Tags)
+	if err != nil {
+		return nil, err
+	}
+	req.Tags = tags
 
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
@@ -472,6 +540,7 @@ func (s *APIKeyService) BatchCreate(ctx context.Context, userID int64, req Batch
 					UserID:      userID,
 					Key:         key,
 					Name:        html.EscapeString(name),
+					Tags:        req.Tags,
 					GroupID:     req.GroupID,
 					Status:      StatusActive,
 					IPWhitelist: req.IPWhitelist,
@@ -570,7 +639,8 @@ func validateBatchUpdateRequest(req BatchUpdateAPIKeysRequest) error {
 		req.UpdateExpiration ||
 		req.UpdateRateLimit ||
 		req.ResetRateLimitUsage ||
-		req.UpdateIPAccessControl
+		req.UpdateIPAccessControl ||
+		req.UpdateTags
 	if !hasUpdate {
 		return ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "updates"})
 	}
@@ -600,6 +670,17 @@ func validateBatchUpdateRequest(req BatchUpdateAPIKeysRequest) error {
 	if req.UpdateIPAccessControl {
 		if err := validateAPIKeyIPLists(req.IPWhitelist, req.IPBlacklist); err != nil {
 			return err
+		}
+	}
+	if req.UpdateTags {
+		switch req.TagsMode {
+		case APIKeyBatchTagsModeSet, APIKeyBatchTagsModeClear:
+		case APIKeyBatchTagsModeAdd, APIKeyBatchTagsModeRemove:
+			if len(req.Tags) == 0 {
+				return ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "tags"})
+			}
+		default:
+			return ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "tags_mode"})
 		}
 	}
 	return nil
@@ -654,6 +735,9 @@ func applyBatchAPIKeyUpdate(key *APIKey, req BatchUpdateAPIKeysRequest, now time
 		key.IPWhitelist = req.IPWhitelist
 		key.IPBlacklist = req.IPBlacklist
 	}
+	if req.UpdateTags {
+		key.Tags = applyAPIKeyTagsMode(key.Tags, req.TagsMode, req.Tags)
+	}
 	return resetRateLimit
 }
 
@@ -661,6 +745,13 @@ func (s *APIKeyService) BatchUpdate(ctx context.Context, userID int64, req Batch
 	ids, err := normalizeAPIKeyBatchIDs(req.IDs)
 	if err != nil {
 		return nil, err
+	}
+	if req.UpdateTags {
+		tags, err := normalizeAPIKeyTags(req.Tags)
+		if err != nil {
+			return nil, err
+		}
+		req.Tags = tags
 	}
 	if err := validateBatchUpdateRequest(req); err != nil {
 		return nil, err
@@ -958,6 +1049,10 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 			return nil, ErrGroupNotAllowed
 		}
 	}
+	tags, err := normalizeAPIKeyTags(req.Tags)
+	if err != nil {
+		return nil, err
+	}
 
 	var key string
 
@@ -999,6 +1094,7 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		UserID:      userID,
 		Key:         key,
 		Name:        html.EscapeString(req.Name),
+		Tags:        tags,
 		GroupID:     req.GroupID,
 		Status:      StatusActive,
 		IPWhitelist: req.IPWhitelist,
@@ -1028,6 +1124,13 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 
 // List 获取用户的API Key列表
 func (s *APIKeyService) List(ctx context.Context, userID int64, params pagination.PaginationParams, filters APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error) {
+	if len(filters.Tags) > 0 {
+		tags, err := normalizeAPIKeyTags(filters.Tags)
+		if err != nil {
+			return nil, nil, err
+		}
+		filters.Tags = tags
+	}
 	keys, pagination, err := s.apiKeyRepo.ListByUserID(ctx, userID, params, filters)
 	if err != nil {
 		return nil, nil, fmt.Errorf("list api keys: %w", err)
@@ -1165,6 +1268,13 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		if s.cache != nil {
 			_ = s.cache.DeleteCreateAttemptCount(ctx, apiKey.UserID)
 		}
+	}
+	if req.Tags != nil {
+		tags, err := normalizeAPIKeyTags(*req.Tags)
+		if err != nil {
+			return nil, err
+		}
+		apiKey.Tags = tags
 	}
 
 	// Update quota fields

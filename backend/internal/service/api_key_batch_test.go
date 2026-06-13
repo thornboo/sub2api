@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -302,6 +303,91 @@ func TestAPIKeyServiceBatchUpdate_AddQuotaDedupesIDs(t *testing.T) {
 	}
 	if repo.updated[0].Quota != 15 {
 		t.Fatalf("updated quota = %v, want 15", repo.updated[0].Quota)
+	}
+}
+
+func TestNormalizeAPIKeyTags_LowercasesDedupesAndRejectsLimits(t *testing.T) {
+	got, err := normalizeAPIKeyTags([]string{" Team-A ", "team-a", "Project-X"})
+	if err != nil {
+		t.Fatalf("normalizeAPIKeyTags returned error: %v", err)
+	}
+	want := []string{"team-a", "project-x"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tags = %#v, want %#v", got, want)
+	}
+
+	_, err = normalizeAPIKeyTags([]string{strings.Repeat("x", APIKeyTagMaxLength+1)})
+	if !errors.Is(err, ErrAPIKeyTagsInvalid) {
+		t.Fatalf("overlong tag error = %v, want ErrAPIKeyTagsInvalid", err)
+	}
+
+	tooMany := make([]string, DefaultAPIKeyTagsMaxCount+1)
+	for i := range tooMany {
+		tooMany[i] = "tag-" + string(rune('a'+i))
+	}
+	_, err = normalizeAPIKeyTags(tooMany)
+	if !errors.Is(err, ErrAPIKeyTagsInvalid) {
+		t.Fatalf("too many tags error = %v, want ErrAPIKeyTagsInvalid", err)
+	}
+}
+
+func TestAPIKeyServiceBatchUpdate_TagModes(t *testing.T) {
+	repo := &batchCreateAPIKeyRepoStub{
+		keysByID: map[int64]APIKey{
+			1: {ID: 1, UserID: 42, Key: "sk-1", Status: StatusActive, Tags: []string{"existing", "legacy"}},
+		},
+	}
+	svc := NewAPIKeyService(repo, nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.BatchUpdate(context.Background(), 42, BatchUpdateAPIKeysRequest{
+		IDs:        []int64{1},
+		UpdateTags: true,
+		TagsMode:   APIKeyBatchTagsModeAdd,
+		Tags:       []string{"Project-X", "existing"},
+	})
+	if err != nil {
+		t.Fatalf("BatchUpdate add tags returned error: %v", err)
+	}
+	if got, want := repo.keysByID[1].Tags, []string{"existing", "legacy", "project-x"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("add tags = %#v, want %#v", got, want)
+	}
+
+	_, err = svc.BatchUpdate(context.Background(), 42, BatchUpdateAPIKeysRequest{
+		IDs:        []int64{1},
+		UpdateTags: true,
+		TagsMode:   APIKeyBatchTagsModeRemove,
+		Tags:       []string{"legacy"},
+	})
+	if err != nil {
+		t.Fatalf("BatchUpdate remove tags returned error: %v", err)
+	}
+	if got, want := repo.keysByID[1].Tags, []string{"existing", "project-x"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("remove tags = %#v, want %#v", got, want)
+	}
+
+	_, err = svc.BatchUpdate(context.Background(), 42, BatchUpdateAPIKeysRequest{
+		IDs:        []int64{1},
+		UpdateTags: true,
+		TagsMode:   APIKeyBatchTagsModeClear,
+	})
+	if err != nil {
+		t.Fatalf("BatchUpdate clear tags returned error: %v", err)
+	}
+	if got, want := repo.keysByID[1].Tags, []string{}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("clear tags = %#v, want %#v", got, want)
+	}
+
+	_, err = svc.BatchUpdate(context.Background(), 42, BatchUpdateAPIKeysRequest{
+		IDs:        []int64{1},
+		UpdateTags: true,
+		TagsMode:   APIKeyBatchTagsModeSet,
+		Tags:       []string{"Beta", "Alpha"},
+	})
+	if err != nil {
+		t.Fatalf("BatchUpdate set tags returned error: %v", err)
+	}
+	if got, want := repo.keysByID[1].Tags, []string{"beta", "alpha"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("set tags = %#v, want %#v", got, want)
 	}
 }
 

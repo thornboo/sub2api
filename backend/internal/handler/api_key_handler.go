@@ -31,6 +31,7 @@ func NewAPIKeyHandler(apiKeyService *service.APIKeyService) *APIKeyHandler {
 // CreateAPIKeyRequest represents the create API key request payload
 type CreateAPIKeyRequest struct {
 	Name          string   `json:"name" binding:"required"`
+	Tags          []string `json:"tags"`
 	GroupID       *int64   `json:"group_id"`        // nullable
 	CustomKey     *string  `json:"custom_key"`      // 可选的自定义key
 	IPWhitelist   []string `json:"ip_whitelist"`    // IP 白名单
@@ -48,6 +49,7 @@ type BatchCreateAPIKeysRequest struct {
 	Count         *int     `json:"count"`
 	NameTemplate  *string  `json:"name_template"`
 	Names         []string `json:"names"`
+	Tags          []string `json:"tags"`
 	GroupID       *int64   `json:"group_id"`
 	IPWhitelist   []string `json:"ip_whitelist"`
 	IPBlacklist   []string `json:"ip_blacklist"`
@@ -89,6 +91,9 @@ type BatchUpdateAPIKeysRequest struct {
 	UpdateIPAccessControl bool     `json:"update_ip_access_control"`
 	IPWhitelist           []string `json:"ip_whitelist"`
 	IPBlacklist           []string `json:"ip_blacklist"`
+	UpdateTags            bool     `json:"update_tags"`
+	TagsMode              string   `json:"tags_mode"`
+	Tags                  []string `json:"tags"`
 }
 
 type BatchUpdateAPIKeysResponse struct {
@@ -135,14 +140,15 @@ type PublicAPIKeyStatusResponse struct {
 
 // UpdateAPIKeyRequest represents the update API key request payload
 type UpdateAPIKeyRequest struct {
-	Name        string   `json:"name"`
-	GroupID     *int64   `json:"group_id"`
-	Status      string   `json:"status" binding:"omitempty,oneof=active inactive"`
-	IPWhitelist []string `json:"ip_whitelist"` // IP 白名单
-	IPBlacklist []string `json:"ip_blacklist"` // IP 黑名单
-	Quota       *float64 `json:"quota"`        // 配额限制 (USD), 0=无限制
-	ExpiresAt   *string  `json:"expires_at"`   // 过期时间 (ISO 8601)
-	ResetQuota  *bool    `json:"reset_quota"`  // 重置已用配额
+	Name        string    `json:"name"`
+	Tags        *[]string `json:"tags"`
+	GroupID     *int64    `json:"group_id"`
+	Status      string    `json:"status" binding:"omitempty,oneof=active inactive"`
+	IPWhitelist []string  `json:"ip_whitelist"` // IP 白名单
+	IPBlacklist []string  `json:"ip_blacklist"` // IP 黑名单
+	Quota       *float64  `json:"quota"`        // 配额限制 (USD), 0=无限制
+	ExpiresAt   *string   `json:"expires_at"`   // 过期时间 (ISO 8601)
+	ResetQuota  *bool     `json:"reset_quota"`  // 重置已用配额
 
 	// Rate limit fields (nil = no change, 0 = unlimited)
 	RateLimit5h         *float64 `json:"rate_limit_5h"`
@@ -172,6 +178,21 @@ func redactBatchCreateResponseForIdempotency(data any) (any, error) {
 		redacted.Keys[i].Key = maskAPIKeyForIdempotencyReplay(resp.Keys[i].Key)
 	}
 	return &redacted, nil
+}
+
+func parseAPIKeyTagsParam(values ...string) []string {
+	tags := make([]string, 0)
+	for _, value := range values {
+		for _, tag := range strings.FieldsFunc(value, func(r rune) bool {
+			return r == ',' || r == '\n' || r == '\r'
+		}) {
+			tag = strings.TrimSpace(tag)
+			if tag != "" {
+				tags = append(tags, tag)
+			}
+		}
+	}
+	return tags
 }
 
 // List handles listing user's API keys with pagination
@@ -205,6 +226,12 @@ func (h *APIKeyHandler) List(c *gin.Context) {
 		if err == nil {
 			filters.GroupID = &gid
 		}
+	}
+	if rawTags := c.Query("tags"); rawTags != "" {
+		filters.Tags = append(filters.Tags, parseAPIKeyTagsParam(rawTags)...)
+	}
+	if repeatedTags := c.QueryArray("tag"); len(repeatedTags) > 0 {
+		filters.Tags = append(filters.Tags, parseAPIKeyTagsParam(repeatedTags...)...)
 	}
 
 	keys, result, err := h.apiKeyService.List(c.Request.Context(), subject.UserID, params, filters)
@@ -267,6 +294,7 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 
 	svcReq := service.CreateAPIKeyRequest{
 		Name:          req.Name,
+		Tags:          req.Tags,
 		GroupID:       req.GroupID,
 		CustomKey:     req.CustomKey,
 		IPWhitelist:   req.IPWhitelist,
@@ -313,6 +341,7 @@ func (h *APIKeyHandler) BatchCreate(c *gin.Context) {
 	svcReq := service.BatchCreateAPIKeysRequest{
 		NameTemplate:  req.NameTemplate,
 		Names:         req.Names,
+		Tags:          req.Tags,
 		GroupID:       req.GroupID,
 		IPWhitelist:   req.IPWhitelist,
 		IPBlacklist:   req.IPBlacklist,
@@ -392,6 +421,9 @@ func (h *APIKeyHandler) BatchUpdate(c *gin.Context) {
 		UpdateIPAccessControl: req.UpdateIPAccessControl,
 		IPWhitelist:           req.IPWhitelist,
 		IPBlacklist:           req.IPBlacklist,
+		UpdateTags:            req.UpdateTags,
+		TagsMode:              req.TagsMode,
+		Tags:                  req.Tags,
 	}
 	if req.UpdateExpiration && req.ExpiresAt != nil && strings.TrimSpace(*req.ExpiresAt) != "" {
 		t, err := time.Parse(time.RFC3339, *req.ExpiresAt)
@@ -497,6 +529,7 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 	}
 
 	svcReq := service.UpdateAPIKeyRequest{
+		Tags:                req.Tags,
 		IPWhitelist:         req.IPWhitelist,
 		IPBlacklist:         req.IPBlacklist,
 		Quota:               req.Quota,

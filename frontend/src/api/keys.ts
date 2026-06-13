@@ -40,6 +40,7 @@ export async function list(
     search?: string
     status?: string
     group_id?: number | string
+    tags?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
   },
@@ -84,9 +85,13 @@ export async function create(
   ipBlacklist?: string[],
   quota?: number,
   expiresInDays?: number,
-  rateLimitData?: { rate_limit_5h?: number; rate_limit_1d?: number; rate_limit_7d?: number }
+  rateLimitData?: { rate_limit_5h?: number; rate_limit_1d?: number; rate_limit_7d?: number },
+  tags?: string[]
 ): Promise<ApiKey> {
   const payload: CreateApiKeyRequest = { name }
+  if (tags && tags.length > 0) {
+    payload.tags = tags
+  }
   if (groupId !== undefined) {
     payload.group_id = groupId
   }

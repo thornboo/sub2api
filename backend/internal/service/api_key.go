@@ -24,6 +24,8 @@ const (
 const (
 	DefaultAPIKeyBatchCreateMaxCount = 200
 	HardAPIKeyBatchCreateMaxCount    = 500
+	DefaultAPIKeyTagsMaxCount        = 20
+	APIKeyTagMaxLength               = 40
 )
 
 // IsWindowExpired returns true if the window starting at windowStart has exceeded the given duration.
@@ -37,6 +39,7 @@ type APIKey struct {
 	UserID      int64
 	Key         string
 	Name        string
+	Tags        []string
 	GroupID     *int64
 	Status      string
 	IPWhitelist []string
@@ -145,12 +148,14 @@ type APIKeyListFilters struct {
 	Search  string
 	Status  string
 	GroupID *int64 // nil=不筛选, 0=无分组, >0=指定分组
+	Tags    []string
 }
 
 type BatchCreateAPIKeysRequest struct {
 	Count        int
 	NameTemplate *string
 	Names        []string
+	Tags         []string
 	GroupID      *int64
 	IPWhitelist  []string
 	IPBlacklist  []string
@@ -175,6 +180,13 @@ const (
 	APIKeyBatchQuotaModeUnlimited = "unlimited"
 )
 
+const (
+	APIKeyBatchTagsModeSet    = "set"
+	APIKeyBatchTagsModeAdd    = "add"
+	APIKeyBatchTagsModeRemove = "remove"
+	APIKeyBatchTagsModeClear  = "clear"
+)
+
 type BatchUpdateAPIKeysRequest struct {
 	IDs []int64
 
@@ -191,14 +203,18 @@ type BatchUpdateAPIKeysRequest struct {
 	UpdateExpiration bool
 	ExpiresAt        *time.Time
 
-	UpdateRateLimit      bool
-	RateLimit5h          float64
-	RateLimit1d          float64
-	RateLimit7d          float64
-	ResetRateLimitUsage  bool
+	UpdateRateLimit       bool
+	RateLimit5h           float64
+	RateLimit1d           float64
+	RateLimit7d           float64
+	ResetRateLimitUsage   bool
 	UpdateIPAccessControl bool
-	IPWhitelist          []string
-	IPBlacklist          []string
+	IPWhitelist           []string
+	IPBlacklist           []string
+
+	UpdateTags bool
+	TagsMode   string
+	Tags       []string
 }
 
 type BatchUpdateAPIKeysResult struct {
