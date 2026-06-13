@@ -26,6 +26,12 @@ const (
 	HardAPIKeyBatchCreateMaxCount    = 500
 	DefaultAPIKeyTagsMaxCount        = 20
 	APIKeyTagMaxLength               = 40
+	APIKeyTagOptionsMaxCount         = 500
+)
+
+const (
+	APIKeyBatchApplyToSelected = "selected"
+	APIKeyBatchApplyToFiltered = "filtered"
 )
 
 // IsWindowExpired returns true if the window starting at windowStart has exceeded the given duration.
@@ -151,6 +157,13 @@ type APIKeyListFilters struct {
 	Tags    []string
 }
 
+type APIKeyBatchFilters struct {
+	Search  string
+	Status  string
+	GroupID *int64
+	Tags    []string
+}
+
 type BatchCreateAPIKeysRequest struct {
 	Count        int
 	NameTemplate *string
@@ -188,7 +201,9 @@ const (
 )
 
 type BatchUpdateAPIKeysRequest struct {
-	IDs []int64
+	IDs     []int64
+	ApplyTo string
+	Filters APIKeyBatchFilters
 
 	UpdateGroup bool
 	GroupID     *int64
@@ -222,7 +237,9 @@ type BatchUpdateAPIKeysResult struct {
 }
 
 type BatchDeleteAPIKeysRequest struct {
-	IDs []int64
+	IDs     []int64
+	ApplyTo string
+	Filters APIKeyBatchFilters
 }
 
 type BatchDeleteAPIKeysResult struct {

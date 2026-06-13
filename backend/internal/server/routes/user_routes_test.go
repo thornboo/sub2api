@@ -53,3 +53,14 @@ func TestUserRoutesAPIKeyBatchPathsAreRegisteredBeforeIDRoute(t *testing.T) {
 		require.NotEqual(t, http.StatusNotFound, w.Code, path)
 	}
 }
+
+func TestUserRoutesAPIKeyTagOptionsPathIsRegisteredBeforeIDRoute(t *testing.T) {
+	router := newUserRoutesTestRouter()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/keys/tags", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	require.NotEqual(t, http.StatusNotFound, w.Code)
+}

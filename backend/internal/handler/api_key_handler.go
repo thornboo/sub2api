@@ -67,8 +67,17 @@ type BatchCreateAPIKeysResponse struct {
 	PlaintextAvailable bool         `json:"plaintext_available"`
 }
 
+type APIKeyBatchFiltersRequest struct {
+	Search  string   `json:"search"`
+	Status  string   `json:"status"`
+	GroupID *int64   `json:"group_id"`
+	Tags    []string `json:"tags"`
+}
+
 type BatchUpdateAPIKeysRequest struct {
-	IDs []int64 `json:"ids" binding:"required,min=1"`
+	IDs     []int64                   `json:"ids"`
+	ApplyTo string                    `json:"apply_to"`
+	Filters APIKeyBatchFiltersRequest `json:"filters"`
 
 	UpdateGroup bool   `json:"update_group"`
 	GroupID     *int64 `json:"group_id"`
@@ -101,7 +110,9 @@ type BatchUpdateAPIKeysResponse struct {
 }
 
 type BatchDeleteAPIKeysRequest struct {
-	IDs []int64 `json:"ids" binding:"required,min=1"`
+	IDs     []int64                   `json:"ids"`
+	ApplyTo string                    `json:"apply_to"`
+	Filters APIKeyBatchFiltersRequest `json:"filters"`
 }
 
 type BatchDeleteAPIKeysResponse struct {
@@ -195,6 +206,15 @@ func parseAPIKeyTagsParam(values ...string) []string {
 	return tags
 }
 
+func apiKeyBatchFiltersRequestToService(req APIKeyBatchFiltersRequest) service.APIKeyBatchFilters {
+	return service.APIKeyBatchFilters{
+		Search:  req.Search,
+		Status:  req.Status,
+		GroupID: req.GroupID,
+		Tags:    req.Tags,
+	}
+}
+
 // List handles listing user's API keys with pagination
 // GET /api/v1/api-keys
 func (h *APIKeyHandler) List(c *gin.Context) {
@@ -245,6 +265,23 @@ func (h *APIKeyHandler) List(c *gin.Context) {
 		out = append(out, *dto.APIKeyFromService(&keys[i]))
 	}
 	response.Paginated(c, out, result.Total, page, pageSize)
+}
+
+// ListTags handles listing distinct API key tags for the current user.
+// GET /api/v1/keys/tags
+func (h *APIKeyHandler) ListTags(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	tags, err := h.apiKeyService.ListTags(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"tags": tags})
 }
 
 // GetByID handles getting a single API key
@@ -405,6 +442,8 @@ func (h *APIKeyHandler) BatchUpdate(c *gin.Context) {
 
 	svcReq := service.BatchUpdateAPIKeysRequest{
 		IDs:                   req.IDs,
+		ApplyTo:               req.ApplyTo,
+		Filters:               apiKeyBatchFiltersRequestToService(req.Filters),
 		UpdateGroup:           req.UpdateGroup,
 		GroupID:               req.GroupID,
 		UpdateStatus:          req.UpdateStatus,
@@ -459,7 +498,11 @@ func (h *APIKeyHandler) BatchDelete(c *gin.Context) {
 	}
 
 	executeUserIdempotentJSON(c, "user.api_keys.batch_delete", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
-		result, err := h.apiKeyService.BatchDelete(ctx, subject.UserID, service.BatchDeleteAPIKeysRequest{IDs: req.IDs})
+		result, err := h.apiKeyService.BatchDelete(ctx, subject.UserID, service.BatchDeleteAPIKeysRequest{
+			IDs:     req.IDs,
+			ApplyTo: req.ApplyTo,
+			Filters: apiKeyBatchFiltersRequestToService(req.Filters),
+		})
 		if err != nil {
 			return nil, err
 		}

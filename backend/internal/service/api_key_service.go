@@ -80,6 +80,7 @@ type APIKeyRepository interface {
 
 	ListByUserID(ctx context.Context, userID int64, params pagination.PaginationParams, filters APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error)
 	ListByIDsForUser(ctx context.Context, userID int64, ids []int64) ([]APIKey, error)
+	ListTagsByUserID(ctx context.Context, userID int64, limit int) ([]string, error)
 	VerifyOwnership(ctx context.Context, userID int64, apiKeyIDs []int64) ([]int64, error)
 	CountByUserID(ctx context.Context, userID int64) (int64, error)
 	ExistsByKey(ctx context.Context, key string) (bool, error)
@@ -612,6 +613,99 @@ func normalizeAPIKeyBatchIDs(ids []int64) ([]int64, error) {
 	return out, nil
 }
 
+func normalizeAPIKeyBatchApplyTo(applyTo string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(applyTo)) {
+	case "", APIKeyBatchApplyToSelected:
+		return APIKeyBatchApplyToSelected, nil
+	case APIKeyBatchApplyToFiltered:
+		return APIKeyBatchApplyToFiltered, nil
+	default:
+		return "", ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "apply_to"})
+	}
+}
+
+func normalizeAPIKeyBatchFilters(filters APIKeyBatchFilters) (APIKeyListFilters, error) {
+	search := strings.TrimSpace(filters.Search)
+	if len(search) > 100 {
+		search = search[:100]
+	}
+
+	status := strings.TrimSpace(filters.Status)
+	switch status {
+	case "", StatusAPIKeyActive, StatusAPIKeyDisabled, "inactive", StatusAPIKeyQuotaExhausted, StatusAPIKeyExpired:
+	default:
+		return APIKeyListFilters{}, ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "filters.status"})
+	}
+
+	if filters.GroupID != nil && *filters.GroupID < 0 {
+		return APIKeyListFilters{}, ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "filters.group_id"})
+	}
+
+	tags, err := normalizeAPIKeyTags(filters.Tags)
+	if err != nil {
+		return APIKeyListFilters{}, err
+	}
+
+	return APIKeyListFilters{
+		Search:  search,
+		Status:  status,
+		GroupID: filters.GroupID,
+		Tags:    tags,
+	}, nil
+}
+
+func hasAPIKeyBatchFilters(filters APIKeyListFilters) bool {
+	return filters.Search != "" ||
+		filters.Status != "" ||
+		filters.GroupID != nil ||
+		len(filters.Tags) > 0
+}
+
+func (s *APIKeyService) resolveAPIKeyBatchIDs(ctx context.Context, userID int64, ids []int64, applyTo string, filters APIKeyBatchFilters) ([]int64, error) {
+	mode, err := normalizeAPIKeyBatchApplyTo(applyTo)
+	if err != nil {
+		return nil, err
+	}
+	if mode == APIKeyBatchApplyToSelected {
+		return normalizeAPIKeyBatchIDs(ids)
+	}
+
+	listFilters, err := normalizeAPIKeyBatchFilters(filters)
+	if err != nil {
+		return nil, err
+	}
+	if !hasAPIKeyBatchFilters(listFilters) {
+		return nil, ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "filters"})
+	}
+
+	params := pagination.PaginationParams{
+		Page:      1,
+		PageSize:  HardAPIKeyBatchCreateMaxCount + 1,
+		SortBy:    "id",
+		SortOrder: pagination.SortOrderAsc,
+	}
+	keys, page, err := s.apiKeyRepo.ListByUserID(ctx, userID, params, listFilters)
+	if err != nil {
+		return nil, fmt.Errorf("list api keys for filtered batch: %w", err)
+	}
+	if page != nil && page.Total > int64(HardAPIKeyBatchCreateMaxCount) {
+		return nil, ErrAPIKeyBatchTooLarge.WithMetadata(map[string]string{
+			"max_count": strconv.Itoa(HardAPIKeyBatchCreateMaxCount),
+		})
+	}
+	if len(keys) > HardAPIKeyBatchCreateMaxCount {
+		return nil, ErrAPIKeyBatchTooLarge.WithMetadata(map[string]string{
+			"max_count": strconv.Itoa(HardAPIKeyBatchCreateMaxCount),
+		})
+	}
+
+	out := make([]int64, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, key.ID)
+	}
+	return out, nil
+}
+
 func (s *APIKeyService) listOwnedAPIKeysForBatch(ctx context.Context, userID int64, ids []int64) (map[int64]APIKey, error) {
 	keys, err := s.apiKeyRepo.ListByIDsForUser(ctx, userID, ids)
 	if err != nil {
@@ -742,10 +836,6 @@ func applyBatchAPIKeyUpdate(key *APIKey, req BatchUpdateAPIKeysRequest, now time
 }
 
 func (s *APIKeyService) BatchUpdate(ctx context.Context, userID int64, req BatchUpdateAPIKeysRequest) (*BatchUpdateAPIKeysResult, error) {
-	ids, err := normalizeAPIKeyBatchIDs(req.IDs)
-	if err != nil {
-		return nil, err
-	}
 	if req.UpdateTags {
 		tags, err := normalizeAPIKeyTags(req.Tags)
 		if err != nil {
@@ -755,6 +845,13 @@ func (s *APIKeyService) BatchUpdate(ctx context.Context, userID int64, req Batch
 	}
 	if err := validateBatchUpdateRequest(req); err != nil {
 		return nil, err
+	}
+	ids, err := s.resolveAPIKeyBatchIDs(ctx, userID, req.IDs, req.ApplyTo, req.Filters)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return &BatchUpdateAPIKeysResult{Updated: 0}, nil
 	}
 
 	if req.UpdateGroup && req.GroupID != nil {
@@ -815,9 +912,12 @@ func (s *APIKeyService) BatchUpdate(ctx context.Context, userID int64, req Batch
 }
 
 func (s *APIKeyService) BatchDelete(ctx context.Context, userID int64, req BatchDeleteAPIKeysRequest) (*BatchDeleteAPIKeysResult, error) {
-	ids, err := normalizeAPIKeyBatchIDs(req.IDs)
+	ids, err := s.resolveAPIKeyBatchIDs(ctx, userID, req.IDs, req.ApplyTo, req.Filters)
 	if err != nil {
 		return nil, err
+	}
+	if len(ids) == 0 {
+		return &BatchDeleteAPIKeysResult{Deleted: 0}, nil
 	}
 	ownedKeys, err := s.listOwnedAPIKeysForBatch(ctx, userID, ids)
 	if err != nil {
@@ -1136,6 +1236,14 @@ func (s *APIKeyService) List(ctx context.Context, userID int64, params paginatio
 		return nil, nil, fmt.Errorf("list api keys: %w", err)
 	}
 	return keys, pagination, nil
+}
+
+func (s *APIKeyService) ListTags(ctx context.Context, userID int64) ([]string, error) {
+	tags, err := s.apiKeyRepo.ListTagsByUserID(ctx, userID, APIKeyTagOptionsMaxCount)
+	if err != nil {
+		return nil, fmt.Errorf("list api key tags: %w", err)
+	}
+	return tags, nil
 }
 
 func (s *APIKeyService) VerifyOwnership(ctx context.Context, userID int64, apiKeyIDs []int64) ([]int64, error) {

@@ -228,6 +228,41 @@ func (s *APIKeyRepoSuite) TestListByUserID() {
 	s.Require().Equal(int64(2), page.Total)
 }
 
+func (s *APIKeyRepoSuite) TestListByUserID_TagsFilterContainsAll() {
+	user := s.mustCreateUser("listbyuser-tags@test.com")
+	otherUser := s.mustCreateUser("listbyuser-tags-other@test.com")
+	matching := s.mustCreateApiKeyWithTags(user.ID, "sk-tags-1", "Project Prod", nil, []string{"project-a", "prod"})
+	s.mustCreateApiKeyWithTags(user.ID, "sk-tags-2", "Project Dev", nil, []string{"project-a", "dev"})
+	s.mustCreateApiKeyWithTags(user.ID, "sk-tags-3", "Prod Only", nil, []string{"prod"})
+	s.mustCreateApiKeyWithTags(otherUser.ID, "sk-tags-4", "Other Owner", nil, []string{"project-a", "prod"})
+
+	keys, page, err := s.repo.ListByUserID(
+		s.ctx,
+		user.ID,
+		pagination.PaginationParams{Page: 1, PageSize: 10, SortBy: "id", SortOrder: pagination.SortOrderAsc},
+		service.APIKeyListFilters{Tags: []string{"project-a", "prod"}},
+	)
+	s.Require().NoError(err, "ListByUserID with tags filter")
+	s.Require().Len(keys, 1)
+	s.Require().Equal(matching.ID, keys[0].ID)
+	s.Require().Equal(int64(1), page.Total)
+}
+
+func (s *APIKeyRepoSuite) TestListTagsByUserID_DistinctOwnerScopedActiveOnly() {
+	user := s.mustCreateUser("listtags@test.com")
+	otherUser := s.mustCreateUser("listtags-other@test.com")
+	s.mustCreateApiKeyWithTags(user.ID, "sk-list-tags-1", "Project Prod", nil, []string{"project-a", "prod"})
+	s.mustCreateApiKeyWithTags(user.ID, "sk-list-tags-2", "Project Beta", nil, []string{"project-a", "beta"})
+	s.mustCreateApiKeyWithTags(otherUser.ID, "sk-list-tags-3", "Other Owner", nil, []string{"other-only", "project-a"})
+	deleted := s.mustCreateApiKeyWithTags(user.ID, "sk-list-tags-4", "Deleted", nil, []string{"deleted-only"})
+	s.Require().NoError(s.repo.Delete(s.ctx, deleted.ID), "soft-delete api key with unique tag")
+
+	tags, err := s.repo.ListTagsByUserID(s.ctx, user.ID, 500)
+
+	s.Require().NoError(err, "ListTagsByUserID")
+	s.Require().Equal([]string{"beta", "prod", "project-a"}, tags)
+}
+
 func (s *APIKeyRepoSuite) TestListByUserID_Pagination() {
 	user := s.mustCreateUser("paging@test.com")
 	for i := 0; i < 5; i++ {
@@ -448,6 +483,15 @@ func (s *APIKeyRepoSuite) mustCreateApiKey(userID int64, key, name string, group
 		Status:  service.StatusActive,
 	}
 	s.Require().NoError(s.repo.Create(s.ctx, k), "create api key")
+	return k
+}
+
+func (s *APIKeyRepoSuite) mustCreateApiKeyWithTags(userID int64, key, name string, groupID *int64, tags []string) *service.APIKey {
+	s.T().Helper()
+
+	k := s.mustCreateApiKey(userID, key, name, groupID)
+	k.Tags = append([]string(nil), tags...)
+	s.Require().NoError(s.repo.Update(s.ctx, k), "update api key tags")
 	return k
 }
 

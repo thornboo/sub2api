@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -19,6 +18,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 
 	entsql "entgo.io/ent/dialect/sql"
+	"entgo.io/ent/dialect/sql/sqljson"
 )
 
 type apiKeyRepository struct {
@@ -411,8 +411,7 @@ func (r *apiKeyRepository) deleteWithAudit(ctx context.Context, exec *dbent.Clie
 func apiKeyTagsContainAll(tags []string) func(*entsql.Selector) {
 	return func(s *entsql.Selector) {
 		for _, tag := range tags {
-			encoded, _ := json.Marshal([]string{tag})
-			s.Where(entsql.ExprP(fmt.Sprintf("%s @> ?::jsonb", s.C(apikey.FieldTags)), string(encoded)))
+			s.Where(sqljson.ValueContains(apikey.FieldTags, tag))
 		}
 	}
 }
@@ -465,6 +464,42 @@ func (r *apiKeyRepository) ListByUserID(ctx context.Context, userID int64, param
 	}
 
 	return outKeys, paginationResultFromTotal(int64(total), params), nil
+}
+
+func (r *apiKeyRepository) ListTagsByUserID(ctx context.Context, userID int64, limit int) ([]string, error) {
+	if limit <= 0 || limit > service.APIKeyTagOptionsMaxCount {
+		limit = service.APIKeyTagOptionsMaxCount
+	}
+
+	query := fmt.Sprintf(`
+		SELECT DISTINCT btrim(tag.value) AS tag
+		FROM %s
+		CROSS JOIN LATERAL jsonb_array_elements_text(%s) AS tag(value)
+		WHERE %s = $1
+		  AND %s IS NULL
+		  AND btrim(tag.value) <> ''
+		ORDER BY tag
+		LIMIT $2
+	`, apikey.Table, apikey.FieldTags, apikey.FieldUserID, apikey.FieldDeletedAt)
+
+	rows, err := r.sql.QueryContext(ctx, query, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	tags := make([]string, 0)
+	for rows.Next() {
+		var tag string
+		if err := rows.Scan(&tag); err != nil {
+			return nil, err
+		}
+		tags = append(tags, tag)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return tags, nil
 }
 
 func (r *apiKeyRepository) ListByIDsForUser(ctx context.Context, userID int64, ids []int64) ([]service.APIKey, error) {

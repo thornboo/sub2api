@@ -59,6 +59,7 @@ func RegisterUserRoutes(
 		keys := authenticated.Group("/keys")
 		{
 			keys.GET("", h.APIKey.List)
+			keys.GET("/tags", h.APIKey.ListTags)
 			keys.POST("/batch", h.APIKey.BatchCreate)
 			keys.POST("/batch-update", h.APIKey.BatchUpdate)
 			keys.POST("/batch-delete", h.APIKey.BatchDelete)

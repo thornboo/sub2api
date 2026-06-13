@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
 func TestBuildBatchAPIKeyNames_TemplatePadsFromOne(t *testing.T) {
@@ -123,14 +126,16 @@ func (s batchCreateGroupRepoStub) GetByID(context.Context, int64) (*Group, error
 
 type batchCreateAPIKeyRepoStub struct {
 	APIKeyRepository
-	created     []APIKey
-	keysByID    map[int64]APIKey
-	updated     []APIKey
-	deleted     []int64
-	createErrAt int
-	updateErrAt int
-	deleteErrAt int
-	txCalls     int
+	created         []APIKey
+	keysByID        map[int64]APIKey
+	updated         []APIKey
+	deleted         []int64
+	createErrAt     int
+	updateErrAt     int
+	deleteErrAt     int
+	txCalls         int
+	listCalls       int
+	lastListFilters APIKeyListFilters
 }
 
 func cloneAPIKeyMap(in map[int64]APIKey) map[int64]APIKey {
@@ -181,6 +186,79 @@ func (s *batchCreateAPIKeyRepoStub) ListByIDsForUser(_ context.Context, userID i
 		}
 	}
 	return keys, nil
+}
+
+func apiKeyMatchesListFilters(key APIKey, filters APIKeyListFilters) bool {
+	if filters.Search != "" &&
+		!strings.Contains(strings.ToLower(key.Name), strings.ToLower(filters.Search)) &&
+		!strings.Contains(strings.ToLower(key.Key), strings.ToLower(filters.Search)) {
+		return false
+	}
+	if filters.Status != "" && key.Status != filters.Status {
+		return false
+	}
+	if filters.GroupID != nil {
+		if *filters.GroupID == 0 {
+			if key.GroupID != nil {
+				return false
+			}
+		} else if key.GroupID == nil || *key.GroupID != *filters.GroupID {
+			return false
+		}
+	}
+	for _, tag := range filters.Tags {
+		found := false
+		for _, existing := range key.Tags {
+			if existing == tag {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *batchCreateAPIKeyRepoStub) ListByUserID(_ context.Context, userID int64, params pagination.PaginationParams, filters APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error) {
+	s.listCalls++
+	s.lastListFilters = filters
+
+	ids := make([]int64, 0, len(s.keysByID))
+	for id := range s.keysByID {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+	keys := make([]APIKey, 0, len(ids))
+	for _, id := range ids {
+		key := s.keysByID[id]
+		if key.UserID == userID && apiKeyMatchesListFilters(key, filters) {
+			keys = append(keys, key)
+		}
+	}
+
+	limit := params.Limit()
+	if len(keys) > limit {
+		keys = keys[:limit]
+	}
+	return keys, &pagination.PaginationResult{
+		Total:    int64(len(idsMatchingUserAndFilters(s.keysByID, userID, filters))),
+		Page:     params.Page,
+		PageSize: params.PageSize,
+		Pages:    1,
+	}, nil
+}
+
+func idsMatchingUserAndFilters(keysByID map[int64]APIKey, userID int64, filters APIKeyListFilters) []int64 {
+	ids := make([]int64, 0, len(keysByID))
+	for id, key := range keysByID {
+		if key.UserID == userID && apiKeyMatchesListFilters(key, filters) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 func (s *batchCreateAPIKeyRepoStub) Update(_ context.Context, key *APIKey) error {
@@ -391,6 +469,49 @@ func TestAPIKeyServiceBatchUpdate_TagModes(t *testing.T) {
 	}
 }
 
+func TestAPIKeyServiceBatchUpdate_FilteredScopeUpdatesMatchingOwnedKeys(t *testing.T) {
+	repo := &batchCreateAPIKeyRepoStub{
+		keysByID: map[int64]APIKey{
+			1: {ID: 1, UserID: 42, Key: "sk-1", Name: "alpha", Status: StatusActive, Tags: []string{"team-a"}},
+			2: {ID: 2, UserID: 42, Key: "sk-2", Name: "beta", Status: StatusActive, Tags: []string{"team-b"}},
+			3: {ID: 3, UserID: 42, Key: "sk-3", Name: "gamma", Status: "inactive", Tags: []string{"team-a"}},
+			4: {ID: 4, UserID: 99, Key: "sk-4", Name: "alpha", Status: StatusActive, Tags: []string{"team-a"}},
+		},
+	}
+	svc := NewAPIKeyService(repo, nil, nil, nil, nil, nil, nil)
+
+	result, err := svc.BatchUpdate(context.Background(), 42, BatchUpdateAPIKeysRequest{
+		ApplyTo:      APIKeyBatchApplyToFiltered,
+		Filters:      APIKeyBatchFilters{Status: StatusActive, Tags: []string{"Team-A"}},
+		UpdateStatus: true,
+		Status:       "inactive",
+	})
+	if err != nil {
+		t.Fatalf("BatchUpdate returned error: %v", err)
+	}
+	if result.Updated != 1 {
+		t.Fatalf("Updated = %d, want 1", result.Updated)
+	}
+	if repo.txCalls != 1 {
+		t.Fatalf("txCalls = %d, want 1", repo.txCalls)
+	}
+	if repo.listCalls != 1 {
+		t.Fatalf("listCalls = %d, want 1", repo.listCalls)
+	}
+	if got, want := repo.lastListFilters.Tags, []string{"team-a"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("list filter tags = %#v, want %#v", got, want)
+	}
+	if got := repo.keysByID[1].Status; got != "inactive" {
+		t.Fatalf("key 1 status = %q, want inactive", got)
+	}
+	if got := repo.keysByID[2].Status; got != StatusActive {
+		t.Fatalf("key 2 status = %q, want active", got)
+	}
+	if got := repo.keysByID[4].Status; got != StatusActive {
+		t.Fatalf("key 4 status = %q, want active", got)
+	}
+}
+
 func TestAPIKeyServiceBatchUpdate_RollsBackWholeBatchOnUpdateFailure(t *testing.T) {
 	repo := &batchCreateAPIKeyRepoStub{
 		keysByID: map[int64]APIKey{
@@ -417,6 +538,30 @@ func TestAPIKeyServiceBatchUpdate_RollsBackWholeBatchOnUpdateFailure(t *testing.
 	}
 }
 
+func TestAPIKeyServiceBatchUpdate_FilteredScopeRejectsTooLargeBeforeTransaction(t *testing.T) {
+	repo := &batchCreateAPIKeyRepoStub{keysByID: map[int64]APIKey{}}
+	for i := int64(1); i <= HardAPIKeyBatchCreateMaxCount+1; i++ {
+		repo.keysByID[i] = APIKey{ID: i, UserID: 42, Key: "sk-many", Status: StatusActive}
+	}
+	svc := NewAPIKeyService(repo, nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.BatchUpdate(context.Background(), 42, BatchUpdateAPIKeysRequest{
+		ApplyTo:      APIKeyBatchApplyToFiltered,
+		Filters:      APIKeyBatchFilters{Status: StatusActive},
+		UpdateStatus: true,
+		Status:       "inactive",
+	})
+	if !errors.Is(err, ErrAPIKeyBatchTooLarge) {
+		t.Fatalf("BatchUpdate error = %v, want ErrAPIKeyBatchTooLarge", err)
+	}
+	if repo.txCalls != 0 {
+		t.Fatalf("txCalls = %d, want 0", repo.txCalls)
+	}
+	if repo.listCalls != 1 {
+		t.Fatalf("listCalls = %d, want 1", repo.listCalls)
+	}
+}
+
 func TestAPIKeyServiceBatchDelete_RejectsForbiddenKeyBeforeTransaction(t *testing.T) {
 	repo := &batchCreateAPIKeyRepoStub{
 		keysByID: map[int64]APIKey{
@@ -434,6 +579,26 @@ func TestAPIKeyServiceBatchDelete_RejectsForbiddenKeyBeforeTransaction(t *testin
 	}
 	if len(repo.deleted) != 0 {
 		t.Fatalf("deleted keys = %d, want 0", len(repo.deleted))
+	}
+}
+
+func TestAPIKeyServiceBatchDelete_FilteredScopeRejectsEmptyFiltersBeforeTransaction(t *testing.T) {
+	repo := &batchCreateAPIKeyRepoStub{
+		keysByID: map[int64]APIKey{
+			1: {ID: 1, UserID: 42, Key: "sk-1", Status: StatusActive},
+		},
+	}
+	svc := NewAPIKeyService(repo, nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.BatchDelete(context.Background(), 42, BatchDeleteAPIKeysRequest{ApplyTo: APIKeyBatchApplyToFiltered})
+	if !errors.Is(err, ErrAPIKeyBatchInvalid) {
+		t.Fatalf("BatchDelete error = %v, want ErrAPIKeyBatchInvalid", err)
+	}
+	if repo.txCalls != 0 {
+		t.Fatalf("txCalls = %d, want 0", repo.txCalls)
+	}
+	if repo.listCalls != 0 {
+		t.Fatalf("listCalls = %d, want 0", repo.listCalls)
 	}
 }
 
