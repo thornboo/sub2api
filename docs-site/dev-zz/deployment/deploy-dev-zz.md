@@ -1,16 +1,69 @@
 # dev-zz 部署
 
-`dev-zz` 分支必须从当前源码构建部署，不应直接拉取上游公开镜像。
+`dev-zz` 二开版本已经发布到当前 fork 的镜像仓库，生产部署默认跟随最新镜像即可，不需要手动修改 `docker-compose.yml`。
 
-不要使用：
+推荐镜像：
 
 ```bash
-docker pull weishaw/sub2api:latest
+docker pull thornboo/sub2api:latest
+docker pull ghcr.io/thornboo/sub2api:latest
 ```
 
-该镜像来自上游项目，不包含 dev-zz 的二开修改。
+不要使用上游镜像 `weishaw/sub2api:latest`。该镜像来自上游项目，不包含 `dev-zz` 的二开修改。
 
-## 推荐脚本
+固定版本镜像（例如 `thornboo/sub2api:1.1.1`）只建议用于验收、回滚或需要锁定版本的场景；日常更新应使用 `latest`，拉取最新镜像后重启服务。
+
+## 推荐 Docker 部署脚本
+
+Docker 部署准备脚本会从当前 fork 的 `dev-zz` 分支拉取 `docker-compose.local.yml` 和 `.env.example`，在当前目录生成 `docker-compose.yml` / `.env`，并使用 `thornboo/sub2api:latest` 作为默认镜像：
+
+```bash
+mkdir -p sub2api-deploy
+cd sub2api-deploy
+curl -sSL https://raw.githubusercontent.com/thornboo/sub2api/dev-zz/deploy/docker-deploy.sh | bash
+docker compose up -d
+```
+
+已部署服务器更新到最新版本：
+
+```bash
+cd /path/to/sub2api-deploy
+docker compose pull sub2api
+docker compose up -d sub2api
+```
+
+关键点是进入实际保存 `docker-compose.yml` 和 `.env` 的部署目录执行，不需要重新下载或手动改 Compose 文件。
+
+## 镜像配置
+
+`deploy/.env` 中可以显式设置镜像源：
+
+```dotenv
+SUB2API_IMAGE=thornboo/sub2api:latest
+```
+
+如需使用 GitHub Container Registry：
+
+```dotenv
+SUB2API_IMAGE=ghcr.io/thornboo/sub2api:latest
+```
+
+如需临时回滚到指定版本：
+
+```dotenv
+SUB2API_IMAGE=thornboo/sub2api:1.1.1
+```
+
+回滚完成后再执行：
+
+```bash
+docker compose pull sub2api
+docker compose up -d sub2api
+```
+
+## 本地源码构建
+
+只有在开发验证、临时测试未发布代码，或需要绕过远程镜像仓库时，才需要从源码构建本地镜像。
 
 在 `dev-zz` 分支的仓库根目录运行：
 
@@ -18,7 +71,7 @@ docker pull weishaw/sub2api:latest
 ./deploy/deploy-dev-zz.sh
 ```
 
-脚本会：
+本地构建脚本会：
 
 - 从仓库根目录 `Dockerfile` 构建本地镜像 `sub2api:dev-zz`
 - 基于 `deploy/.env.example` 创建 `deploy/.env`
@@ -28,7 +81,7 @@ docker pull weishaw/sub2api:latest
 - 在启动已有栈前创建备份
 - 使用 `deploy/docker-compose.local.yml` 和 override 文件启动服务
 
-脚本不会默认覆盖已有 `deploy/.env`。拉取更新后重复执行脚本，会重新构建本地镜像并用原有数据和密钥重启服务。
+脚本不会默认覆盖已有 `deploy/.env`。拉取源码更新后重复执行脚本，会重新构建本地镜像并用原有数据和密钥重启服务。
 
 ## 常用选项
 
@@ -96,7 +149,7 @@ openssl rand -hex 32
 
 ### 4. 覆盖镜像名
 
-`deploy/docker-compose.local.yml` 默认使用上游镜像。创建本地 override：
+本地源码构建时，创建本地 override，让 Compose 使用刚构建的 `sub2api:dev-zz`：
 
 ```bash
 cat > docker-compose.override.yml <<'EOF'
@@ -120,7 +173,7 @@ docker compose -f docker-compose.local.yml -f docker-compose.override.yml up -d
 docker-compose -f docker-compose.local.yml -f docker-compose.override.yml up -d
 ```
 
-### 6. 更新服务
+### 6. 更新本地构建服务
 
 ```bash
 git fetch origin
