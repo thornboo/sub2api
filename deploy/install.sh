@@ -2,7 +2,7 @@
 #
 # Sub2API Installation Script
 # Sub2API 安装脚本
-# Usage: curl -sSL https://raw.githubusercontent.com/thornboo/sub2api/dev-zz/deploy/install.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/thornboo/sub2api/HEAD/deploy/install.sh | bash
 #
 
 set -e
