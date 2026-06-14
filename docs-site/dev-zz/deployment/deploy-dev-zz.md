@@ -34,6 +34,146 @@ docker compose up -d sub2api
 
 关键点是进入实际保存 `docker-compose.yml` 和 `.env` 的部署目录执行，不需要重新下载或手动改 Compose 文件。
 
+## 已部署服务器日常更新
+
+如果服务器已经使用 `SUB2API_IMAGE=thornboo/sub2api:latest`，后续每次发布新镜像后只需要拉取最新镜像并重建应用容器：
+
+```bash
+cd /path/to/sub2api-deploy
+
+docker compose pull sub2api
+docker compose up -d --no-deps --force-recreate sub2api
+
+docker inspect --format '{{.Config.Image}}' sub2api
+docker inspect --format '{{.State.Health.Status}}' sub2api
+docker logs --tail=100 sub2api
+```
+
+如果部署目录仍使用 `docker-compose.local.yml` + `docker-compose.override.yml`，使用同一组 compose 文件更新：
+
+```bash
+cd /opt/sub2api-zz/deploy
+
+docker compose -f docker-compose.local.yml -f docker-compose.override.yml pull sub2api
+docker compose -f docker-compose.local.yml -f docker-compose.override.yml up -d --no-deps --force-recreate sub2api
+
+docker inspect --format '{{.Config.Image}}' sub2api
+docker inspect --format '{{.State.Health.Status}}' sub2api
+docker logs --tail=100 sub2api
+```
+
+更新过程中不要执行 `docker compose down -v`，也不要删除 `data/`、`postgres_data/`、`redis_data/` 或 `.env`。
+
+## 从本地构建镜像切换到发布镜像
+
+早期 `dev-zz` 部署脚本会在服务器本地构建 `sub2api:dev-zz`，并通过 `docker-compose.override.yml` 覆盖应用镜像。如果 `docker ps` 里看到：
+
+```text
+sub2api:dev-zz
+```
+
+说明当前仍是本地构建部署。可以原地切换到发布镜像，不需要重装，也不需要重新初始化数据库。
+
+先确认当前 compose 配置：
+
+```bash
+cd /opt/sub2api-zz/deploy
+
+grep -R "image:" -n docker-compose*.yml docker-compose.override.yml 2>/dev/null
+grep -E '^(SUB2API_IMAGE|POSTGRES_USER|POSTGRES_DB|SERVER_PORT|BIND_HOST)=' .env
+```
+
+切换前备份配置和数据：
+
+```bash
+cd /opt/sub2api-zz/deploy
+
+ts=$(date +%Y%m%d-%H%M%S)
+mkdir -p "backups/manual-$ts"
+
+cp -a .env docker-compose*.yml "backups/manual-$ts/"
+
+set -a
+. ./.env
+set +a
+
+docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" -t sub2api-postgres pg_dump \
+  -U "${POSTGRES_USER:-sub2api}" \
+  -d "${POSTGRES_DB:-sub2api}" \
+  -Fc > "backups/manual-$ts/sub2api-$ts.dump"
+
+tar czf "backups/manual-$ts/app-data-$ts.tgz" data redis_data
+```
+
+把 override 改为发布镜像。下面用 `printf` 避免 heredoc 结束符缩进导致 shell 卡住：
+
+```bash
+printf '%s\n' \
+'services:' \
+'  sub2api:' \
+'    image: ${SUB2API_IMAGE:-thornboo/sub2api:latest}' \
+> docker-compose.override.yml
+```
+
+在 `.env` 中显式设置镜像：
+
+```bash
+if grep -q '^SUB2API_IMAGE=' .env; then
+  sed -i 's|^SUB2API_IMAGE=.*|SUB2API_IMAGE=thornboo/sub2api:latest|' .env
+else
+  printf '\nSUB2API_IMAGE=thornboo/sub2api:latest\n' >> .env
+fi
+```
+
+先检查 compose 解析结果：
+
+```bash
+docker compose -f docker-compose.local.yml -f docker-compose.override.yml config | grep -n "image:"
+```
+
+确认 `sub2api` 的镜像是 `thornboo/sub2api:latest` 后，再拉取并只重建应用容器：
+
+```bash
+docker compose -f docker-compose.local.yml -f docker-compose.override.yml pull sub2api
+docker compose -f docker-compose.local.yml -f docker-compose.override.yml up -d --no-deps --force-recreate sub2api
+```
+
+验证：
+
+```bash
+docker ps -a
+docker inspect --format '{{.Config.Image}}' sub2api
+docker inspect --format '{{.State.Health.Status}}' sub2api
+docker logs --tail=200 sub2api
+```
+
+如果本次版本包含数据库迁移，可检查迁移记录：
+
+```bash
+set -a
+. ./.env
+set +a
+
+docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" -it sub2api-postgres psql \
+  -U "${POSTGRES_USER:-sub2api}" \
+  -d "${POSTGRES_DB:-sub2api}" \
+  -c "SELECT filename, applied_at FROM schema_migrations ORDER BY applied_at DESC LIMIT 10;"
+```
+
+旧的 `sub2api:dev-zz` 镜像建议保留一段时间。需要临时回滚时，把 `docker-compose.override.yml` 改回：
+
+```yaml
+services:
+  sub2api:
+    image: sub2api:dev-zz
+```
+
+然后执行：
+
+```bash
+docker compose -f docker-compose.local.yml -f docker-compose.override.yml up -d --no-deps --force-recreate sub2api
+```
+
 ## 镜像配置
 
 `deploy/.env` 中可以显式设置镜像源：
