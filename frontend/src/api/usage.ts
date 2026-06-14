@@ -131,6 +131,108 @@ export interface ApiKeyModelStatsResponse {
   timezone: string
 }
 
+export interface OwnerApiKeyAnalyticsParams {
+  start_date?: string
+  end_date?: string
+  api_key_id?: number
+  granularity?: ApiKeyUsageTrendGranularity
+  timezone?: string
+  group_id?: number
+  tags?: string
+  status?: 'active' | 'disabled' | 'quota_exhausted' | 'expired'
+  search?: string
+  limit?: number
+}
+
+export interface OwnerApiKeyUsageTotals {
+  requests: number
+  input_tokens: number
+  output_tokens: number
+  cache_creation_tokens: number
+  cache_read_tokens: number
+  total_tokens: number
+  actual_cost: number
+}
+
+export interface OwnerApiKeyAnalyticsSnapshot {
+  active_key_count: number
+  near_quota_key_count: number
+  near_rate_limit_key_count: number
+  snapshot_at: string
+}
+
+export interface OwnerApiKeyAnalyticsSummary extends OwnerApiKeyUsageTotals {
+  used_key_count: number
+  current_key_snapshot: OwnerApiKeyAnalyticsSnapshot
+}
+
+export interface OwnerApiKeyAnalyticsMeta {
+  start_date: string
+  end_date: string
+  timezone: string
+  granularity: ApiKeyUsageTrendGranularity
+}
+
+export interface OwnerApiKeyAnalyticsSummaryResponse extends OwnerApiKeyAnalyticsMeta {
+  summary: OwnerApiKeyAnalyticsSummary
+}
+
+export interface OwnerApiKeyLeaderboardItem extends OwnerApiKeyUsageTotals {
+  api_key_id: number
+  key_name: string
+  tags: string[]
+  group_id?: number
+  group_name: string
+  status: string
+  share_percent: number
+  previous_actual_cost: number
+  change_percent: number
+  last_used_at?: string
+}
+
+export interface OwnerApiKeyLeaderboardResponse extends OwnerApiKeyAnalyticsMeta {
+  items: OwnerApiKeyLeaderboardItem[]
+  total: number
+  total_actual_cost: number
+  displayed_actual_cost: number
+}
+
+export interface OwnerModelAnalyticsItem extends OwnerApiKeyUsageTotals {
+  model: string
+}
+
+export interface OwnerModelAnalyticsResponse extends OwnerApiKeyAnalyticsMeta {
+  models: OwnerModelAnalyticsItem[]
+}
+
+export interface OwnerGroupAnalyticsItem extends OwnerApiKeyUsageTotals {
+  group_id?: number
+  group_name: string
+  key_count: number
+  share_percent: number
+}
+
+export interface OwnerGroupAnalyticsResponse extends OwnerApiKeyAnalyticsMeta {
+  groups: OwnerGroupAnalyticsItem[]
+}
+
+export interface OwnerTagAnalyticsItem extends OwnerApiKeyUsageTotals {
+  tag: string
+  key_count: number
+}
+
+export interface OwnerTagAnalyticsResponse extends OwnerApiKeyAnalyticsMeta {
+  tags: OwnerTagAnalyticsItem[]
+}
+
+export interface OwnerTrendAnalyticsPoint extends OwnerApiKeyUsageTotals {
+  date: string
+}
+
+export interface OwnerTrendAnalyticsResponse extends OwnerApiKeyAnalyticsMeta {
+  items: OwnerTrendAnalyticsPoint[]
+}
+
 /**
  * List usage logs with optional filters
  * @param page - Page number (default: 1)
@@ -347,6 +449,72 @@ export async function getMyApiKeyModelStats(
   return data
 }
 
+export async function getOwnerApiKeyAnalyticsSummary(
+  params: OwnerApiKeyAnalyticsParams = {},
+  config: { signal?: AbortSignal } = {}
+): Promise<OwnerApiKeyAnalyticsSummaryResponse> {
+  const { data } = await apiClient.get<OwnerApiKeyAnalyticsSummaryResponse>(
+    '/usage/analytics/summary',
+    { ...config, params }
+  )
+  return data
+}
+
+export async function getOwnerApiKeyAnalyticsLeaderboard(
+  params: OwnerApiKeyAnalyticsParams = {},
+  config: { signal?: AbortSignal } = {}
+): Promise<OwnerApiKeyLeaderboardResponse> {
+  const { data } = await apiClient.get<OwnerApiKeyLeaderboardResponse>(
+    '/usage/analytics/leaderboard',
+    { ...config, params }
+  )
+  return data
+}
+
+export async function getOwnerApiKeyModelAnalytics(
+  params: OwnerApiKeyAnalyticsParams = {},
+  config: { signal?: AbortSignal } = {}
+): Promise<OwnerModelAnalyticsResponse> {
+  const { data } = await apiClient.get<OwnerModelAnalyticsResponse>(
+    '/usage/analytics/models',
+    { ...config, params }
+  )
+  return data
+}
+
+export async function getOwnerApiKeyGroupAnalytics(
+  params: OwnerApiKeyAnalyticsParams = {},
+  config: { signal?: AbortSignal } = {}
+): Promise<OwnerGroupAnalyticsResponse> {
+  const { data } = await apiClient.get<OwnerGroupAnalyticsResponse>(
+    '/usage/analytics/groups',
+    { ...config, params }
+  )
+  return data
+}
+
+export async function getOwnerApiKeyTagAnalytics(
+  params: OwnerApiKeyAnalyticsParams = {},
+  config: { signal?: AbortSignal } = {}
+): Promise<OwnerTagAnalyticsResponse> {
+  const { data } = await apiClient.get<OwnerTagAnalyticsResponse>(
+    '/usage/analytics/tags',
+    { ...config, params }
+  )
+  return data
+}
+
+export async function getOwnerApiKeyUsageTrend(
+  params: OwnerApiKeyAnalyticsParams = {},
+  config: { signal?: AbortSignal } = {}
+): Promise<OwnerTrendAnalyticsResponse> {
+  const { data } = await apiClient.get<OwnerTrendAnalyticsResponse>(
+    '/usage/analytics/trend',
+    { ...config, params }
+  )
+  return data
+}
+
 export interface BatchApiKeyUsageStats {
   api_key_id: number
   today_actual_cost: number
@@ -411,6 +579,12 @@ export const usageAPI = {
   getMyApiKeyDailyUsage,
   getMyApiKeyUsageTrend,
   getMyApiKeyModelStats,
+  getOwnerApiKeyAnalyticsSummary,
+  getOwnerApiKeyAnalyticsLeaderboard,
+  getOwnerApiKeyModelAnalytics,
+  getOwnerApiKeyGroupAnalytics,
+  getOwnerApiKeyTagAnalytics,
+  getOwnerApiKeyUsageTrend,
   getDashboardApiKeysUsage,
   // Error requests
   listMyErrorRequests,

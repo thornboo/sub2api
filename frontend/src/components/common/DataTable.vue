@@ -66,7 +66,8 @@
     class="table-wrapper"
     :class="{
       'actions-expanded': actionsExpanded,
-      'is-scrollable': isScrollable
+      'is-scrollable': isScrollable,
+      'natural-height': !props.virtualScroll
     }"
   >
     <table class="w-full min-w-max divide-y divide-stone-200/80 dark:divide-white/10">
@@ -150,7 +151,7 @@
         </tr>
 
         <!-- Data rows (virtual scroll) -->
-        <template v-else>
+        <template v-else-if="props.virtualScroll">
           <tr v-if="virtualPaddingTop > 0" aria-hidden="true">
             <td :colspan="columns.length"
                 :style="{ height: virtualPaddingTop + 'px', padding: 0, border: 'none' }">
@@ -187,6 +188,37 @@
           <tr v-if="virtualPaddingBottom > 0" aria-hidden="true">
             <td :colspan="columns.length"
                 :style="{ height: virtualPaddingBottom + 'px', padding: 0, border: 'none' }">
+            </td>
+          </tr>
+        </template>
+
+        <!-- Data rows (natural page height) -->
+        <template v-else>
+          <tr
+            v-for="(row, index) in sortedData"
+            :key="resolveRowKey(row, index)"
+            :data-row-id="resolveRowKey(row, index)"
+            :data-index="index"
+            class="hover:bg-stone-50/80 dark:hover:bg-white/[0.04]"
+          >
+            <td
+              v-for="(column, colIndex) in columns"
+              :key="column.key"
+              :class="[
+                'whitespace-nowrap py-4 text-sm text-stone-900 dark:text-stone-100',
+                getAdaptivePaddingClass(),
+                getStickyColumnClass(column, colIndex),
+                column.class
+              ]"
+            >
+              <slot :name="`cell-${column.key}`"
+                    :row="row"
+                    :value="row[column.key]"
+                    :expanded="actionsExpanded">
+                {{ column.formatter
+                   ? column.formatter(row[column.key], row)
+                   : row[column.key] }}
+              </slot>
             </td>
           </tr>
         </template>
@@ -378,6 +410,8 @@ interface Props {
    * will emit 'sort' events instead of performing client-side sorting.
    */
   serverSideSort?: boolean
+  /** Enable internal row virtualization. Disable when the page should grow naturally. */
+  virtualScroll?: boolean
   /** Estimated row height in px for the virtualizer (default 56) */
   estimateRowHeight?: number
   /** Number of rows to render beyond the visible area (default 5) */
@@ -390,7 +424,8 @@ const props = withDefaults(defineProps<Props>(), {
   stickyActionsColumn: true,
   expandableActions: true,
   defaultSortOrder: 'asc',
-  serverSideSort: false
+  serverSideSort: false,
+  virtualScroll: true
 })
 
 const sortKey = ref<string>('')
@@ -595,7 +630,7 @@ const sortedData = computed(() => {
 
 // --- Virtual scrolling ---
 const rowVirtualizer = useVirtualizer(computed(() => ({
-  count: isDesktopViewport.value ? (sortedData.value?.length ?? 0) : 0,
+  count: props.virtualScroll && isDesktopViewport.value ? (sortedData.value?.length ?? 0) : 0,
   getScrollElement: () => tableWrapperRef.value,
   estimateSize: () => props.estimateRowHeight ?? 56,
   overscan: props.overscan ?? 5,
@@ -741,6 +776,13 @@ defineExpose({
   flex: 1;
   min-height: 0;
   isolation: isolate;
+}
+
+.table-wrapper.natural-height {
+  overflow-x: auto;
+  overflow-y: visible;
+  flex: none;
+  min-height: auto;
 }
 
 /* 表头容器，确保在滚动时覆盖表体内容 */

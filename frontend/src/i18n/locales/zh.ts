@@ -1130,6 +1130,7 @@ export default {
     },
     status: {
       active: '活跃',
+      disabled: '已禁用',
       inactive: '已停用',
       quota_exhausted: '额度耗尽',
       expired: '已过期'
@@ -1240,7 +1241,42 @@ export default {
     exportExcelFailed: '使用数据导出失败',
     imageUnit: '张',
     userAgent: 'User-Agent',
-    tabs: { usage: '用量明细', errors: '错误请求' },
+    tabs: { usage: '用量明细', analytics: '统计分析', errors: '错误请求' },
+    analytics: {
+      title: 'API 密钥用量分析',
+      scope: '按日期和面板筛选统计当前账号名下 API 密钥；平台管理员成本和上游路由字段不会展示。',
+      singleKeyScope: '跟随上方日期筛选，仅分析当前选中的 API 密钥；平台管理员成本和上游路由字段不会展示。',
+      loadFailed: '加载用量分析失败',
+      errors: {
+        network: '无法连接到后端服务',
+        endpointMissing: '接口不存在，请确认后端已更新并重启',
+        server: '服务端错误（{status}），请查看后端日志'
+      },
+      usedKeys: '有用量的密钥',
+      activeKeysNow: '当前活跃密钥',
+      nearQuotaKeys: '当前接近额度',
+      nearRateLimitKeys: '当前接近速率限制',
+      apiKey: 'API 密钥',
+      share: '全量占比',
+      change: '环比',
+      model: '模型',
+      keyCount: '密钥数',
+      filters: {
+        search: '搜索',
+        searchPlaceholder: '搜索密钥名称或 Key...',
+        allGroups: '全部分组',
+        allTags: '全部标签',
+        allStatuses: '全部状态',
+        limit: '显示'
+      },
+      tabs: {
+        leaderboard: '密钥排行',
+        trend: '消耗趋势',
+        models: '模型分布',
+        groups: '分组分析',
+        tags: '标签归因'
+      }
+    },
     errors: {
       time: '时间', model: '模型', endpoint: '端点', status: '状态码',
       category: '分类', platform: '平台', message: '错误信息',

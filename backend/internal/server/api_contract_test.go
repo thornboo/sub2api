@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -230,6 +231,7 @@ func TestAPIContracts(t *testing.T) {
 					"name": "Key One",
 					"group_id": null,
 					"status": "active",
+					"tags": null,
 					"ip_whitelist": null,
 					"ip_blacklist": null,
 					"last_used_at": null,
@@ -279,6 +281,7 @@ func TestAPIContracts(t *testing.T) {
 							"name": "Key One",
 							"group_id": null,
 							"status": "active",
+							"tags": null,
 							"ip_whitelist": null,
 							"ip_blacklist": null,
 							"last_used_at": null,
@@ -2174,6 +2177,49 @@ func (r *stubApiKeyRepo) ListByUserID(ctx context.Context, userID int64, params 
 	}, nil
 }
 
+func (r *stubApiKeyRepo) ListByIDsForUser(ctx context.Context, userID int64, ids []int64) ([]service.APIKey, error) {
+	out := make([]service.APIKey, 0, len(ids))
+	seen := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		key, ok := r.byID[id]
+		if !ok || key.UserID != userID {
+			continue
+		}
+		clone := *key
+		out = append(out, clone)
+	}
+	return out, nil
+}
+
+func (r *stubApiKeyRepo) ListTagsByUserID(ctx context.Context, userID int64, limit int) ([]string, error) {
+	seen := map[string]struct{}{}
+	for _, key := range r.byID {
+		if key.UserID != userID || key.Status != service.StatusAPIKeyActive {
+			continue
+		}
+		for _, raw := range key.Tags {
+			tag := strings.TrimSpace(raw)
+			if tag == "" {
+				continue
+			}
+			seen[tag] = struct{}{}
+		}
+	}
+	tags := make([]string, 0, len(seen))
+	for tag := range seen {
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+	if limit > 0 && len(tags) > limit {
+		tags = tags[:limit]
+	}
+	return tags, nil
+}
+
 func (r *stubApiKeyRepo) VerifyOwnership(ctx context.Context, userID int64, apiKeyIDs []int64) ([]int64, error) {
 	if len(apiKeyIDs) == 0 {
 		return []int64{}, nil
@@ -2468,6 +2514,34 @@ func (r *stubUsageLogRepo) GetUserUsageTrendByUserID(ctx context.Context, userID
 }
 
 func (r *stubUsageLogRepo) GetUserModelStats(ctx context.Context, userID int64, startTime, endTime time.Time) ([]usagestats.ModelStat, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubUsageLogRepo) GetAPIKeyUsageTrendForUser(ctx context.Context, userID, apiKeyID int64, startTime, endTime time.Time, granularity, timezoneName string) ([]usagestats.TrendDataPoint, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubUsageLogRepo) GetOwnerAPIKeyAnalyticsSummary(ctx context.Context, filters service.OwnerAPIKeyAnalyticsFilters) (*service.OwnerAPIKeyAnalyticsSummary, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubUsageLogRepo) GetOwnerAPIKeyAnalyticsLeaderboard(ctx context.Context, filters service.OwnerAPIKeyAnalyticsFilters) (*service.OwnerAPIKeyLeaderboardResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubUsageLogRepo) GetOwnerAPIKeyModelAnalytics(ctx context.Context, filters service.OwnerAPIKeyAnalyticsFilters) ([]service.OwnerModelAnalyticsItem, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubUsageLogRepo) GetOwnerAPIKeyGroupAnalytics(ctx context.Context, filters service.OwnerAPIKeyAnalyticsFilters) ([]service.OwnerGroupAnalyticsItem, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubUsageLogRepo) GetOwnerAPIKeyTagAnalytics(ctx context.Context, filters service.OwnerAPIKeyAnalyticsFilters) ([]service.OwnerTagAnalyticsItem, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubUsageLogRepo) GetOwnerAPIKeyUsageTrend(ctx context.Context, filters service.OwnerAPIKeyAnalyticsFilters) ([]service.OwnerTrendAnalyticsPoint, error) {
 	return nil, errors.New("not implemented")
 }
 

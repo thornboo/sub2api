@@ -376,6 +376,54 @@ func (s *UsageService) GetBatchAPIKeyUsageStats(ctx context.Context, apiKeyIDs [
 	return stats, nil
 }
 
+func (s *UsageService) GetOwnerAPIKeyAnalyticsSummary(ctx context.Context, filters OwnerAPIKeyAnalyticsFilters) (*OwnerAPIKeyAnalyticsSummary, error) {
+	stats, err := s.usageRepo.GetOwnerAPIKeyAnalyticsSummary(ctx, filters)
+	if err != nil {
+		return nil, fmt.Errorf("get owner api key analytics summary: %w", err)
+	}
+	return stats, nil
+}
+
+func (s *UsageService) GetOwnerAPIKeyAnalyticsLeaderboard(ctx context.Context, filters OwnerAPIKeyAnalyticsFilters) (*OwnerAPIKeyLeaderboardResponse, error) {
+	stats, err := s.usageRepo.GetOwnerAPIKeyAnalyticsLeaderboard(ctx, filters)
+	if err != nil {
+		return nil, fmt.Errorf("get owner api key analytics leaderboard: %w", err)
+	}
+	return stats, nil
+}
+
+func (s *UsageService) GetOwnerAPIKeyModelAnalytics(ctx context.Context, filters OwnerAPIKeyAnalyticsFilters) ([]OwnerModelAnalyticsItem, error) {
+	stats, err := s.usageRepo.GetOwnerAPIKeyModelAnalytics(ctx, filters)
+	if err != nil {
+		return nil, fmt.Errorf("get owner api key model analytics: %w", err)
+	}
+	return stats, nil
+}
+
+func (s *UsageService) GetOwnerAPIKeyGroupAnalytics(ctx context.Context, filters OwnerAPIKeyAnalyticsFilters) ([]OwnerGroupAnalyticsItem, error) {
+	stats, err := s.usageRepo.GetOwnerAPIKeyGroupAnalytics(ctx, filters)
+	if err != nil {
+		return nil, fmt.Errorf("get owner api key group analytics: %w", err)
+	}
+	return stats, nil
+}
+
+func (s *UsageService) GetOwnerAPIKeyTagAnalytics(ctx context.Context, filters OwnerAPIKeyAnalyticsFilters) ([]OwnerTagAnalyticsItem, error) {
+	stats, err := s.usageRepo.GetOwnerAPIKeyTagAnalytics(ctx, filters)
+	if err != nil {
+		return nil, fmt.Errorf("get owner api key tag analytics: %w", err)
+	}
+	return stats, nil
+}
+
+func (s *UsageService) GetOwnerAPIKeyUsageTrend(ctx context.Context, filters OwnerAPIKeyAnalyticsFilters) ([]OwnerTrendAnalyticsPoint, error) {
+	stats, err := s.usageRepo.GetOwnerAPIKeyUsageTrend(ctx, filters)
+	if err != nil {
+		return nil, fmt.Errorf("get owner api key usage trend: %w", err)
+	}
+	return stats, nil
+}
+
 // ListWithFilters lists usage logs with admin filters.
 func (s *UsageService) ListWithFilters(ctx context.Context, params pagination.PaginationParams, filters usagestats.UsageLogFilters) ([]UsageLog, *pagination.PaginationResult, error) {
 	logs, result, err := s.usageRepo.ListWithFilters(ctx, params, filters)

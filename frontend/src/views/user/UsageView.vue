@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <TablePageLayout :table-mode="activeTab === 'errors' ? 'scroll' : 'auto'">
       <template #actions>
         <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <!-- Total Requests -->
@@ -165,24 +165,27 @@
 
       <template #table>
         <!-- Tab 切换栏 -->
-        <div v-if="errorViewEnabled" class="mb-0 flex gap-2 border-b border-gray-200 px-4 pt-3 dark:border-dark-700">
+        <div class="mb-0 flex gap-2 border-b border-gray-200 px-4 pt-3 dark:border-dark-700">
+          <button class="tab" :class="{ 'tab-active': activeTab === 'analytics' }" @click="activeTab = 'analytics'">
+            {{ t('usage.tabs.analytics') }}
+          </button>
           <button class="tab" :class="{ 'tab-active': activeTab === 'usage' }" @click="activeTab = 'usage'">
             {{ t('usage.tabs.usage') }}
           </button>
-          <button class="tab" :class="{ 'tab-active': activeTab === 'errors' }" @click="switchToErrors">
+          <button v-if="errorViewEnabled" class="tab" :class="{ 'tab-active': activeTab === 'errors' }" @click="switchToErrors">
             {{ t('usage.tabs.errors') }}
           </button>
         </div>
 
         <!-- 用量明细表 -->
-        <!-- flex 链让 DataTable 根 .table-wrapper(flex:1)拿到有界高度以启用内部滚动。
-             虚拟化器测高 race 导致的概率空白,已在 DataTable 内用「就绪门控 + initialRect 兜底」根治。 -->
+        <!-- 用量明细按分页行数自然撑开页面，不在表体内部创建纵向滚动。 -->
         <div v-show="activeTab === 'usage'" class="flex min-h-0 flex-1 flex-col">
           <DataTable
           :columns="columns"
           :data="usageLogs"
           :loading="loading"
           :server-side-sort="true"
+          :virtual-scroll="false"
           :estimate-row-height="88"
           :overscan="12"
           default-sort-key="created_at"
@@ -369,6 +372,16 @@
             <EmptyState :message="t('usage.noRecords')" />
           </template>
         </DataTable>
+        </div>
+
+        <!-- 统计分析：复用上方日期和 API Key 筛选，不放到 API 密钥管理页。 -->
+        <div v-if="activeTab === 'analytics'" class="flex min-h-0 flex-1 flex-col p-4">
+          <UsageAnalyticsPanel
+            :api-key-id="selectedApiKeyID"
+            :api-keys="apiKeys"
+            :start-date="filters.start_date || startDate"
+            :end-date="filters.end_date || endDate"
+          />
         </div>
 
         <!-- 错误请求表 -->
@@ -620,6 +633,7 @@ import Select from '@/components/common/Select.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import Icon from '@/components/icons/Icon.vue'
 import UserErrorRequestsTable from '@/components/user/UserErrorRequestsTable.vue'
+import UsageAnalyticsPanel from '@/components/user/UsageAnalyticsPanel.vue'
 import type { UsageLog, ApiKey, UsageQueryParams, UsageStatsResponse, UserErrorRequest } from '@/types'
 import type { Column } from '@/components/common/types'
 import { formatDateTime, formatReasoningEffort } from '@/utils/format'
@@ -731,6 +745,13 @@ const filters = ref<UsageQueryParams>({
 // Initialize filters with date range
 filters.value.start_date = startDate.value
 filters.value.end_date = endDate.value
+
+const selectedApiKeyID = computed(() => {
+  const raw = filters.value.api_key_id
+  if (raw === undefined || raw === null) return null
+  const id = Number(raw)
+  return Number.isFinite(id) && id > 0 ? id : null
+})
 
 // Handle date range change from DateRangePicker
 const onDateRangeChange = (range: {
@@ -1067,7 +1088,7 @@ const hideTokenTooltip = () => {
 }
 
 // ── Error Requests Tab ──────────────────────────────────────────────────────
-const activeTab = ref<'usage' | 'errors'>('usage')
+const activeTab = ref<'usage' | 'analytics' | 'errors'>('analytics')
 const errorViewEnabled = computed(() => appStore.cachedPublicSettings?.allow_user_view_error_requests ?? false)
 
 const errorRows = ref<UserErrorRequest[]>([])

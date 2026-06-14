@@ -1129,6 +1129,7 @@ export default {
     },
     status: {
       active: 'Active',
+      disabled: 'Disabled',
       inactive: 'Inactive',
       quota_exhausted: 'Quota Exhausted',
       expired: 'Expired',
@@ -1239,7 +1240,44 @@ export default {
     exportExcelFailed: 'Failed to export usage data',
     imageUnit: ' images',
     userAgent: 'User-Agent',
-    tabs: { usage: 'Usage', errors: 'Error Requests' },
+    tabs: { usage: 'Usage', analytics: 'Analytics', errors: 'Error Requests' },
+    analytics: {
+      title: 'API Key Usage Analytics',
+      scope:
+        'Uses the selected date range and panel filters for current-account API keys; admin-only cost and upstream routing fields are not exposed.',
+      singleKeyScope:
+        'Follows the date filter above and analyzes only the selected API key. Admin-only cost and upstream routing fields are not exposed.',
+      loadFailed: 'Failed to load usage analytics',
+      errors: {
+        network: 'Cannot connect to the backend service',
+        endpointMissing: 'Endpoint not found. Confirm the backend has been updated and restarted',
+        server: 'Server error ({status}). Check backend logs',
+      },
+      usedKeys: 'Keys with Usage',
+      activeKeysNow: 'Active Keys Now',
+      nearQuotaKeys: 'Near Quota Now',
+      nearRateLimitKeys: 'Near Rate Limit Now',
+      apiKey: 'API Key',
+      share: 'Total share',
+      change: 'Change',
+      model: 'Model',
+      keyCount: 'Keys',
+      filters: {
+        search: 'Search',
+        searchPlaceholder: 'Search key name or key...',
+        allGroups: 'All groups',
+        allTags: 'All tags',
+        allStatuses: 'All statuses',
+        limit: 'Show',
+      },
+      tabs: {
+        leaderboard: 'Key Ranking',
+        trend: 'Spend Trend',
+        models: 'Model Distribution',
+        groups: 'Group Analysis',
+        tags: 'Tag Attribution',
+      },
+    },
     errors: {
       time: 'Time', model: 'Model', endpoint: 'Endpoint', status: 'Status',
       category: 'Category', platform: 'Platform', message: 'Message',

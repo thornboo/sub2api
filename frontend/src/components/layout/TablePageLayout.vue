@@ -1,5 +1,8 @@
 <template>
-  <div class="table-page-layout" :class="{ 'mobile-mode': isMobile }">
+  <div
+    class="table-page-layout"
+    :class="{ 'mobile-mode': isMobile, 'auto-height-mode': tableMode === 'auto' }"
+  >
     <!-- 固定区域：操作按钮 -->
     <div v-if="$slots.actions" class="layout-section-fixed">
       <slot name="actions" />
@@ -26,6 +29,12 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
+
+withDefaults(defineProps<{
+  tableMode?: 'scroll' | 'auto'
+}>(), {
+  tableMode: 'scroll'
+})
 
 const isMobile = ref(false)
 
@@ -89,6 +98,29 @@ onUnmounted(() => {
 
 .table-scroll-container :deep(td) {
   @apply px-5 py-4 text-sm text-stone-700 dark:text-stone-300 border-b border-stone-200/70 dark:border-white/10;
+}
+
+/* 非表格内容：让内容按自身高度撑开，由页面自然滚动。 */
+.table-page-layout.auto-height-mode {
+  height: auto;
+  min-height: calc(100vh - 64px - 4rem);
+}
+
+.table-page-layout.auto-height-mode .layout-section-scrollable {
+  @apply flex-none min-h-fit;
+}
+
+.table-page-layout.auto-height-mode .table-scroll-container {
+  @apply h-auto overflow-visible;
+}
+
+.table-page-layout.auto-height-mode .table-scroll-container :deep(.table-wrapper) {
+  @apply overflow-visible;
+}
+
+.table-page-layout.auto-height-mode .table-scroll-container :deep(.table-wrapper.natural-height) {
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 /* 移动端：恢复正常滚动 */

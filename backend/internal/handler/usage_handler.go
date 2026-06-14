@@ -436,6 +436,13 @@ var apiKeyUsageTrendMaxDays = map[string]int{
 	"month": 31 * 60,
 }
 
+var ownerAPIKeyAnalyticsMaxDays = map[string]int{
+	"hour":  31,
+	"day":   180,
+	"week":  7 * 104,
+	"month": 31 * 60,
+}
+
 func parseAPIKeyDailyUsageDays(raw string) (int, bool) {
 	if strings.TrimSpace(raw) == "" {
 		return defaultAPIKeyDailyUsageDays, true
@@ -560,6 +567,150 @@ func apiKeyUsageTrendRangeAllowed(startTime, endTime time.Time, granularity stri
 		return false
 	}
 	return !endTime.After(startTime.AddDate(0, 0, maxDays))
+}
+
+func ownerAPIKeyAnalyticsRangeAllowed(startTime, endTime time.Time, granularity string) bool {
+	if granularity == "month" {
+		return !endTime.After(startTime.AddDate(0, 60, 0))
+	}
+	maxDays, ok := ownerAPIKeyAnalyticsMaxDays[granularity]
+	if !ok {
+		return false
+	}
+	return !endTime.After(startTime.AddDate(0, 0, maxDays))
+}
+
+func parseOwnerAPIKeyAnalyticsRange(startDate, endDate, granularity string, loc *time.Location) (time.Time, time.Time, string) {
+	startTime, endTime := defaultAPIKeyUsageTrendRange(granularity, loc)
+	if strings.TrimSpace(startDate) != "" {
+		parsed, err := time.ParseInLocation(apiKeyUsageTrendDateLayout, startDate, loc)
+		if err != nil {
+			return time.Time{}, time.Time{}, "Invalid start_date format, use YYYY-MM-DD"
+		}
+		startTime = parsed
+	}
+	if strings.TrimSpace(endDate) != "" {
+		parsed, err := time.ParseInLocation(apiKeyUsageTrendDateLayout, endDate, loc)
+		if err != nil {
+			return time.Time{}, time.Time{}, "Invalid end_date format, use YYYY-MM-DD"
+		}
+		endTime = parsed.AddDate(0, 0, 1)
+	}
+	if !startTime.Before(endTime) {
+		return time.Time{}, time.Time{}, "Invalid date range"
+	}
+	if !ownerAPIKeyAnalyticsRangeAllowed(startTime, endTime, granularity) {
+		return time.Time{}, time.Time{}, "Date range exceeds maximum allowed span"
+	}
+	return startTime, endTime, ""
+}
+
+func parseOwnerAnalyticsTags(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		tag := strings.ToLower(strings.TrimSpace(part))
+		if tag == "" {
+			continue
+		}
+		if _, ok := seen[tag]; ok {
+			continue
+		}
+		seen[tag] = struct{}{}
+		out = append(out, tag)
+	}
+	return out
+}
+
+func parseOwnerAnalyticsStatus(raw string) (string, bool) {
+	status := strings.TrimSpace(raw)
+	if status == "" {
+		return "", true
+	}
+	switch status {
+	case service.StatusAPIKeyActive, service.StatusAPIKeyDisabled, service.StatusAPIKeyQuotaExhausted, service.StatusAPIKeyExpired:
+		return status, true
+	case "inactive":
+		return service.StatusAPIKeyDisabled, true
+	default:
+		return "", false
+	}
+}
+
+func parseOwnerAnalyticsLimit(raw string) (int, bool) {
+	if strings.TrimSpace(raw) == "" {
+		return service.DefaultOwnerAPIKeyAnalyticsLimit, true
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit <= 0 || limit > service.MaxOwnerAPIKeyAnalyticsLimit {
+		return 0, false
+	}
+	return limit, true
+}
+
+func parseOwnerAPIKeyAnalyticsFilters(c *gin.Context, userID int64) (service.OwnerAPIKeyAnalyticsFilters, *time.Location, string) {
+	granularity, ok := parseAPIKeyUsageTrendGranularity(c.DefaultQuery("granularity", ""))
+	if !ok {
+		return service.OwnerAPIKeyAnalyticsFilters{}, nil, "Invalid granularity, allowed values are hour, day, week, month"
+	}
+	userTZ := c.Query("timezone")
+	loc := apiKeyUsageTrendLocation(userTZ)
+	timezoneName := apiKeyUsageTrendTimezoneName(userTZ)
+	startTime, endTime, errMessage := parseOwnerAPIKeyAnalyticsRange(c.Query("start_date"), c.Query("end_date"), granularity, loc)
+	if errMessage != "" {
+		return service.OwnerAPIKeyAnalyticsFilters{}, nil, errMessage
+	}
+
+	var apiKeyID *int64
+	if rawAPIKeyID := strings.TrimSpace(c.Query("api_key_id")); rawAPIKeyID != "" {
+		parsed, err := strconv.ParseInt(rawAPIKeyID, 10, 64)
+		if err != nil || parsed <= 0 {
+			return service.OwnerAPIKeyAnalyticsFilters{}, nil, "Invalid api_key_id"
+		}
+		apiKeyID = &parsed
+	}
+
+	var groupID *int64
+	if rawGroupID := strings.TrimSpace(c.Query("group_id")); rawGroupID != "" {
+		parsed, err := strconv.ParseInt(rawGroupID, 10, 64)
+		if err != nil || parsed < 0 {
+			return service.OwnerAPIKeyAnalyticsFilters{}, nil, "Invalid group_id"
+		}
+		groupID = &parsed
+	}
+
+	status, ok := parseOwnerAnalyticsStatus(c.Query("status"))
+	if !ok {
+		return service.OwnerAPIKeyAnalyticsFilters{}, nil, "Invalid status"
+	}
+
+	limit, ok := parseOwnerAnalyticsLimit(c.DefaultQuery("limit", ""))
+	if !ok {
+		return service.OwnerAPIKeyAnalyticsFilters{}, nil, "Invalid limit, allowed range is 1-100"
+	}
+
+	search := strings.TrimSpace(c.Query("search"))
+	if len(search) > 100 {
+		return service.OwnerAPIKeyAnalyticsFilters{}, nil, "Search is too long"
+	}
+
+	return service.OwnerAPIKeyAnalyticsFilters{
+		UserID:       userID,
+		APIKeyID:     apiKeyID,
+		StartTime:    startTime,
+		EndTime:      endTime,
+		TimezoneName: timezoneName,
+		Granularity:  granularity,
+		GroupID:      groupID,
+		Tags:         parseOwnerAnalyticsTags(c.Query("tags")),
+		Status:       status,
+		Search:       search,
+		Limit:        limit,
+	}, loc, ""
 }
 
 type userVisibleModelStat struct {
@@ -707,6 +858,162 @@ func (h *UsageHandler) DashboardAPIKeysUsage(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{"stats": stats})
+}
+
+func ownerAnalyticsResponseMeta(filters service.OwnerAPIKeyAnalyticsFilters, loc *time.Location) gin.H {
+	return gin.H{
+		"start_date":  filters.StartTime.In(loc).Format(apiKeyUsageTrendDateLayout),
+		"end_date":    filters.EndTime.In(loc).AddDate(0, 0, -1).Format(apiKeyUsageTrendDateLayout),
+		"timezone":    filters.TimezoneName,
+		"granularity": filters.Granularity,
+	}
+}
+
+// GetOwnerAPIKeyAnalyticsSummary handles owner-level API Key usage summary.
+// GET /api/v1/usage/analytics/summary
+func (h *UsageHandler) GetOwnerAPIKeyAnalyticsSummary(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	filters, loc, errMessage := parseOwnerAPIKeyAnalyticsFilters(c, subject.UserID)
+	if errMessage != "" {
+		response.BadRequest(c, errMessage)
+		return
+	}
+	summary, err := h.usageService.GetOwnerAPIKeyAnalyticsSummary(c.Request.Context(), filters)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	resp := ownerAnalyticsResponseMeta(filters, loc)
+	resp["summary"] = summary
+	response.Success(c, resp)
+}
+
+// GetOwnerAPIKeyAnalyticsLeaderboard handles owner-level employee Key ranking.
+// GET /api/v1/usage/analytics/leaderboard
+func (h *UsageHandler) GetOwnerAPIKeyAnalyticsLeaderboard(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	filters, loc, errMessage := parseOwnerAPIKeyAnalyticsFilters(c, subject.UserID)
+	if errMessage != "" {
+		response.BadRequest(c, errMessage)
+		return
+	}
+	leaderboard, err := h.usageService.GetOwnerAPIKeyAnalyticsLeaderboard(c.Request.Context(), filters)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	resp := ownerAnalyticsResponseMeta(filters, loc)
+	resp["items"] = leaderboard.Items
+	resp["total"] = leaderboard.Total
+	resp["total_actual_cost"] = leaderboard.TotalActualCost
+	resp["displayed_actual_cost"] = leaderboard.DisplayedActualCost
+	response.Success(c, resp)
+}
+
+// GetOwnerAPIKeyModelAnalytics handles owner-level requested-model distribution.
+// GET /api/v1/usage/analytics/models
+func (h *UsageHandler) GetOwnerAPIKeyModelAnalytics(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	filters, loc, errMessage := parseOwnerAPIKeyAnalyticsFilters(c, subject.UserID)
+	if errMessage != "" {
+		response.BadRequest(c, errMessage)
+		return
+	}
+	models, err := h.usageService.GetOwnerAPIKeyModelAnalytics(c.Request.Context(), filters)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	resp := ownerAnalyticsResponseMeta(filters, loc)
+	resp["models"] = models
+	response.Success(c, resp)
+}
+
+// GetOwnerAPIKeyGroupAnalytics handles owner-level group usage split.
+// GET /api/v1/usage/analytics/groups
+func (h *UsageHandler) GetOwnerAPIKeyGroupAnalytics(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	filters, loc, errMessage := parseOwnerAPIKeyAnalyticsFilters(c, subject.UserID)
+	if errMessage != "" {
+		response.BadRequest(c, errMessage)
+		return
+	}
+	groups, err := h.usageService.GetOwnerAPIKeyGroupAnalytics(c.Request.Context(), filters)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	resp := ownerAnalyticsResponseMeta(filters, loc)
+	resp["groups"] = groups
+	response.Success(c, resp)
+}
+
+// GetOwnerAPIKeyTagAnalytics handles owner-level tag attribution.
+// GET /api/v1/usage/analytics/tags
+func (h *UsageHandler) GetOwnerAPIKeyTagAnalytics(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	filters, loc, errMessage := parseOwnerAPIKeyAnalyticsFilters(c, subject.UserID)
+	if errMessage != "" {
+		response.BadRequest(c, errMessage)
+		return
+	}
+	tags, err := h.usageService.GetOwnerAPIKeyTagAnalytics(c.Request.Context(), filters)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	resp := ownerAnalyticsResponseMeta(filters, loc)
+	resp["tags"] = tags
+	response.Success(c, resp)
+}
+
+// GetOwnerAPIKeyUsageTrend handles owner-level API Key usage trend.
+// GET /api/v1/usage/analytics/trend
+func (h *UsageHandler) GetOwnerAPIKeyUsageTrend(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	filters, loc, errMessage := parseOwnerAPIKeyAnalyticsFilters(c, subject.UserID)
+	if errMessage != "" {
+		response.BadRequest(c, errMessage)
+		return
+	}
+	items, err := h.usageService.GetOwnerAPIKeyUsageTrend(c.Request.Context(), filters)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	resp := ownerAnalyticsResponseMeta(filters, loc)
+	resp["items"] = items
+	response.Success(c, resp)
 }
 
 // GetMyAPIKeyDailyUsage handles getting daily usage details for the current user's API key.
