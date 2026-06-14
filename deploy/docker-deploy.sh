@@ -20,8 +20,11 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# GitHub raw content base URL
-GITHUB_RAW_URL="https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy"
+# GitHub raw content base URL. Fork maintainers can override these without
+# editing the script, but this fork defaults to its own deploy files.
+GITHUB_REPO="${GITHUB_REPO:-thornboo/sub2api}"
+GITHUB_BRANCH="${GITHUB_BRANCH:-dev-zz}"
+GITHUB_RAW_URL="${GITHUB_RAW_URL:-https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_BRANCH}/deploy}"
 
 # Print colored message
 print_info() {
