@@ -325,9 +325,9 @@ func (s *UsageService) GetUserModelStats(ctx context.Context, userID int64, star
 	return stats, nil
 }
 
-// GetAPIKeyModelStats returns per-model usage stats for a specific API Key.
-func (s *UsageService) GetAPIKeyModelStats(ctx context.Context, apiKeyID int64, startTime, endTime time.Time) ([]usagestats.ModelStat, error) {
-	stats, err := s.usageRepo.GetModelStatsWithFilters(ctx, startTime, endTime, 0, apiKeyID, 0, 0, nil, nil, nil)
+// GetAPIKeyModelStats returns per-model usage stats for a user's API key.
+func (s *UsageService) GetAPIKeyModelStats(ctx context.Context, userID, apiKeyID int64, startTime, endTime time.Time) ([]usagestats.ModelStat, error) {
+	stats, err := s.usageRepo.GetModelStatsWithFilters(ctx, startTime, endTime, userID, apiKeyID, 0, 0, nil, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("get api key model stats: %w", err)
 	}
@@ -356,6 +356,15 @@ func (s *UsageService) GetAPIKeyDailyUsage(ctx context.Context, userID, apiKeyID
 		})
 	}
 	return points, nil
+}
+
+// GetAPIKeyUsageTrendForUser returns usage trend data for a user's API key.
+func (s *UsageService) GetAPIKeyUsageTrendForUser(ctx context.Context, userID, apiKeyID int64, startTime, endTime time.Time, granularity, timezoneName string) ([]usagestats.TrendDataPoint, error) {
+	trend, err := s.usageRepo.GetAPIKeyUsageTrendForUser(ctx, userID, apiKeyID, startTime, endTime, granularity, timezoneName)
+	if err != nil {
+		return nil, fmt.Errorf("get api key usage trend: %w", err)
+	}
+	return trend, nil
 }
 
 // GetBatchAPIKeyUsageStats returns today/total actual_cost for given api keys.

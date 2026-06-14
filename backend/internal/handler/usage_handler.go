@@ -424,6 +424,18 @@ const (
 	maxAPIKeyDailyUsageDays     = 90
 )
 
+const (
+	defaultAPIKeyUsageTrendGranularity = "day"
+	apiKeyUsageTrendDateLayout         = "2006-01-02"
+)
+
+var apiKeyUsageTrendMaxDays = map[string]int{
+	"hour":  31,
+	"day":   366,
+	"week":  7 * 104,
+	"month": 31 * 60,
+}
+
 func parseAPIKeyDailyUsageDays(raw string) (int, bool) {
 	if strings.TrimSpace(raw) == "" {
 		return defaultAPIKeyDailyUsageDays, true
@@ -440,6 +452,142 @@ func apiKeyDailyUsageRange(days int, userTZ string) (time.Time, time.Time) {
 	startTime := timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -(days-1)), userTZ)
 	endTime := timezone.StartOfDayInUserLocation(now.AddDate(0, 0, 1), userTZ)
 	return startTime, endTime
+}
+
+func parseAPIKeyUsageTrendGranularity(raw string) (string, bool) {
+	granularity := strings.TrimSpace(raw)
+	if granularity == "" {
+		return defaultAPIKeyUsageTrendGranularity, true
+	}
+	switch granularity {
+	case "hour", "day", "week", "month":
+		return granularity, true
+	default:
+		return "", false
+	}
+}
+
+func apiKeyUsageTrendLocation(userTZ string) *time.Location {
+	if trimmed := strings.TrimSpace(userTZ); trimmed != "" {
+		if loc, err := time.LoadLocation(trimmed); err == nil {
+			return loc
+		}
+	}
+	return timezone.Location()
+}
+
+func apiKeyUsageTrendTimezoneName(userTZ string) string {
+	if trimmed := strings.TrimSpace(userTZ); trimmed != "" {
+		if _, err := time.LoadLocation(trimmed); err == nil {
+			return trimmed
+		}
+	}
+	name := timezone.Name()
+	if name == "Local" {
+		return "UTC"
+	}
+	return name
+}
+
+func apiKeyUsageTrendStartOfDay(t time.Time, loc *time.Location) time.Time {
+	t = t.In(loc)
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc)
+}
+
+func apiKeyUsageTrendStartOfWeek(t time.Time, loc *time.Location) time.Time {
+	start := apiKeyUsageTrendStartOfDay(t, loc)
+	weekday := int(start.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	return start.AddDate(0, 0, -weekday+1)
+}
+
+func apiKeyUsageTrendStartOfMonth(t time.Time, loc *time.Location) time.Time {
+	t = t.In(loc)
+	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, loc)
+}
+
+func defaultAPIKeyUsageTrendRange(granularity string, loc *time.Location) (time.Time, time.Time) {
+	now := time.Now().In(loc)
+	switch granularity {
+	case "hour":
+		start := apiKeyUsageTrendStartOfDay(now, loc)
+		return start, start.AddDate(0, 0, 1)
+	case "week":
+		currentWeekStart := apiKeyUsageTrendStartOfWeek(now, loc)
+		return currentWeekStart.AddDate(0, 0, -7*11), currentWeekStart.AddDate(0, 0, 7)
+	case "month":
+		currentMonthStart := apiKeyUsageTrendStartOfMonth(now, loc)
+		return currentMonthStart.AddDate(0, -11, 0), currentMonthStart.AddDate(0, 1, 0)
+	default:
+		end := apiKeyUsageTrendStartOfDay(now.AddDate(0, 0, 1), loc)
+		return end.AddDate(0, 0, -defaultAPIKeyDailyUsageDays), end
+	}
+}
+
+func parseAPIKeyUsageTrendRange(startDate, endDate, granularity string, loc *time.Location) (time.Time, time.Time, string) {
+	startTime, endTime := defaultAPIKeyUsageTrendRange(granularity, loc)
+	if strings.TrimSpace(startDate) != "" {
+		parsed, err := time.ParseInLocation(apiKeyUsageTrendDateLayout, startDate, loc)
+		if err != nil {
+			return time.Time{}, time.Time{}, "Invalid start_date format, use YYYY-MM-DD"
+		}
+		startTime = parsed
+	}
+	if strings.TrimSpace(endDate) != "" {
+		parsed, err := time.ParseInLocation(apiKeyUsageTrendDateLayout, endDate, loc)
+		if err != nil {
+			return time.Time{}, time.Time{}, "Invalid end_date format, use YYYY-MM-DD"
+		}
+		endTime = parsed.AddDate(0, 0, 1)
+	}
+	if !startTime.Before(endTime) {
+		return time.Time{}, time.Time{}, "Invalid date range"
+	}
+	if !apiKeyUsageTrendRangeAllowed(startTime, endTime, granularity) {
+		return time.Time{}, time.Time{}, "Date range exceeds maximum allowed span"
+	}
+	return startTime, endTime, ""
+}
+
+func apiKeyUsageTrendRangeAllowed(startTime, endTime time.Time, granularity string) bool {
+	if granularity == "month" {
+		return !endTime.After(startTime.AddDate(0, 60, 0))
+	}
+	maxDays, ok := apiKeyUsageTrendMaxDays[granularity]
+	if !ok {
+		return false
+	}
+	return !endTime.After(startTime.AddDate(0, 0, maxDays))
+}
+
+type userVisibleModelStat struct {
+	Model               string  `json:"model"`
+	Requests            int64   `json:"requests"`
+	InputTokens         int64   `json:"input_tokens"`
+	OutputTokens        int64   `json:"output_tokens"`
+	CacheCreationTokens int64   `json:"cache_creation_tokens"`
+	CacheReadTokens     int64   `json:"cache_read_tokens"`
+	TotalTokens         int64   `json:"total_tokens"`
+	ActualCost          float64 `json:"actual_cost"`
+}
+
+func toUserVisibleModelStats(stats []usagestats.ModelStat) []userVisibleModelStat {
+	out := make([]userVisibleModelStat, 0, len(stats))
+	for _, stat := range stats {
+		out = append(out, userVisibleModelStat{
+			Model:               stat.Model,
+			Requests:            stat.Requests,
+			InputTokens:         stat.InputTokens,
+			OutputTokens:        stat.OutputTokens,
+			CacheCreationTokens: stat.CacheCreationTokens,
+			CacheReadTokens:     stat.CacheReadTokens,
+			TotalTokens:         stat.TotalTokens,
+			ActualCost:          stat.ActualCost,
+		})
+	}
+	return out
 }
 
 // DashboardStats handles getting user dashboard statistics
@@ -504,7 +652,7 @@ func (h *UsageHandler) DashboardModels(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{
-		"models":     stats,
+		"models":     toUserVisibleModelStats(stats),
 		"start_date": startTime.Format("2006-01-02"),
 		"end_date":   endTime.Add(-24 * time.Hour).Format("2006-01-02"),
 	})
@@ -610,5 +758,118 @@ func (h *UsageHandler) GetMyAPIKeyDailyUsage(c *gin.Context) {
 		"days":       days,
 		"start_date": startTime.Format("2006-01-02"),
 		"end_date":   endTime.AddDate(0, 0, -1).Format("2006-01-02"),
+	})
+}
+
+// GetMyAPIKeyUsageTrend handles getting usage trend details for the current user's API key.
+// GET /api/v1/user/api-keys/:id/usage/trend?granularity=day&start_date=2026-06-01&end_date=2026-06-14
+func (h *UsageHandler) GetMyAPIKeyUsageTrend(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	apiKeyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid API key ID")
+		return
+	}
+
+	granularity, ok := parseAPIKeyUsageTrendGranularity(c.DefaultQuery("granularity", ""))
+	if !ok {
+		response.BadRequest(c, "Invalid granularity, allowed values are hour, day, week, month")
+		return
+	}
+
+	if h.apiKeyService == nil {
+		response.InternalError(c, "API key service is not configured")
+		return
+	}
+
+	apiKey, err := h.apiKeyService.GetByID(c.Request.Context(), apiKeyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if apiKey.UserID != subject.UserID {
+		response.Forbidden(c, "Not authorized to access this API key's usage")
+		return
+	}
+
+	userTZ := c.Query("timezone")
+	loc := apiKeyUsageTrendLocation(userTZ)
+	timezoneName := apiKeyUsageTrendTimezoneName(userTZ)
+	startTime, endTime, errMessage := parseAPIKeyUsageTrendRange(c.Query("start_date"), c.Query("end_date"), granularity, loc)
+	if errMessage != "" {
+		response.BadRequest(c, errMessage)
+		return
+	}
+
+	items, err := h.usageService.GetAPIKeyUsageTrendForUser(c.Request.Context(), subject.UserID, apiKeyID, startTime, endTime, granularity, timezoneName)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"items":       items,
+		"granularity": granularity,
+		"start_date":  startTime.In(loc).Format(apiKeyUsageTrendDateLayout),
+		"end_date":    endTime.In(loc).AddDate(0, 0, -1).Format(apiKeyUsageTrendDateLayout),
+		"timezone":    timezoneName,
+	})
+}
+
+// GetMyAPIKeyModelStats handles getting model distribution for the current user's API key.
+// GET /api/v1/user/api-keys/:id/usage/models?start_date=2026-06-01&end_date=2026-06-14
+func (h *UsageHandler) GetMyAPIKeyModelStats(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	apiKeyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid API key ID")
+		return
+	}
+
+	if h.apiKeyService == nil {
+		response.InternalError(c, "API key service is not configured")
+		return
+	}
+
+	apiKey, err := h.apiKeyService.GetByID(c.Request.Context(), apiKeyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if apiKey.UserID != subject.UserID {
+		response.Forbidden(c, "Not authorized to access this API key's usage")
+		return
+	}
+
+	userTZ := c.Query("timezone")
+	loc := apiKeyUsageTrendLocation(userTZ)
+	timezoneName := apiKeyUsageTrendTimezoneName(userTZ)
+	startTime, endTime, errMessage := parseAPIKeyUsageTrendRange(c.Query("start_date"), c.Query("end_date"), "day", loc)
+	if errMessage != "" {
+		response.BadRequest(c, errMessage)
+		return
+	}
+
+	stats, err := h.usageService.GetAPIKeyModelStats(c.Request.Context(), subject.UserID, apiKeyID, startTime, endTime)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"models":     toUserVisibleModelStats(stats),
+		"start_date": startTime.In(loc).Format(apiKeyUsageTrendDateLayout),
+		"end_date":   endTime.In(loc).AddDate(0, 0, -1).Format(apiKeyUsageTrendDateLayout),
+		"timezone":   timezoneName,
 	})
 }

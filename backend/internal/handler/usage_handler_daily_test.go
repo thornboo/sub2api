@@ -17,7 +17,8 @@ import (
 
 type dailyUsageRepoStub struct {
 	service.UsageLogRepository
-	trend []usagestats.TrendDataPoint
+	trend      []usagestats.TrendDataPoint
+	modelStats []usagestats.ModelStat
 
 	called      bool
 	startTime   time.Time
@@ -25,6 +26,24 @@ type dailyUsageRepoStub struct {
 	granularity string
 	userID      int64
 	apiKeyID    int64
+
+	trendCalled      bool
+	trendStartTime   time.Time
+	trendEndTime     time.Time
+	trendGranularity string
+	trendTimezone    string
+	trendUserID      int64
+	trendAPIKeyID    int64
+
+	modelCalled     bool
+	modelStartTime  time.Time
+	modelEndTime    time.Time
+	modelUserID     int64
+	modelAPIKeyID   int64
+	userModelCalled bool
+	userModelUserID int64
+	userModelStart  time.Time
+	userModelEnd    time.Time
 }
 
 func (s *dailyUsageRepoStub) GetUsageTrendWithFilters(
@@ -44,6 +63,50 @@ func (s *dailyUsageRepoStub) GetUsageTrendWithFilters(
 	s.userID = userID
 	s.apiKeyID = apiKeyID
 	return s.trend, nil
+}
+
+func (s *dailyUsageRepoStub) GetAPIKeyUsageTrendForUser(
+	ctx context.Context,
+	userID, apiKeyID int64,
+	startTime, endTime time.Time,
+	granularity, timezoneName string,
+) ([]usagestats.TrendDataPoint, error) {
+	s.trendCalled = true
+	s.trendStartTime = startTime
+	s.trendEndTime = endTime
+	s.trendGranularity = granularity
+	s.trendTimezone = timezoneName
+	s.trendUserID = userID
+	s.trendAPIKeyID = apiKeyID
+	return s.trend, nil
+}
+
+func (s *dailyUsageRepoStub) GetModelStatsWithFilters(
+	ctx context.Context,
+	startTime, endTime time.Time,
+	userID, apiKeyID, accountID, groupID int64,
+	requestType *int16,
+	stream *bool,
+	billingType *int8,
+) ([]usagestats.ModelStat, error) {
+	s.modelCalled = true
+	s.modelStartTime = startTime
+	s.modelEndTime = endTime
+	s.modelUserID = userID
+	s.modelAPIKeyID = apiKeyID
+	return s.modelStats, nil
+}
+
+func (s *dailyUsageRepoStub) GetUserModelStats(
+	ctx context.Context,
+	userID int64,
+	startTime, endTime time.Time,
+) ([]usagestats.ModelStat, error) {
+	s.userModelCalled = true
+	s.userModelUserID = userID
+	s.userModelStart = startTime
+	s.userModelEnd = endTime
+	return s.modelStats, nil
 }
 
 type dailyUsageAPIKeyRepoStub struct {
@@ -71,6 +134,9 @@ func newDailyUsageTestRouter(usageRepo *dailyUsageRepoStub, apiKeyRepo *dailyUsa
 		c.Next()
 	})
 	router.GET("/user/api-keys/:id/usage/daily", handler.GetMyAPIKeyDailyUsage)
+	router.GET("/user/api-keys/:id/usage/trend", handler.GetMyAPIKeyUsageTrend)
+	router.GET("/user/api-keys/:id/usage/models", handler.GetMyAPIKeyModelStats)
+	router.GET("/usage/dashboard/models", handler.DashboardModels)
 	return router
 }
 
@@ -79,6 +145,17 @@ type dailyUsageHandlerResponse struct {
 	Data struct {
 		Items []usagestats.APIKeyDailyUsagePoint `json:"items"`
 		Days  int                                `json:"days"`
+	} `json:"data"`
+}
+
+type apiKeyUsageTrendHandlerResponse struct {
+	Code int `json:"code"`
+	Data struct {
+		Items       []usagestats.TrendDataPoint `json:"items"`
+		Granularity string                      `json:"granularity"`
+		StartDate   string                      `json:"start_date"`
+		EndDate     string                      `json:"end_date"`
+		Timezone    string                      `json:"timezone"`
 	} `json:"data"`
 }
 
@@ -192,4 +269,207 @@ func TestGetMyAPIKeyDailyUsageAggregatesByDayForOwnedKey(t *testing.T) {
 		Cost:             0.5,
 		ActualCost:       0.4,
 	}, got.Data.Items[0])
+}
+
+func TestGetMyAPIKeyUsageTrendRejectsCrossUserAccess(t *testing.T) {
+	usageRepo := &dailyUsageRepoStub{}
+	apiKeyRepo := &dailyUsageAPIKeyRepoStub{
+		keys: map[int64]*service.APIKey{
+			7: {ID: 7, UserID: 99, Status: service.StatusAPIKeyActive},
+		},
+	}
+	router := newDailyUsageTestRouter(usageRepo, apiKeyRepo, 42)
+
+	req := httptest.NewRequest(http.MethodGet, "/user/api-keys/7/usage/trend?granularity=hour", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.False(t, usageRepo.trendCalled)
+}
+
+func TestGetMyAPIKeyUsageTrendRejectsInvalidGranularity(t *testing.T) {
+	usageRepo := &dailyUsageRepoStub{}
+	apiKeyRepo := &dailyUsageAPIKeyRepoStub{
+		keys: map[int64]*service.APIKey{
+			7: {ID: 7, UserID: 42, Status: service.StatusAPIKeyActive},
+		},
+	}
+	router := newDailyUsageTestRouter(usageRepo, apiKeyRepo, 42)
+
+	req := httptest.NewRequest(http.MethodGet, "/user/api-keys/7/usage/trend?granularity=minute", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.False(t, usageRepo.trendCalled)
+}
+
+func TestGetMyAPIKeyUsageTrendRejectsExcessiveHourRange(t *testing.T) {
+	usageRepo := &dailyUsageRepoStub{}
+	apiKeyRepo := &dailyUsageAPIKeyRepoStub{
+		keys: map[int64]*service.APIKey{
+			7: {ID: 7, UserID: 42, Status: service.StatusAPIKeyActive},
+		},
+	}
+	router := newDailyUsageTestRouter(usageRepo, apiKeyRepo, 42)
+
+	req := httptest.NewRequest(http.MethodGet, "/user/api-keys/7/usage/trend?granularity=hour&start_date=2026-01-01&end_date=2026-02-01", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.False(t, usageRepo.trendCalled)
+}
+
+func TestGetMyAPIKeyUsageTrendUsesTimezoneAwareDedicatedRepoPath(t *testing.T) {
+	usageRepo := &dailyUsageRepoStub{
+		trend: []usagestats.TrendDataPoint{
+			{
+				Date:                "2026-06-14 23:00",
+				Requests:            2,
+				InputTokens:         11,
+				OutputTokens:        13,
+				CacheCreationTokens: 3,
+				CacheReadTokens:     5,
+				TotalTokens:         32,
+				Cost:                0.21,
+				ActualCost:          0.18,
+			},
+		},
+	}
+	apiKeyRepo := &dailyUsageAPIKeyRepoStub{
+		keys: map[int64]*service.APIKey{
+			7: {ID: 7, UserID: 42, Status: service.StatusAPIKeyActive},
+		},
+	}
+	router := newDailyUsageTestRouter(usageRepo, apiKeyRepo, 42)
+
+	req := httptest.NewRequest(http.MethodGet, "/user/api-keys/7/usage/trend?granularity=hour&start_date=2026-06-14&end_date=2026-06-14&timezone=Asia/Shanghai", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, usageRepo.trendCalled)
+	require.Equal(t, int64(42), usageRepo.trendUserID)
+	require.Equal(t, int64(7), usageRepo.trendAPIKeyID)
+	require.Equal(t, "hour", usageRepo.trendGranularity)
+	require.Equal(t, "Asia/Shanghai", usageRepo.trendTimezone)
+	require.Equal(t, "2026-06-14", usageRepo.trendStartTime.In(time.FixedZone("CST", 8*60*60)).Format(apiKeyUsageTrendDateLayout))
+	require.Equal(t, "2026-06-15", usageRepo.trendEndTime.In(time.FixedZone("CST", 8*60*60)).Format(apiKeyUsageTrendDateLayout))
+
+	var got apiKeyUsageTrendHandlerResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Equal(t, "hour", got.Data.Granularity)
+	require.Equal(t, "2026-06-14", got.Data.StartDate)
+	require.Equal(t, "2026-06-14", got.Data.EndDate)
+	require.Equal(t, "Asia/Shanghai", got.Data.Timezone)
+	require.Len(t, got.Data.Items, 1)
+	require.Equal(t, usageRepo.trend[0], got.Data.Items[0])
+}
+
+func TestGetMyAPIKeyModelStatsRejectsCrossUserAccess(t *testing.T) {
+	usageRepo := &dailyUsageRepoStub{}
+	apiKeyRepo := &dailyUsageAPIKeyRepoStub{
+		keys: map[int64]*service.APIKey{
+			7: {ID: 7, UserID: 99, Status: service.StatusAPIKeyActive},
+		},
+	}
+	router := newDailyUsageTestRouter(usageRepo, apiKeyRepo, 42)
+
+	req := httptest.NewRequest(http.MethodGet, "/user/api-keys/7/usage/models", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.False(t, usageRepo.modelCalled)
+}
+
+func TestGetMyAPIKeyModelStatsReturnsUserSafeFields(t *testing.T) {
+	usageRepo := &dailyUsageRepoStub{
+		modelStats: []usagestats.ModelStat{
+			{
+				Model:               "gpt-5.1",
+				Requests:            2,
+				InputTokens:         1000,
+				OutputTokens:        2000,
+				CacheCreationTokens: 300,
+				CacheReadTokens:     400,
+				TotalTokens:         3700,
+				Cost:                9.99,
+				ActualCost:          1.23,
+				AccountCost:         0.44,
+			},
+		},
+	}
+	apiKeyRepo := &dailyUsageAPIKeyRepoStub{
+		keys: map[int64]*service.APIKey{
+			7: {ID: 7, UserID: 42, Status: service.StatusAPIKeyActive},
+		},
+	}
+	router := newDailyUsageTestRouter(usageRepo, apiKeyRepo, 42)
+
+	req := httptest.NewRequest(http.MethodGet, "/user/api-keys/7/usage/models?start_date=2026-06-01&end_date=2026-06-14&timezone=Asia/Shanghai", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, usageRepo.modelCalled)
+	require.Equal(t, int64(42), usageRepo.modelUserID)
+	require.Equal(t, int64(7), usageRepo.modelAPIKeyID)
+
+	var got struct {
+		Code int `json:"code"`
+		Data struct {
+			Models    []map[string]any `json:"models"`
+			StartDate string           `json:"start_date"`
+			EndDate   string           `json:"end_date"`
+			Timezone  string           `json:"timezone"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Equal(t, "2026-06-01", got.Data.StartDate)
+	require.Equal(t, "2026-06-14", got.Data.EndDate)
+	require.Equal(t, "Asia/Shanghai", got.Data.Timezone)
+	require.Len(t, got.Data.Models, 1)
+	require.Equal(t, "gpt-5.1", got.Data.Models[0]["model"])
+	require.Equal(t, float64(1.23), got.Data.Models[0]["actual_cost"])
+	require.NotContains(t, got.Data.Models[0], "cost")
+	require.NotContains(t, got.Data.Models[0], "account_cost")
+}
+
+func TestDashboardModelsReturnsUserSafeFields(t *testing.T) {
+	usageRepo := &dailyUsageRepoStub{
+		modelStats: []usagestats.ModelStat{
+			{
+				Model:       "claude-sonnet-4.5",
+				Requests:    3,
+				TotalTokens: 1200,
+				Cost:        8.88,
+				ActualCost:  0.72,
+				AccountCost: 0.31,
+			},
+		},
+	}
+	apiKeyRepo := &dailyUsageAPIKeyRepoStub{}
+	router := newDailyUsageTestRouter(usageRepo, apiKeyRepo, 42)
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/dashboard/models?start_date=2026-06-01&end_date=2026-06-14", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, usageRepo.userModelCalled)
+	require.Equal(t, int64(42), usageRepo.userModelUserID)
+
+	var got struct {
+		Data struct {
+			Models []map[string]any `json:"models"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Len(t, got.Data.Models, 1)
+	require.Equal(t, "claude-sonnet-4.5", got.Data.Models[0]["model"])
+	require.NotContains(t, got.Data.Models[0], "cost")
+	require.NotContains(t, got.Data.Models[0], "account_cost")
 }

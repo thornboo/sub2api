@@ -40,7 +40,6 @@
                   <th class="pb-2 text-right">{{ t('dashboard.requests') }}</th>
                   <th class="pb-2 text-right">{{ t('dashboard.tokens') }}</th>
                   <th class="pb-2 text-right">{{ t('dashboard.actual') }}</th>
-                  <th class="pb-2 text-right">{{ t('dashboard.standard') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -49,7 +48,6 @@
                   <td class="py-1.5 text-right text-gray-600 dark:text-gray-400">{{ formatNumber(model.requests) }}</td>
                   <td class="py-1.5 text-right text-gray-600 dark:text-gray-400">{{ formatTokens(model.total_tokens) }}</td>
                   <td class="py-1.5 text-right text-green-600 dark:text-green-400">${{ formatCost(model.actual_cost) }}</td>
-                  <td class="py-1.5 text-right text-gray-400 dark:text-gray-500">${{ formatCost(model.cost) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -71,19 +69,20 @@ import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import Select from '@/components/common/Select.vue'
 import { Doughnut } from 'vue-chartjs'
 import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
-import type { TrendDataPoint, ModelStat } from '@/types'
+import type { TrendDataPoint } from '@/types'
+import type { UserModelStat } from '@/api/usage'
 import { formatCostFixed as formatCost, formatNumberLocaleString as formatNumber, formatTokensK as formatTokens } from '@/utils/format'
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Title, Tooltip, Legend, Filler } from 'chart.js'
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Title, Tooltip, Legend, Filler)
 
-const props = defineProps<{ loading: boolean, startDate: string, endDate: string, granularity: string, trend: TrendDataPoint[], models: ModelStat[] }>()
+const props = defineProps<{ loading: boolean, startDate: string, endDate: string, granularity: string, trend: TrendDataPoint[], models: UserModelStat[] }>()
 defineEmits(['update:startDate', 'update:endDate', 'update:granularity', 'dateRangeChange', 'granularityChange', 'refresh'])
 const { t } = useI18n()
 
 const modelData = computed(() => !props.models?.length ? null : {
-  labels: props.models.map((m: ModelStat) => m.model),
+  labels: props.models.map((m: UserModelStat) => m.model),
   datasets: [{
-    data: props.models.map((m: ModelStat) => m.total_tokens),
+    data: props.models.map((m: UserModelStat) => m.total_tokens),
     backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
   }]
 })

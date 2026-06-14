@@ -1,5 +1,31 @@
 # 补丁记录
 
+## 2026-06-14 - API Key 用量下钻
+
+范围：
+- `backend/internal/{handler,repository,server,service}/**`
+- `frontend/src/{api,components/keys,i18n,views/user}/**`
+- `docs-site/dev-zz/{changelog.md,patches.md,features/api-key-usage-drilldown.md}`
+
+改动：
+- 新增用户侧 `GET /api/v1/user/api-keys/:id/usage/trend`，支持按 `hour` / `day` / `week` / `month` 聚合单把 API Key 的请求数、Token 和实际扣费。
+- 新趋势接口复用当前用户认证主体，并在 handler 层校验 Key 所有权、granularity 白名单和日期范围上限；绕过前端直接请求超大范围会返回 400。
+- repository 新增单 Key 专用查询方法，使用 `created_at AT TIME ZONE $tz` 做分桶，不修改共享 `GetUsageTrendWithFilters` 路径，避免影响 dashboard 等既有调用点。
+- 用户侧新增 `GET /api/v1/user/api-keys/:id/usage/models`，只在校验 Key 属于当前用户后返回脱敏模型统计；用户模型统计响应不包含 `cost` / `account_cost` 等管理员成本字段。
+- 用户侧 Key 列表的用量列新增详情入口，弹窗内提供趋势图表、模型分布和请求记录表；请求记录面板直接复用已有 `/usage` 查询接口并绑定 `api_key_id`。
+- 趋势表、模型表和请求记录表对大 Token 数使用 K/M/B 紧凑展示，并保留完整数值悬停提示。
+- 周粒度展示 ISO 周编号并补充自然日期区间，便于定位具体周范围。
+- 根据审查反馈补强前端面板请求竞态防护，快速切换粒度、刷新模型分布或翻页请求记录时会丢弃过期响应。
+- `GetAPIKeyModelStats` service 方法改为同时接收 `userID` 和 `apiKeyID`，与趋势和日用量路径保持双重过滤的纵深防御。
+- 本轮复用项目已有图表依赖，不实现 API Key 列表按用量排序。
+
+验证：
+- `go test ./internal/handler ./internal/server/routes ./internal/service`
+- `go test ./internal/repository -run 'TestUsageLogRepositoryGetAPIKeyUsageTrendForUser'`
+- `pnpm --dir frontend run typecheck`
+- `pnpm --dir frontend run lint:check`
+- `git diff --check`
+
 ## 2026-06-14 - 企业 Key 筛选批量操作
 
 范围：

@@ -32,6 +32,8 @@ func RegisterUserRoutes(
 			user.DELETE("/account-bindings/:provider", h.User.UnbindIdentity)
 			user.POST("/auth-identities/bind/start", h.User.StartIdentityBinding)
 			user.GET("/api-keys/:id/usage/daily", h.Usage.GetMyAPIKeyDailyUsage)
+			user.GET("/api-keys/:id/usage/trend", h.Usage.GetMyAPIKeyUsageTrend)
+			user.GET("/api-keys/:id/usage/models", h.Usage.GetMyAPIKeyModelStats)
 			user.GET("/platform-quotas", h.User.GetMyPlatformQuotas)
 
 			// 通知邮箱管理

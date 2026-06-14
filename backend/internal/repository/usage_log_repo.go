@@ -130,6 +130,11 @@ func safeDateFormat(granularity string) string {
 	return "YYYY-MM-DD"
 }
 
+func strictDateFormat(granularity string) (string, bool) {
+	f, ok := dateFormatWhitelist[granularity]
+	return f, ok
+}
+
 // appendRawUsageLogModelWhereCondition keeps direct model filters on the raw model column for backward
 // compatibility with historical rows. Requested/upstream analytics must use
 // resolveModelDimensionExpression instead.
@@ -3074,6 +3079,59 @@ func (r *usageLogRepository) GetUsageTrendWithFilters(ctx context.Context, start
 	defer func() {
 		// 保持主错误优先；仅在无错误时回传 Close 失败。
 		// 同时清空返回值，避免误用不完整结果。
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			err = closeErr
+			results = nil
+		}
+	}()
+
+	results, err = scanTrendRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+// GetAPIKeyUsageTrendForUser returns one user's API key usage trend with timezone-aware buckets.
+func (r *usageLogRepository) GetAPIKeyUsageTrendForUser(ctx context.Context, userID, apiKeyID int64, startTime, endTime time.Time, granularity, timezoneName string) (results []TrendDataPoint, err error) {
+	dateFormat, ok := strictDateFormat(granularity)
+	if !ok {
+		return nil, fmt.Errorf("invalid granularity: %s", granularity)
+	}
+	if timezoneName == "" {
+		timezoneName = timezone.Name()
+		if timezoneName == "Local" {
+			timezoneName = "UTC"
+		}
+	}
+	if _, err := time.LoadLocation(timezoneName); err != nil {
+		return nil, fmt.Errorf("invalid timezone: %w", err)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			TO_CHAR(created_at AT TIME ZONE $3, '%s') as date,
+			COUNT(*) as requests,
+			COALESCE(SUM(input_tokens), 0) as input_tokens,
+			COALESCE(SUM(output_tokens), 0) as output_tokens,
+			COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
+			COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
+			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as total_tokens,
+			COALESCE(SUM(total_cost), 0) as cost,
+			COALESCE(SUM(actual_cost), 0) as actual_cost
+		FROM usage_logs
+		WHERE created_at >= $1 AND created_at < $2
+			AND user_id = $4
+			AND api_key_id = $5
+		GROUP BY date
+		ORDER BY date ASC
+	`, dateFormat)
+
+	rows, err := r.sql.QueryContext(ctx, query, startTime, endTime, timezoneName, userID, apiKeyID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
 		if closeErr := rows.Close(); closeErr != nil && err == nil {
 			err = closeErr
 			results = nil

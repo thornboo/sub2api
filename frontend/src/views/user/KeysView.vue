@@ -217,18 +217,30 @@
           </template>
 
           <template #cell-usage="{ row }">
-            <div class="text-sm">
-              <div class="flex items-center gap-1.5">
-                <span class="text-gray-500 dark:text-gray-400">{{ t('keys.today') }}:</span>
-                <span class="font-medium text-gray-900 dark:text-white">
-                  ${{ (usageStats[row.id]?.today_actual_cost ?? 0).toFixed(4) }}
-                </span>
-              </div>
-              <div class="mt-0.5 flex items-center gap-1.5">
-                <span class="text-gray-500 dark:text-gray-400">{{ t('keys.total') }}:</span>
-                <span class="font-medium text-gray-900 dark:text-white">
-                  ${{ (usageStats[row.id]?.total_actual_cost ?? 0).toFixed(4) }}
-                </span>
+            <div class="min-w-[150px] text-sm">
+              <div class="flex items-center justify-between gap-2">
+                <div>
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-gray-500 dark:text-gray-400">{{ t('keys.today') }}:</span>
+                    <span class="font-medium text-gray-900 dark:text-white">
+                      ${{ (usageStats[row.id]?.today_actual_cost ?? 0).toFixed(4) }}
+                    </span>
+                  </div>
+                  <div class="mt-0.5 flex items-center gap-1.5">
+                    <span class="text-gray-500 dark:text-gray-400">{{ t('keys.total') }}:</span>
+                    <span class="font-medium text-gray-900 dark:text-white">
+                      ${{ (usageStats[row.id]?.total_actual_cost ?? 0).toFixed(4) }}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-gray-400 transition-colors hover:bg-primary-50 hover:text-primary-600 dark:hover:bg-primary-900/20 dark:hover:text-primary-400"
+                  :title="t('keys.usageDetails.open')"
+                  @click.stop="openUsageModal(row)"
+                >
+                  <Icon name="chart" size="sm" />
+                </button>
               </div>
               <!-- Quota progress (if quota is set) -->
               <div v-if="row.quota > 0" class="mt-1.5">
@@ -1607,6 +1619,13 @@
       @close="closeUseKeyModal"
     />
 
+    <ApiKeyUsageModal
+      :show="showUsageModal"
+      :api-key="selectedUsageKey"
+      :usage-stats="selectedUsageKey ? usageStats[selectedUsageKey.id] : null"
+      @close="closeUsageModal"
+    />
+
     <!-- CCS Client Selection Dialog for Antigravity -->
     <BaseDialog
       :show="showCcsClientSelect"
@@ -1743,6 +1762,7 @@ import TagFilterSelect from '@/components/common/TagFilterSelect.vue'
 import TagPills from '@/components/common/TagPills.vue'
 import Icon from '@/components/icons/Icon.vue'
 import UseKeyModal from '@/components/keys/UseKeyModal.vue'
+import ApiKeyUsageModal from '@/components/keys/ApiKeyUsageModal.vue'
 import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
@@ -1841,9 +1861,11 @@ const showDeleteDialog = ref(false)
 const showResetQuotaDialog = ref(false)
 const showResetRateLimitDialog = ref(false)
 const showUseKeyModal = ref(false)
+const showUsageModal = ref(false)
 const showCcsClientSelect = ref(false)
 const pendingCcsRow = ref<ApiKey | null>(null)
 const selectedKey = ref<ApiKey | null>(null)
+const selectedUsageKey = ref<ApiKey | null>(null)
 const batchResult = ref<BatchCreateApiKeysResponse | null>(null)
 const batchSubmitting = ref(false)
 const batchActionSubmitting = ref(false)
@@ -2402,6 +2424,16 @@ const openUseKeyModal = (key: ApiKey) => {
 const closeUseKeyModal = () => {
   showUseKeyModal.value = false
   selectedKey.value = null
+}
+
+const openUsageModal = (key: ApiKey) => {
+  selectedUsageKey.value = key
+  showUsageModal.value = true
+}
+
+const closeUsageModal = () => {
+  showUsageModal.value = false
+  selectedUsageKey.value = null
 }
 
 const handlePageChange = (page: number) => {

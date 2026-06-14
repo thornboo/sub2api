@@ -10,7 +10,6 @@ import type {
   UsageStatsResponse,
   PaginatedResponse,
   TrendDataPoint,
-  ModelStat,
   UserErrorRequest,
   UserErrorRequestDetail,
   UserErrorListParams
@@ -66,8 +65,19 @@ export interface TrendResponse {
   granularity: string
 }
 
+export interface UserModelStat {
+  model: string
+  requests: number
+  input_tokens: number
+  output_tokens: number
+  cache_creation_tokens: number
+  cache_read_tokens: number
+  total_tokens: number
+  actual_cost: number
+}
+
 export interface ModelStatsResponse {
-  models: ModelStat[]
+  models: UserModelStat[]
   start_date: string
   end_date: string
 }
@@ -89,6 +99,36 @@ export interface ApiKeyDailyUsageResponse {
   days: number
   start_date: string
   end_date: string
+}
+
+export type ApiKeyUsageTrendGranularity = 'hour' | 'day' | 'week' | 'month'
+
+export interface ApiKeyUsageTrendParams {
+  start_date?: string
+  end_date?: string
+  granularity?: ApiKeyUsageTrendGranularity
+  timezone?: string
+}
+
+export interface ApiKeyUsageTrendResponse {
+  items: TrendDataPoint[]
+  granularity: ApiKeyUsageTrendGranularity
+  start_date: string
+  end_date: string
+  timezone: string
+}
+
+export interface ApiKeyModelStatsParams {
+  start_date?: string
+  end_date?: string
+  timezone?: string
+}
+
+export interface ApiKeyModelStatsResponse {
+  models: UserModelStat[]
+  start_date: string
+  end_date: string
+  timezone: string
 }
 
 /**
@@ -273,6 +313,40 @@ export async function getMyApiKeyDailyUsage(
   return data
 }
 
+/**
+ * Get usage trend details for one API key owned by the current user.
+ * @param apiKeyId - API key ID
+ * @param params - Date range, granularity, and timezone
+ * @returns Usage trend detail rows
+ */
+export async function getMyApiKeyUsageTrend(
+  apiKeyId: number,
+  params: ApiKeyUsageTrendParams = {}
+): Promise<ApiKeyUsageTrendResponse> {
+  const { data } = await apiClient.get<ApiKeyUsageTrendResponse>(
+    `/user/api-keys/${apiKeyId}/usage/trend`,
+    { params }
+  )
+  return data
+}
+
+/**
+ * Get user-safe model distribution for one API key owned by the current user.
+ * @param apiKeyId - API key ID
+ * @param params - Date range and timezone
+ * @returns Model distribution without admin-only cost fields
+ */
+export async function getMyApiKeyModelStats(
+  apiKeyId: number,
+  params: ApiKeyModelStatsParams = {}
+): Promise<ApiKeyModelStatsResponse> {
+  const { data } = await apiClient.get<ApiKeyModelStatsResponse>(
+    `/user/api-keys/${apiKeyId}/usage/models`,
+    { params }
+  )
+  return data
+}
+
 export interface BatchApiKeyUsageStats {
   api_key_id: number
   today_actual_cost: number
@@ -335,6 +409,8 @@ export const usageAPI = {
   getDashboardTrend,
   getDashboardModels,
   getMyApiKeyDailyUsage,
+  getMyApiKeyUsageTrend,
+  getMyApiKeyModelStats,
   getDashboardApiKeysUsage,
   // Error requests
   listMyErrorRequests,

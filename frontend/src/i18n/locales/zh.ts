@@ -1103,6 +1103,31 @@ export default {
     currentExpiration: '当前过期时间',
     expiresAt: '过期时间',
     noExpiration: '永久有效',
+    usageDetails: {
+      open: '查看用量详情',
+      trendTab: '用量趋势',
+      modelsTab: '模型分布',
+      logsTab: '请求记录',
+      startDate: '开始日期',
+      endDate: '结束日期',
+      timezone: '时区',
+      bucket: '时间桶',
+      trendChart: '趋势图表',
+      metricCost: '消耗',
+      metricTokens: 'Token',
+      metricRequests: '请求',
+      modelCount: '模型数',
+      requestId: '请求 ID',
+      recordsTotal: '共 {total} 条记录',
+      loadFailed: '加载用量趋势失败',
+      modelsLoadFailed: '加载模型分布失败',
+      granularity: {
+        hour: '按小时',
+        day: '按天',
+        week: '按周',
+        month: '按月'
+      }
+    },
     status: {
       active: '活跃',
       inactive: '已停用',
