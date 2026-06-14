@@ -45,7 +45,7 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 		SetUserID(key.UserID).
 		SetKey(key.Key).
 		SetName(key.Name).
-		SetTags(key.Tags).
+		SetTags(apiKeyTagsForStorage(key.Tags)).
 		SetStatus(key.Status).
 		SetNillableGroupID(key.GroupID).
 		SetNillableLastUsedAt(key.LastUsedAt).
@@ -241,7 +241,7 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey) erro
 	builder := client.APIKey.Update().
 		Where(apikey.IDEQ(key.ID), apikey.DeletedAtIsNil()).
 		SetName(key.Name).
-		SetTags(key.Tags).
+		SetTags(apiKeyTagsForStorage(key.Tags)).
 		SetStatus(key.Status).
 		SetQuota(key.Quota).
 		SetQuotaUsed(key.QuotaUsed).
@@ -306,6 +306,13 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey) erro
 	// 使用同一时间戳回填，避免并发删除导致二次查询失败。
 	key.UpdatedAt = now
 	return nil
+}
+
+func apiKeyTagsForStorage(tags []string) []string {
+	if tags == nil {
+		return []string{}
+	}
+	return tags
 }
 
 func (r *apiKeyRepository) Delete(ctx context.Context, id int64) error {
