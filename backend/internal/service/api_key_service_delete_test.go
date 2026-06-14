@@ -110,6 +110,14 @@ func (s *apiKeyRepoStub) ListByUserID(ctx context.Context, userID int64, params 
 	}, nil
 }
 
+func (s *apiKeyRepoStub) ListByIDsForUser(ctx context.Context, userID int64, ids []int64) ([]APIKey, error) {
+	panic("unexpected ListByIDsForUser call")
+}
+
+func (s *apiKeyRepoStub) ListTagsByUserID(ctx context.Context, userID int64, limit int) ([]string, error) {
+	panic("unexpected ListTagsByUserID call")
+}
+
 func (s *apiKeyRepoStub) VerifyOwnership(ctx context.Context, userID int64, apiKeyIDs []int64) ([]int64, error) {
 	panic("unexpected VerifyOwnership call")
 }

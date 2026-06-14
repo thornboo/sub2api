@@ -152,6 +152,12 @@ func (s *apiKeyRepoStubForGroupUpdate) DeleteWithAudit(context.Context, int64) e
 func (s *apiKeyRepoStubForGroupUpdate) ListByUserID(context.Context, int64, pagination.PaginationParams, APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error) {
 	panic("unexpected")
 }
+func (s *apiKeyRepoStubForGroupUpdate) ListByIDsForUser(context.Context, int64, []int64) ([]APIKey, error) {
+	panic("unexpected")
+}
+func (s *apiKeyRepoStubForGroupUpdate) ListTagsByUserID(context.Context, int64, int) ([]string, error) {
+	panic("unexpected")
+}
 func (s *apiKeyRepoStubForGroupUpdate) VerifyOwnership(context.Context, int64, []int64) ([]int64, error) {
 	panic("unexpected")
 }

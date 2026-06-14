@@ -61,6 +61,14 @@ func (s *authRepoStub) ListByUserID(ctx context.Context, userID int64, params pa
 	panic("unexpected ListByUserID call")
 }
 
+func (s *authRepoStub) ListByIDsForUser(ctx context.Context, userID int64, ids []int64) ([]APIKey, error) {
+	panic("unexpected ListByIDsForUser call")
+}
+
+func (s *authRepoStub) ListTagsByUserID(ctx context.Context, userID int64, limit int) ([]string, error) {
+	panic("unexpected ListTagsByUserID call")
+}
+
 func (s *authRepoStub) VerifyOwnership(ctx context.Context, userID int64, apiKeyIDs []int64) ([]int64, error) {
 	panic("unexpected VerifyOwnership call")
 }

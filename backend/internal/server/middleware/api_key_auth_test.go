@@ -952,6 +952,14 @@ func (r *stubApiKeyRepo) ListByUserID(ctx context.Context, userID int64, params 
 	return nil, nil, errors.New("not implemented")
 }
 
+func (r *stubApiKeyRepo) ListByIDsForUser(ctx context.Context, userID int64, ids []int64) ([]service.APIKey, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubApiKeyRepo) ListTagsByUserID(ctx context.Context, userID int64, limit int) ([]string, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (r *stubApiKeyRepo) VerifyOwnership(ctx context.Context, userID int64, apiKeyIDs []int64) ([]int64, error) {
 	return nil, errors.New("not implemented")
 }

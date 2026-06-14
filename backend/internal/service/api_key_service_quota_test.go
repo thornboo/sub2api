@@ -107,6 +107,12 @@ func (s *quotaBaseAPIKeyRepoStub) DeleteWithAudit(context.Context, int64) error 
 func (s *quotaBaseAPIKeyRepoStub) ListByUserID(context.Context, int64, pagination.PaginationParams, APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error) {
 	panic("unexpected ListByUserID call")
 }
+func (s *quotaBaseAPIKeyRepoStub) ListByIDsForUser(context.Context, int64, []int64) ([]APIKey, error) {
+	panic("unexpected ListByIDsForUser call")
+}
+func (s *quotaBaseAPIKeyRepoStub) ListTagsByUserID(context.Context, int64, int) ([]string, error) {
+	panic("unexpected ListTagsByUserID call")
+}
 func (s *quotaBaseAPIKeyRepoStub) VerifyOwnership(context.Context, int64, []int64) ([]int64, error) {
 	panic("unexpected VerifyOwnership call")
 }

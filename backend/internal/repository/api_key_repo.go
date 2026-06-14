@@ -486,7 +486,7 @@ func (r *apiKeyRepository) ListTagsByUserID(ctx context.Context, userID int64, l
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	tags := make([]string, 0)
 	for rows.Next() {
