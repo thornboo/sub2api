@@ -9,6 +9,9 @@
 - [补丁记录](./patches.md)：每个补丁的范围、影响文件、实现说明和验证命令。
 - [本地开发](./development/local-development.md)：前端、后端、数据库的全本地开发方式。
 - [dev-zz 部署](./deployment/deploy-dev-zz.md)：从源码构建并部署 dev-zz 的方式。
+- [企业客户 Key 成员管理](./features/enterprise-key-member-management.md)：把 API Key 作为企业员工席位的批量创建、标签、批量维护和聚合监控计划。
+- [API Key 用量下钻](./features/api-key-usage-drilldown.md)：单把 API Key 的趋势、模型分布和请求记录下钻设计与实现记录。
+- [企业用量分析中心](./features/enterprise-usage-analytics.md)：企业 owner 员工 Key 排行、分组/标签/模型分析、管理员全站分析和多供应商 Key 方案。
 - [合并 main 到 dev-zz](./maintenance/merge-main.md)：上游同步流程和验证清单。
 - [上游合并记录](./maintenance/merge-log.md)：每次合并 main 的具体结果。
 

@@ -51,7 +51,11 @@ export default defineConfig({
         text: '功能与决策',
         items: [
           { text: '可用渠道模型广场计划', link: '/dev-zz/features/available-channels-model-marketplace' },
-          { text: 'ADR 0001: 文档中心', link: '/dev-zz/decisions/adr-0001-docs-site-as-dev-zz-doc-hub' }
+          { text: '企业 Key 成员管理', link: '/dev-zz/features/enterprise-key-member-management' },
+          { text: 'API Key 用量下钻', link: '/dev-zz/features/api-key-usage-drilldown' },
+          { text: '企业用量分析中心', link: '/dev-zz/features/enterprise-usage-analytics' },
+          { text: 'ADR 0001: 文档中心', link: '/dev-zz/decisions/adr-0001-docs-site-as-dev-zz-doc-hub' },
+          { text: 'ADR 0002: Key 作为成员', link: '/dev-zz/decisions/adr-0002-key-as-enterprise-member' }
         ]
       }
     ],
