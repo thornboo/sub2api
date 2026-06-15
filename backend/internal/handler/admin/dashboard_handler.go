@@ -189,10 +189,10 @@ func (h *DashboardHandler) GetRealtimeMetrics(c *gin.Context) {
 
 // GetUsageTrend handles getting usage trend data
 // GET /api/v1/admin/dashboard/trend
-// Query params: start_date, end_date (YYYY-MM-DD), granularity (day/hour), user_id, api_key_id, model, account_id, group_id, request_type, stream, billing_type
+// Query params: start_date, end_date (YYYY-MM-DD), granularity (hour/day/month), user_id, api_key_id, model, account_id, group_id, request_type, stream, billing_type
 func (h *DashboardHandler) GetUsageTrend(c *gin.Context) {
 	startTime, endTime := parseTimeRange(c)
-	granularity := c.DefaultQuery("granularity", "day")
+	granularity := normalizeDashboardTrendGranularity(c.DefaultQuery("granularity", "day"))
 
 	// Parse optional filter params
 	var userID, apiKeyID, accountID, groupID int64
@@ -418,10 +418,10 @@ func (h *DashboardHandler) GetGroupStats(c *gin.Context) {
 
 // GetAPIKeyUsageTrend handles getting API key usage trend data
 // GET /api/v1/admin/dashboard/api-keys-trend
-// Query params: start_date, end_date (YYYY-MM-DD), granularity (day/hour), limit (default 5)
+// Query params: start_date, end_date (YYYY-MM-DD), granularity (hour/day/month), limit (default 5)
 func (h *DashboardHandler) GetAPIKeyUsageTrend(c *gin.Context) {
 	startTime, endTime := parseTimeRange(c)
-	granularity := c.DefaultQuery("granularity", "day")
+	granularity := normalizeDashboardTrendGranularity(c.DefaultQuery("granularity", "day"))
 	limitStr := c.DefaultQuery("limit", "5")
 	limit, err := strconv.Atoi(limitStr)
 	if err != nil || limit <= 0 {
@@ -445,10 +445,10 @@ func (h *DashboardHandler) GetAPIKeyUsageTrend(c *gin.Context) {
 
 // GetUserUsageTrend handles getting user usage trend data
 // GET /api/v1/admin/dashboard/users-trend
-// Query params: start_date, end_date (YYYY-MM-DD), granularity (day/hour), limit (default 12)
+// Query params: start_date, end_date (YYYY-MM-DD), granularity (hour/day/month), limit (default 12)
 func (h *DashboardHandler) GetUserUsageTrend(c *gin.Context) {
 	startTime, endTime := parseTimeRange(c)
-	granularity := c.DefaultQuery("granularity", "day")
+	granularity := normalizeDashboardTrendGranularity(c.DefaultQuery("granularity", "day"))
 	limitStr := c.DefaultQuery("limit", "12")
 	limit, err := strconv.Atoi(limitStr)
 	if err != nil || limit <= 0 {

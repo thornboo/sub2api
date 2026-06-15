@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -17,6 +18,7 @@ type dashboardUsageRepoCapture struct {
 	service.UsageLogRepository
 	trendRequestType *int16
 	trendStream      *bool
+	trendGranularity string
 	modelRequestType *int16
 	modelStream      *bool
 	rankingLimit     int
@@ -36,6 +38,7 @@ func (s *dashboardUsageRepoCapture) GetUsageTrendWithFilters(
 ) ([]usagestats.TrendDataPoint, error) {
 	s.trendRequestType = requestType
 	s.trendStream = stream
+	s.trendGranularity = granularity
 	return []usagestats.TrendDataPoint{}, nil
 }
 
@@ -72,9 +75,19 @@ func newDashboardRequestTypeTestRouter(repo *dashboardUsageRepoCapture) *gin.Eng
 	handler := NewDashboardHandler(dashboardSvc, nil)
 	router := gin.New()
 	router.GET("/admin/dashboard/trend", handler.GetUsageTrend)
+	router.GET("/admin/dashboard/snapshot-v2", handler.GetSnapshotV2)
 	router.GET("/admin/dashboard/models", handler.GetModelStats)
 	router.GET("/admin/dashboard/users-ranking", handler.GetUserSpendingRanking)
 	return router
+}
+
+func decodeDashboardData(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	var body struct {
+		Data map[string]any `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	return body.Data
 }
 
 func TestDashboardTrendRequestTypePriority(t *testing.T) {
@@ -89,6 +102,35 @@ func TestDashboardTrendRequestTypePriority(t *testing.T) {
 	require.NotNil(t, repo.trendRequestType)
 	require.Equal(t, int16(service.RequestTypeWSV2), *repo.trendRequestType)
 	require.Nil(t, repo.trendStream)
+}
+
+func TestDashboardTrendAcceptsMonthlyGranularity(t *testing.T) {
+	repo := &dashboardUsageRepoCapture{}
+	router := newDashboardRequestTypeTestRouter(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/dashboard/trend?granularity=month", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "month", repo.trendGranularity)
+	require.Equal(t, "month", decodeDashboardData(t, rec)["granularity"])
+}
+
+func TestDashboardSnapshotV2AcceptsMonthlyGranularity(t *testing.T) {
+	t.Cleanup(resetDashboardReadCachesForTest)
+	resetDashboardReadCachesForTest()
+
+	repo := &dashboardUsageRepoCapture{}
+	router := newDashboardRequestTypeTestRouter(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/dashboard/snapshot-v2?granularity=month&include_stats=false&include_model_stats=false&include_group_stats=false", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "month", repo.trendGranularity)
+	require.Equal(t, "month", decodeDashboardData(t, rec)["granularity"])
 }
 
 func TestDashboardTrendInvalidRequestType(t *testing.T) {

@@ -12,15 +12,26 @@
       >
         <template #cell-user="{ row }">
           <div class="text-sm">
-            <button
-              v-if="row.user?.email"
-              class="font-medium text-emerald-600 underline decoration-dashed underline-offset-2 transition-colors hover:text-emerald-700 dark:text-emerald-300 dark:hover:text-emerald-200"
-              @click="$emit('userClick', row.user_id, row.user?.email)"
-              :title="t('admin.usage.clickToViewBalance')"
-            >
-              {{ row.user.email }}
-            </button>
-            <span v-else class="font-medium text-gray-900 dark:text-white">-</span>
+            <div class="flex items-center gap-1.5">
+              <button
+                v-if="row.user?.email"
+                class="min-w-0 truncate font-medium text-emerald-600 underline decoration-dashed underline-offset-2 transition-colors hover:text-emerald-700 dark:text-emerald-300 dark:hover:text-emerald-200"
+                @click="$emit('userClick', row.user_id, row.user?.email)"
+                :title="t('admin.usage.clickToViewBalance')"
+              >
+                {{ row.user.email }}
+              </button>
+              <span v-else class="font-medium text-gray-900 dark:text-white">-</span>
+              <button
+                v-if="row.user_id"
+                type="button"
+                class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:text-stone-500 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300"
+                :title="t('admin.usage.profile.viewUserUsageProfile')"
+                @click.stop="$emit('userUsageClick', row.user_id, row.user?.email)"
+              >
+                <Icon name="chartBar" size="xs" :stroke-width="2" />
+              </button>
+            </div>
             <span v-if="row.user?.deleted_at" class="ml-1 inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-rose-100 text-rose-600 ring-1 ring-inset ring-rose-200 dark:bg-rose-500/20 dark:text-rose-400 dark:ring-rose-500/30">
               {{ t('admin.usage.userDeletedBadge') }}
             </span>
@@ -29,7 +40,16 @@
         </template>
 
         <template #cell-api_key="{ row }">
-          <span class="text-sm text-gray-900 dark:text-white">{{ row.api_key?.name || '-' }}</span>
+          <button
+            v-if="row.api_key_id"
+            type="button"
+            class="text-left text-sm font-medium text-gray-900 underline decoration-dashed decoration-gray-300 underline-offset-4 transition-colors hover:text-emerald-600 hover:decoration-emerald-400 dark:text-white dark:decoration-white/20 dark:hover:text-emerald-300"
+            :title="t('admin.usage.profile.viewApiKeyUsageProfile')"
+            @click="$emit('apiKeyUsageClick', row.api_key_id, row.user_id, row.api_key?.name)"
+          >
+            {{ row.api_key?.name || `#${row.api_key_id}` }}
+          </button>
+          <span v-else class="text-sm text-gray-900 dark:text-white">-</span>
         </template>
 
         <template #cell-account="{ row }">
@@ -459,6 +479,8 @@ withDefaults(defineProps<Props>(), {
 })
 defineEmits<{
   userClick: [userID: number, email?: string]
+  userUsageClick: [userID: number, email?: string]
+  apiKeyUsageClick: [apiKeyID: number, userID?: number, keyName?: string]
   sort: [key: string, order: 'asc' | 'desc']
 }>()
 const { t } = useI18n()

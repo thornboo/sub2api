@@ -47,7 +47,7 @@ export async function getRealtimeMetrics(): Promise<{
 export interface TrendParams {
   start_date?: string
   end_date?: string
-  granularity?: 'day' | 'hour'
+  granularity?: DashboardTrendGranularity
   user_id?: number
   api_key_id?: number
   model?: string
@@ -57,6 +57,8 @@ export interface TrendParams {
   stream?: boolean
   billing_type?: number | null
 }
+
+export type DashboardTrendGranularity = 'hour' | 'day' | 'month'
 
 export interface TrendResponse {
   trend: TrendDataPoint[]

@@ -17,24 +17,26 @@
 
     <div
       v-if="hasBreakdown"
-      class="pointer-events-none absolute left-full top-0 z-50 ml-2 min-w-[220px] whitespace-nowrap rounded-md bg-gray-900 px-3 py-2 text-xs text-white opacity-0 shadow-xl transition-opacity duration-100 group-hover/usage:opacity-100 dark:bg-dark-600"
+      class="pointer-events-none absolute left-full top-0 z-50 ml-2 min-w-[244px] translate-y-1 whitespace-nowrap rounded-xl border border-stone-200/80 bg-white/95 p-2.5 text-xs text-stone-700 opacity-0 shadow-xl shadow-stone-950/10 backdrop-blur-xl transition-all duration-150 group-hover/usage:translate-y-0 group-hover/usage:opacity-100 dark:border-white/10 dark:bg-neutral-950/95 dark:text-stone-200 dark:shadow-black/40"
     >
-      <div class="mb-1.5 flex items-center justify-between gap-3 border-b border-white/10 pb-1 text-[11px] opacity-80">
-        <span>{{ t('admin.users.platformBreakdown') }}</span>
+      <div class="mb-2 flex items-center justify-between gap-4 border-b border-stone-200/70 pb-1.5 text-[11px] font-medium text-stone-500 dark:border-white/10 dark:text-stone-400">
+        <span class="text-stone-600 dark:text-stone-300">{{ t('admin.users.platformBreakdown') }}</span>
         <span class="font-mono">{{ t('admin.users.today') }} / {{ t('admin.users.total') }}</span>
       </div>
       <div
         v-for="item in sortedBreakdown"
         :key="item.platform"
-        class="flex items-center justify-between gap-3 py-0.5"
-        :class="{ 'opacity-70 italic': item.isOther }"
+        class="flex items-center justify-between gap-4 rounded-lg px-1.5 py-1"
+        :class="item.isOther
+          ? 'italic text-stone-400 dark:text-stone-500'
+          : 'text-stone-700 dark:text-stone-200'"
       >
-        <span class="capitalize">
+        <span class="font-medium capitalize">
           {{ item.isOther ? t('admin.users.platformOther') : platformLabel(item.platform) }}
         </span>
-        <span class="font-mono">
+        <span class="font-mono text-stone-900 dark:text-stone-100">
           ${{ item.today_actual_cost.toFixed(4) }}
-          <span class="opacity-50">/</span>
+          <span class="px-1.5 text-stone-400 dark:text-stone-500">/</span>
           ${{ item.total_actual_cost.toFixed(4) }}
         </span>
       </div>

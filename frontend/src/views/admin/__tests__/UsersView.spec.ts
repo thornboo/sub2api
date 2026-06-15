@@ -131,6 +131,7 @@ describe('admin UsersView', () => {
           UserCreateModal: true,
           UserEditModal: true,
           UserApiKeysModal: true,
+          AdminApiKeyUsageModal: true,
           UserAllowedGroupsModal: true,
           UserBalanceModal: true,
           UserBalanceHistoryModal: true,

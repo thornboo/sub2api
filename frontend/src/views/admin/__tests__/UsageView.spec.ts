@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import UsageView from '../UsageView.vue'
 
-const { list, getStats, getSnapshotV2, getById, getModelStats, listErrorLogs } = vi.hoisted(() => {
+const { list, getStats, getSnapshotV2, getById, getUserApiKeys, getModelStats, listErrorLogs, routerReplace, routeQuery } = vi.hoisted(() => {
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(() => null),
     setItem: vi.fn(),
@@ -15,8 +15,11 @@ const { list, getStats, getSnapshotV2, getById, getModelStats, listErrorLogs } =
     getStats: vi.fn(),
     getSnapshotV2: vi.fn(),
     getById: vi.fn(),
+    getUserApiKeys: vi.fn(),
     getModelStats: vi.fn(),
     listErrorLogs: vi.fn(),
+    routerReplace: vi.fn(),
+    routeQuery: {} as Record<string, string | Array<string | null> | null | undefined>,
   }
 })
 
@@ -24,6 +27,7 @@ const messages: Record<string, string> = {
   'admin.dashboard.timeRange': 'Time Range',
   'admin.dashboard.day': 'Day',
   'admin.dashboard.hour': 'Hour',
+  'admin.dashboard.month': 'Month',
   'admin.usage.failedToLoadUser': 'Failed to load user',
 }
 
@@ -46,6 +50,7 @@ vi.mock('@/api/admin', () => ({
     },
     users: {
       getById,
+      getUserApiKeys,
     },
   },
 }))
@@ -85,12 +90,25 @@ vi.mock('vue-i18n', async () => {
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({
-    query: {}
-  })
+    path: '/admin/usage',
+    query: routeQuery,
+  }),
+  useRouter: () => ({
+    replace: routerReplace,
+  }),
 }))
 
 const AppLayoutStub = { template: '<div><slot /></div>' }
 const UsageFiltersStub = { template: '<div><slot name="after-reset" /></div>' }
+const UsageProfileHeaderSelectStub = {
+  emits: ['selectUser', 'selectApiKey'],
+  template: `
+    <div data-test="usage-profile-header">
+      <button data-test="select-profile-user" @click="$emit('selectUser', { id: 7, email: 'ops@example.com', deleted: false })">select user</button>
+      <button data-test="select-profile-key" @click="$emit('selectApiKey', { id: 11, user_id: 7, name: 'ops-key' })">select key</button>
+    </div>
+  `,
+}
 const UsageTableStub = {
   emits: ['userClick'],
   template: '<div data-test="usage-table"><button class="user-click" @click="$emit(\'userClick\', 2)">user</button></div>',
@@ -116,6 +134,255 @@ const GroupDistributionChartStub = {
   `,
 }
 
+beforeEach(() => {
+  Object.keys(routeQuery).forEach((key) => {
+    delete routeQuery[key]
+  })
+})
+
+describe('admin UsageView route query sanitization', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    list.mockReset()
+    getStats.mockReset()
+    getSnapshotV2.mockReset()
+    getById.mockReset()
+    getUserApiKeys.mockReset()
+    getModelStats.mockReset()
+    routerReplace.mockReset()
+
+    list.mockResolvedValue({ items: [], total: 0, pages: 0 })
+    getStats.mockResolvedValue({
+      total_requests: 0,
+      total_input_tokens: 0,
+      total_output_tokens: 0,
+      total_cache_tokens: 0,
+      total_tokens: 0,
+      total_cost: 0,
+      total_actual_cost: 0,
+      average_duration_ms: 0,
+    })
+    getSnapshotV2.mockResolvedValue({ trend: [], models: [], groups: [] })
+    getModelStats.mockResolvedValue({ models: [] })
+    getUserApiKeys.mockResolvedValue({ items: [] })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('silently normalizes dirty route query values on initial load', async () => {
+    Object.assign(routeQuery, {
+      user_id: '12',
+      api_key_id: '0',
+      model: ' claude-sonnet ',
+      request_type: 'chat',
+      billing_mode: 'token',
+      start_date: '2026-06-01',
+      end_date: '2026-02-31',
+    })
+
+    mount(UsageView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          UsageStatsCards: true,
+          UsageFilters: UsageFiltersStub,
+          UsageTable: true,
+          UsageExportProgress: true,
+          UsageCleanupDialog: true,
+          UserBalanceHistoryModal: true,
+          UserApiKeysModal: true,
+          AuditLogModal: true,
+          Pagination: true,
+          Select: true,
+          DateRangePicker: true,
+          Icon: true,
+          TokenUsageTrend: true,
+          ModelDistributionChart: true,
+          GroupDistributionChart: true,
+          EndpointDistributionChart: true,
+          OpsErrorLogTable: true,
+          OpsErrorDetailModal: true,
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(routerReplace).toHaveBeenCalledWith({
+      path: '/admin/usage',
+      query: {
+        user_id: '12',
+        model: 'claude-sonnet',
+        billing_mode: 'token',
+        start_date: '2026-06-01',
+      },
+    })
+  })
+
+  it('auto-selects monthly chart granularity for wide route date ranges', async () => {
+    Object.assign(routeQuery, {
+      start_date: '2026-01-01',
+      end_date: '2026-06-15',
+    })
+
+    mount(UsageView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          UsageStatsCards: true,
+          UsageProfileHeader: true,
+          UsageFilters: UsageFiltersStub,
+          UsageTable: true,
+          UsageExportProgress: true,
+          UsageCleanupDialog: true,
+          UserBalanceHistoryModal: true,
+          UserApiKeysModal: true,
+          AuditLogModal: true,
+          Pagination: true,
+          Select: true,
+          DateRangePicker: true,
+          Icon: true,
+          TokenUsageTrend: true,
+          ModelDistributionChart: true,
+          GroupDistributionChart: true,
+          EndpointDistributionChart: true,
+          OpsErrorLogTable: true,
+          OpsErrorDetailModal: true,
+        },
+      },
+    })
+
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({
+      start_date: '2026-01-01',
+      end_date: '2026-06-15',
+      granularity: 'month',
+    }))
+  })
+
+  it('keeps the current monthly granularity when switching profile objects', async () => {
+    Object.assign(routeQuery, {
+      start_date: '2026-01-01',
+      end_date: '2026-06-15',
+    })
+    getById.mockResolvedValue({ id: 7, email: 'ops@example.com' })
+
+    const wrapper = mount(UsageView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          UsageStatsCards: true,
+          UsageProfileHeader: UsageProfileHeaderSelectStub,
+          UsageFilters: UsageFiltersStub,
+          UsageTable: true,
+          UsageExportProgress: true,
+          UsageCleanupDialog: true,
+          UserBalanceHistoryModal: true,
+          UserApiKeysModal: true,
+          AuditLogModal: true,
+          Pagination: true,
+          Select: true,
+          DateRangePicker: true,
+          Icon: true,
+          TokenUsageTrend: true,
+          ModelDistributionChart: true,
+          GroupDistributionChart: true,
+          EndpointDistributionChart: true,
+          OpsErrorLogTable: true,
+          OpsErrorDetailModal: true,
+        },
+      },
+    })
+
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+    getSnapshotV2.mockClear()
+
+    await wrapper.find('[data-test="select-profile-user"]').trigger('click')
+    await flushPromises()
+
+    expect(getSnapshotV2).toHaveBeenLastCalledWith(expect.objectContaining({
+      user_id: 7,
+      granularity: 'month',
+    }))
+  })
+
+  it('applies top profile header user and API key selections to route and usage requests', async () => {
+    getById.mockResolvedValue({ id: 7, email: 'ops@example.com' })
+    getUserApiKeys.mockResolvedValue({ items: [{ id: 11, name: 'ops-key' }] })
+
+    const wrapper = mount(UsageView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          UsageStatsCards: true,
+          UsageProfileHeader: UsageProfileHeaderSelectStub,
+          UsageFilters: UsageFiltersStub,
+          UsageTable: true,
+          UsageExportProgress: true,
+          UsageCleanupDialog: true,
+          UserBalanceHistoryModal: true,
+          UserApiKeysModal: true,
+          AuditLogModal: true,
+          Pagination: true,
+          Select: true,
+          DateRangePicker: true,
+          Icon: true,
+          TokenUsageTrend: true,
+          ModelDistributionChart: true,
+          GroupDistributionChart: true,
+          EndpointDistributionChart: true,
+          OpsErrorLogTable: true,
+          OpsErrorDetailModal: true,
+        },
+      },
+    })
+
+    await flushPromises()
+
+    await wrapper.find('[data-test="select-profile-user"]').trigger('click')
+    await flushPromises()
+
+    expect(routerReplace).toHaveBeenLastCalledWith({
+      path: '/admin/usage',
+      query: expect.objectContaining({
+        user_id: '7',
+      }),
+    })
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({
+      user_id: 7,
+    }), expect.any(Object))
+    expect(list.mock.calls.at(-1)?.[0].api_key_id).toBeUndefined()
+    expect(getStats).toHaveBeenLastCalledWith(expect.objectContaining({
+      user_id: 7,
+    }))
+    expect(getStats.mock.calls.at(-1)?.[0].api_key_id).toBeUndefined()
+
+    await wrapper.find('[data-test="select-profile-key"]').trigger('click')
+    await flushPromises()
+
+    expect(routerReplace).toHaveBeenLastCalledWith({
+      path: '/admin/usage',
+      query: expect.objectContaining({
+        user_id: '7',
+        api_key_id: '11',
+      }),
+    })
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({
+      user_id: 7,
+      api_key_id: 11,
+    }), expect.any(Object))
+    expect(getStats).toHaveBeenLastCalledWith(expect.objectContaining({
+      user_id: 7,
+      api_key_id: 11,
+    }))
+  })
+})
+
 describe('admin UsageView distribution metric toggles', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -123,7 +390,9 @@ describe('admin UsageView distribution metric toggles', () => {
     getStats.mockReset()
     getSnapshotV2.mockReset()
     getById.mockReset()
+    getUserApiKeys.mockReset()
     getModelStats.mockReset()
+    routerReplace.mockReset()
 
     list.mockResolvedValue({
       items: [],
@@ -146,6 +415,7 @@ describe('admin UsageView distribution metric toggles', () => {
       groups: [],
     })
     getModelStats.mockResolvedValue({ models: [] })
+    getUserApiKeys.mockResolvedValue({ items: [] })
   })
 
   afterEach(() => {
@@ -164,6 +434,7 @@ describe('admin UsageView distribution metric toggles', () => {
         DateRangePicker: true, Icon: true, TokenUsageTrend: true,
         ModelDistributionChart: ModelDistributionChartStub, GroupDistributionChart: GroupDistributionChartStub,
         EndpointDistributionChart: true,
+        OpsErrorLogTable: true, OpsErrorDetailModal: true,
       } },
     })
     vi.advanceTimersByTime(120)
@@ -201,6 +472,9 @@ describe('admin UsageView distribution metric toggles', () => {
           TokenUsageTrend: true,
           ModelDistributionChart: ModelDistributionChartStub,
           GroupDistributionChart: GroupDistributionChartStub,
+          EndpointDistributionChart: true,
+          OpsErrorLogTable: true,
+          OpsErrorDetailModal: true,
         },
       },
     })
@@ -281,6 +555,8 @@ describe('admin UsageView handleUserClick', () => {
           ModelDistributionChart: true,
           GroupDistributionChart: true,
           EndpointDistributionChart: true,
+          OpsErrorLogTable: true,
+          OpsErrorDetailModal: true,
         },
       },
     })

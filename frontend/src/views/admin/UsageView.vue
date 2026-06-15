@@ -1,27 +1,38 @@
 <template>
   <AppLayout>
     <div class="space-y-6">
-      <UsageStatsCards :stats="usageStats" />
-      <!-- Charts Section -->
-      <div class="space-y-4">
-        <div class="card p-4">
-          <div class="flex flex-wrap items-center gap-4">
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.dashboard.timeRange') }}:</span>
-              <DateRangePicker
-                v-model:start-date="startDate"
-                v-model:end-date="endDate"
-                @change="onDateRangeChange"
-              />
-            </div>
-            <div class="ml-auto flex items-center gap-2">
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.dashboard.granularity') }}:</span>
-              <div class="w-28">
-                <Select v-model="granularity" :options="granularityOptions" @change="loadChartData" />
-              </div>
+      <UsageProfileHeader
+        :user="profileHeaderUser"
+        :api-key="profileHeaderApiKey"
+        :start-date="startDate"
+        :end-date="endDate"
+        @clear-user="clearProfileUser"
+        @clear-api-key="clearProfileApiKey"
+        @open-balance="openProfileBalanceHistory"
+        @open-api-keys="openProfileApiKeys"
+        @select-user="handleProfileUserSelect"
+        @select-api-key="handleProfileApiKeySelect"
+      >
+        <template #controls>
+          <div class="min-w-0 usage-header-control">
+            <span class="input-label">{{ t('admin.dashboard.timeRange') }}</span>
+            <DateRangePicker
+              v-model:start-date="startDate"
+              v-model:end-date="endDate"
+              @change="onDateRangeChange"
+            />
+          </div>
+          <div class="min-w-0 usage-header-control">
+            <span class="input-label">{{ t('admin.dashboard.granularity') }}</span>
+            <div class="w-full">
+              <Select v-model="granularity" :options="granularityOptions" @change="loadChartData" />
             </div>
           </div>
-        </div>
+        </template>
+      </UsageProfileHeader>
+      <!-- Charts Section -->
+      <div class="space-y-4">
+        <UsageStatsCards :stats="usageStats" />
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <ModelDistributionChart
             v-model:source="modelDistributionSource"
@@ -64,7 +75,7 @@
           <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
         </div>
       </div>
-      <UsageFilters v-model="filters" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
+      <UsageFilters v-model="filters" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" :show-object-filters="false" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
         <template #after-reset>
           <div class="relative" ref="columnDropdownRef">
             <button
@@ -98,6 +109,8 @@
           :default-sort-order="'desc'"
           @sort="handleSort"
           @userClick="handleUserClick"
+          @userUsageClick="handleUserUsageClick"
+          @apiKeyUsageClick="handleApiKeyUsageClick"
         />
         <Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" />
       </div>
@@ -126,6 +139,11 @@
     :user="balanceHistoryUser"
     :hide-actions="true"
     @close="showBalanceHistoryModal = false; balanceHistoryUser = null"
+  />
+  <UserApiKeysModal
+    :show="showProfileApiKeysModal"
+    :user="profileApiKeysUser"
+    @close="showProfileApiKeysModal = false; profileApiKeysUser = null"
   />
   <Teleport to="body">
     <div
@@ -157,16 +175,19 @@
 import { ref, reactive, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { saveAs } from 'file-saver'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'; import { adminAPI } from '@/api/admin'; import { adminUsageAPI } from '@/api/admin/usage'
+import type { DashboardTrendGranularity } from '@/api/admin/dashboard'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { formatReasoningEffort } from '@/utils/format'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
 import AppLayout from '@/components/layout/AppLayout.vue'; import Pagination from '@/components/common/Pagination.vue'; import Select from '@/components/common/Select.vue'; import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'; import UsageFilters from '@/components/admin/usage/UsageFilters.vue'
+import UsageProfileHeader from '@/components/admin/usage/UsageProfileHeader.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'; import UsageExportProgress from '@/components/admin/usage/UsageExportProgress.vue'
 import UsageCleanupDialog from '@/components/admin/usage/UsageCleanupDialog.vue'
 import UserBalanceHistoryModal from '@/components/admin/user/UserBalanceHistoryModal.vue'
+import UserApiKeysModal from '@/components/admin/user/UserApiKeysModal.vue'
 import OpsErrorLogTable from '@/views/admin/ops/components/OpsErrorLogTable.vue'
 import OpsErrorDetailModal from '@/views/admin/ops/components/OpsErrorDetailModal.vue'
 import { listErrorLogs } from '@/api/admin/ops'
@@ -174,16 +195,30 @@ import type { OpsErrorLog } from '@/api/admin/ops'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'; import GroupDistributionChart from '@/components/charts/GroupDistributionChart.vue'; import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
 import Icon from '@/components/icons/Icon.vue'
-import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat, AdminUser } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams } from '@/api/admin/usage'
+import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat, AdminUser } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams, SimpleApiKey, SimpleUser } from '@/api/admin/usage'
+import {
+  buildApiKeyProfileFilters,
+  buildUserProfileFilters,
+  clearApiKeyProfileFilters,
+  clearUserProfileFilters,
+  sanitizeAdminUsageRouteQuery,
+} from '@/utils/adminUsageProfile'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
 type ModelDistributionSource = 'requested' | 'upstream' | 'mapping'
+interface UsageProfileEntity {
+  id: number
+  label?: string | null
+  loading?: boolean
+  notFound?: boolean
+}
 const route = useRoute()
+const router = useRouter()
 const usageStats = ref<AdminUsageStatsResponse | null>(null); const usageLogs = ref<AdminUsageLog[]>([]); const loading = ref(false); const exporting = ref(false)
-const trendData = ref<TrendDataPoint[]>([]); const requestedModelStats = ref<ModelStat[]>([]); const upstreamModelStats = ref<ModelStat[]>([]); const mappingModelStats = ref<ModelStat[]>([]); const groupStats = ref<GroupStat[]>([]); const chartsLoading = ref(false); const modelStatsLoading = ref(false); const granularity = ref<'day' | 'hour'>('hour')
+const trendData = ref<TrendDataPoint[]>([]); const requestedModelStats = ref<ModelStat[]>([]); const upstreamModelStats = ref<ModelStat[]>([]); const mappingModelStats = ref<ModelStat[]>([]); const groupStats = ref<GroupStat[]>([]); const chartsLoading = ref(false); const modelStatsLoading = ref(false); const granularity = ref<DashboardTrendGranularity>('hour')
 const modelDistributionMetric = ref<DistributionMetric>('tokens')
 const modelDistributionSource = ref<ModelDistributionSource>('requested')
 const loadedModelSources = reactive<Record<ModelDistributionSource, boolean>>({
@@ -207,6 +242,12 @@ const cleanupDialogVisible = ref(false)
 // Balance history modal state
 const showBalanceHistoryModal = ref(false)
 const balanceHistoryUser = ref<AdminUser | null>(null)
+const showProfileApiKeysModal = ref(false)
+const profileApiKeysUser = ref<AdminUser | null>(null)
+const profileHeaderUser = ref<UsageProfileEntity | null>(null)
+const profileHeaderApiKey = ref<UsageProfileEntity | null>(null)
+const profileUserRecord = ref<AdminUser | null>(null)
+let profileLookupSeq = 0
 
 const breakdownFilters = computed(() => {
   const f: Record<string, any> = {}
@@ -233,7 +274,182 @@ const handleUserClick = async (userId: number) => {
   }
 }
 
-const granularityOptions = computed(() => [{ value: 'day', label: t('admin.dashboard.day') }, { value: 'hour', label: t('admin.dashboard.hour') }])
+const toRouteQuery = (params: AdminUsageQueryParams): Record<string, string> => {
+  const query: Record<string, string> = {}
+  if (params.user_id) query.user_id = String(params.user_id)
+  if (params.api_key_id) query.api_key_id = String(params.api_key_id)
+  if (params.account_id) query.account_id = String(params.account_id)
+  if (params.group_id) query.group_id = String(params.group_id)
+  if (params.model) query.model = params.model
+  if (params.request_type) query.request_type = params.request_type
+  if (params.billing_type != null) query.billing_type = String(params.billing_type)
+  if (params.billing_mode) query.billing_mode = params.billing_mode
+  if (params.start_date) query.start_date = params.start_date
+  if (params.end_date) query.end_date = params.end_date
+  return query
+}
+
+const getCurrentRouteQuerySnapshot = (): Record<string, string> => {
+  const query: Record<string, string> = {}
+  Object.entries(route.query).forEach(([key, value]) => {
+    const raw = Array.isArray(value)
+      ? value.find((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      : value
+    if (typeof raw === 'string' && raw.trim().length > 0) {
+      query[key] = raw.trim()
+    }
+  })
+  return query
+}
+
+const areRouteQueriesEqual = (a: Record<string, string>, b: Record<string, string>): boolean => {
+  const aKeys = Object.keys(a).sort()
+  const bKeys = Object.keys(b).sort()
+  if (aKeys.length !== bKeys.length) return false
+  return aKeys.every((key, index) => key === bKeys[index] && a[key] === b[key])
+}
+
+const setProfileFilters = async (next: AdminUsageQueryParams) => {
+  filters.value = {
+    ...next,
+    start_date: next.start_date || startDate.value,
+    end_date: next.end_date || endDate.value,
+  }
+  startDate.value = filters.value.start_date || startDate.value
+  endDate.value = filters.value.end_date || endDate.value
+  await router.replace({ path: route.path, query: toRouteQuery(filters.value) })
+  applyFilters()
+  void resolveProfileContext()
+}
+
+const hydrateApiKeyFromUsageLogs = () => {
+  const apiKeyId = filters.value.api_key_id
+  if (!apiKeyId || profileHeaderApiKey.value?.label || profileHeaderApiKey.value?.notFound) return
+  const log = usageLogs.value.find((item) => item.api_key_id === apiKeyId && item.api_key)
+  if (!log?.api_key) return
+  profileHeaderApiKey.value = {
+    id: apiKeyId,
+    label: log.api_key.name || `#${apiKeyId}`,
+    loading: false,
+  }
+}
+
+const resolveProfileContext = async () => {
+  const seq = ++profileLookupSeq
+  const userId = filters.value.user_id
+  const apiKeyId = filters.value.api_key_id
+  profileUserRecord.value = null
+  profileHeaderUser.value = userId ? { id: userId, loading: true } : null
+  profileHeaderApiKey.value = apiKeyId ? { id: apiKeyId, loading: true } : null
+
+  let userMissing = false
+  if (userId) {
+    try {
+      const user = await adminAPI.users.getById(userId, true)
+      if (seq !== profileLookupSeq) return
+      profileUserRecord.value = user
+      profileHeaderUser.value = {
+        id: userId,
+        label: user.email || `#${userId}`,
+        loading: false,
+      }
+    } catch {
+      if (seq !== profileLookupSeq) return
+      userMissing = true
+      profileHeaderUser.value = {
+        id: userId,
+        loading: false,
+        notFound: true,
+      }
+    }
+  }
+
+  if (!apiKeyId) return
+
+  if (userId && !userMissing) {
+    try {
+      const res = await adminAPI.users.getUserApiKeys(userId)
+      if (seq !== profileLookupSeq) return
+      const key = (res.items || []).find((item) => item.id === apiKeyId)
+      profileHeaderApiKey.value = key
+        ? { id: apiKeyId, label: key.name || `#${apiKeyId}`, loading: false }
+        : { id: apiKeyId, loading: false, notFound: true }
+    } catch {
+      if (seq !== profileLookupSeq) return
+      profileHeaderApiKey.value = { id: apiKeyId, loading: false, notFound: true }
+    }
+    return
+  }
+
+  if (seq !== profileLookupSeq) return
+  // No direct admin key lookup exists; hydrate standalone key labels from usage rows when possible.
+  profileHeaderApiKey.value = { id: apiKeyId, loading: false }
+  hydrateApiKeyFromUsageLogs()
+}
+
+const handleUserUsageClick = (userId: number, email?: string) => {
+  profileHeaderUser.value = { id: userId, label: email || `#${userId}`, loading: false }
+  void setProfileFilters(buildUserProfileFilters(filters.value, userId))
+}
+
+const handleApiKeyUsageClick = (apiKeyId: number, userId?: number, keyName?: string) => {
+  profileHeaderApiKey.value = { id: apiKeyId, label: keyName || `#${apiKeyId}`, loading: false }
+  void setProfileFilters(buildApiKeyProfileFilters(filters.value, apiKeyId, { user_id: userId ?? filters.value.user_id }))
+}
+
+const handleProfileUserSelect = (user: SimpleUser) => {
+  profileHeaderUser.value = { id: user.id, label: user.email, loading: false }
+  profileHeaderApiKey.value = null
+  void setProfileFilters(buildUserProfileFilters(filters.value, user.id))
+}
+
+const handleProfileApiKeySelect = (apiKey: SimpleApiKey) => {
+  profileHeaderApiKey.value = { id: apiKey.id, label: apiKey.name || `#${apiKey.id}`, loading: false }
+  void setProfileFilters(buildApiKeyProfileFilters(filters.value, apiKey.id, { user_id: apiKey.user_id || filters.value.user_id }))
+}
+
+const clearProfileUser = () => {
+  void setProfileFilters(clearUserProfileFilters(filters.value))
+}
+
+const clearProfileApiKey = () => {
+  void setProfileFilters(clearApiKeyProfileFilters(filters.value))
+}
+
+const openProfileBalanceHistory = async () => {
+  const userId = filters.value.user_id
+  if (!userId) return
+  if (profileUserRecord.value) {
+    balanceHistoryUser.value = profileUserRecord.value
+    showBalanceHistoryModal.value = true
+    return
+  }
+  await handleUserClick(userId)
+}
+
+const openProfileApiKeys = async () => {
+  const userId = filters.value.user_id
+  if (!userId) return
+  if (profileUserRecord.value) {
+    profileApiKeysUser.value = profileUserRecord.value
+    showProfileApiKeysModal.value = true
+    return
+  }
+  try {
+    const user = await adminAPI.users.getById(userId, true)
+    profileUserRecord.value = user
+    profileApiKeysUser.value = user
+    showProfileApiKeysModal.value = true
+  } catch {
+    appStore.showError(t('admin.usage.failedToLoadUser'))
+  }
+}
+
+const granularityOptions = computed(() => [
+  { value: 'day', label: t('admin.dashboard.day') },
+  { value: 'hour', label: t('admin.dashboard.hour') },
+  { value: 'month', label: t('admin.dashboard.month') },
+])
 // Use local timezone to avoid UTC timezone issues
 const formatLD = (d: Date) => {
   const year = d.getFullYear()
@@ -249,11 +465,13 @@ const getLast24HoursRangeDates = (): { start: string; end: string } => {
     end: formatLD(end)
   }
 }
-const getGranularityForRange = (start: string, end: string): 'day' | 'hour' => {
+const getGranularityForRange = (start: string, end: string): DashboardTrendGranularity => {
   const startTime = new Date(`${start}T00:00:00`).getTime()
   const endTime = new Date(`${end}T00:00:00`).getTime()
   const daysDiff = Math.ceil((endTime - startTime) / (1000 * 60 * 60 * 24))
-  return daysDiff <= 1 ? 'hour' : 'day'
+  if (daysDiff <= 1) return 'hour'
+  if (daysDiff > 60) return 'month'
+  return 'day'
 }
 const defaultRange = getLast24HoursRangeDates()
 const startDate = ref(defaultRange.start); const endDate = ref(defaultRange.end)
@@ -264,37 +482,19 @@ const sortState = reactive({
   sort_order: 'desc' as 'asc' | 'desc'
 })
 
-const getSingleQueryValue = (value: string | null | Array<string | null> | undefined): string | undefined => {
-  if (Array.isArray(value)) return value.find((item): item is string => typeof item === 'string' && item.length > 0)
-  return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
-const getNumericQueryValue = (value: string | null | Array<string | null> | undefined): number | undefined => {
-  const raw = getSingleQueryValue(value)
-  if (!raw) return undefined
-  const parsed = Number(raw)
-  return Number.isFinite(parsed) ? parsed : undefined
-}
-
 const applyRouteQueryFilters = () => {
-  const queryStartDate = getSingleQueryValue(route.query.start_date)
-  const queryEndDate = getSingleQueryValue(route.query.end_date)
-  const queryUserId = getNumericQueryValue(route.query.user_id)
-
-  if (queryStartDate) {
-    startDate.value = queryStartDate
-  }
-  if (queryEndDate) {
-    endDate.value = queryEndDate
-  }
-
-  filters.value = {
-    ...filters.value,
-    user_id: queryUserId,
-    start_date: startDate.value,
-    end_date: endDate.value
-  }
+  const sanitized = sanitizeAdminUsageRouteQuery(route.query, {
+    startDate: defaultRange.start,
+    endDate: defaultRange.end,
+  })
+  startDate.value = sanitized.startDate || defaultRange.start
+  endDate.value = sanitized.endDate || defaultRange.end
+  filters.value = sanitized.filters
   granularity.value = getGranularityForRange(startDate.value, endDate.value)
+  const currentQuery = getCurrentRouteQuerySnapshot()
+  if (!areRouteQueriesEqual(currentQuery, sanitized.routeQuery)) {
+    void router.replace({ path: route.path, query: sanitized.routeQuery })
+  }
 }
 
 const onDateRangeChange = (range: { startDate: string; endDate: string; preset: string | null }) => {
@@ -334,7 +534,11 @@ const loadLogs = async () => {
       buildUsageListParams(pagination.page, pagination.page_size, false),
       { signal: c.signal }
     )
-    if(!c.signal.aborted) { usageLogs.value = res.items; pagination.total = res.total }
+    if(!c.signal.aborted) {
+      usageLogs.value = res.items
+      pagination.total = res.total
+      hydrateApiKeyFromUsageLogs()
+    }
   } catch (error: any) { if(error?.name !== 'AbortError') console.error('Failed to load usage logs:', error) } finally { if(abortController === c) loading.value = false }
 }
 const loadStats = async (force = false) => {
@@ -480,6 +684,10 @@ const resetFilters = () => {
   endDate.value = range.end
   filters.value = { start_date: startDate.value, end_date: endDate.value, request_type: undefined, billing_type: null, billing_mode: undefined }
   granularity.value = getGranularityForRange(startDate.value, endDate.value)
+  profileHeaderUser.value = null
+  profileHeaderApiKey.value = null
+  profileUserRecord.value = null
+  void router.replace({ path: route.path, query: toRouteQuery(filters.value) })
   applyFilters()
 }
 const handlePageChange = (p: number) => { pagination.page = p; loadLogs() }
@@ -731,6 +939,7 @@ const handleColumnClickOutside = (event: MouseEvent) => {
 
 onMounted(() => {
   applyRouteQueryFilters()
+  void resolveProfileContext()
   loadLogs()
   loadStats()
   loadModelStats(modelDistributionSource.value, true)
@@ -761,3 +970,18 @@ watch(modelDistributionSource, (source) => {
 
 defineExpose({ requestedModelStats, refreshData })
 </script>
+
+<style scoped>
+.usage-header-control :deep(.date-picker-trigger),
+.usage-header-control :deep(.select-trigger) {
+  @apply h-11 w-full rounded-xl px-3;
+}
+
+.usage-header-control :deep(.date-picker-trigger) {
+  @apply justify-between;
+}
+
+.usage-header-control :deep(.date-picker-value) {
+  @apply min-w-0 flex-1 truncate text-left;
+}
+</style>
