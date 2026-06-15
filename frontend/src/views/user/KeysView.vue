@@ -1773,6 +1773,7 @@ import type {
   BatchCreateApiKeysResponse,
   BatchUpdateApiKeysRequest,
   ApiKeyBatchFilters,
+  UpdateApiKeyRequest,
   Group,
   PublicSettings,
   SubscriptionType,
@@ -1899,7 +1900,7 @@ const formData = ref({
   name: '',
   tags: '',
   group_id: null as number | null,
-  status: 'active' as 'active' | 'inactive',
+  status: 'active' as 'active' | 'disabled',
   use_custom_key: false,
   custom_key: '',
   enable_ip_restriction: false,
@@ -1940,7 +1941,7 @@ const defaultBatchUpdateForm = () => ({
   update_group: false,
   group_id: null as number | null,
   update_status: false,
-  status: 'active' as 'active' | 'inactive',
+  status: 'active' as 'active' | 'disabled',
   update_quota: false,
   quota_mode: 'set' as BatchApiKeyQuotaMode,
   quota_value: null as number | null,
@@ -2210,12 +2211,12 @@ const customKeyError = computed(() => {
 
 const statusOptions = computed(() => [
   { value: 'active', label: t('common.active') },
-  { value: 'inactive', label: t('common.inactive') }
+  { value: 'disabled', label: t('keys.status.disabled') }
 ])
 
 const batchUpdateStatusOptions = computed(() => [
   { value: 'active', label: t('keys.status.active') },
-  { value: 'inactive', label: t('keys.status.inactive') }
+  { value: 'disabled', label: t('keys.status.disabled') }
 ])
 
 const batchUpdateTagModeOptions = computed(() => [
@@ -2246,7 +2247,7 @@ const groupFilterOptions = computed(() => [
 const statusFilterOptions = computed(() => [
   { value: '', label: t('keys.allStatus') },
   { value: 'active', label: t('keys.status.active') },
-  { value: 'inactive', label: t('keys.status.inactive') },
+  { value: 'disabled', label: t('keys.status.disabled') },
   { value: 'quota_exhausted', label: t('keys.status.quota_exhausted') },
   { value: 'expired', label: t('keys.status.expired') }
 ])
@@ -2458,11 +2459,12 @@ const editKey = (key: ApiKey) => {
   selectedKey.value = key
   const hasIPRestriction = (key.ip_whitelist?.length > 0) || (key.ip_blacklist?.length > 0)
   const hasExpiration = !!key.expires_at
+  const status = key.status === 'active' ? 'active' : 'disabled'
   formData.value = {
     name: key.name,
     tags: (key.tags || []).join(', '),
     group_id: key.group_id,
-    status: key.status === 'quota_exhausted' || key.status === 'expired' ? 'inactive' : key.status,
+    status,
     use_custom_key: false,
     custom_key: '',
     enable_ip_restriction: hasIPRestriction,
@@ -2482,7 +2484,7 @@ const editKey = (key: ApiKey) => {
 }
 
 const toggleKeyStatus = async (key: ApiKey) => {
-  const newStatus = key.status === 'active' ? 'inactive' : 'active'
+  const newStatus = key.status === 'active' ? 'disabled' : 'active'
   try {
     await keysAPI.toggleStatus(key.id, newStatus)
     appStore.showSuccess(
@@ -2915,11 +2917,13 @@ const handleSubmit = async () => {
   submitting.value = true
   try {
     if (showEditModal.value && selectedKey.value) {
-      await keysAPI.update(selectedKey.value.id, {
+      const currentStatus = selectedKey.value.status
+      const shouldPreserveSystemStatus =
+        (currentStatus === 'quota_exhausted' || currentStatus === 'expired') &&
+        formData.value.status === 'disabled'
+      const payload: UpdateApiKeyRequest = {
         name: formData.value.name,
         tags,
-        group_id: formData.value.group_id,
-        status: formData.value.status,
         ip_whitelist: ipWhitelist,
         ip_blacklist: ipBlacklist,
         quota: quota,
@@ -2927,7 +2931,14 @@ const handleSubmit = async () => {
         rate_limit_5h: rateLimitData.rate_limit_5h,
         rate_limit_1d: rateLimitData.rate_limit_1d,
         rate_limit_7d: rateLimitData.rate_limit_7d,
-      })
+      }
+      if (formData.value.group_id !== selectedKey.value.group_id) {
+        payload.group_id = formData.value.group_id
+      }
+      if (!shouldPreserveSystemStatus) {
+        payload.status = formData.value.status
+      }
+      await keysAPI.update(selectedKey.value.id, payload)
       appStore.showSuccess(t('keys.keyUpdatedSuccess'))
     } else {
       const customKey = formData.value.use_custom_key ? formData.value.custom_key : undefined
@@ -2951,7 +2962,7 @@ const handleSubmit = async () => {
     closeModals()
     refreshApiKeysAndTagOptions()
   } catch (error: any) {
-    const errorMsg = error.response?.data?.detail || t('keys.failedToSave')
+    const errorMsg = error.response?.data?.detail || error.response?.data?.message || t('keys.failedToSave')
     appStore.showError(errorMsg)
     // Don't advance tour on error
   } finally {

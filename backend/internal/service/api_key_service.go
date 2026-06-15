@@ -32,6 +32,7 @@ var (
 	ErrInvalidIPPattern    = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
 	ErrAPIKeyBatchInvalid  = infraerrors.BadRequest("API_KEY_BATCH_INVALID", "invalid api key batch create request")
 	ErrAPIKeyTagsInvalid   = infraerrors.BadRequest("API_KEY_TAGS_INVALID", "invalid api key tags")
+	ErrAPIKeyStatusInvalid = infraerrors.BadRequest("API_KEY_STATUS_INVALID", "invalid api key status")
 	ErrAPIKeyBatchTooLarge = infraerrors.BadRequest(
 		"API_KEY_BATCH_TOO_LARGE",
 		"api key batch count exceeds the allowed limit",
@@ -624,16 +625,45 @@ func normalizeAPIKeyBatchApplyTo(applyTo string) (string, error) {
 	}
 }
 
+func normalizeMutableAPIKeyStatus(status string) (string, bool) {
+	switch strings.TrimSpace(status) {
+	case StatusAPIKeyActive:
+		return StatusAPIKeyActive, true
+	case StatusAPIKeyDisabled, "inactive":
+		return StatusAPIKeyDisabled, true
+	default:
+		return "", false
+	}
+}
+
+func normalizeAPIKeyFilterStatus(status string) (string, bool) {
+	switch strings.TrimSpace(status) {
+	case "":
+		return "", true
+	case StatusAPIKeyQuotaExhausted:
+		return StatusAPIKeyQuotaExhausted, true
+	case StatusAPIKeyExpired:
+		return StatusAPIKeyExpired, true
+	default:
+		return normalizeMutableAPIKeyStatus(status)
+	}
+}
+
+func sameAPIKeyGroupID(current, next *int64) bool {
+	if current == nil || next == nil {
+		return current == nil && next == nil
+	}
+	return *current == *next
+}
+
 func normalizeAPIKeyBatchFilters(filters APIKeyBatchFilters) (APIKeyListFilters, error) {
 	search := strings.TrimSpace(filters.Search)
 	if len(search) > 100 {
 		search = search[:100]
 	}
 
-	status := strings.TrimSpace(filters.Status)
-	switch status {
-	case "", StatusAPIKeyActive, StatusAPIKeyDisabled, "inactive", StatusAPIKeyQuotaExhausted, StatusAPIKeyExpired:
-	default:
+	status, ok := normalizeAPIKeyFilterStatus(filters.Status)
+	if !ok {
 		return APIKeyListFilters{}, ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "filters.status"})
 	}
 
@@ -738,8 +768,10 @@ func validateBatchUpdateRequest(req BatchUpdateAPIKeysRequest) error {
 	if !hasUpdate {
 		return ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "updates"})
 	}
-	if req.UpdateStatus && req.Status != StatusActive && req.Status != "inactive" {
-		return ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "status"})
+	if req.UpdateStatus {
+		if _, ok := normalizeMutableAPIKeyStatus(req.Status); !ok {
+			return ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "status"})
+		}
 	}
 	if req.UpdateQuota {
 		switch req.QuotaMode {
@@ -842,6 +874,13 @@ func (s *APIKeyService) BatchUpdate(ctx context.Context, userID int64, req Batch
 			return nil, err
 		}
 		req.Tags = tags
+	}
+	if req.UpdateStatus {
+		status, ok := normalizeMutableAPIKeyStatus(req.Status)
+		if !ok {
+			return nil, ErrAPIKeyBatchInvalid.WithMetadata(map[string]string{"field": "status"})
+		}
+		req.Status = status
 	}
 	if err := validateBatchUpdateRequest(req); err != nil {
 		return nil, err
@@ -1351,7 +1390,7 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		apiKey.Name = html.EscapeString(*req.Name)
 	}
 
-	if req.GroupID != nil {
+	if req.GroupID != nil && !sameAPIKeyGroupID(apiKey.GroupID, req.GroupID) {
 		// 验证分组权限
 		user, err := s.userRepo.GetByID(ctx, userID)
 		if err != nil {
@@ -1371,7 +1410,11 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 	}
 
 	if req.Status != nil {
-		apiKey.Status = *req.Status
+		status, ok := normalizeMutableAPIKeyStatus(*req.Status)
+		if !ok {
+			return nil, ErrAPIKeyStatusInvalid.WithMetadata(map[string]string{"field": "status"})
+		}
+		apiKey.Status = status
 		// 如果状态改变，清除Redis缓存
 		if s.cache != nil {
 			_ = s.cache.DeleteCreateAttemptCount(ctx, apiKey.UserID)

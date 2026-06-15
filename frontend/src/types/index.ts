@@ -569,7 +569,7 @@ export interface ApiKey {
   name: string
   tags: string[]
   group_id: number | null
-  status: 'active' | 'inactive' | 'quota_exhausted' | 'expired'
+  status: 'active' | 'disabled' | 'quota_exhausted' | 'expired'
   ip_whitelist: string[]
   ip_blacklist: string[]
   last_used_at: string | null
@@ -647,7 +647,7 @@ export interface BatchUpdateApiKeysRequest {
   update_group?: boolean
   group_id?: number | null
   update_status?: boolean
-  status?: 'active' | 'inactive'
+  status?: 'active' | 'disabled'
   update_quota?: boolean
   quota_mode?: BatchApiKeyQuotaMode
   quota_value?: number
@@ -712,7 +712,7 @@ export interface UpdateApiKeyRequest {
   name?: string
   tags?: string[]
   group_id?: number | null
-  status?: 'active' | 'inactive'
+  status?: 'active' | 'disabled'
   ip_whitelist?: string[]
   ip_blacklist?: string[]
   quota?: number // Quota limit in USD (null = no change, 0 = unlimited)

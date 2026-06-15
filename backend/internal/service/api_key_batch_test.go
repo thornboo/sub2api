@@ -177,6 +177,14 @@ func (s *batchCreateAPIKeyRepoStub) Create(_ context.Context, key *APIKey) error
 	return nil
 }
 
+func (s *batchCreateAPIKeyRepoStub) GetByID(_ context.Context, id int64) (*APIKey, error) {
+	key, ok := s.keysByID[id]
+	if !ok {
+		return nil, ErrAPIKeyNotFound
+	}
+	return &key, nil
+}
+
 func (s *batchCreateAPIKeyRepoStub) ListByIDsForUser(_ context.Context, userID int64, ids []int64) ([]APIKey, error) {
 	keys := make([]APIKey, 0, len(ids))
 	for _, id := range ids {
@@ -279,6 +287,76 @@ func (s *batchCreateAPIKeyRepoStub) DeleteWithAudit(_ context.Context, id int64)
 	}
 	s.deleted = append(s.deleted, id)
 	return nil
+}
+
+func TestAPIKeyServiceUpdate_NormalizesLegacyInactiveStatus(t *testing.T) {
+	repo := &batchCreateAPIKeyRepoStub{
+		keysByID: map[int64]APIKey{
+			1: {ID: 1, UserID: 42, Key: "sk-1", Name: "legacy", Status: StatusActive},
+		},
+	}
+	svc := NewAPIKeyService(repo, nil, nil, nil, nil, nil, nil)
+	legacyStatus := "inactive"
+
+	_, err := svc.Update(context.Background(), 1, 42, UpdateAPIKeyRequest{Status: &legacyStatus})
+	if err != nil {
+		t.Fatalf("Update returned error: %v", err)
+	}
+	if got := repo.keysByID[1].Status; got != StatusAPIKeyDisabled {
+		t.Fatalf("status = %q, want %q", got, StatusAPIKeyDisabled)
+	}
+}
+
+func TestAPIKeyServiceUpdate_SkipsUnchangedGroupRebinding(t *testing.T) {
+	groupID := int64(3)
+	repo := &batchCreateAPIKeyRepoStub{
+		keysByID: map[int64]APIKey{
+			1: {ID: 1, UserID: 42, Key: "sk-1", Name: "legacy", Status: StatusActive, GroupID: &groupID},
+		},
+	}
+	svc := NewAPIKeyService(repo, nil, nil, nil, nil, nil, nil)
+	tags := []string{"team-a"}
+
+	_, err := svc.Update(context.Background(), 1, 42, UpdateAPIKeyRequest{
+		GroupID: &groupID,
+		Tags:    &tags,
+	})
+	if err != nil {
+		t.Fatalf("Update returned error: %v", err)
+	}
+	if got, want := repo.keysByID[1].Tags, []string{"team-a"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("tags = %#v, want %#v", got, want)
+	}
+	if repo.keysByID[1].GroupID == nil || *repo.keysByID[1].GroupID != groupID {
+		t.Fatalf("group id = %#v, want %d", repo.keysByID[1].GroupID, groupID)
+	}
+}
+
+func TestAPIKeyServiceUpdate_RejectsChangedForbiddenGroup(t *testing.T) {
+	currentGroupID := int64(3)
+	nextGroupID := int64(9)
+	repo := &batchCreateAPIKeyRepoStub{
+		keysByID: map[int64]APIKey{
+			1: {ID: 1, UserID: 42, Key: "sk-1", Name: "legacy", Status: StatusActive, GroupID: &currentGroupID},
+		},
+	}
+	svc := NewAPIKeyService(
+		repo,
+		batchCreateUserRepoStub{user: &User{ID: 42, Status: StatusActive}},
+		batchCreateGroupRepoStub{group: &Group{ID: nextGroupID, IsExclusive: true, Status: StatusActive}},
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	_, err := svc.Update(context.Background(), 1, 42, UpdateAPIKeyRequest{GroupID: &nextGroupID})
+	if !errors.Is(err, ErrGroupNotAllowed) {
+		t.Fatalf("Update error = %v, want ErrGroupNotAllowed", err)
+	}
+	if repo.keysByID[1].GroupID == nil || *repo.keysByID[1].GroupID != currentGroupID {
+		t.Fatalf("group id = %#v, want %d", repo.keysByID[1].GroupID, currentGroupID)
+	}
 }
 
 func TestAPIKeyServiceBatchCreate_RollsBackWholeBatchOnCreateFailure(t *testing.T) {
@@ -474,7 +552,7 @@ func TestAPIKeyServiceBatchUpdate_FilteredScopeUpdatesMatchingOwnedKeys(t *testi
 		keysByID: map[int64]APIKey{
 			1: {ID: 1, UserID: 42, Key: "sk-1", Name: "alpha", Status: StatusActive, Tags: []string{"team-a"}},
 			2: {ID: 2, UserID: 42, Key: "sk-2", Name: "beta", Status: StatusActive, Tags: []string{"team-b"}},
-			3: {ID: 3, UserID: 42, Key: "sk-3", Name: "gamma", Status: "inactive", Tags: []string{"team-a"}},
+			3: {ID: 3, UserID: 42, Key: "sk-3", Name: "gamma", Status: StatusAPIKeyDisabled, Tags: []string{"team-a"}},
 			4: {ID: 4, UserID: 99, Key: "sk-4", Name: "alpha", Status: StatusActive, Tags: []string{"team-a"}},
 		},
 	}
@@ -501,14 +579,44 @@ func TestAPIKeyServiceBatchUpdate_FilteredScopeUpdatesMatchingOwnedKeys(t *testi
 	if got, want := repo.lastListFilters.Tags, []string{"team-a"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("list filter tags = %#v, want %#v", got, want)
 	}
-	if got := repo.keysByID[1].Status; got != "inactive" {
-		t.Fatalf("key 1 status = %q, want inactive", got)
+	if got := repo.keysByID[1].Status; got != StatusAPIKeyDisabled {
+		t.Fatalf("key 1 status = %q, want disabled", got)
 	}
 	if got := repo.keysByID[2].Status; got != StatusActive {
 		t.Fatalf("key 2 status = %q, want active", got)
 	}
 	if got := repo.keysByID[4].Status; got != StatusActive {
 		t.Fatalf("key 4 status = %q, want active", got)
+	}
+}
+
+func TestAPIKeyServiceBatchUpdate_FilteredScopeNormalizesLegacyInactiveFilter(t *testing.T) {
+	repo := &batchCreateAPIKeyRepoStub{
+		keysByID: map[int64]APIKey{
+			1: {ID: 1, UserID: 42, Key: "sk-1", Name: "active", Status: StatusActive},
+			2: {ID: 2, UserID: 42, Key: "sk-2", Name: "disabled", Status: StatusAPIKeyDisabled},
+		},
+	}
+	svc := NewAPIKeyService(repo, nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.BatchUpdate(context.Background(), 42, BatchUpdateAPIKeysRequest{
+		ApplyTo:    APIKeyBatchApplyToFiltered,
+		Filters:    APIKeyBatchFilters{Status: "inactive"},
+		UpdateTags: true,
+		TagsMode:   APIKeyBatchTagsModeSet,
+		Tags:       []string{"audited"},
+	})
+	if err != nil {
+		t.Fatalf("BatchUpdate returned error: %v", err)
+	}
+	if got := repo.lastListFilters.Status; got != StatusAPIKeyDisabled {
+		t.Fatalf("list filter status = %q, want disabled", got)
+	}
+	if got, want := repo.keysByID[1].Tags, []string(nil); !reflect.DeepEqual(got, want) {
+		t.Fatalf("active key tags = %#v, want %#v", got, want)
+	}
+	if got, want := repo.keysByID[2].Tags, []string{"audited"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("disabled key tags = %#v, want %#v", got, want)
 	}
 }
 
