@@ -982,6 +982,18 @@ export default {
     selectGroup: 'Select a group',
     statusLabel: 'Status',
     selectStatus: 'Select status',
+    systemStatus: {
+      quota_exhausted: {
+        title: 'Quota exhausted',
+        description: 'Increase the quota or reset used quota to restore availability.'
+      },
+      expired: {
+        title: 'Expired',
+        description: 'Extend or clear the expiration time to restore availability.'
+      },
+      manualDisableLabel: 'Manually disable this key',
+      manualDisableHint: 'Save as disabled even if quota or expiration changes would otherwise reactivate it.'
+    },
     saving: 'Saving...',
     noKeysYet: 'No API keys yet',
     createFirstKey: 'Create your first API key to get started with the API.',

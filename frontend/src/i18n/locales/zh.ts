@@ -978,6 +978,18 @@ export default {
     selectGroup: '选择分组',
     statusLabel: '状态',
     selectStatus: '选择状态',
+    systemStatus: {
+      quota_exhausted: {
+        title: '额度耗尽',
+        description: '提高额度或重置已用额度后，这把密钥会恢复可用。'
+      },
+      expired: {
+        title: '已过期',
+        description: '延长或清除过期时间后，这把密钥会恢复可用。'
+      },
+      manualDisableLabel: '手动禁用这把密钥',
+      manualDisableHint: '即使额度或过期时间变更本可恢复，也保存为已禁用。'
+    },
     saving: '保存中...',
     noKeysYet: '暂无 API 密钥',
     createFirstKey: '创建您的第一个 API 密钥以开始使用 API。',

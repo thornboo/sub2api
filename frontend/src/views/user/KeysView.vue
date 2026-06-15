@@ -424,6 +424,7 @@
               </button>
               <!-- Toggle Status Button -->
               <button
+                v-if="canToggleApiKeyStatus(row.status)"
                 @click="toggleKeyStatus(row)"
                 :class="[
                   'flex flex-col items-center gap-0.5 rounded-lg p-1.5 transition-colors',
@@ -581,7 +582,59 @@
 
         <div v-if="showEditModal">
           <label class="input-label">{{ t('keys.statusLabel') }}</label>
+          <div v-if="selectedKeySystemStatus" class="space-y-3">
+            <div
+              :class="[
+                'rounded-lg border p-3',
+                selectedKeySystemStatus === 'quota_exhausted'
+                  ? 'border-yellow-200 bg-yellow-50 text-yellow-900 dark:border-yellow-900/50 dark:bg-yellow-900/20 dark:text-yellow-100'
+                  : 'border-red-200 bg-red-50 text-red-900 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-100'
+              ]"
+            >
+              <div class="flex gap-3">
+                <Icon
+                  :name="selectedKeySystemStatus === 'quota_exhausted' ? 'exclamationTriangle' : 'clock'"
+                  size="sm"
+                  class="mt-0.5 shrink-0"
+                />
+                <div class="min-w-0">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class="text-sm font-medium">
+                      {{ t(`keys.systemStatus.${selectedKeySystemStatus}.title`) }}
+                    </span>
+                    <span
+                      :class="[
+                        'badge text-xs',
+                        selectedKeySystemStatus === 'quota_exhausted' ? 'badge-warning' : 'badge-danger'
+                      ]"
+                    >
+                      {{ t(`keys.status.${selectedKeySystemStatus}`) }}
+                    </span>
+                  </div>
+                  <p class="mt-1 text-sm opacity-90">
+                    {{ t(`keys.systemStatus.${selectedKeySystemStatus}.description`) }}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <label class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 dark:border-dark-700">
+              <input
+                v-model="formData.manually_disable_system_status"
+                type="checkbox"
+                class="mt-1 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
+              />
+              <span>
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t('keys.systemStatus.manualDisableLabel') }}
+                </span>
+                <span class="mt-1 block text-sm text-gray-500 dark:text-dark-400">
+                  {{ t('keys.systemStatus.manualDisableHint') }}
+                </span>
+              </span>
+            </label>
+          </div>
           <Select
+            v-else
             v-model="formData.status"
             :options="statusOptions"
             :placeholder="t('keys.selectStatus')"
@@ -1784,6 +1837,12 @@ import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
 import { maskApiKey } from '@/utils/maskApiKey'
 import {
+  canToggleApiKeyStatus,
+  initialApiKeyEditStatus,
+  isApiKeySystemStatus,
+  shouldPreserveApiKeySystemStatus,
+} from '@/utils/apiKeyStatus'
+import {
   buildCcSwitchImportDeeplink,
   type CcSwitchClientType
 } from '@/utils/ccswitchImport'
@@ -1901,6 +1960,7 @@ const formData = ref({
   tags: '',
   group_id: null as number | null,
   status: 'active' as 'active' | 'disabled',
+  manually_disable_system_status: false,
   use_custom_key: false,
   custom_key: '',
   enable_ip_restriction: false,
@@ -2214,6 +2274,11 @@ const statusOptions = computed(() => [
   { value: 'disabled', label: t('keys.status.disabled') }
 ])
 
+const selectedKeySystemStatus = computed(() => {
+  const status = selectedKey.value?.status
+  return isApiKeySystemStatus(status) ? status : null
+})
+
 const batchUpdateStatusOptions = computed(() => [
   { value: 'active', label: t('keys.status.active') },
   { value: 'disabled', label: t('keys.status.disabled') }
@@ -2459,12 +2524,13 @@ const editKey = (key: ApiKey) => {
   selectedKey.value = key
   const hasIPRestriction = (key.ip_whitelist?.length > 0) || (key.ip_blacklist?.length > 0)
   const hasExpiration = !!key.expires_at
-  const status = key.status === 'active' ? 'active' : 'disabled'
+  const status = initialApiKeyEditStatus(key.status)
   formData.value = {
     name: key.name,
     tags: (key.tags || []).join(', '),
     group_id: key.group_id,
     status,
+    manually_disable_system_status: false,
     use_custom_key: false,
     custom_key: '',
     enable_ip_restriction: hasIPRestriction,
@@ -2484,6 +2550,9 @@ const editKey = (key: ApiKey) => {
 }
 
 const toggleKeyStatus = async (key: ApiKey) => {
+  if (!canToggleApiKeyStatus(key.status)) {
+    return
+  }
   const newStatus = key.status === 'active' ? 'disabled' : 'active'
   try {
     await keysAPI.toggleStatus(key.id, newStatus)
@@ -2918,9 +2987,11 @@ const handleSubmit = async () => {
   try {
     if (showEditModal.value && selectedKey.value) {
       const currentStatus = selectedKey.value.status
-      const shouldPreserveSystemStatus =
-        (currentStatus === 'quota_exhausted' || currentStatus === 'expired') &&
-        formData.value.status === 'disabled'
+      const shouldPreserveSystemStatus = shouldPreserveApiKeySystemStatus(
+        currentStatus,
+        formData.value.status,
+        formData.value.manually_disable_system_status
+      )
       const payload: UpdateApiKeyRequest = {
         name: formData.value.name,
         tags,
@@ -2999,6 +3070,7 @@ const closeModals = () => {
     tags: '',
     group_id: null,
     status: 'active',
+    manually_disable_system_status: false,
     use_custom_key: false,
     custom_key: '',
     enable_ip_restriction: false,
