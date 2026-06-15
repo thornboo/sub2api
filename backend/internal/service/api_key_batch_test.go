@@ -307,6 +307,71 @@ func TestAPIKeyServiceUpdate_NormalizesLegacyInactiveStatus(t *testing.T) {
 	}
 }
 
+func TestAPIKeyServiceUpdate_RejectsInvalidStatus(t *testing.T) {
+	repo := &batchCreateAPIKeyRepoStub{
+		keysByID: map[int64]APIKey{
+			1: {ID: 1, UserID: 42, Key: "sk-1", Name: "invalid", Status: StatusActive},
+		},
+	}
+	svc := NewAPIKeyService(repo, nil, nil, nil, nil, nil, nil)
+	invalidStatus := "foobar"
+
+	_, err := svc.Update(context.Background(), 1, 42, UpdateAPIKeyRequest{Status: &invalidStatus})
+	if !errors.Is(err, ErrAPIKeyStatusInvalid) {
+		t.Fatalf("Update error = %v, want ErrAPIKeyStatusInvalid", err)
+	}
+	if got := repo.keysByID[1].Status; got != StatusActive {
+		t.Fatalf("status after rejected update = %q, want %q", got, StatusActive)
+	}
+}
+
+func TestAPIKeyServiceUpdate_PreservesSystemStatusWhenStatusOmitted(t *testing.T) {
+	for _, systemStatus := range []string{StatusAPIKeyQuotaExhausted, StatusAPIKeyExpired} {
+		t.Run(systemStatus, func(t *testing.T) {
+			repo := &batchCreateAPIKeyRepoStub{
+				keysByID: map[int64]APIKey{
+					1: {ID: 1, UserID: 42, Key: "sk-1", Name: "system", Status: systemStatus},
+				},
+			}
+			svc := NewAPIKeyService(repo, nil, nil, nil, nil, nil, nil)
+			name := "renamed"
+
+			_, err := svc.Update(context.Background(), 1, 42, UpdateAPIKeyRequest{Name: &name})
+			if err != nil {
+				t.Fatalf("Update returned error: %v", err)
+			}
+			if got := repo.keysByID[1].Status; got != systemStatus {
+				t.Fatalf("status = %q, want %q", got, systemStatus)
+			}
+			if got := repo.keysByID[1].Name; got != name {
+				t.Fatalf("name = %q, want %q", got, name)
+			}
+		})
+	}
+}
+
+func TestAPIKeyServiceUpdate_AllowsExplicitDisabledForSystemStatus(t *testing.T) {
+	for _, systemStatus := range []string{StatusAPIKeyQuotaExhausted, StatusAPIKeyExpired} {
+		t.Run(systemStatus, func(t *testing.T) {
+			repo := &batchCreateAPIKeyRepoStub{
+				keysByID: map[int64]APIKey{
+					1: {ID: 1, UserID: 42, Key: "sk-1", Name: "system", Status: systemStatus},
+				},
+			}
+			svc := NewAPIKeyService(repo, nil, nil, nil, nil, nil, nil)
+			disabledStatus := StatusAPIKeyDisabled
+
+			_, err := svc.Update(context.Background(), 1, 42, UpdateAPIKeyRequest{Status: &disabledStatus})
+			if err != nil {
+				t.Fatalf("Update returned error: %v", err)
+			}
+			if got := repo.keysByID[1].Status; got != StatusAPIKeyDisabled {
+				t.Fatalf("status = %q, want %q", got, StatusAPIKeyDisabled)
+			}
+		})
+	}
+}
+
 func TestAPIKeyServiceUpdate_SkipsUnchangedGroupRebinding(t *testing.T) {
 	groupID := int64(3)
 	repo := &batchCreateAPIKeyRepoStub{

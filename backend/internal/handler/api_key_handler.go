@@ -149,7 +149,9 @@ type PublicAPIKeyStatusResponse struct {
 	Reset7dAt   *time.Time `json:"reset_7d_at"`
 }
 
-// UpdateAPIKeyRequest represents the update API key request payload
+// UpdateAPIKeyRequest represents the update API key request payload.
+// The inactive status value is accepted only as a legacy alias and is normalized to disabled by the service layer.
+// TODO(v1.3.0): remove inactive after migration 153 has shipped through the supported upgrade window.
 type UpdateAPIKeyRequest struct {
 	Name        string    `json:"name"`
 	Tags        *[]string `json:"tags"`
