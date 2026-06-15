@@ -17,11 +17,13 @@ const messages: Record<string, string> = {
   'admin.dashboard.requests': 'Requests',
   'admin.dashboard.tokens': 'Tokens',
   'admin.dashboard.actual': 'Actual',
+  'admin.dashboard.accountCost': 'Account Cost',
   'admin.dashboard.standard': 'Standard',
   'admin.dashboard.metricTokens': 'By Tokens',
   'admin.dashboard.metricActualCost': 'By Actual Cost',
   'admin.dashboard.noDataAvailable': 'No data available',
   'admin.redeem.userPrefix': 'User #{id}',
+  'common.expand': 'Expand',
 }
 
 vi.mock('vue-i18n', async () => {
@@ -53,6 +55,7 @@ describe('ModelDistributionChart', () => {
       total_tokens: 1000,
       cost: 1.5,
       actual_cost: 0.2,
+      account_cost: 1.1,
     },
     {
       model: 'model-b',
@@ -64,6 +67,7 @@ describe('ModelDistributionChart', () => {
       total_tokens: 500,
       cost: 0.5,
       actual_cost: 1.4,
+      account_cost: 0.4,
     },
   ]
 
@@ -84,7 +88,9 @@ describe('ModelDistributionChart', () => {
     expect(chartData.datasets[0].data).toEqual([1000, 500])
 
     const rows = wrapper.findAll('tbody tr')
+    expect(rows[0].text()).toContain('#1')
     expect(rows[0].text()).toContain('model-a')
+    expect(rows[1].text()).toContain('#2')
     expect(rows[1].text()).toContain('model-b')
 
     const options = (wrapper.vm as any).$?.setupState.doughnutOptions
@@ -114,7 +120,9 @@ describe('ModelDistributionChart', () => {
     expect(chartData.datasets[0].data).toEqual([1.4, 0.2])
 
     const rows = wrapper.findAll('tbody tr')
+    expect(rows[0].text()).toContain('#1')
     expect(rows[0].text()).toContain('model-b')
+    expect(rows[1].text()).toContain('#2')
     expect(rows[1].text()).toContain('model-a')
 
     const options = (wrapper.vm as any).$?.setupState.doughnutOptions
@@ -167,5 +175,23 @@ describe('ModelDistributionChart', () => {
     expect(rows[2].text()).toContain('4')
     expect(rows[2].text()).toContain('400')
     expect(rows[2].text()).toContain('$10.00')
+  })
+
+  it('emits expand when the chart expand button is enabled', async () => {
+    const wrapper = mount(ModelDistributionChart, {
+      props: {
+        modelStats,
+        showExpandButton: true,
+      },
+      global: {
+        stubs: {
+          LoadingSpinner: true,
+        },
+      },
+    })
+
+    await wrapper.find('button[aria-label="Expand"]').trigger('click')
+
+    expect(wrapper.emitted('expand')).toHaveLength(1)
   })
 })

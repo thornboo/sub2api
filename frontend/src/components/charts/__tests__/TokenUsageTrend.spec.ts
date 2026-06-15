@@ -6,6 +6,7 @@ import TokenUsageTrend from '../TokenUsageTrend.vue'
 const messages: Record<string, string> = {
   'admin.dashboard.tokenUsageTrend': 'Token Usage Trend',
   'admin.dashboard.noDataAvailable': 'No data available',
+  'common.expand': 'Expand',
 }
 
 vi.mock('vue-i18n', async () => {
@@ -116,5 +117,34 @@ describe('TokenUsageTrend', () => {
     )
     // Hit rate = 500 / (200 + 500 + 300) * 100 = 50%
     expect(hitRateDataset.data[0]).toBe(50)
+  })
+
+  it('emits expand when the chart expand button is enabled', async () => {
+    const wrapper = mount(TokenUsageTrend, {
+      props: {
+        showExpandButton: true,
+        trendData: [
+          {
+            date: '2026-05-08',
+            requests: 1,
+            input_tokens: 200,
+            output_tokens: 50,
+            cache_creation_tokens: 300,
+            cache_read_tokens: 500,
+            cost: 0.02,
+            actual_cost: 0.01,
+          },
+        ],
+      },
+      global: {
+        stubs: {
+          LoadingSpinner: true,
+        },
+      },
+    })
+
+    await wrapper.find('button[aria-label="Expand"]').trigger('click')
+
+    expect(wrapper.emitted('expand')).toHaveLength(1)
   })
 })

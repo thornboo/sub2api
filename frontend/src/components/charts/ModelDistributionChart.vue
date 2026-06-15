@@ -1,11 +1,17 @@
 <template>
   <div class="card p-4">
     <div class="mb-4 flex items-center justify-between gap-3">
-      <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
-        {{ !enableRankingView || activeView === 'model_distribution'
-          ? t('admin.dashboard.modelDistribution')
-          : t('admin.dashboard.spendingRankingTitle') }}
-      </h3>
+      <div class="flex min-w-0 items-center gap-2">
+        <h3 class="truncate text-sm font-semibold text-gray-900 dark:text-white">
+          {{ !enableRankingView || activeView === 'model_distribution'
+            ? t('admin.dashboard.modelDistribution')
+            : t('admin.dashboard.spendingRankingTitle') }}
+        </h3>
+        <ChartExpandButton
+          v-if="showExpandButton"
+          @click="emit('expand')"
+        />
+      </div>
       <div class="flex flex-wrap items-center justify-end gap-2">
         <div
           v-if="showSourceToggle"
@@ -103,13 +109,14 @@
       v-else-if="activeView === 'model_distribution' && displayModelStats.length > 0 && chartData"
       class="flex items-center gap-6"
     >
-      <div class="h-48 w-48">
+      <div class="chart-doughnut-canvas h-48 w-48">
         <Doughnut :data="chartData" :options="doughnutOptions" />
       </div>
-      <div class="max-h-48 flex-1 overflow-y-auto">
+      <div class="chart-table-scroll max-h-48 flex-1 overflow-y-auto">
         <table class="w-full text-xs">
           <thead>
             <tr class="text-gray-500 dark:text-gray-400">
+              <th class="w-10 pb-2 text-left">#</th>
               <th class="pb-2 text-left">{{ t('admin.dashboard.model') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.requests') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.tokens') }}</th>
@@ -119,11 +126,14 @@
             </tr>
           </thead>
           <tbody>
-            <template v-for="model in displayModelStats" :key="model.model">
+            <template v-for="(model, index) in displayModelStats" :key="model.model">
               <tr
                 class="cursor-pointer border-t border-stone-100 transition-colors hover:bg-stone-50/80 dark:border-white/10 dark:hover:bg-white/[0.04]"
                 @click="toggleBreakdown('model', model.model)"
               >
+                <td class="w-10 py-1.5 text-left text-[11px] font-semibold text-gray-400 dark:text-gray-500">
+                  #{{ index + 1 }}
+                </td>
                 <td
                   class="max-w-[100px] truncate py-1.5 font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
                   :title="model.model"
@@ -151,7 +161,7 @@
                 </td>
               </tr>
               <tr v-if="expandedKey === `model-${model.model}`">
-                <td colspan="6" class="p-0">
+                <td colspan="7" class="p-0">
                   <UserBreakdownSubTable
                     :items="breakdownItems"
                     :loading="breakdownLoading"
@@ -180,10 +190,10 @@
       {{ t('admin.dashboard.failedToLoad') }}
     </div>
     <div v-else-if="rankingDisplayItems.length > 0 && rankingChartData" class="flex items-center gap-6">
-      <div class="h-48 w-48">
+      <div class="chart-doughnut-canvas h-48 w-48">
         <Doughnut :data="rankingChartData" :options="rankingDoughnutOptions" />
       </div>
-      <div class="max-h-48 flex-1 overflow-y-auto">
+      <div class="chart-table-scroll max-h-48 flex-1 overflow-y-auto">
         <table class="w-full text-xs">
           <thead>
             <tr class="text-gray-500 dark:text-gray-400">
@@ -246,6 +256,7 @@ import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js'
 import { Doughnut } from 'vue-chartjs'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import UserBreakdownSubTable from './UserBreakdownSubTable.vue'
+import ChartExpandButton from './ChartExpandButton.vue'
 import type { ModelStat, UserSpendingRankingItem, UserBreakdownItem } from '@/types'
 import { getUserBreakdown } from '@/api/admin/dashboard'
 
@@ -272,6 +283,7 @@ const props = withDefaults(defineProps<{
   showMetricToggle?: boolean
   rankingLoading?: boolean
   rankingError?: boolean
+  showExpandButton?: boolean
   startDate?: string
   endDate?: string
   filters?: Record<string, any>
@@ -289,7 +301,8 @@ const props = withDefaults(defineProps<{
   showSourceToggle: false,
   showMetricToggle: false,
   rankingLoading: false,
-  rankingError: false
+  rankingError: false,
+  showExpandButton: false
 })
 
 const expandedKey = ref<string | null>(null)
@@ -325,6 +338,7 @@ const emit = defineEmits<{
   'update:metric': [value: DistributionMetric]
   'update:source': [value: ModelSource]
   'ranking-click': [item: UserSpendingRankingItem]
+  'expand': []
 }>()
 
 const enableRankingView = computed(() => props.enableRankingView)

@@ -1,9 +1,15 @@
 <template>
   <div class="card p-4">
     <div class="mb-4 flex items-center justify-between gap-3">
-      <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
-        {{ title || t('usage.endpointDistribution') }}
-      </h3>
+      <div class="flex min-w-0 items-center gap-2">
+        <h3 class="truncate text-sm font-semibold text-gray-900 dark:text-white">
+          {{ title || t('usage.endpointDistribution') }}
+        </h3>
+        <ChartExpandButton
+          v-if="showExpandButton"
+          @click="emit('expand')"
+        />
+      </div>
       <div class="flex flex-wrap items-center justify-end gap-2">
         <div
           v-if="showSourceToggle"
@@ -72,13 +78,14 @@
       <LoadingSpinner />
     </div>
     <div v-else-if="displayEndpointStats.length > 0 && chartData" class="flex items-center gap-6">
-      <div class="h-48 w-48">
+      <div class="chart-doughnut-canvas h-48 w-48">
         <Doughnut :data="chartData" :options="doughnutOptions" />
       </div>
-      <div class="max-h-48 flex-1 overflow-y-auto">
+      <div class="chart-table-scroll max-h-48 flex-1 overflow-y-auto">
         <table class="w-full text-xs">
           <thead>
             <tr class="text-gray-500 dark:text-gray-400">
+              <th class="w-10 pb-2 text-left">#</th>
               <th class="pb-2 text-left">{{ t('usage.endpoint') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.requests') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.tokens') }}</th>
@@ -87,11 +94,14 @@
             </tr>
           </thead>
           <tbody>
-            <template v-for="item in displayEndpointStats" :key="item.endpoint">
+            <template v-for="(item, index) in displayEndpointStats" :key="item.endpoint">
               <tr
                 class="cursor-pointer border-t border-stone-100 transition-colors hover:bg-stone-50/80 dark:border-white/10 dark:hover:bg-white/[0.04]"
                 @click="toggleBreakdown(item.endpoint)"
               >
+                <td class="w-10 py-1.5 text-left text-[11px] font-semibold text-gray-400 dark:text-gray-500">
+                  #{{ index + 1 }}
+                </td>
                 <td class="max-w-[180px] truncate py-1.5 font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300" :title="item.endpoint">
                   <span class="inline-flex items-center gap-1">
                     <svg v-if="expandedKey === item.endpoint" class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
@@ -113,7 +123,7 @@
                 </td>
               </tr>
               <tr v-if="expandedKey === item.endpoint">
-                <td colspan="5" class="p-0">
+                <td colspan="6" class="p-0">
                   <UserBreakdownSubTable
                     :items="breakdownItems"
                     :loading="breakdownLoading"
@@ -138,6 +148,7 @@ import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js'
 import { Doughnut } from 'vue-chartjs'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import UserBreakdownSubTable from './UserBreakdownSubTable.vue'
+import ChartExpandButton from './ChartExpandButton.vue'
 import type { EndpointStat, UserBreakdownItem } from '@/types'
 import { getUserBreakdown } from '@/api/admin/dashboard'
 
@@ -159,6 +170,7 @@ const props = withDefaults(
     source?: EndpointSource
     showMetricToggle?: boolean
     showSourceToggle?: boolean
+    showExpandButton?: boolean
     startDate?: string
     endDate?: string
     filters?: Record<string, any>
@@ -171,13 +183,15 @@ const props = withDefaults(
     metric: 'tokens',
     source: 'inbound',
     showMetricToggle: false,
-    showSourceToggle: false
+    showSourceToggle: false,
+    showExpandButton: false
   }
 )
 
 const emit = defineEmits<{
   'update:metric': [value: DistributionMetric]
   'update:source': [value: EndpointSource]
+  'expand': []
 }>()
 
 const expandedKey = ref<string | null>(null)

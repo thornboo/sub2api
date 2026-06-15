@@ -10,10 +10,12 @@ const messages: Record<string, string> = {
   'admin.dashboard.requests': 'Requests',
   'admin.dashboard.tokens': 'Tokens',
   'admin.dashboard.actual': 'Actual',
+  'admin.dashboard.accountCost': 'Account Cost',
   'admin.dashboard.standard': 'Standard',
   'admin.dashboard.metricTokens': 'By Tokens',
   'admin.dashboard.metricActualCost': 'By Actual Cost',
   'admin.dashboard.noDataAvailable': 'No data available',
+  'common.expand': 'Expand',
 }
 
 vi.mock('vue-i18n', async () => {
@@ -42,6 +44,7 @@ describe('GroupDistributionChart', () => {
       total_tokens: 1200,
       cost: 1.8,
       actual_cost: 0.1,
+      account_cost: 1.2,
     },
     {
       group_id: 2,
@@ -50,6 +53,7 @@ describe('GroupDistributionChart', () => {
       total_tokens: 600,
       cost: 0.7,
       actual_cost: 0.9,
+      account_cost: 0.5,
     },
   ]
 
@@ -70,7 +74,9 @@ describe('GroupDistributionChart', () => {
     expect(chartData.datasets[0].data).toEqual([1200, 600])
 
     const rows = wrapper.findAll('tbody tr')
+    expect(rows[0].text()).toContain('#1')
     expect(rows[0].text()).toContain('group-a')
+    expect(rows[1].text()).toContain('#2')
     expect(rows[1].text()).toContain('group-b')
 
     const options = (wrapper.vm as any).$?.setupState.doughnutOptions
@@ -100,7 +106,9 @@ describe('GroupDistributionChart', () => {
     expect(chartData.datasets[0].data).toEqual([0.9, 0.1])
 
     const rows = wrapper.findAll('tbody tr')
+    expect(rows[0].text()).toContain('#1')
     expect(rows[0].text()).toContain('group-b')
+    expect(rows[1].text()).toContain('#2')
     expect(rows[1].text()).toContain('group-a')
 
     const options = (wrapper.vm as any).$?.setupState.doughnutOptions
@@ -110,5 +118,23 @@ describe('GroupDistributionChart', () => {
       dataset: { data: [0.9, 0.1] },
     })
     expect(label).toBe('group-b: $0.900 (90.0%)')
+  })
+
+  it('emits expand when the chart expand button is enabled', async () => {
+    const wrapper = mount(GroupDistributionChart, {
+      props: {
+        groupStats,
+        showExpandButton: true,
+      },
+      global: {
+        stubs: {
+          LoadingSpinner: true,
+        },
+      },
+    })
+
+    await wrapper.find('button[aria-label="Expand"]').trigger('click')
+
+    expect(wrapper.emitted('expand')).toHaveLength(1)
   })
 })

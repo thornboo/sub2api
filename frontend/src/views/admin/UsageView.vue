@@ -46,6 +46,8 @@
             :start-date="startDate"
             :end-date="endDate"
             :filters="breakdownFilters"
+            :show-expand-button="true"
+            @expand="openExpandedUsageChart('model')"
           />
           <GroupDistributionChart
             v-model:metric="groupDistributionMetric"
@@ -55,6 +57,8 @@
             :start-date="startDate"
             :end-date="endDate"
             :filters="breakdownFilters"
+            :show-expand-button="true"
+            @expand="openExpandedUsageChart('group')"
           />
         </div>
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -71,8 +75,15 @@
             :start-date="startDate"
             :end-date="endDate"
             :filters="breakdownFilters"
+            :show-expand-button="true"
+            @expand="openExpandedUsageChart('endpoint')"
           />
-          <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
+          <TokenUsageTrend
+            :trend-data="trendData"
+            :loading="chartsLoading"
+            :show-expand-button="true"
+            @expand="openExpandedUsageChart('token')"
+          />
         </div>
       </div>
       <UsageFilters v-model="filters" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" :show-object-filters="false" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
@@ -145,6 +156,63 @@
     :user="profileApiKeysUser"
     @close="showProfileApiKeysModal = false; profileApiKeysUser = null"
   />
+  <BaseDialog
+    :show="expandedUsageChart !== null"
+    :title="expandedUsageChartTitle"
+    width="full"
+    @close="closeExpandedUsageChart"
+  >
+    <div class="usage-chart-modal-body">
+      <ModelDistributionChart
+        v-if="expandedUsageChart === 'model'"
+        v-model:source="modelDistributionSource"
+        v-model:metric="modelDistributionMetric"
+        class="usage-expanded-chart"
+        :model-stats="requestedModelStats"
+        :upstream-model-stats="upstreamModelStats"
+        :mapping-model-stats="mappingModelStats"
+        :loading="modelStatsLoading"
+        :show-source-toggle="true"
+        :show-metric-toggle="true"
+        :start-date="startDate"
+        :end-date="endDate"
+        :filters="breakdownFilters"
+      />
+      <GroupDistributionChart
+        v-else-if="expandedUsageChart === 'group'"
+        v-model:metric="groupDistributionMetric"
+        class="usage-expanded-chart"
+        :group-stats="groupStats"
+        :loading="chartsLoading"
+        :show-metric-toggle="true"
+        :start-date="startDate"
+        :end-date="endDate"
+        :filters="breakdownFilters"
+      />
+      <EndpointDistributionChart
+        v-else-if="expandedUsageChart === 'endpoint'"
+        v-model:source="endpointDistributionSource"
+        v-model:metric="endpointDistributionMetric"
+        class="usage-expanded-chart"
+        :endpoint-stats="inboundEndpointStats"
+        :upstream-endpoint-stats="upstreamEndpointStats"
+        :endpoint-path-stats="endpointPathStats"
+        :loading="endpointStatsLoading"
+        :show-source-toggle="true"
+        :show-metric-toggle="true"
+        :title="t('usage.endpointDistribution')"
+        :start-date="startDate"
+        :end-date="endDate"
+        :filters="breakdownFilters"
+      />
+      <TokenUsageTrend
+        v-else-if="expandedUsageChart === 'token'"
+        class="usage-expanded-chart"
+        :trend-data="trendData"
+        :loading="chartsLoading"
+      />
+    </div>
+  </BaseDialog>
   <Teleport to="body">
     <div
       v-if="showColumnDropdown"
@@ -188,6 +256,7 @@ import UsageTable from '@/components/admin/usage/UsageTable.vue'; import UsageEx
 import UsageCleanupDialog from '@/components/admin/usage/UsageCleanupDialog.vue'
 import UserBalanceHistoryModal from '@/components/admin/user/UserBalanceHistoryModal.vue'
 import UserApiKeysModal from '@/components/admin/user/UserApiKeysModal.vue'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 import OpsErrorLogTable from '@/views/admin/ops/components/OpsErrorLogTable.vue'
 import OpsErrorDetailModal from '@/views/admin/ops/components/OpsErrorDetailModal.vue'
 import { listErrorLogs } from '@/api/admin/ops'
@@ -209,6 +278,7 @@ const appStore = useAppStore()
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
 type ModelDistributionSource = 'requested' | 'upstream' | 'mapping'
+type ExpandedUsageChart = 'model' | 'group' | 'endpoint' | 'token'
 interface UsageProfileEntity {
   id: number
   label?: string | null
@@ -233,6 +303,7 @@ const inboundEndpointStats = ref<EndpointStat[]>([])
 const upstreamEndpointStats = ref<EndpointStat[]>([])
 const endpointPathStats = ref<EndpointStat[]>([])
 const endpointStatsLoading = ref(false)
+const expandedUsageChart = ref<ExpandedUsageChart | null>(null)
 let abortController: AbortController | null = null; let exportAbortController: AbortController | null = null
 let chartReqSeq = 0
 let statsReqSeq = 0
@@ -263,6 +334,29 @@ const breakdownFilters = computed(() => {
 const modelNameOptions = computed(() =>
   Array.from(new Set(requestedModelStats.value.map((m) => m.model).filter(Boolean))).sort()
 )
+
+const expandedUsageChartTitle = computed(() => {
+  switch (expandedUsageChart.value) {
+    case 'model':
+      return t('admin.dashboard.modelDistribution')
+    case 'group':
+      return t('admin.dashboard.groupDistribution')
+    case 'endpoint':
+      return t('usage.endpointDistribution')
+    case 'token':
+      return t('admin.dashboard.tokenUsageTrend')
+    default:
+      return ''
+  }
+})
+
+const openExpandedUsageChart = (chart: ExpandedUsageChart) => {
+  expandedUsageChart.value = chart
+}
+
+const closeExpandedUsageChart = () => {
+  expandedUsageChart.value = null
+}
 
 const handleUserClick = async (userId: number) => {
   try {
@@ -983,5 +1077,48 @@ defineExpose({ requestedModelStats, refreshData })
 
 .usage-header-control :deep(.date-picker-value) {
   @apply min-w-0 flex-1 truncate text-left;
+}
+
+.usage-chart-modal-body {
+  max-height: min(72vh, 44rem);
+  overflow: auto;
+}
+
+.usage-chart-modal-body :deep(.usage-expanded-chart.card) {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.usage-chart-modal-body :deep(.usage-expanded-chart .chart-table-scroll) {
+  max-height: min(30rem, 58vh);
+}
+
+.usage-chart-modal-body :deep(.usage-expanded-chart .chart-doughnut-canvas) {
+  height: clamp(14rem, 22vw, 18rem);
+  width: clamp(14rem, 22vw, 18rem);
+}
+
+.usage-chart-modal-body :deep(.usage-expanded-chart .chart-line-canvas) {
+  height: min(30rem, 58vh);
+}
+
+.usage-chart-modal-body :deep(.usage-expanded-chart table) {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.usage-chart-modal-body :deep(.usage-expanded-chart th) {
+  padding-bottom: 0.625rem;
+}
+
+.usage-chart-modal-body :deep(.usage-expanded-chart td) {
+  padding-bottom: 0.55rem;
+  padding-top: 0.55rem;
+}
+
+.usage-chart-modal-body :deep(.usage-expanded-chart td[title]) {
+  max-width: 18rem;
 }
 </style>

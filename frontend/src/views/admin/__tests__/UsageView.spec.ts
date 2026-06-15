@@ -28,6 +28,7 @@ const messages: Record<string, string> = {
   'admin.dashboard.day': 'Day',
   'admin.dashboard.hour': 'Hour',
   'admin.dashboard.month': 'Month',
+  'admin.dashboard.modelDistribution': 'Model Distribution',
   'admin.usage.failedToLoadUser': 'Failed to load user',
 }
 
@@ -114,24 +115,30 @@ const UsageTableStub = {
   template: '<div data-test="usage-table"><button class="user-click" @click="$emit(\'userClick\', 2)">user</button></div>',
 }
 const ModelDistributionChartStub = {
-  props: ['metric'],
-  emits: ['update:metric'],
+  props: ['metric', 'showExpandButton'],
+  emits: ['update:metric', 'expand'],
   template: `
     <div data-test="model-chart">
       <span class="metric">{{ metric }}</span>
       <button class="switch-metric" @click="$emit('update:metric', 'actual_cost')">switch</button>
+      <button v-if="showExpandButton" class="expand-chart" @click="$emit('expand')">expand</button>
     </div>
   `,
 }
 const GroupDistributionChartStub = {
-  props: ['metric'],
-  emits: ['update:metric'],
+  props: ['metric', 'showExpandButton'],
+  emits: ['update:metric', 'expand'],
   template: `
     <div data-test="group-chart">
       <span class="metric">{{ metric }}</span>
       <button class="switch-metric" @click="$emit('update:metric', 'actual_cost')">switch</button>
+      <button v-if="showExpandButton" class="expand-chart" @click="$emit('expand')">expand</button>
     </div>
   `,
+}
+const BaseDialogStub = {
+  props: ['show', 'title'],
+  template: '<div v-if="show" data-test="expanded-chart-modal"><h2>{{ title }}</h2><slot /></div>',
 }
 
 beforeEach(() => {
@@ -510,6 +517,45 @@ describe('admin UsageView distribution metric toggles', () => {
     expect(modelChart.find('.metric').text()).toBe('actual_cost')
     expect(groupChart.find('.metric').text()).toBe('actual_cost')
     expect(getSnapshotV2).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens the expanded chart modal from a chart header action', async () => {
+    const wrapper = mount(UsageView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          UsageStatsCards: true,
+          UsageFilters: UsageFiltersStub,
+          UsageTable: true,
+          UsageExportProgress: true,
+          UsageCleanupDialog: true,
+          UserBalanceHistoryModal: true,
+          Pagination: true,
+          Select: true,
+          DateRangePicker: true,
+          Icon: true,
+          TokenUsageTrend: true,
+          ModelDistributionChart: ModelDistributionChartStub,
+          GroupDistributionChart: GroupDistributionChartStub,
+          EndpointDistributionChart: true,
+          BaseDialog: BaseDialogStub,
+          OpsErrorLogTable: true,
+          OpsErrorDetailModal: true,
+        },
+      },
+    })
+
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="expanded-chart-modal"]').exists()).toBe(false)
+
+    await wrapper.find('[data-test="model-chart"] .expand-chart').trigger('click')
+    await flushPromises()
+
+    const modal = wrapper.find('[data-test="expanded-chart-modal"]')
+    expect(modal.exists()).toBe(true)
+    expect(modal.text()).toContain('Model Distribution')
   })
 })
 

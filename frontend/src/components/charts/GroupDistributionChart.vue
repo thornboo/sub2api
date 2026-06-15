@@ -1,9 +1,15 @@
 <template>
   <div class="card p-4">
     <div class="mb-4 flex items-center justify-between gap-3">
-      <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
-        {{ t('admin.dashboard.groupDistribution') }}
-      </h3>
+      <div class="flex min-w-0 items-center gap-2">
+        <h3 class="truncate text-sm font-semibold text-gray-900 dark:text-white">
+          {{ t('admin.dashboard.groupDistribution') }}
+        </h3>
+        <ChartExpandButton
+          v-if="showExpandButton"
+          @click="emit('expand')"
+        />
+      </div>
       <div
         v-if="showMetricToggle"
         class="segmented-control"
@@ -34,13 +40,14 @@
       <LoadingSpinner />
     </div>
     <div v-else-if="displayGroupStats.length > 0 && chartData" class="flex items-center gap-6">
-      <div class="h-48 w-48">
+      <div class="chart-doughnut-canvas h-48 w-48">
         <Doughnut :data="chartData" :options="doughnutOptions" />
       </div>
-      <div class="max-h-48 flex-1 overflow-y-auto">
+      <div class="chart-table-scroll max-h-48 flex-1 overflow-y-auto">
         <table class="w-full text-xs">
           <thead>
             <tr class="text-gray-500 dark:text-gray-400">
+              <th class="w-10 pb-2 text-left">#</th>
               <th class="pb-2 text-left">{{ t('admin.dashboard.group') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.requests') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.tokens') }}</th>
@@ -50,12 +57,15 @@
             </tr>
           </thead>
           <tbody>
-            <template v-for="group in displayGroupStats" :key="group.group_id">
+            <template v-for="(group, index) in displayGroupStats" :key="group.group_id">
               <tr
                 class="border-t border-stone-100 transition-colors dark:border-white/10"
                 :class="group.group_id > 0 ? 'cursor-pointer hover:bg-stone-50/80 dark:hover:bg-white/[0.04]' : ''"
                 @click="group.group_id > 0 && toggleBreakdown('group', group.group_id)"
               >
+                <td class="w-10 py-1.5 text-left text-[11px] font-semibold text-gray-400 dark:text-gray-500">
+                  #{{ index + 1 }}
+                </td>
                 <td
                   class="max-w-[100px] truncate py-1.5 font-medium"
                   :class="group.group_id > 0 ? 'text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300' : 'text-gray-900 dark:text-white'"
@@ -85,7 +95,7 @@
               </tr>
               <!-- User breakdown sub-rows -->
               <tr v-if="expandedKey === `group-${group.group_id}`">
-                <td colspan="6" class="p-0">
+                <td colspan="7" class="p-0">
                   <UserBreakdownSubTable
                     :items="breakdownItems"
                     :loading="breakdownLoading"
@@ -113,6 +123,7 @@ import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js'
 import { Doughnut } from 'vue-chartjs'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import UserBreakdownSubTable from './UserBreakdownSubTable.vue'
+import ChartExpandButton from './ChartExpandButton.vue'
 import type { GroupStat, UserBreakdownItem } from '@/types'
 import { getUserBreakdown } from '@/api/admin/dashboard'
 
@@ -127,6 +138,7 @@ const props = withDefaults(defineProps<{
   loading?: boolean
   metric?: DistributionMetric
   showMetricToggle?: boolean
+  showExpandButton?: boolean
   startDate?: string
   endDate?: string
   filters?: Record<string, any>
@@ -134,10 +146,12 @@ const props = withDefaults(defineProps<{
   loading: false,
   metric: 'tokens',
   showMetricToggle: false,
+  showExpandButton: false,
 })
 
 const emit = defineEmits<{
   'update:metric': [value: DistributionMetric]
+  'expand': []
 }>()
 
 const expandedKey = ref<string | null>(null)

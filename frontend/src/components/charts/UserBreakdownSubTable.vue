@@ -9,11 +9,14 @@
     <table v-else class="w-full text-xs">
       <tbody>
         <tr
-          v-for="user in items"
+          v-for="(user, index) in items"
           :key="user.user_id"
           class="border-t border-gray-100/50 dark:border-gray-700/50"
         >
-          <td class="max-w-[120px] truncate py-1 pl-6 text-gray-600 dark:text-gray-300" :title="user.email">
+          <td class="w-10 py-1 pl-6 pr-2 text-left text-[11px] font-semibold text-gray-400 dark:text-gray-500">
+            #{{ index + 1 }}
+          </td>
+          <td class="max-w-[120px] truncate py-1 pr-2 text-gray-600 dark:text-gray-300" :title="user.email">
             {{ user.email || `User #${user.user_id}` }}
           </td>
           <td class="py-1 text-right text-gray-500 dark:text-gray-400">

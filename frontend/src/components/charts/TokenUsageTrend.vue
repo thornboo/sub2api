@@ -1,12 +1,18 @@
 <template>
   <div class="card p-4">
-    <h3 class="mb-4 text-sm font-semibold text-gray-900 dark:text-white">
-      {{ t('admin.dashboard.tokenUsageTrend') }}
-    </h3>
+    <div class="mb-4 flex items-center gap-2">
+      <h3 class="truncate text-sm font-semibold text-gray-900 dark:text-white">
+        {{ t('admin.dashboard.tokenUsageTrend') }}
+      </h3>
+      <ChartExpandButton
+        v-if="showExpandButton"
+        @click="emit('expand')"
+      />
+    </div>
     <div v-if="loading" class="flex h-48 items-center justify-center">
       <LoadingSpinner />
     </div>
-    <div v-else-if="trendData.length > 0 && chartData" class="h-48">
+    <div v-else-if="trendData.length > 0 && chartData" class="chart-line-canvas h-48">
       <Line :data="chartData" :options="lineOptions" />
     </div>
     <div
@@ -34,6 +40,7 @@ import {
 } from 'chart.js'
 import { Line } from 'vue-chartjs'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import ChartExpandButton from './ChartExpandButton.vue'
 import type { TrendDataPoint } from '@/types'
 
 ChartJS.register(
@@ -49,9 +56,17 @@ ChartJS.register(
 
 const { t } = useI18n()
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   trendData: TrendDataPoint[]
   loading?: boolean
+  showExpandButton?: boolean
+}>(), {
+  loading: false,
+  showExpandButton: false
+})
+
+const emit = defineEmits<{
+  'expand': []
 }>()
 
 const isDarkMode = computed(() => {
