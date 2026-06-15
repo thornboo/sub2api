@@ -3,24 +3,27 @@ layout: home
 
 hero:
   name: Sub2API 文档中心
-  text: 项目使用指南与 dev-zz 二开文档
-  tagline: 从部署上线到二次开发，这里有 Sub2API 的完整说明——快速上手、本地开发、支付配置，以及 dev-zz 分支的变更、补丁与上游同步记录。
+  text: 源项目文档与 dev-zz 二开档案
+  tagline: 本站是 dev-zz 分支的正式文档入口，覆盖上游兼容说明、二开功能、接口口径、本地开发、部署发布、合并维护和验证矩阵。
   actions:
     - theme: brand
       text: dev-zz 总览
       link: /dev-zz/
     - theme: alt
-      text: 本地开发上手
-      link: /dev-zz/development/local-development
+      text: 变更地图
+      link: /dev-zz/reference/change-map
     - theme: alt
-      text: 项目文档
-      link: /project/
+      text: 接口索引
+      link: /dev-zz/reference/api-surface
+    - theme: alt
+      text: 本地开发
+      link: /dev-zz/development/local-development
 
 features:
-  - title: 项目使用文档
-    details: 面向使用者、管理员和部署者的稳定说明，包括项目总览与支付系统的配置与集成指南。
-  - title: dev-zz 二开文档
-    details: 二开分支的工作方式一处看全——分支策略、变更记录、补丁说明、部署差异和上游合并记录。
-  - title: 本地可维护、可搜索
-    details: 基于 VitePress，文档随源码一起维护，支持本地预览、全文搜索与静态构建。
+  - title: 项目稳定文档
+    details: 项目说明、支付配置和 Admin 支付集成 API 放在 project/，用于保持和上游兼容的使用说明。
+  - title: dev-zz 二开知识库
+    details: 分支策略、变更记录、补丁记录、功能设计、接口索引、数据库迁移和部署发布集中维护在 dev-zz/。
+  - title: 可验证的维护流程
+    details: 每类改动都对应验证矩阵；文档站可通过 VitePress 构建检查，分支同步记录保留真实命令和取舍。
 ---

@@ -1,4 +1,4 @@
-# API Key 用量下钻改造计划
+# API Key 用量下钻
 
 ## 实施状态
 
@@ -9,6 +9,7 @@
 - 趋势与模型分布复用项目已有 `chart.js` / `vue-chartjs`，未新增图表依赖。
 - 用户侧模型统计响应已脱敏，只返回本人 Key 的请求数、Token 与实际扣费；`cost` / `account_cost` 这类运营成本口径不从用户模型统计接口返回。
 - 本轮未实现列表按用量排序，也未新增 API Key 维度预聚合表。
+- owner 视角的多 Key 聚合分析已在 [企业用量分析中心](./enterprise-usage-analytics.md) 中另行落地；本页只记录单 Key 下钻能力。
 
 ## 背景
 
@@ -19,7 +20,7 @@
 - 某把 Key 的请求次数、输入 token、输出 token、缓存 token 与实际扣费构成。
 - 从 Key 列表直接下钻到该 Key 的逐请求使用记录。
 
-本计划目标是在用户侧 `API 密钥` 模块中补充单 Key 用量详情，让企业管理员或普通用户能从某把 Key 进入更细的用量视图，支持小时、天、周、月粒度查看，并可继续查看该 Key 的请求明细。
+本功能目标是在用户侧 `API 密钥` 模块中补充单 Key 用量详情，让企业管理员或普通用户能从某把 Key 进入更细的用量视图，支持小时、天、周、月粒度查看，并可继续查看该 Key 的请求明细。
 
 ## 当前事实
 
@@ -115,9 +116,9 @@
 - 不改变公开 `/key-usage` 页面现有能力，除非为了复用文案或通用组件做小范围调整。
 - 不在第一版做导出 Excel、异常检测、预算告警或预测分析。
 
-## 推荐方案
+## 实现方案
 
-### 阶段一：单 Key 趋势 API
+### 单 Key 趋势 API
 
 新增用户侧端点：
 
@@ -180,7 +181,7 @@ timezone=Asia/Shanghai
 }
 ```
 
-### 阶段二：保留 daily 端点并迁移前端到 trend 端点
+### 保留 daily 端点并迁移前端到 trend 端点
 
 已有端点 `GET /api/v1/user/api-keys/:id/usage/daily?days=30` 不建议立即删除。
 
@@ -191,7 +192,7 @@ timezone=Asia/Shanghai
 - `getMyApiKeyDailyUsage` 可以继续保留；新的 UI 使用 `getMyApiKeyUsageTrend`。
 - 后续若要减少重复逻辑，可让 daily handler 内部转调 trend service，并保持返回结构不变。
 
-### 阶段三：API 密钥列表增加详情弹窗
+### API 密钥列表增加详情弹窗
 
 在 `frontend/src/views/user/KeysView.vue` 增加单 Key 用量详情入口。
 
@@ -226,7 +227,7 @@ timezone=Asia/Shanghai
 - 第一版优先内嵌请求明细 Panel，而不是跳转到 `/usage`。原因是 `UsageView.vue` 目前没有读取 URL query 初始化 `api_key_id` 的逻辑；为了跳转方案去改复杂存量页面，回归面不一定比新建 `ApiKeyUsageLogsPanel` 更小。
 - 如果因时间原因暂缓内嵌请求明细，也可以先放一个“查看使用记录”按钮跳转到 `/usage`，但不能只追加 `?api_key_id=...` 后假设页面会生效；若要自动带上当前 Key，必须同步补齐 `UsageView.vue` 的 query 初始化。
 
-### 阶段四：组件拆分与复用整理
+### 组件拆分与复用整理
 
 `KeysView.vue` 已经承担批量创建、筛选、标签、批量操作、复制导出等大量职责。用量下钻第一版不应继续把弹窗、趋势表格和请求明细分页直接塞进该文件，而应从开始就拆出组件：
 

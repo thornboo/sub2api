@@ -1,14 +1,18 @@
-# 企业用量分析中心设计
+# 企业用量分析中心
 
 ## 实施状态
 
-- 状态：设计草案，未开始实现。
-- 日期：2026-06-14。
+- 状态：owner 用量分析第一版已落地；管理员全站增强、异常治理和多分组 Key 仍是后续阶段。
+- 最近更新：2026-06-15。
 - 前置成果：
   - API Key 批量创建、批量维护、标签、筛选批量操作已落地。
   - 单 Key 用量下钻已落地，包含趋势、模型分布和请求记录。
   - ADR 0002 已明确：用 API Key 承载企业成员管理，不引入员工登录实体。
-- 本文目标：定义下一阶段“企业 owner 自助分析”和“平台管理员全站分析”的边界、信息架构、接口形态和多供应商员工 Key 方案。
+- 已落地成果：
+  - 用户侧 Usage 页面新增分析视图，前端组件为 `frontend/src/components/user/UsageAnalyticsPanel.vue`。
+  - 用户认证域新增 `/api/v1/usage/analytics/summary`、`leaderboard`、`models`、`groups`、`tags`、`trend`。
+  - 后端所有 owner 查询都绑定当前登录用户，不接收外部 `user_id`。
+- 本文目标：记录 owner 自助分析的真实实现口径，并继续保留平台管理员全站增强、异常治理和多供应商员工 Key 的后续设计边界。
 
 ## 背景
 
@@ -35,6 +39,13 @@
   - `GET /api/v1/user/api-keys/:id/usage/models`
 - 用户侧请求记录：`GET /api/v1/usage` 支持 `api_key_id` 过滤，并校验 Key 属于当前用户。
 - 用户侧批量摘要：`POST /api/v1/usage/dashboard/api-keys-usage` 返回当前页 Key 的今日/近 30 天实际扣费。
+- 用户侧 owner analytics 已落地：
+  - `GET /api/v1/usage/analytics/summary`
+  - `GET /api/v1/usage/analytics/leaderboard`
+  - `GET /api/v1/usage/analytics/models`
+  - `GET /api/v1/usage/analytics/groups`
+  - `GET /api/v1/usage/analytics/tags`
+  - `GET /api/v1/usage/analytics/trend`
 
 ### 已有管理员能力
 
@@ -98,7 +109,7 @@
 
 ## 非目标
 
-- 不在本设计里直接实现代码。
+- 不把平台管理员分析能力暴露给企业 owner。
 - 不改变已经落地的单 Key 下钻接口。
 - 不把平台管理员 `/admin` 接口开放给企业 owner。
 - 不在第一版 owner 分析里暴露 `account_cost`、上游账号、渠道、真实调度链路或利润字段。
@@ -132,7 +143,7 @@
 
 ### 接口边界
 
-- 企业 owner 新接口必须挂在用户认证域下，建议使用 `/api/v1/user/api-keys/analytics/*`。
+- 企业 owner 接口已经挂在用户认证域 `/api/v1/usage/analytics/*`。
 - 所有 owner 查询都必须从当前认证主体取 `subject.UserID`，后端忽略或拒绝外部传入的 `user_id`。
 - owner DTO 必须独立定义，不能直接返回 `usagestats.ModelStat`、`GroupStat`、`UserBreakdownItem` 等含 `account_cost` 的 admin DTO。
 - 管理员分析继续使用 `/api/v1/admin/dashboard/*` 或新增 `/api/v1/admin/enterprise-analytics/*`，并保持 admin middleware。
@@ -141,18 +152,13 @@
 
 ### 企业 owner：API Key 用量总览
 
-推荐入口：
+当前入口：
 
-- 用户侧 `API 密钥` 页面顶部新增二级 Tab：
-  - `密钥列表`
-  - `用量总览`
-- 或新增用户路由 `/dashboard/api-keys/analytics`，但仍从 API Key 页面明显入口进入。
+- 用户侧 `用量` 页面新增 `分析` Tab。
+- `分析` Tab 聚合当前 owner 名下所有 Key 的用量；请求记录、错误记录仍保留在同一页面的其它 Tab。
+- 排行榜和单 Key 详情继续回到 `ApiKeyUsageModal` 的 drilldown 形态。
 
-第一版建议放在 API Key 模块内，原因：
-
-- 业务心智是“Key = 员工席位”。
-- owner 排行最终都要下钻回某把 Key。
-- 避免在用户侧导航新增过多入口。
+早期曾考虑放在 `API 密钥` 页面二级 Tab。实际落地放在 Usage 页，原因是现有 Usage 页已经承载用户侧统计、请求记录、错误记录、导出和图表组件，复用成本更低。
 
 页面结构：
 
@@ -190,7 +196,7 @@
    - 全部 Key 总趋势。
    - Top N Key 趋势对比。
    - 图表下方表格保留完整数值。
-7. 异常与治理面板
+7. 异常与治理面板（后续阶段）
    - 用量突然升高。
    - 长期未使用。
    - 接近 quota。
@@ -233,7 +239,7 @@ Key-only 员工不进入分析中心。
 - 分组成本、模型成本、请求明细。
 - 全站任何信息。
 
-## Owner API 设计草案
+## Owner API 已落地
 
 所有接口都要求用户登录。所有查询都必须绑定 `subject.UserID`。
 
@@ -246,9 +252,8 @@ timezone=Asia/Shanghai
 granularity=hour|day|week|month
 group_id=123
 tags=team-a,frontend
-status=active|disabled
+status=active|disabled|quota_exhausted|expired
 search=alice
-metric=actual_cost|tokens|requests
 limit=20
 ```
 
@@ -264,7 +269,7 @@ limit=20
 ### 汇总
 
 ```text
-GET /api/v1/user/api-keys/analytics/summary
+GET /api/v1/usage/analytics/summary
 ```
 
 返回：
@@ -295,7 +300,7 @@ GET /api/v1/user/api-keys/analytics/summary
 ### 员工 Key 排行
 
 ```text
-GET /api/v1/user/api-keys/analytics/leaderboard
+GET /api/v1/usage/analytics/leaderboard
 ```
 
 返回字段：
@@ -338,7 +343,7 @@ GET /api/v1/user/api-keys/analytics/leaderboard
 ### 模型统计
 
 ```text
-GET /api/v1/user/api-keys/analytics/models
+GET /api/v1/usage/analytics/models
 ```
 
 第一版按 `requested_model` 聚合。返回字段与用户侧 `UserModelStat` 保持一致：
@@ -353,8 +358,8 @@ GET /api/v1/user/api-keys/analytics/models
 ### 分组/标签统计
 
 ```text
-GET /api/v1/user/api-keys/analytics/groups
-GET /api/v1/user/api-keys/analytics/tags
+GET /api/v1/usage/analytics/groups
+GET /api/v1/usage/analytics/tags
 ```
 
 分组统计：
@@ -374,24 +379,24 @@ GET /api/v1/user/api-keys/analytics/tags
 ### 趋势
 
 ```text
-GET /api/v1/user/api-keys/analytics/trend
+GET /api/v1/usage/analytics/trend
 ```
 
 支持：
 
-- 全部 Key 总趋势。
-- `top_key_ids=1,2,3` 时返回 Top N Key 对比。
-- `group_id` / `tags` / `status` 过滤。
+- 当前 owner 名下全部 Key 的总趋势。
+- `api_key_id` / `group_id` / `tags` / `status` / `search` 过滤。
+- hour / day / week / month 粒度。
 
 repository 必须使用用户 timezone 分桶，不再使用裸 `TO_CHAR(created_at, ...)`。
 
-### 异常
+### 异常（未落地）
 
 ```text
-GET /api/v1/user/api-keys/analytics/anomalies
+GET /api/v1/usage/analytics/anomalies
 ```
 
-第一版只做确定性规则，不做 ML：
+该接口尚未实现。后续第一版只做确定性规则，不做 ML：
 
 - `spike`: 当前周期实际扣费超过前一周期 N 倍。
 - `quota_near_limit`: `quota > 0` 且 `quota_used / quota >= 80%`。
@@ -401,7 +406,7 @@ GET /api/v1/user/api-keys/analytics/anomalies
 
 所有异常项都必须指向某把 owner 自己的 Key，并可打开单 Key 下钻。
 
-## Admin API 设计草案
+## Admin API 后续草案（未落地）
 
 管理员已有 `/api/v1/admin/dashboard/*`。短期优先扩展现有 DashboardService/UsageView，而不是新增平行体系。
 
@@ -546,15 +551,15 @@ UI 策略：
 - 给 Claude 审查权限矩阵、API 形态和多供应商 Key 方向。
 - 不改代码。
 
-### 阶段 1：Owner 用量总览后端
+### 阶段 1：Owner 用量总览后端（已完成）
 
 不改 schema，基于现有 `usage_logs` + `api_keys`：
 
-- 新增 summary。
-- 新增 Key leaderboard。
-- 新增 owner model stats。
-- 新增 group/tag stats。
-- 新增 total trend。
+- 已新增 summary。
+- 已新增 Key leaderboard。
+- 已新增 owner model stats。
+- 已新增 group/tag stats。
+- 已新增 total trend。
 - 所有接口硬绑定 `subject.UserID`。
 - 所有 DTO 去除 `account_cost`、账号、渠道、upstream model。
 
@@ -566,9 +571,9 @@ UI 策略：
 - 超范围日期返回 400。
 - timezone 分桶正确。
 
-### 阶段 2：Owner 用量总览前端
+### 阶段 2：Owner 用量总览前端（已完成）
 
-- 在用户侧 API Key 页面增加 `用量总览` tab。
+- 在用户侧 Usage 页面增加 `分析` tab。
 - 复用现有图表组件和 `ApiKeyUsageModal`。
 - 数字使用 K/M/B 紧凑显示，悬停保留完整数值。
 - leaderboard 点击打开单 Key Modal。
@@ -636,10 +641,10 @@ UI 策略：
 
 ## 结论
 
-下一阶段不应继续增强单 Key Modal，而应做 owner 级 `API Key 用量总览`：
+owner 级 API Key 用量总览第一版已经落地：
 
 - 对企业 owner：看自己名下所有员工 Key 的排行、趋势、模型分布、分组/标签拆分和异常。
 - 对平台管理员：继续增强 admin Usage/Dashboard，包含全站用户/Key/分组/账号/成本视角。
 - 对多供应商员工：短期用标签归并，长期做一把 Key 多分组访问范围，不建议长期让员工保存多把供应商 Key。
 
-这个拆法能保持权限边界清晰，也让后续实现从“纯聚合查询 + UI”开始，避免一开始就进入高风险网关认证和 schema 重构。
+这个拆法保持了权限边界清晰，也让后续工作可以单独推进异常治理、admin 全站增强和 Key Access Profile，而不是把高风险网关认证和 schema 重构混入 owner analytics 第一版。

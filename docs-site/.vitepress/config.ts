@@ -12,6 +12,7 @@ export default defineConfig({
       { text: '首页', link: '/' },
       { text: '项目文档', link: '/project/' },
       { text: 'dev-zz', link: '/dev-zz/' },
+      { text: '接口索引', link: '/dev-zz/reference/api-surface' },
       { text: '本地开发', link: '/dev-zz/development/local-development' }
     ],
     sidebar: [
@@ -28,6 +29,7 @@ export default defineConfig({
         text: 'dev-zz 总览',
         items: [
           { text: 'dev-zz 文档入口', link: '/dev-zz/' },
+          { text: '变更地图', link: '/dev-zz/reference/change-map' },
           { text: '分支策略', link: '/dev-zz/branch-policy' },
           { text: '变更记录', link: '/dev-zz/changelog' },
           { text: '补丁记录', link: '/dev-zz/patches' }
@@ -44,16 +46,19 @@ export default defineConfig({
         text: '维护',
         items: [
           { text: '合并 main 到 dev-zz', link: '/dev-zz/maintenance/merge-main' },
-          { text: '上游合并记录', link: '/dev-zz/maintenance/merge-log' }
+          { text: '上游合并记录', link: '/dev-zz/maintenance/merge-log' },
+          { text: '配置与迁移索引', link: '/dev-zz/reference/configuration-and-migrations' },
+          { text: '验证矩阵', link: '/dev-zz/testing/verification-matrix' }
         ]
       },
       {
         text: '功能与决策',
         items: [
-          { text: '可用渠道模型广场计划', link: '/dev-zz/features/available-channels-model-marketplace' },
+          { text: '可用渠道模型广场', link: '/dev-zz/features/available-channels-model-marketplace' },
           { text: '企业 Key 成员管理', link: '/dev-zz/features/enterprise-key-member-management' },
           { text: 'API Key 用量下钻', link: '/dev-zz/features/api-key-usage-drilldown' },
           { text: '企业用量分析中心', link: '/dev-zz/features/enterprise-usage-analytics' },
+          { text: 'dev-zz 接口索引', link: '/dev-zz/reference/api-surface' },
           { text: 'ADR 0001: 文档中心', link: '/dev-zz/decisions/adr-0001-docs-site-as-dev-zz-doc-hub' },
           { text: 'ADR 0002: Key 作为成员', link: '/dev-zz/decisions/adr-0002-key-as-enterprise-member' }
         ]

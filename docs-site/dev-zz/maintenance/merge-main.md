@@ -1,6 +1,6 @@
 # 合并 main 到 dev-zz
 
-本文档记录将上游 `main` 合并到 `dev-zz` 的标准流程。
+本文档记录将上游 `main` 合并到 `dev-zz` 的标准流程。默认比较对象是 `origin/main`，避免本地 `main` 停留在旧提交时误判合并范围。
 
 ## 目标
 
@@ -16,7 +16,7 @@ git status --short --branch
 git fetch origin
 ```
 
-确认本地 `main` 与目标上游一致：
+确认本地 `main` 与目标上游一致。如果只做预检，也可以直接以 `origin/main` 为比较对象，不必切换本地 `main`。
 
 ```bash
 git switch main
@@ -32,11 +32,13 @@ git switch dev-zz
 - [补丁记录](../patches.md)
 - [上游合并记录](./merge-log.md)
 - [变更记录](../changelog.md)
+- [dev-zz 变更地图](../reference/change-map.md)
+- [验证矩阵](../testing/verification-matrix.md)
 
 ## 预判冲突
 
 ```bash
-git merge-tree --write-tree dev-zz main
+git merge-tree --write-tree "$(git merge-base HEAD origin/main)" HEAD origin/main
 ```
 
 这一步是只读预检，用来提前看到可能的冲突文件。
@@ -44,7 +46,7 @@ git merge-tree --write-tree dev-zz main
 ## 执行合并
 
 ```bash
-git merge --no-commit main
+git merge --no-commit origin/main
 ```
 
 解决冲突时优先遵循：
@@ -78,6 +80,12 @@ mise x -C backend -- go test ./internal/server ./internal/handler ./internal/con
 
 根据冲突和变更范围补充更具体的测试。
 
+文档站检查：
+
+```bash
+pnpm --dir docs-site docs:build
+```
+
 ## 更新记录
 
 合并完成后更新 [上游合并记录](./merge-log.md)，记录：
@@ -95,6 +103,8 @@ mise x -C backend -- go test ./internal/server ./internal/handler ./internal/con
 
 - [变更记录](../changelog.md)
 - [补丁记录](../patches.md)
+- [dev-zz 变更地图](../reference/change-map.md)
+- [验证矩阵](../testing/verification-matrix.md)
 
 ## 完成条件
 
@@ -102,4 +112,5 @@ mise x -C backend -- go test ./internal/server ./internal/handler ./internal/con
 - `git diff --check` 通过。
 - 针对性验证通过。
 - [上游合并记录](./merge-log.md) 已更新。
+- `docs-site` 中与本次合并相关的功能、部署、接口和验证文档已同步。
 - 合并提交创建完成。

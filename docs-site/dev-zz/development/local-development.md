@@ -20,6 +20,7 @@ Browser
 - Docker 或兼容的容器运行时
 - pnpm
 - Go 1.26.4，或通过仓库的 mise 配置启动 Go
+- Node 20+ 用于本地前端和文档站构建；GitHub Actions 额外通过 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` 验证 JavaScript actions runtime 的 Node 24 兼容性。
 - 可选：Air，用于后端文件变化后自动重启
 
 ## 1. 启动本地 PostgreSQL 和 Redis
@@ -177,6 +178,13 @@ pnpm --dir frontend lint:check
 mise x -C backend -- go test ./internal/server ./internal/handler ./internal/config
 ```
 
+`dev-zz` 企业 Key、owner 用量分析和渠道报价相关的重点测试：
+
+```bash
+mise x -C backend -- go test ./internal/service ./internal/handler ./internal/server
+pnpm --dir frontend test:run src/utils/__tests__/availableChannelsCatalog.spec.ts
+```
+
 文档站本地查看：
 
 ```bash
@@ -189,6 +197,14 @@ pnpm --dir docs-site docs:dev
 ```text
 http://localhost:5173
 ```
+
+文档站构建检查：
+
+```bash
+pnpm --dir docs-site docs:build
+```
+
+更完整的验证组合见 [验证矩阵](../testing/verification-matrix.md)。
 
 ## 6. 重置本地数据
 

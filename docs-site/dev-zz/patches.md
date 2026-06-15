@@ -1,5 +1,141 @@
 # 补丁记录
 
+## 2026-06-15 - docs-site 全量重构与 dev-zz 变更索引
+
+范围：
+- `docs-site/.vitepress/config.ts`
+- `docs-site/index.md`
+- `docs-site/project/{index.md,overview.md}`
+- `docs-site/dev-zz/{index.md,branch-policy.md,changelog.md,patches.md}`
+- `docs-site/dev-zz/reference/{change-map.md,api-surface.md,configuration-and-migrations.md}`
+- `docs-site/dev-zz/testing/verification-matrix.md`
+
+改动：
+- 基于 `origin/main...dev-zz` 重新盘点分支差异，记录当前 HEAD `3a7d0474`、上游 `origin/main` `e34ad2b1`、差异规模和变更分布。
+- 新增 `change-map.md`，按企业 API Key、owner 用量分析、模型/渠道、UI/运维、部署发布、CI/运行时归纳 dev-zz 相对上游的主要二开范围。
+- 新增 `api-surface.md`，把用户侧 API Key、公共 Key 状态查询、单 Key 用量下钻、owner analytics、可用渠道模型和管理端模型探测的接口路径、参数、权限和字段边界集中记录。
+- 新增 `configuration-and-migrations.md`，记录 Go/Node/pnpm/docs-site 运行时口径、API Key 批量/标签配置、`151/152` 迁移、数据保留默认值、fork 镜像和 CI runtime 约束。
+- 新增 `verification-matrix.md`，按文档、API Key、用量分析、可用渠道、模型探测、运维弹窗和分支级变更列出最小验证组合。
+- 重写文档站首页、项目文档入口、项目说明、dev-zz 总览和分支策略，使 docs-site 明确承担“源项目文档 + dev-zz 二开档案”的职责。
+- 更新 VitePress 顶部导航和侧边栏，新增变更地图、接口索引、配置/迁移索引和验证矩阵入口。
+
+验证：
+- `pnpm --dir docs-site docs:build`
+- `git diff --check`
+
+## 2026-06-15 - API Key 状态与分组更新语义
+
+范围：
+- `backend/internal/handler/api_key_handler.go`
+- `backend/internal/handler/api_key_handler_test.go`
+- `backend/internal/service/api_key_service.go`
+- `backend/internal/service/api_key_batch_test.go`
+- `frontend/src/api/keys.ts`
+- `frontend/src/types/index.ts`
+- `frontend/src/views/user/KeysView.vue`
+- `docs-site/dev-zz/{changelog.md,patches.md,features/enterprise-key-member-management.md,reference/api-surface.md,testing/verification-matrix.md}`
+
+改动：
+- API Key 可写禁用状态统一为 `disabled`；`inactive` 只作为 legacy alias 接收并归一化为 `disabled`。
+- 单把更新 handler 的 `status` binding 增加 `disabled`，前端状态选项、筛选项和 toggle 操作也改用 `disabled`。
+- 新增 `ErrAPIKeyStatusInvalid` 和状态归一化函数，避免在 service 层继续散落 `inactive` 判断。
+- `quota_exhausted` 与 `expired` 作为系统派生状态保留；前端编辑这些 Key 时，如用户没有显式改状态，不会把它们保存成 `disabled`。
+- 单把 Key 编辑时，仅当 `group_id` 真实变化才重新检查 owner 是否可绑定目标分组。只改标签、额度、过期、限流或 IP ACL 时，不会因为历史绑定分组当前不可绑定而失败。
+- 批量筛选状态同样归一化：`inactive` 作为输入别名，最终筛选 `disabled`。
+- 错误提示优先展示后端返回的 `detail` 或 `message`，方便用户看到 `GROUP_NOT_ALLOWED` 等具体原因。
+
+验证：
+- `mise x -C backend -- go test ./internal/service -run 'APIKeyServiceUpdate|APIKeyServiceBatchUpdate' -count=1`
+- `mise x -C backend -- go test ./internal/handler -run 'TestAPIKeyHandlerUpdateAcceptsDisabledStatus' -count=1`
+- `pnpm --dir frontend typecheck`
+- `git diff --check`
+- 用户手动验证 API Key 禁用和标签编辑流程
+
+未验证：
+- 完整后端测试套件
+- 前端 lint
+- 浏览器 e2e
+
+## 2026-06-15 - owner 用量分析落地
+
+范围：
+- `backend/internal/handler/usage_handler.go`
+- `backend/internal/repository/usage_log_repo.go`
+- `backend/internal/server/routes/user.go`
+- `backend/internal/service/{api_key_analytics.go,usage_service.go}`
+- `frontend/src/api/usage.ts`
+- `frontend/src/components/user/UsageAnalyticsPanel.vue`
+- `frontend/src/views/user/UsageView.vue`
+- `frontend/src/components/{common/DataTable.vue,layout/TablePageLayout.vue}`
+- `frontend/src/i18n/locales/{zh,en}.ts`
+- `docs-site/dev-zz/{changelog.md,patches.md,features/enterprise-usage-analytics.md,reference/api-surface.md}`
+
+改动：
+- 用户认证域新增 `/api/v1/usage/analytics/summary`、`leaderboard`、`models`、`groups`、`tags`、`trend`。
+- owner analytics 统一从当前 `subject.UserID` 构造过滤条件，支持 `start_date`、`end_date`、`timezone`、`granularity`、`api_key_id`、`group_id`、`tags`、`status`、`search`、`limit`。
+- 后端按当前 owner 的 `usage_logs` 和 `api_keys` 做聚合，不接受外部传入 `user_id`。
+- summary 将历史时间范围聚合与当前 Key 实时治理快照分离，避免用户把当前 quota/限流状态误解为历史快照。
+- leaderboard 返回 Key 名称、标签、分组、状态、请求数、Token、实际扣费、占比、环比和最后使用时间。
+- models / groups / tags / trend 分别提供模型分布、分组统计、标签归因和趋势。
+- tags 统计不返回 `share_percent`，因为多标签 Key 会重复计入每个标签。
+- 前端用户 Usage 页面新增 analytics tab 和 `UsageAnalyticsPanel`，复用现有图表/表格风格，不引入新图表依赖。
+
+验证：
+- `go test ./internal/handler ./internal/server/routes ./internal/service`
+- `go test ./internal/repository -run 'TestUsageLogRepositoryGetAPIKeyUsageTrendForUser'`
+- `pnpm --dir frontend run typecheck`
+- `pnpm --dir frontend run lint:check`
+- `git diff --check`
+
+## 2026-06-15 - API Key 标签仓储契约与 CI 修复
+
+范围：
+- `backend/internal/repository/api_key_repo.go`
+- `backend/internal/repository/api_key_repo_integration_test.go`
+- `backend/internal/handler/api_key_handler_test.go`
+- `backend/internal/service/api_key_batch_test.go`
+- `.github/workflows/{backend-ci.yml,security-scan.yml}`
+- `docs-site/dev-zz/{changelog.md,patches.md,reference/configuration-and-migrations.md}`
+
+改动：
+- 仓储层新增写入前归一化：`nil` tags 写成空数组，保证 `api_keys.tags` 持续满足 `jsonb` 数组约束。
+- 修复 `ListTagsByUserID` 的 `rows.Close()` errcheck 问题，满足 golangci-lint 配置。
+- 补齐 unit build tag 下 APIKeyRepository 扩展后的测试 stub，恢复 CI 对扩展 repository contract 的覆盖。
+- GitHub Actions 在 backend CI 和 security scan 中设置 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`，验证 JavaScript actions runtime 的 Node 24 兼容性。
+- 保持前端构建 `setup-node` 为 Node 20，不把 action runtime 验证和项目 runtime 升级混在一起。
+
+验证：
+- `go test -tags=unit ./...`
+- `gofmt`
+- `git diff --check`
+
+未验证：
+- 部分提交在本地未重新跑完整 Go 集成测试，后续以 GitHub Actions 作为最终验证面。
+
+## 2026-06-15 - fork 镜像发布与滚动部署口径
+
+范围：
+- `.github/workflows/release.yml`
+- `.goreleaser.yaml`
+- `README.md`
+- `README_JA.md`
+- `deploy/{.env.example,DOCKER.md,Dockerfile,README.md,config.example.yaml,docker-compose*.yml,docker-deploy.sh,install.sh,sub2api.service}`
+- `docs-site/dev-zz/deployment/deploy-dev-zz.md`
+- `docs-site/dev-zz/{changelog.md,patches.md,reference/configuration-and-migrations.md}`
+
+改动：
+- fork 镜像默认值改为 `thornboo/sub2api:latest`，并保留 `ghcr.io/thornboo/sub2api:latest` 作为可选镜像源。
+- 部署脚本默认从 `thornboo/sub2api` 的 `dev-zz` 分支拉取部署文件，避免安装脚本继续指向上游或旧分支名。
+- 明确上游镜像 `weishaw/sub2api:latest` 不包含 dev-zz 二开，不应作为本分支默认部署镜像。
+- 补充已部署服务日常更新方式：拉取镜像并只重建 `sub2api` 容器，不执行 `down -v`，不删除 `.env`、`data/`、`postgres_data/`、`redis_data/`。
+- 补充从早期本地源码构建镜像 `sub2api:dev-zz` 切换到发布镜像的备份、override、compose config、启动和回滚步骤。
+- 将 `deploy/deploy-dev-zz.sh` 定位为开发验证、临时测试未发布代码或远程镜像不可用时的本地构建路径。
+- 记录 v1.1.1 patch release 和固定版本镜像只适合验收、回滚或锁版本场景。
+
+验证：
+- `git diff --check`
+- 文档说明复核镜像名、分支名和数据目录保护口径
+
 ## 2026-06-14 - 企业用量分析中心设计
 
 范围：

@@ -1,0 +1,200 @@
+# dev-zz 接口索引
+
+本文只记录 dev-zz 新增或语义有差异的接口。上游通用接口仍以项目源码和 `docs/` 兼容文档为准。
+
+## 用户侧 API Key
+
+所有 `/api/v1/keys/*` 接口都要求登录用户身份，且只能操作当前用户自己的 Key。
+
+| 方法 | 路径 | 用途 | 关键语义 |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/keys` | 当前用户 Key 列表 | 支持 `search`、`status`、`group_id`、`tags`、分页和排序 |
+| `GET` | `/api/v1/keys/tags` | 当前用户标签候选 | 只看未删除 Key，最多返回 500 个去重标签 |
+| `POST` | `/api/v1/keys` | 创建单把 Key | 支持 `tags`、分组、quota、过期、5h/1d/7d 限流、IP ACL |
+| `PUT` | `/api/v1/keys/:id` | 更新单把 Key | `status` 接收 `active`、`disabled`；`inactive` 仅兼容旧别名 |
+| `DELETE` | `/api/v1/keys/:id` | 删除单把 Key | 软删除并写 deleted API key audit |
+| `POST` | `/api/v1/keys/batch` | 批量创建 Key | 要求 `Idempotency-Key`，全有或全无事务 |
+| `POST` | `/api/v1/keys/batch-update` | 批量更新 Key | 支持 selected/filtered 目标和多字段更新 |
+| `POST` | `/api/v1/keys/batch-delete` | 批量删除 Key | 支持 selected/filtered 目标，事务软删除 |
+
+### 列表筛选
+
+`GET /api/v1/keys` 支持：
+
+| 参数 | 说明 |
+| --- | --- |
+| `search` | Key 名称或脱敏 Key 搜索，后端截断到 100 字符 |
+| `status` | `active`、`disabled`、`quota_exhausted`、`expired`；旧值 `inactive` 会归一到 `disabled` |
+| `group_id` | `0` 表示无分组，正数表示指定分组 |
+| `tags` | 逗号分隔标签，语义为同时包含 |
+| `tag` | 可重复参数，和 `tags` 合并 |
+
+标签会在服务层统一 `trim`、小写、去重，最多 20 个，每个最多 40 个字符。
+
+### 批量创建
+
+`POST /api/v1/keys/batch` 请求主体：
+
+```json
+{
+  "count": 3,
+  "name_template": "team-a-{seq}",
+  "names": [],
+  "tags": ["team-a", "frontend"],
+  "group_id": 9,
+  "quota": 10,
+  "expires_in_days": 30,
+  "rate_limit_5h": 1,
+  "rate_limit_1d": 3,
+  "rate_limit_7d": 10,
+  "ip_whitelist": ["203.0.113.0/24"],
+  "ip_blacklist": []
+}
+```
+
+约束：
+
+- `name_template` 与 `names` 二选一。
+- 模板必须包含 `{seq}`，生成序号宽度至少 3 位。
+- 默认最多 200 把，服务端硬上限 500。
+- 任一 Key 写入失败会整批回滚。
+- 首次成功响应包含完整明文 Key；同一 `Idempotency-Key` 重放只返回脱敏 Key。
+
+### 批量更新 / 删除目标
+
+`batch-update` 与 `batch-delete` 共用目标选择：
+
+```json
+{
+  "ids": [1, 2, 3],
+  "apply_to": "selected"
+}
+```
+
+或：
+
+```json
+{
+  "apply_to": "filtered",
+  "filters": {
+    "search": "alice",
+    "status": "active",
+    "group_id": 9,
+    "tags": ["team-a"]
+  }
+}
+```
+
+`filtered` 模式要求至少一个筛选条件，且匹配数量不能超过 500。后端会先解析成当前用户名下的 Key ID，再复用 selected 路径的所有权校验、事务和缓存失效。
+
+批量更新支持：
+
+| 字段 | 语义 |
+| --- | --- |
+| `update_group` + `group_id` | 批量改分组；`null` 可清空分组 |
+| `update_status` + `status` | 批量启用/禁用；`inactive` 会写成 `disabled` |
+| `update_quota` + `quota_mode` | `set`、`add`、`unlimited` |
+| `update_expiration` + `expires_at` | 设置或清空过期时间 |
+| `update_rate_limit` | 设置 5h/1d/7d 限流 |
+| `reset_rate_limit_usage` | 清空限流窗口用量并失效 Redis 限流缓存 |
+| `update_ip_access_control` | 覆盖 IP 白名单/黑名单 |
+| `update_tags` + `tags_mode` | `set`、`add`、`remove`、`clear` |
+
+## 公共 Key 状态查询
+
+`POST /api/v1/key/status` 不要求站点登录，但要求持有完整 API Key。
+
+请求：
+
+```json
+{
+  "key": "sk-..."
+}
+```
+
+返回范围：
+
+- Key 名称、状态、是否 active。
+- 分组 ID、分组名、平台。
+- quota、quota_used、quota_remaining。
+- 过期时间、创建时间、最近使用时间。
+- 5h/1d/7d 限流配置、当前窗口用量和预计重置时间。
+
+安全边界：
+
+- 不返回 owner 账号余额、邮箱、角色或其它 Key。
+- 不返回请求记录、模型分布或企业聚合数据。
+- 不更新 `last_used_at`，不扣 quota，不改变限流窗口。
+- IP 维度限流为 30/min；同一 Key 10 秒内只能查一次。Redis 冷却写入失败时 fail-close。
+
+## 单 Key 用量下钻
+
+所有路径都要求登录用户身份，并校验 `:id` 属于当前用户。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/v1/user/api-keys/:id/usage/daily` | 兼容日粒度旧接口 |
+| `GET` | `/api/v1/user/api-keys/:id/usage/trend` | 按 hour/day/week/month 返回趋势 |
+| `GET` | `/api/v1/user/api-keys/:id/usage/models` | 当前 Key 的用户可见模型分布 |
+
+`trend` 参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `start_date` / `end_date` | 日期范围 |
+| `granularity` | `hour`、`day`、`week`、`month` |
+| `timezone` | 默认使用服务端解析后的时区；常用 `Asia/Shanghai` |
+
+用户侧模型分布只返回 `actual_cost`，不返回 `cost`、`account_cost` 或上游账号字段。
+
+## Owner 用量分析
+
+owner analytics 已落地在用户认证域 `/api/v1/usage/analytics/*`。接口不接受外部 `user_id`，后端始终绑定当前 `subject.UserID`。
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| `GET` | `/api/v1/usage/analytics/summary` | 当前用户 Key 的历史聚合和实时治理快照 |
+| `GET` | `/api/v1/usage/analytics/leaderboard` | 员工 Key 排行 |
+| `GET` | `/api/v1/usage/analytics/models` | 请求模型分布 |
+| `GET` | `/api/v1/usage/analytics/groups` | 分组维度统计 |
+| `GET` | `/api/v1/usage/analytics/tags` | 标签维度统计 |
+| `GET` | `/api/v1/usage/analytics/trend` | owner 总趋势 |
+
+统一查询参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `start_date` / `end_date` | 统计时间范围 |
+| `timezone` | 分桶时区 |
+| `granularity` | `hour`、`day`、`week`、`month` |
+| `api_key_id` | 限定当前用户名下单把 Key |
+| `group_id` | 限定分组 |
+| `tags` | 逗号分隔标签 |
+| `status` | `active`、`disabled`、`quota_exhausted`、`expired` |
+| `search` | Key 名称搜索，最长 100 字符 |
+| `limit` | 1-100，默认服务端常量 |
+
+字段边界：
+
+- 允许返回请求数、Token、`actual_cost`、Key 名称、标签、分组名称、状态、最后使用时间。
+- 禁止返回完整 Key、其它用户信息、上游账号、渠道、`upstream_model`、`account_cost`、利润或账号倍率。
+- `summary.current_key_snapshot` 是当前实时状态，不随历史时间范围回溯。
+- `tags` 统计使用重复计入语义，不返回 `share_percent`。
+
+## 可用渠道模型
+
+用户侧可用渠道仍使用：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/v1/channels/available` | 返回当前用户可见渠道及模型信息 |
+
+dev-zz 前端基于该接口构建模型级表格和导出视图。具体展示口径见 [可用渠道模型广场与报价导出](../features/available-channels-model-marketplace.md)。
+
+## 管理端模型探测
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/v1/admin/accounts/probe-models` | 管理员用当前表单凭据探测 OpenAI 兼容 `/v1/models` |
+
+该接口不持久化凭据，后端带 SSRF 防护，拒绝解析到本地、私有或链路本地地址的目标主机。前端只把探测结果追加到白名单或同名映射行，管理员仍需保存账号表单。

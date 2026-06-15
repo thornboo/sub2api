@@ -1,25 +1,47 @@
 # dev-zz 文档
 
-`dev-zz` 是基于上游 `main` 维护的二次开发分支。本目录是它的正式文档中心。
+`dev-zz` 是基于上游 `main` 维护的二次开发分支。`docs-site/dev-zz/` 是本分支的正式文档中心，替代旧的 `secondary-dev/` 目录。
 
-## 文档导航
+## 当前分支画像
 
-- [分支策略](./branch-policy.md)：dev-zz 与上游 main 的关系、保留策略和合并原则。
-- [变更记录](./changelog.md)：用户可见的行为、样式、模块、路由、构建或运行方式变化。
-- [补丁记录](./patches.md)：每个补丁的范围、影响文件、实现说明和验证命令。
-- [本地开发](./development/local-development.md)：前端、后端、数据库的全本地开发方式。
-- [dev-zz 部署](./deployment/deploy-dev-zz.md)：从源码构建并部署 dev-zz 的方式。
-- [企业客户 Key 成员管理](./features/enterprise-key-member-management.md)：把 API Key 作为企业员工席位的批量创建、标签、批量维护和聚合监控计划。
-- [API Key 用量下钻](./features/api-key-usage-drilldown.md)：单把 API Key 的趋势、模型分布和请求记录下钻设计与实现记录。
-- [企业用量分析中心](./features/enterprise-usage-analytics.md)：企业 owner 员工 Key 排行、分组/标签/模型分析、管理员全站分析和多供应商 Key 方案。
-- [合并 main 到 dev-zz](./maintenance/merge-main.md)：上游同步流程和验证清单。
-- [上游合并记录](./maintenance/merge-log.md)：每次合并 main 的具体结果。
+- 对比口径：`origin/main...dev-zz`。
+- 当前 HEAD：`3a7d0474`。
+- 差异规模：243 个文件，约 25923 行新增、3623 行删除。
+- 主要方向：企业 API Key 管理、owner 用量分析、可用渠道模型展示、账号模型探测、fork 镜像部署、控制台 UI/运维体验和 CI/发布链路。
+
+完整归纳见 [dev-zz 变更地图](./reference/change-map.md)。
+
+## 推荐阅读顺序
+
+| 目的 | 文档 |
+| --- | --- |
+| 先了解 dev-zz 改了什么 | [变更地图](./reference/change-map.md) |
+| 查用户可见变化 | [变更记录](./changelog.md) |
+| 查实现与验证 | [补丁记录](./patches.md) |
+| 查新增接口和字段边界 | [接口索引](./reference/api-surface.md) |
+| 查配置、迁移、镜像和 CI | [配置与迁移索引](./reference/configuration-and-migrations.md) |
+| 本地启动开发 | [完全本地开发指南](./development/local-development.md) |
+| 部署或更新服务器 | [dev-zz 部署](./deployment/deploy-dev-zz.md) |
+| 从上游 main 同步 | [合并 main 到 dev-zz](./maintenance/merge-main.md) |
+| 确认该跑哪些测试 | [验证矩阵](./testing/verification-matrix.md) |
+
+## 功能文档
+
+- [企业客户 Key 成员管理](./features/enterprise-key-member-management.md)
+- [API Key 用量下钻](./features/api-key-usage-drilldown.md)
+- [企业用量分析中心](./features/enterprise-usage-analytics.md)
+- [可用渠道模型广场与报价导出](./features/available-channels-model-marketplace.md)
+
+## 决策记录
+
+- [ADR 0001: docs-site 作为 dev-zz 文档中心](./decisions/adr-0001-docs-site-as-dev-zz-doc-hub.md)
+- [ADR 0002: 用 Key 承载企业成员管理，不引入子账号实体](./decisions/adr-0002-key-as-enterprise-member.md)
 
 ## 记录规则
 
 - 用户可见的行为、样式、模块、路由、构建或运行方式变化，更新 [变更记录](./changelog.md) 和 [补丁记录](./patches.md)。
+- 新增或变更 dev-zz 接口，更新 [接口索引](./reference/api-surface.md)。
+- 新增迁移、配置默认值、镜像、CI 或发布策略，更新 [配置与迁移索引](./reference/configuration-and-migrations.md)。
 - 上游 `main` 合并进 `dev-zz`，更新 [上游合并记录](./maintenance/merge-log.md)。
-- 临时需求资料不写进总览页；需要保留时，放入对应的功能、补丁或决策文档。
+- 临时需求资料不写进总览页；需要保留时，放入对应的功能、补丁、接口或决策文档。
 - 文档中不存储密钥、访问令牌、私有凭据或环境敏感值。
-
-> 本文档中心由 `secondary-dev/` 目录演进而来，迁移背景见 [ADR 0001](./decisions/adr-0001-docs-site-as-dev-zz-doc-hub.md)。

@@ -1,16 +1,28 @@
 # 项目文档
 
-Sub2API 面向使用者、管理员和部署者的稳定说明文档。
+`project/` 存放 Sub2API 的稳定使用类文档，面向普通使用者、管理员、部署者和外部集成方。
 
 ## 内容
 
-- [项目说明](./overview.md)：Sub2API 是什么、能做什么、整体结构。
-- [支付系统配置指南](./payment/payment-cn.md)：支付功能的配置说明。
-- [Admin 支付集成 API](./payment/admin-payment-integration-api.md)：管理端支付集成的接口参考。
+| 文档 | 说明 |
+| --- | --- |
+| [项目说明](./overview.md) | Sub2API 的定位、主要能力和仓库结构 |
+| [支付系统配置指南](./payment/payment-cn.md) | 支付方式、服务商实例、Webhook、迁移说明 |
+| [Admin 支付集成 API](./payment/admin-payment-integration-api.md) | 外部后台创建兑换码、查询用户和余额调整接口 |
 
-> dev-zz 分支专属的二开策略、变更、补丁与部署差异，见 [dev-zz 文档](../dev-zz/index.md)。
+## 与 dev-zz 的关系
 
-## 维护说明
+`project/` 尽量保持稳定、通用和上游兼容，不承载二开补丁日志。
 
-- 稳定的使用类说明放在 `project/`；`docs/` 保留为上游兼容入口，不随意删除。
-- 需要结构化重写时，在 `docs-site/project/` 维护更完整的版本。
+dev-zz 专属内容放在：
+
+- [dev-zz 文档入口](../dev-zz/index.md)
+- [dev-zz 变更地图](../dev-zz/reference/change-map.md)
+- [dev-zz 接口索引](../dev-zz/reference/api-surface.md)
+- [dev-zz 配置与迁移索引](../dev-zz/reference/configuration-and-migrations.md)
+
+## 维护规则
+
+- 稳定使用说明写在 `docs-site/project/`。
+- 需要同时保留 GitHub 根目录可读版本的内容，继续放在仓库根目录 `docs/`。
+- 二开分支策略、部署差异、接口差异、验证命令和上游合并记录不写进 `project/`，避免项目通用说明和分支档案互相污染。

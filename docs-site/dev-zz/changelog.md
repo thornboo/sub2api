@@ -1,5 +1,19 @@
 # 变更记录
 
+## 2026-06-15
+
+- 企业 owner 用量分析已从设计阶段进入实现阶段：用户侧 Usage 页面新增分析视图，后端提供 `/api/v1/usage/analytics/summary`、`leaderboard`、`models`、`groups`、`tags`、`trend` 六个用户认证域接口，统计范围始终绑定当前登录用户。
+- owner 用量分析接口只返回用户可见字段：请求数、Token、实际扣费、Key 名称、标签、分组、状态、最后使用时间等；不返回 `account_cost`、上游账号、渠道、`upstream_model` 或其它管理员专属运营字段。
+- API Key 禁用状态统一为 `disabled`；旧的 `inactive` 仅作为兼容输入归一化，不再作为持久化状态写入。
+- 编辑 API Key 时，如果 `group_id` 没有变化，不再重新执行分组绑定授权；这允许用户继续编辑标签、额度、限流、IP ACL 等无关字段，即使该 Key 历史绑定的分组当前已不再可绑定。
+- 前端 API Key 页面在普通编辑、批量编辑和筛选中使用 `disabled` 作为禁用状态，并在编辑 `quota_exhausted` / `expired` 系统状态 Key 时避免无意把系统状态覆盖成禁用。
+- `api_keys.tags` 在仓储写入边界强制保持数组形态，`nil` tags 会写成 `[]`，避免 PostgreSQL `jsonb` 列出现 JSON `null` 并破坏标签筛选契约。
+- 发布与部署默认切换到 fork 镜像：`thornboo/sub2api:latest` 或 `ghcr.io/thornboo/sub2api:latest`。上游镜像 `weishaw/sub2api:latest` 不包含 dev-zz 二开内容，不再作为本分支默认部署镜像。
+- Docker 部署脚本默认从 `thornboo/sub2api` 的 `dev-zz` 分支下载部署文件，已部署服务日常更新推荐 `docker compose pull sub2api` + 只重建应用容器，不删除数据目录和 `.env`。
+- 新增 v1.1.1 patch release 记录，并补充发布镜像、滚动更新、本地构建镜像迁移到发布镜像的部署说明。
+- GitHub Actions 增加 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`，用于验证 JavaScript actions runtime 对 Node 24 的兼容；项目自身前端构建 Node 版本仍保持 20。
+- 文档站补齐 dev-zz 变更地图、接口索引、配置与迁移索引、验证矩阵，使 docs-site 可以从“几篇功能文档”升级为完整分支档案。
+
 ## 2026-06-14
 
 - 新增企业用量分析中心设计文档，明确企业 owner 与平台管理员的用量分析边界、员工 Key 排行、分组/标签/模型分析、多供应商员工 Key 的长期方案，以及用户可见字段与管理员专属字段的权限矩阵；经审查补充 `AllowedGroups` / fallback group 授权约束、tags 重复计入契约和实时快照/历史聚合区分。
