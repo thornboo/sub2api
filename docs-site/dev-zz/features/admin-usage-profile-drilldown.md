@@ -11,6 +11,8 @@
 
 这份文档记录当前实现，不再作为早期设计稿使用。早期设计中的 Key 任意时间范围排行、失败率诊断、复制分析链接、单接口画像聚合等内容未在本次实现中落地，已移到后续项。
 
+后续提交 `9e99d62a Make dense usage charts inspectable` 又为 `/admin/usage` 的模型、分组、端点和 Token 趋势图增加了展开查看与排名序号。该能力属于用量分析页的独立展示增强，不并入本文的“用户 / API Key 下钻”主体范围。
+
 ## 背景
 
 管理员原来可以看到用户累计消耗、今日 / 近 30 天消耗，也可以在 `/admin/usage` 里查看全站请求明细、趋势、模型分布和错误请求。但这些能力分散在不同页面中：
@@ -201,6 +203,13 @@ adminAPI.usage.list({
 
 弹窗默认时间范围是近 30 天。它目前不会自动继承 `/admin/usage` 页面上的时间范围，这是后续可优化项。
 
+弹窗内部负责维护开始日期和结束日期的区间约束：
+
+- 开始日期不能超过结束日期。
+- 结束日期不能早于开始日期。
+- `AdminApiKeyUsageModal` 内部使用 `@internationalized/date` 的 `parseDate(...).compare(...)` 比较日期。
+- 如果解析失败，才回退到 `YYYY-MM-DD` 字符串比较。
+
 ### 日期选择组件
 
 本次引入了 shadcn-vue / reka-ui 风格的日期选择基础组件：
@@ -214,12 +223,7 @@ adminAPI.usage.list({
 
 `AdminApiKeyUsageModal` 使用 `AppDatePicker` 选择开始日期和结束日期。
 
-日期范围保护：
-
-- 开始日期不能超过结束日期。
-- 结束日期不能早于开始日期。
-- 内部使用 `@internationalized/date` 的 `parseDate(...).compare(...)` 比较日期。
-- 如果解析失败，才回退到 `YYYY-MM-DD` 字符串比较。
+`AppDatePicker` 本身只负责单日期选择，不内置开始 / 结束日期联动规则；区间保护由调用它的弹窗或页面组件实现。
 
 ### 趋势图月粒度
 
@@ -330,7 +334,7 @@ pnpm --dir frontend test:run \
   src/components/admin/user/__tests__/UserApiKeysModal.spec.ts
 ```
 
-结果：5 个测试文件，25 个用例通过。
+结果：上述测试文件全部通过。
 
 ```bash
 pnpm --dir frontend typecheck
