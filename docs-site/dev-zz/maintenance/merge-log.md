@@ -2,6 +2,56 @@
 
 本文件记录二开分支吸收上游变更的同步工作。
 
+## 2026-06-17 - 将上游 `main` 合并到 `dev-zz`：Cyber 策略、OpenAI 配额与调度修复
+
+分支：
+- 目标：`dev-zz`
+- 上游：`main`
+- Base：`e34ad2b1`
+- 合并前目标：`0fd01ef6`
+- 上游 head：`b8a482e1`
+- 结果提交：本次合并提交
+
+上游要点：
+- 新增 OpenAI `cyber_policy` 硬阻断的透传、审计、计费、用户错误分类和会话本地屏蔽能力。
+- 新增 OpenAI 账号 rate-limit quota 查询/重置支持，并加强 `/responses` 能力探测的工具调用校验。
+- 修复 scheduler outbox 去重、合并、清理和 pending dedup index 恢复流程。
+- 修复网关非 JSON 2xx、zstd 响应体、图片服务器错误故障转移、Responses fallback input 锚定，以及默认 tool strict 兼容行为。
+- 新增渠道监控检测间隔 jitter 配置、账号过期自动暂停索引、OAuth 注册 promo code 修复、Anthropic system role 合并、Claude OAuth system prompt blocks，以及 `form-data` 安全 override。
+
+合并策略：
+- 合并前阅读 `docs-site/dev-zz/branch-policy.md`、`docs-site/dev-zz/patches.md`、`docs-site/dev-zz/maintenance/merge-log.md` 和 `docs-site/dev-zz/changelog.md`。
+- 用 `git fetch origin` 刷新本地远程引用，以上游 `origin/main` 的 `b8a482e1` 作为合并目标。
+- 在正式合并前用 `git merge-tree --write-tree HEAD origin/main` 预检，预测到一处内容冲突。
+- 用 `git merge --no-commit origin/main` 把上游 `main` 合并进 `dev-zz`。
+- 接受上游后端正确性、安全策略、调度器和配额能力修复；保留 `dev-zz` 的用户用量页视觉方向、管理员用量下钻、已删除 Key 证据链、图表展开、日期 URL 同步和 `docs-site` 二开文档体系。
+
+冲突文件：
+- `frontend/src/views/user/UsageView.vue`
+
+解决说明：
+- 保留 `dev-zz` 用户用量页的 stone/emerald 视觉、分析/表格切换和现有展示结构。
+- 接受上游新增的 `cyber` 请求类型、i18n 文案和类型解析；在 `dev-zz` 的请求类型 label、badge、导出文本函数中补入 `cyber` 分支。
+- 未采用上游默认红色 badge 样式，改为适配当前深色主题的 `rose` 半透明 badge。
+- 保留 `dev-zz` 已发布的 `151_add_api_key_tags.sql`、`152_add_api_key_tags_index_notx.sql` 和 `153_normalize_api_key_inactive_status.sql`。
+- 将上游新增迁移顺延为 `154_account_autopause_expiry_index_notx.sql`、`155_channel_monitor_jitter.sql`、`156_scheduler_outbox_dedup_key.sql` 和 `157_scheduler_outbox_pending_dedup_key_index_notx.sql`，并同步更新 migration runner/test 中的文件名引用。
+- 全量前端测试暴露出合并后的几处小兼容问题，已一并修复：OpenAI OAuth 账号行刷新绕过旧 usage 缓存、pending OAuth 创建账号测试保留 affiliate payload、日期范围测试适配 Teleport 下拉、旧 `table-page-size-source` 分页偏好清理，以及 Dashboard 对旧统计快照缺少账号成本字段时归零显示。
+
+验证：
+- `git diff --check`
+- `git diff --cached --check`
+- `rg -n "^(<<<<<<<|>>>>>>>)|^=======$" .`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run`
+- `mise x -C backend -- go test ./migrations`
+- `mise x -C backend -- go test ./internal/repository`
+- `mise x -C backend -- go test ./internal/server ./internal/server/middleware ./internal/handler ./internal/handler/admin ./internal/config ./internal/service ./internal/pkg/apicompat ./internal/pkg/openai`
+- `mise x -C backend -- go test ./...`
+
+未验证：
+- 无。
+
 ## 2026-06-12 - 将上游 `main` 合并到 `dev-zz`：合规确认、网关修复与 Bedrock 兼容
 
 分支：

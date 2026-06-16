@@ -794,6 +794,7 @@ const formatUserAgent = (ua: string): string => {
 
 const getRequestTypeLabel = (log: UsageLog): string => {
   const requestType = resolveUsageRequestType(log)
+  if (requestType === 'cyber') return t('usage.cyber')
   if (requestType === 'ws_v2') return t('usage.ws')
   if (requestType === 'stream') return t('usage.stream')
   if (requestType === 'sync') return t('usage.sync')
@@ -802,6 +803,7 @@ const getRequestTypeLabel = (log: UsageLog): string => {
 
 const getRequestTypeBadgeClass = (log: UsageLog): string => {
   const requestType = resolveUsageRequestType(log)
+  if (requestType === 'cyber') return 'bg-rose-100 text-rose-800 dark:bg-rose-500/15 dark:text-rose-200'
   if (requestType === 'ws_v2') return 'bg-violet-100 text-violet-800 dark:bg-violet-500/20 dark:text-violet-200'
   if (requestType === 'stream') return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200'
   if (requestType === 'sync') return 'bg-stone-100 text-stone-800 dark:bg-white/[0.08] dark:text-stone-200'
@@ -811,6 +813,7 @@ const getRequestTypeBadgeClass = (log: UsageLog): string => {
 
 const getRequestTypeExportText = (log: UsageLog): string => {
   const requestType = resolveUsageRequestType(log)
+  if (requestType === 'cyber') return 'Cyber'
   if (requestType === 'ws_v2') return 'WS'
   if (requestType === 'stream') return 'Stream'
   if (requestType === 'sync') return 'Sync'

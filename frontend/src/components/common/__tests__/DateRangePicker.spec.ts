@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { ref } from 'vue'
 
 import DateRangePicker from '../DateRangePicker.vue'
@@ -56,8 +56,11 @@ describe('DateRangePicker', () => {
   it('emits range updates with last24Hours preset when applied', async () => {
     const now = new Date()
     const today = formatLocalDate(now)
+    const host = document.createElement('div')
+    document.body.appendChild(host)
 
     const wrapper = mount(DateRangePicker, {
+      attachTo: host,
       props: {
         startDate: today,
         endDate: today
@@ -69,28 +72,38 @@ describe('DateRangePicker', () => {
       }
     })
 
-    await wrapper.find('.date-picker-trigger').trigger('click')
-    const presetButton = wrapper.findAll('.date-picker-preset').find((node) =>
-      node.text().includes('Last 24 Hours')
-    )
-    expect(presetButton).toBeDefined()
+    try {
+      await wrapper.find('.date-picker-trigger').trigger('click')
+      await flushPromises()
+      const presetButton = Array.from(document.body.querySelectorAll<HTMLButtonElement>('.date-picker-preset')).find((node) =>
+        node.textContent?.includes('Last 24 Hours')
+      )
+      expect(presetButton).toBeDefined()
 
-    await presetButton!.trigger('click')
-    await wrapper.find('.date-picker-apply').trigger('click')
+      presetButton!.click()
+      await flushPromises()
+      const applyButton = document.body.querySelector<HTMLButtonElement>('.date-picker-apply')
+      expect(applyButton).not.toBeNull()
+      applyButton!.click()
+      await flushPromises()
 
-    const nowAfterClick = new Date()
-    const yesterdayAfterClick = new Date(nowAfterClick.getTime() - 24 * 60 * 60 * 1000)
-    const expectedStart = formatLocalDate(yesterdayAfterClick)
-    const expectedEnd = formatLocalDate(nowAfterClick)
+      const nowAfterClick = new Date()
+      const yesterdayAfterClick = new Date(nowAfterClick.getTime() - 24 * 60 * 60 * 1000)
+      const expectedStart = formatLocalDate(yesterdayAfterClick)
+      const expectedEnd = formatLocalDate(nowAfterClick)
 
-    expect(wrapper.emitted('update:startDate')?.[0]).toEqual([expectedStart])
-    expect(wrapper.emitted('update:endDate')?.[0]).toEqual([expectedEnd])
-    expect(wrapper.emitted('change')?.[0]).toEqual([
-      {
-        startDate: expectedStart,
-        endDate: expectedEnd,
-        preset: 'last24Hours'
-      }
-    ])
+      expect(wrapper.emitted('update:startDate')?.[0]).toEqual([expectedStart])
+      expect(wrapper.emitted('update:endDate')?.[0]).toEqual([expectedEnd])
+      expect(wrapper.emitted('change')?.[0]).toEqual([
+        {
+          startDate: expectedStart,
+          endDate: expectedEnd,
+          preset: 'last24Hours'
+        }
+      ])
+    } finally {
+      wrapper.unmount()
+      host.remove()
+    }
   })
 })
