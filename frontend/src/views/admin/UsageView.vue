@@ -403,6 +403,13 @@ const areRouteQueriesEqual = (a: Record<string, string>, b: Record<string, strin
   return aKeys.every((key, index) => key === bKeys[index] && a[key] === b[key])
 }
 
+const replaceRouteQueryFromFilters = () => {
+  const nextQuery = toRouteQuery(filters.value)
+  if (!areRouteQueriesEqual(getCurrentRouteQuerySnapshot(), nextQuery)) {
+    void router.replace({ path: route.path, query: nextQuery })
+  }
+}
+
 const setProfileFilters = async (next: AdminUsageQueryParams) => {
   filters.value = {
     ...next,
@@ -614,6 +621,7 @@ const onDateRangeChange = (range: { startDate: string; endDate: string; preset: 
     end_date: range.endDate
   }
   granularity.value = getGranularityForRange(range.startDate, range.endDate)
+  replaceRouteQueryFromFilters()
   applyFilters()
 }
 

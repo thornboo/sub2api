@@ -112,9 +112,27 @@ const UsageProfileHeaderSelectStub = {
     </div>
   `,
 }
+const UsageProfileHeaderControlsStub = {
+  template: '<div data-test="usage-profile-header"><slot name="controls" /></div>',
+}
 const UsageTableStub = {
   emits: ['userClick'],
   template: '<div data-test="usage-table"><button class="user-click" @click="$emit(\'userClick\', 2)">user</button></div>',
+}
+const DateRangePickerLastMonthStub = {
+  emits: ['update:startDate', 'update:endDate', 'change'],
+  template: `
+    <button
+      data-test="select-last-month"
+      @click="
+        $emit('update:startDate', '2026-05-01');
+        $emit('update:endDate', '2026-05-31');
+        $emit('change', { startDate: '2026-05-01', endDate: '2026-05-31', preset: 'lastMonth' })
+      "
+    >
+      last month
+    </button>
+  `,
 }
 const ModelDistributionChartStub = {
   props: ['metric', 'showExpandButton'],
@@ -272,6 +290,71 @@ describe('admin UsageView route query sanitization', () => {
       start_date: '2026-01-01',
       end_date: '2026-06-15',
       granularity: 'month',
+    }))
+  })
+
+  it('syncs date range picker changes back to the route query', async () => {
+    Object.assign(routeQuery, {
+      start_date: '2026-06-01',
+      end_date: '2026-06-15',
+    })
+
+    const wrapper = mount(UsageView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          UsageStatsCards: true,
+          UsageProfileHeader: UsageProfileHeaderControlsStub,
+          UsageFilters: UsageFiltersStub,
+          UsageTable: true,
+          UsageExportProgress: true,
+          UsageCleanupDialog: true,
+          UserBalanceHistoryModal: true,
+          UserApiKeysModal: true,
+          AuditLogModal: true,
+          Pagination: true,
+          Select: true,
+          DateRangePicker: DateRangePickerLastMonthStub,
+          Icon: true,
+          TokenUsageTrend: true,
+          ModelDistributionChart: true,
+          GroupDistributionChart: true,
+          EndpointDistributionChart: true,
+          OpsErrorLogTable: true,
+          OpsErrorDetailModal: true,
+        },
+      },
+    })
+
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+    routerReplace.mockClear()
+    list.mockClear()
+    getStats.mockClear()
+    getSnapshotV2.mockClear()
+
+    await wrapper.find('[data-test="select-last-month"]').trigger('click')
+    await flushPromises()
+
+    expect(routerReplace).toHaveBeenCalledWith({
+      path: '/admin/usage',
+      query: {
+        start_date: '2026-05-01',
+        end_date: '2026-05-31',
+      },
+    })
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({
+      start_date: '2026-05-01',
+      end_date: '2026-05-31',
+    }), expect.any(Object))
+    expect(getStats).toHaveBeenLastCalledWith(expect.objectContaining({
+      start_date: '2026-05-01',
+      end_date: '2026-05-31',
+    }))
+    expect(getSnapshotV2).toHaveBeenLastCalledWith(expect.objectContaining({
+      start_date: '2026-05-01',
+      end_date: '2026-05-31',
+      granularity: 'day',
     }))
   })
 
