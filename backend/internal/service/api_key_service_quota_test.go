@@ -128,6 +128,9 @@ func (s *quotaBaseAPIKeyRepoStub) ListByGroupID(context.Context, int64, paginati
 func (s *quotaBaseAPIKeyRepoStub) SearchAPIKeys(context.Context, int64, string, int) ([]APIKey, error) {
 	panic("unexpected SearchAPIKeys call")
 }
+func (s *quotaBaseAPIKeyRepoStub) SearchAPIKeysIncludingDeleted(context.Context, int64, string, int, bool) ([]APIKey, error) {
+	panic("unexpected SearchAPIKeysIncludingDeleted call")
+}
 func (s *quotaBaseAPIKeyRepoStub) ClearGroupIDByGroupID(context.Context, int64) (int64, error) {
 	panic("unexpected ClearGroupIDByGroupID call")
 }

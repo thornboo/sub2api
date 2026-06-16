@@ -59,6 +59,7 @@ type APIKey struct {
 	IPWhitelist []string   `json:"ip_whitelist"`
 	IPBlacklist []string   `json:"ip_blacklist"`
 	LastUsedAt  *time.Time `json:"last_used_at"`
+	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
 	Quota       float64    `json:"quota"`      // Quota limit in USD (0 = unlimited)
 	QuotaUsed   float64    `json:"quota_used"` // Used quota amount in USD
 	ExpiresAt   *time.Time `json:"expires_at"` // Expiration time (nil = never expires)

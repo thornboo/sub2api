@@ -34,6 +34,8 @@ export interface SimpleApiKey {
   id: number
   name: string
   user_id: number
+  deleted?: boolean
+  deleted_at?: string | null
 }
 
 export interface UsageCleanupFilters {
@@ -147,13 +149,23 @@ export async function searchUsers(keyword: string): Promise<SimpleUser[]> {
  * @param keyword - Optional keyword to search in key name
  * @returns List of matching API keys (max 30)
  */
-export async function searchApiKeys(userId?: number, keyword?: string): Promise<SimpleApiKey[]> {
+export async function searchApiKeys(
+  userId?: number,
+  keyword?: string,
+  options: { includeDeleted?: boolean; apiKeyId?: number } = {}
+): Promise<SimpleApiKey[]> {
   const params: Record<string, unknown> = {}
   if (userId !== undefined) {
     params.user_id = userId
   }
+  if (options.apiKeyId !== undefined) {
+    params.api_key_id = options.apiKeyId
+  }
   if (keyword) {
     params.q = keyword
+  }
+  if (options.includeDeleted) {
+    params.include_deleted = true
   }
   const { data } = await apiClient.get<SimpleApiKey[]>('/admin/usage/search-api-keys', {
     params

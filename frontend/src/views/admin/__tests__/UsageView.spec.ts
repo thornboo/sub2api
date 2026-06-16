@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import UsageView from '../UsageView.vue'
 
-const { list, getStats, getSnapshotV2, getById, getUserApiKeys, getModelStats, listErrorLogs, routerReplace, routeQuery } = vi.hoisted(() => {
+const { list, getStats, searchApiKeys, getSnapshotV2, getById, getUserApiKeys, getModelStats, listErrorLogs, routerReplace, routeQuery } = vi.hoisted(() => {
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(() => null),
     setItem: vi.fn(),
@@ -13,6 +13,7 @@ const { list, getStats, getSnapshotV2, getById, getUserApiKeys, getModelStats, l
   return {
     list: vi.fn(),
     getStats: vi.fn(),
+    searchApiKeys: vi.fn(),
     getSnapshotV2: vi.fn(),
     getById: vi.fn(),
     getUserApiKeys: vi.fn(),
@@ -44,6 +45,7 @@ vi.mock('@/api/admin', () => ({
     usage: {
       list,
       getStats,
+      searchApiKeys,
     },
     dashboard: {
       getSnapshotV2,
@@ -154,6 +156,7 @@ describe('admin UsageView route query sanitization', () => {
     getStats.mockReset()
     getSnapshotV2.mockReset()
     getById.mockReset()
+    searchApiKeys.mockReset()
     getUserApiKeys.mockReset()
     getModelStats.mockReset()
     routerReplace.mockReset()
@@ -171,6 +174,7 @@ describe('admin UsageView route query sanitization', () => {
     })
     getSnapshotV2.mockResolvedValue({ trend: [], models: [], groups: [] })
     getModelStats.mockResolvedValue({ models: [] })
+    searchApiKeys.mockResolvedValue([])
     getUserApiKeys.mockResolvedValue({ items: [] })
   })
 
@@ -271,6 +275,92 @@ describe('admin UsageView route query sanitization', () => {
     }))
   })
 
+  it('resolves route API key labels by exact id including deleted keys', async () => {
+    Object.assign(routeQuery, {
+      user_id: '7',
+      api_key_id: '11',
+    })
+    getById.mockResolvedValue({ id: 7, email: 'ops@example.com' })
+    searchApiKeys.mockResolvedValue([{ id: 11, user_id: 7, name: 'deleted-key', deleted: true }])
+
+    mount(UsageView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          UsageStatsCards: true,
+          UsageProfileHeader: true,
+          UsageFilters: UsageFiltersStub,
+          UsageTable: true,
+          UsageExportProgress: true,
+          UsageCleanupDialog: true,
+          UserBalanceHistoryModal: true,
+          UserApiKeysModal: true,
+          AuditLogModal: true,
+          Pagination: true,
+          Select: true,
+          DateRangePicker: true,
+          Icon: true,
+          TokenUsageTrend: true,
+          ModelDistributionChart: true,
+          GroupDistributionChart: true,
+          EndpointDistributionChart: true,
+          OpsErrorLogTable: true,
+          OpsErrorDetailModal: true,
+        },
+      },
+    })
+
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    expect(searchApiKeys).toHaveBeenCalledWith(7, '', {
+      includeDeleted: true,
+      apiKeyId: 11,
+    })
+  })
+
+  it('resolves standalone route API key labels by exact id', async () => {
+    Object.assign(routeQuery, {
+      api_key_id: '11',
+    })
+    searchApiKeys.mockResolvedValue([{ id: 11, user_id: 7, name: 'deleted-key', deleted: true }])
+
+    mount(UsageView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          UsageStatsCards: true,
+          UsageProfileHeader: true,
+          UsageFilters: UsageFiltersStub,
+          UsageTable: true,
+          UsageExportProgress: true,
+          UsageCleanupDialog: true,
+          UserBalanceHistoryModal: true,
+          UserApiKeysModal: true,
+          AuditLogModal: true,
+          Pagination: true,
+          Select: true,
+          DateRangePicker: true,
+          Icon: true,
+          TokenUsageTrend: true,
+          ModelDistributionChart: true,
+          GroupDistributionChart: true,
+          EndpointDistributionChart: true,
+          OpsErrorLogTable: true,
+          OpsErrorDetailModal: true,
+        },
+      },
+    })
+
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    expect(searchApiKeys).toHaveBeenCalledWith(undefined, '', {
+      includeDeleted: true,
+      apiKeyId: 11,
+    })
+  })
+
   it('keeps the current monthly granularity when switching profile objects', async () => {
     Object.assign(routeQuery, {
       start_date: '2026-01-01',
@@ -320,7 +410,7 @@ describe('admin UsageView route query sanitization', () => {
 
   it('applies top profile header user and API key selections to route and usage requests', async () => {
     getById.mockResolvedValue({ id: 7, email: 'ops@example.com' })
-    getUserApiKeys.mockResolvedValue({ items: [{ id: 11, name: 'ops-key' }] })
+    searchApiKeys.mockResolvedValue([{ id: 11, user_id: 7, name: 'ops-key' }])
 
     const wrapper = mount(UsageView, {
       global: {
@@ -397,6 +487,7 @@ describe('admin UsageView distribution metric toggles', () => {
     getStats.mockReset()
     getSnapshotV2.mockReset()
     getById.mockReset()
+    searchApiKeys.mockReset()
     getUserApiKeys.mockReset()
     getModelStats.mockReset()
     routerReplace.mockReset()
@@ -422,6 +513,7 @@ describe('admin UsageView distribution metric toggles', () => {
       groups: [],
     })
     getModelStats.mockResolvedValue({ models: [] })
+    searchApiKeys.mockResolvedValue([])
     getUserApiKeys.mockResolvedValue({ items: [] })
   })
 

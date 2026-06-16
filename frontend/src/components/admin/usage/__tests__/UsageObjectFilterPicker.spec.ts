@@ -19,10 +19,12 @@ const messages: Record<string, string> = {
   'admin.usage.profile.allUserKeysHelp': 'All keys for this user',
   'admin.usage.profile.noUsersFound': 'No users',
   'admin.usage.profile.noKeysFound': 'No keys',
+  'admin.usage.profile.includeDeletedApiKeys': 'Include deleted keys',
   'admin.usage.profile.selectUserFirst': 'Select a user',
   'admin.usage.searchUserPlaceholder': 'Search users',
   'admin.usage.searchApiKeyPlaceholder': 'Search keys',
   'admin.usage.userDeletedBadge': 'deleted',
+  'admin.usage.apiKeyDeletedBadge': 'deleted',
   'common.loading': 'Loading',
 }
 
@@ -158,6 +160,31 @@ describe('UsageObjectFilterPicker', () => {
     await openPicker(wrapper)
 
     expect(wrapper.find('[data-test="usage-object-key-header"]').text()).toBe('API Keys')
+  })
+
+  it('can include deleted API keys only when the admin opts in', async () => {
+    listUsers.mockResolvedValue({
+      items: [{ id: 4, email: 'htzh@htwisdom.cn', deleted_at: null }],
+      pages: 1,
+    })
+    searchApiKeys.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      { id: 8, name: 'deleted-key', user_id: 4, deleted: true, deleted_at: '2026-06-10T12:00:00Z' },
+    ])
+
+    const wrapper = mountPicker({
+      user: { id: 4, label: 'htzh@htwisdom.cn' },
+    })
+    await openPicker(wrapper)
+
+    expect(searchApiKeys).toHaveBeenCalledWith(4, '', { includeDeleted: false })
+
+    const includeDeleted = wrapper.find('input[type="checkbox"]')
+    await includeDeleted.setValue(true)
+    await flushPromises()
+
+    expect(searchApiKeys).toHaveBeenLastCalledWith(4, '', { includeDeleted: true })
+    expect(wrapper.text()).toContain('deleted-key')
+    expect(wrapper.text()).toContain('deleted')
   })
 
   it('attaches global positioning listeners only while the dropdown is open', async () => {

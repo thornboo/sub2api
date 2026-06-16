@@ -89,6 +89,10 @@ func (s *authRepoStub) SearchAPIKeys(ctx context.Context, userID int64, keyword 
 	panic("unexpected SearchAPIKeys call")
 }
 
+func (s *authRepoStub) SearchAPIKeysIncludingDeleted(ctx context.Context, userID int64, keyword string, limit int, includeDeleted bool) ([]APIKey, error) {
+	panic("unexpected SearchAPIKeysIncludingDeleted call")
+}
+
 func (s *authRepoStub) ClearGroupIDByGroupID(ctx context.Context, groupID int64) (int64, error) {
 	panic("unexpected ClearGroupIDByGroupID call")
 }

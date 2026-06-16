@@ -16,6 +16,21 @@ var (
 	ErrUsageLogNotFound = infraerrors.NotFound("USAGE_LOG_NOT_FOUND", "usage log not found")
 )
 
+type usageLogDeletedAPIKeyResolutionContextKey struct{}
+
+// WithUsageLogDeletedAPIKeyResolution enables admin evidence views to resolve
+// soft-deleted API key labels from immutable usage logs.
+func WithUsageLogDeletedAPIKeyResolution(ctx context.Context) context.Context {
+	return context.WithValue(ctx, usageLogDeletedAPIKeyResolutionContextKey{}, true)
+}
+
+// ShouldResolveDeletedAPIKeysForUsageLogs reports whether usage log hydration may
+// cross API key soft-deletion boundaries. User-facing usage views should not set this.
+func ShouldResolveDeletedAPIKeysForUsageLogs(ctx context.Context) bool {
+	v, ok := ctx.Value(usageLogDeletedAPIKeyResolutionContextKey{}).(bool)
+	return ok && v
+}
+
 // CreateUsageLogRequest 创建使用日志请求
 type CreateUsageLogRequest struct {
 	UserID                int64   `json:"user_id"`

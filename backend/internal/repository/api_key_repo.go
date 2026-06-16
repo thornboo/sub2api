@@ -109,6 +109,21 @@ func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIK
 	return apiKeyEntityToService(m), nil
 }
 
+func (r *apiKeyRepository) GetByIDIncludingDeleted(ctx context.Context, id int64) (*service.APIKey, error) {
+	m, err := r.client.APIKey.Query().
+		Where(apikey.IDEQ(id)).
+		WithUser().
+		WithGroup().
+		Only(mixins.SkipSoftDelete(ctx))
+	if err != nil {
+		if dbent.IsNotFound(err) {
+			return nil, service.ErrAPIKeyNotFound
+		}
+		return nil, err
+	}
+	return apiKeyEntityToService(m), nil
+}
+
 // GetKeyAndOwnerID 根据 API Key ID 获取其 key 与所有者（用户）ID。
 // 相比 GetByID，此方法性能更优，因为：
 //   - 使用 Select() 只查询必要字段，减少数据传输量
@@ -611,7 +626,16 @@ func apiKeyListOrder(params pagination.PaginationParams) []func(*entsql.Selector
 
 // SearchAPIKeys searches API keys by user ID and/or keyword (name)
 func (r *apiKeyRepository) SearchAPIKeys(ctx context.Context, userID int64, keyword string, limit int) ([]service.APIKey, error) {
+	return r.SearchAPIKeysIncludingDeleted(ctx, userID, keyword, limit, false)
+}
+
+func (r *apiKeyRepository) SearchAPIKeysIncludingDeleted(ctx context.Context, userID int64, keyword string, limit int, includeDeleted bool) ([]service.APIKey, error) {
 	q := r.activeQuery()
+	queryCtx := ctx
+	if includeDeleted {
+		q = r.client.APIKey.Query()
+		queryCtx = mixins.SkipSoftDelete(ctx)
+	}
 	if userID > 0 {
 		q = q.Where(apikey.UserIDEQ(userID))
 	}
@@ -620,7 +644,7 @@ func (r *apiKeyRepository) SearchAPIKeys(ctx context.Context, userID int64, keyw
 		q = q.Where(apikey.NameContainsFold(keyword))
 	}
 
-	keys, err := q.Limit(limit).Order(dbent.Desc(apikey.FieldID)).All(ctx)
+	keys, err := q.Limit(limit).Order(dbent.Desc(apikey.FieldID)).All(queryCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -809,6 +833,7 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		LastUsedAt:    m.LastUsedAt,
 		CreatedAt:     m.CreatedAt,
 		UpdatedAt:     m.UpdatedAt,
+		DeletedAt:     m.DeletedAt,
 		GroupID:       m.GroupID,
 		Quota:         m.Quota,
 		QuotaUsed:     m.QuotaUsed,

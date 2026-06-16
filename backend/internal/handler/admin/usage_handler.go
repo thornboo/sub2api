@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -186,7 +187,8 @@ func (h *UsageHandler) List(c *gin.Context) {
 		ExactTotal:  exactTotal,
 	}
 
-	records, result, err := h.usageService.ListWithFilters(c.Request.Context(), params, filters)
+	ctx := service.WithUsageLogDeletedAPIKeyResolution(c.Request.Context())
+	records, result, err := h.usageService.ListWithFilters(ctx, params, filters)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -387,7 +389,21 @@ func (h *UsageHandler) SearchUsers(c *gin.Context) {
 // GET /api/v1/admin/usage/search-api-keys
 func (h *UsageHandler) SearchAPIKeys(c *gin.Context) {
 	userIDStr := c.Query("user_id")
+	apiKeyIDStr := c.Query("api_key_id")
 	keyword := c.Query("q")
+	includeDeleted, err := strconv.ParseBool(c.DefaultQuery("include_deleted", "false"))
+	if err != nil {
+		response.BadRequest(c, "Invalid include_deleted")
+		return
+	}
+
+	type SimpleAPIKey struct {
+		ID        int64      `json:"id"`
+		Name      string     `json:"name"`
+		UserID    int64      `json:"user_id"`
+		Deleted   bool       `json:"deleted"`
+		DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	}
 
 	var userID int64
 	if userIDStr != "" {
@@ -399,25 +415,49 @@ func (h *UsageHandler) SearchAPIKeys(c *gin.Context) {
 		userID = id
 	}
 
-	keys, err := h.apiKeyService.SearchAPIKeys(c.Request.Context(), userID, keyword, 30)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
+	var apiKeyID int64
+	if apiKeyIDStr != "" {
+		id, err := strconv.ParseInt(apiKeyIDStr, 10, 64)
+		if err != nil || id <= 0 {
+			response.BadRequest(c, "Invalid api_key_id")
+			return
+		}
+		apiKeyID = id
 	}
 
-	// Return simplified API key list (only id and name)
-	type SimpleAPIKey struct {
-		ID     int64  `json:"id"`
-		Name   string `json:"name"`
-		UserID int64  `json:"user_id"`
+	var keys []service.APIKey
+	if apiKeyID > 0 {
+		key, err := h.apiKeyService.GetByIDIncludingDeleted(c.Request.Context(), apiKeyID)
+		if err != nil {
+			if errors.Is(err, service.ErrAPIKeyNotFound) {
+				response.Success(c, []SimpleAPIKey{})
+				return
+			}
+			response.ErrorFrom(c, err)
+			return
+		}
+		if (userID > 0 && key.UserID != userID) || (!includeDeleted && key.DeletedAt != nil) {
+			response.Success(c, []SimpleAPIKey{})
+			return
+		}
+		keys = []service.APIKey{*key}
+	} else {
+		var err error
+		keys, err = h.apiKeyService.SearchAPIKeysIncludingDeleted(c.Request.Context(), userID, keyword, 30, includeDeleted)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
 	}
 
 	result := make([]SimpleAPIKey, len(keys))
 	for i, k := range keys {
 		result[i] = SimpleAPIKey{
-			ID:     k.ID,
-			Name:   k.Name,
-			UserID: k.UserID,
+			ID:        k.ID,
+			Name:      k.Name,
+			UserID:    k.UserID,
+			Deleted:   k.DeletedAt != nil,
+			DeletedAt: k.DeletedAt,
 		}
 	}
 

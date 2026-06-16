@@ -361,6 +361,29 @@ func (s *APIKeyRepoSuite) TestSearchAPIKeys_NoUserID() {
 	s.Require().Len(found, 1)
 }
 
+func (s *APIKeyRepoSuite) TestSearchAPIKeysIncludingDeleted() {
+	user := s.mustCreateUser("searchdeleted@test.com")
+	active := s.mustCreateApiKey(user.ID, "sk-search-active", "Evidence Active", nil)
+	deleted := s.mustCreateApiKey(user.ID, "sk-search-deleted", "Evidence Deleted", nil)
+	s.Require().NoError(s.repo.Delete(s.ctx, deleted.ID), "soft-delete key")
+
+	activeOnly, err := s.repo.SearchAPIKeys(s.ctx, user.ID, "Evidence", 10)
+	s.Require().NoError(err)
+	s.Require().Len(activeOnly, 1)
+	s.Require().Equal(active.ID, activeOnly[0].ID)
+
+	all, err := s.repo.SearchAPIKeysIncludingDeleted(s.ctx, user.ID, "Evidence", 10, true)
+	s.Require().NoError(err)
+	s.Require().Len(all, 2)
+	byID := map[int64]service.APIKey{}
+	for _, key := range all {
+		byID[key.ID] = key
+	}
+	s.Require().Nil(byID[active.ID].DeletedAt)
+	s.Require().NotNil(byID[deleted.ID].DeletedAt)
+	s.Require().Equal("Evidence Deleted", byID[deleted.ID].Name)
+}
+
 // --- ClearGroupIDByGroupID ---
 
 func (s *APIKeyRepoSuite) TestClearGroupIDByGroupID() {

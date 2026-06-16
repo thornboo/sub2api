@@ -173,6 +173,9 @@ func (s *apiKeyRepoStubForGroupUpdate) ListByGroupID(context.Context, int64, pag
 func (s *apiKeyRepoStubForGroupUpdate) SearchAPIKeys(context.Context, int64, string, int) ([]APIKey, error) {
 	panic("unexpected")
 }
+func (s *apiKeyRepoStubForGroupUpdate) SearchAPIKeysIncludingDeleted(context.Context, int64, string, int, bool) ([]APIKey, error) {
+	panic("unexpected")
+}
 func (s *apiKeyRepoStubForGroupUpdate) ClearGroupIDByGroupID(context.Context, int64) (int64, error) {
 	panic("unexpected")
 }

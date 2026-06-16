@@ -40,15 +40,22 @@
         </template>
 
         <template #cell-api_key="{ row }">
-          <button
-            v-if="row.api_key_id"
-            type="button"
-            class="text-left text-sm font-medium text-gray-900 underline decoration-dashed decoration-gray-300 underline-offset-4 transition-colors hover:text-emerald-600 hover:decoration-emerald-400 dark:text-white dark:decoration-white/20 dark:hover:text-emerald-300"
-            :title="t('admin.usage.profile.viewApiKeyUsageProfile')"
-            @click="$emit('apiKeyUsageClick', row.api_key_id, row.user_id, row.api_key?.name)"
-          >
-            {{ row.api_key?.name || `#${row.api_key_id}` }}
-          </button>
+          <div v-if="row.api_key_id" class="space-y-1">
+            <button
+              type="button"
+              class="text-left text-sm font-medium text-gray-900 underline decoration-dashed decoration-gray-300 underline-offset-4 transition-colors hover:text-emerald-600 hover:decoration-emerald-400 dark:text-white dark:decoration-white/20 dark:hover:text-emerald-300"
+              :title="t('admin.usage.profile.viewApiKeyUsageProfile')"
+              @click="$emit('apiKeyUsageClick', row.api_key_id, row.user_id, row.api_key?.name)"
+            >
+              {{ row.api_key?.name || `#${row.api_key_id}` }}
+            </button>
+            <span
+              v-if="row.api_key?.deleted_at"
+              class="inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-amber-100 text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:ring-amber-500/30"
+            >
+              {{ t('admin.usage.apiKeyDeletedBadge') }}
+            </span>
+          </div>
           <span v-else class="text-sm text-gray-900 dark:text-white">-</span>
         </template>
 
@@ -321,7 +328,7 @@
               <span class="font-medium text-pink-300">${{ tooltipData.image_output_cost.toFixed(6) }}</span>
             </div>
             <!-- Token billing: show unit prices per 1M tokens -->
-            <template v-if="!tooltipData?.billing_mode || tooltipData.billing_mode === BILLING_MODE_TOKEN">
+            <template v-if="tooltipData && !isImageUsage(tooltipData) && (!tooltipData.billing_mode || tooltipData.billing_mode === BILLING_MODE_TOKEN)">
               <div v-if="tooltipData && tooltipData.input_tokens > 0" class="flex items-center justify-between gap-4">
                 <span class="text-gray-400">{{ t('usage.inputTokenPrice') }}</span>
                 <span class="font-medium text-sky-300">{{ formatTokenPricePerMillion(tooltipData.input_cost, tooltipData.input_tokens) }} {{ t('usage.perMillionTokens') }}</span>
@@ -335,7 +342,7 @@
                 <span class="font-medium text-pink-300">{{ formatTokenPricePerMillion(tooltipData.image_output_cost ?? 0, tooltipData.image_output_tokens) }} {{ t('usage.perMillionTokens') }}</span>
               </div>
             </template>
-            <template v-else-if="isImageUsage(tooltipData)">
+            <template v-else-if="tooltipData && isImageUsage(tooltipData)">
               <div class="flex items-center justify-between gap-4">
                 <span class="text-gray-400">{{ t('usage.imageCount') }}</span>
                 <span class="font-medium text-white">{{ tooltipData.image_count }}{{ t('usage.imageUnit') }}</span>

@@ -30,6 +30,7 @@
 - [企业客户 Key 成员管理](./features/enterprise-key-member-management.md)
 - [API Key 用量下钻](./features/api-key-usage-drilldown.md)
 - [企业用量分析中心](./features/enterprise-usage-analytics.md)
+- [用量账本与已删除 Key 证据完整性](./features/usage-ledger-evidence-integrity.md)
 - [可用渠道模型广场与报价导出](./features/available-channels-model-marketplace.md)
 
 ## 决策记录

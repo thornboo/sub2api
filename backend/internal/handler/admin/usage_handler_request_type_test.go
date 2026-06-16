@@ -15,14 +15,16 @@ import (
 
 type adminUsageRepoCapture struct {
 	service.UsageLogRepository
-	listParams   pagination.PaginationParams
-	listFilters  usagestats.UsageLogFilters
-	statsFilters usagestats.UsageLogFilters
+	listParams                 pagination.PaginationParams
+	listFilters                usagestats.UsageLogFilters
+	listResolvesDeletedAPIKeys bool
+	statsFilters               usagestats.UsageLogFilters
 }
 
 func (s *adminUsageRepoCapture) ListWithFilters(ctx context.Context, params pagination.PaginationParams, filters usagestats.UsageLogFilters) ([]service.UsageLog, *pagination.PaginationResult, error) {
 	s.listParams = params
 	s.listFilters = filters
+	s.listResolvesDeletedAPIKeys = service.ShouldResolveDeletedAPIKeysForUsageLogs(ctx)
 	return []service.UsageLog{}, &pagination.PaginationResult{
 		Total:    0,
 		Page:     params.Page,
@@ -58,6 +60,18 @@ func TestAdminUsageListRequestTypePriority(t *testing.T) {
 	require.NotNil(t, repo.listFilters.RequestType)
 	require.Equal(t, int16(service.RequestTypeWSV2), *repo.listFilters.RequestType)
 	require.Nil(t, repo.listFilters.Stream)
+}
+
+func TestAdminUsageListEnablesDeletedAPIKeyEvidenceResolution(t *testing.T) {
+	repo := &adminUsageRepoCapture{}
+	router := newAdminUsageRequestTypeTestRouter(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, repo.listResolvesDeletedAPIKeys)
 }
 
 func TestAdminUsageListInvalidRequestType(t *testing.T) {

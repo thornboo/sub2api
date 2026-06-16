@@ -63,3 +63,39 @@ func TestUsageLog_ListWithFilters_ResolvesSoftDeletedUser(t *testing.T) {
 	require.NotNil(t, actLog.User)
 	require.Nil(t, actLog.User.DeletedAt)
 }
+
+func TestUsageLog_ListWithFilters_ResolvesSoftDeletedAPIKeyOnlyForAdminEvidenceContext(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	client := tx.Client()
+	repo := newUsageLogRepositoryWithSQL(client, tx)
+	keyRepo := newAPIKeyRepositoryWithSQL(client, tx)
+
+	user := mustCreateUser(t, client, &service.User{Email: "deleted-key-ledger@test.com"})
+	apiKey := mustCreateApiKey(t, client, &service.APIKey{UserID: user.ID, Key: "sk-ledger-deleted-key", Name: "Ledger Evidence Key"})
+	account := mustCreateAccount(t, client, &service.Account{Name: "acc-deleted-key-ledger"})
+
+	_, err := repo.Create(ctx, &service.UsageLog{
+		UserID: user.ID, APIKeyID: apiKey.ID, AccountID: account.ID,
+		Model: "claude-3", InputTokens: 10, OutputTokens: 20,
+		TotalCost: 0.25, ActualCost: 0.25, CreatedAt: time.Now().UTC(),
+	})
+	require.NoError(t, err)
+	require.NoError(t, keyRepo.Delete(ctx, apiKey.ID))
+
+	logs, _, err := repo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 50},
+		usagestats.UsageLogFilters{UserID: user.ID, ExactTotal: true})
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+	require.Nil(t, logs[0].APIKey, "default/user-facing usage hydration must not resolve soft-deleted API keys")
+
+	adminEvidenceCtx := service.WithUsageLogDeletedAPIKeyResolution(ctx)
+	logs, _, err = repo.ListWithFilters(adminEvidenceCtx, pagination.PaginationParams{Page: 1, PageSize: 50},
+		usagestats.UsageLogFilters{UserID: user.ID, ExactTotal: true})
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+	require.NotNil(t, logs[0].APIKey, "deleted API key identity must resolve from the immutable usage ledger")
+	require.Equal(t, "Ledger Evidence Key", logs[0].APIKey.Name)
+	require.NotNil(t, logs[0].APIKey.DeletedAt)
+	require.NotEqual(t, "sk-ledger-deleted-key", logs[0].APIKey.Key, "deleted key secret must not remain on the soft-deleted row")
+}

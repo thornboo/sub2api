@@ -87,6 +87,9 @@ type APIKeyRepository interface {
 	ExistsByKey(ctx context.Context, key string) (bool, error)
 	ListByGroupID(ctx context.Context, groupID int64, params pagination.PaginationParams) ([]APIKey, *pagination.PaginationResult, error)
 	SearchAPIKeys(ctx context.Context, userID int64, keyword string, limit int) ([]APIKey, error)
+	// SearchAPIKeysIncludingDeleted is admin-evidence-only: it may return soft-deleted keys
+	// so historical usage logs can still resolve their original key labels.
+	SearchAPIKeysIncludingDeleted(ctx context.Context, userID int64, keyword string, limit int, includeDeleted bool) ([]APIKey, error)
 	ClearGroupIDByGroupID(ctx context.Context, groupID int64) (int64, error)
 	// UpdateGroupIDByUserAndGroup 将用户下绑定 oldGroupID 的所有 Key 迁移到 newGroupID
 	UpdateGroupIDByUserAndGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (int64, error)
@@ -102,6 +105,10 @@ type APIKeyRepository interface {
 	IncrementRateLimitUsage(ctx context.Context, id int64, cost float64) error
 	ResetRateLimitWindows(ctx context.Context, id int64) error
 	GetRateLimitData(ctx context.Context, id int64) (*APIKeyRateLimitData, error)
+}
+
+type apiKeyIncludingDeletedGetter interface {
+	GetByIDIncludingDeleted(ctx context.Context, id int64) (*APIKey, error)
 }
 
 // APIKeyRateLimitData holds rate limit usage and window state for an API key.
@@ -1652,6 +1659,26 @@ func (s *APIKeyService) SearchAPIKeys(ctx context.Context, userID int64, keyword
 		return nil, fmt.Errorf("search api keys: %w", err)
 	}
 	return keys, nil
+}
+
+func (s *APIKeyService) SearchAPIKeysIncludingDeleted(ctx context.Context, userID int64, keyword string, limit int, includeDeleted bool) ([]APIKey, error) {
+	keys, err := s.apiKeyRepo.SearchAPIKeysIncludingDeleted(ctx, userID, keyword, limit, includeDeleted)
+	if err != nil {
+		return nil, fmt.Errorf("search api keys including deleted: %w", err)
+	}
+	return keys, nil
+}
+
+func (s *APIKeyService) GetByIDIncludingDeleted(ctx context.Context, id int64) (*APIKey, error) {
+	getter, ok := s.apiKeyRepo.(apiKeyIncludingDeletedGetter)
+	if !ok {
+		return nil, ErrAPIKeyNotFound
+	}
+	key, err := getter.GetByIDIncludingDeleted(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get api key including deleted: %w", err)
+	}
+	return key, nil
 }
 
 // GetUserGroupRates 获取用户的专属分组倍率配置

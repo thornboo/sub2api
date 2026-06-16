@@ -980,6 +980,10 @@ func (r *stubApiKeyRepo) SearchAPIKeys(ctx context.Context, userID int64, keywor
 	return nil, errors.New("not implemented")
 }
 
+func (r *stubApiKeyRepo) SearchAPIKeysIncludingDeleted(ctx context.Context, userID int64, keyword string, limit int, includeDeleted bool) ([]service.APIKey, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (r *stubApiKeyRepo) ClearGroupIDByGroupID(ctx context.Context, groupID int64) (int64, error) {
 	return 0, errors.New("not implemented")
 }

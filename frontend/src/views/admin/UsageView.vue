@@ -462,9 +462,12 @@ const resolveProfileContext = async () => {
 
   if (userId && !userMissing) {
     try {
-      const res = await adminAPI.users.getUserApiKeys(userId)
+      const keys = await adminAPI.usage.searchApiKeys(userId, '', {
+        includeDeleted: true,
+        apiKeyId,
+      })
       if (seq !== profileLookupSeq) return
-      const key = (res.items || []).find((item) => item.id === apiKeyId)
+      const key = keys[0]
       profileHeaderApiKey.value = key
         ? { id: apiKeyId, label: key.name || `#${apiKeyId}`, loading: false }
         : { id: apiKeyId, loading: false, notFound: true }
@@ -475,10 +478,21 @@ const resolveProfileContext = async () => {
     return
   }
 
-  if (seq !== profileLookupSeq) return
-  // No direct admin key lookup exists; hydrate standalone key labels from usage rows when possible.
-  profileHeaderApiKey.value = { id: apiKeyId, loading: false }
-  hydrateApiKeyFromUsageLogs()
+  try {
+    const keys = await adminAPI.usage.searchApiKeys(undefined, '', {
+      includeDeleted: true,
+      apiKeyId,
+    })
+    if (seq !== profileLookupSeq) return
+    const key = keys[0]
+    profileHeaderApiKey.value = key
+      ? { id: apiKeyId, label: key.name || `#${apiKeyId}`, loading: false }
+      : { id: apiKeyId, loading: false, notFound: true }
+  } catch {
+    if (seq !== profileLookupSeq) return
+    profileHeaderApiKey.value = { id: apiKeyId, loading: false }
+    hydrateApiKeyFromUsageLogs()
+  }
 }
 
 const handleUserUsageClick = (userId: number, email?: string) => {
@@ -809,7 +823,8 @@ const exportToExcel = async () => {
     let p = 1; let total = pagination.total; let exportedCount = 0
     const XLSX = await import('xlsx')
     const headers = [
-      t('usage.time'), t('admin.usage.user'), t('usage.apiKeyFilter'),
+      t('usage.time'), t('admin.usage.user'), t('admin.usage.apiKeyId'), t('usage.apiKeyFilter'),
+      t('admin.usage.apiKeyStatus'), t('admin.usage.apiKeyDeletedAt'),
       t('admin.usage.account'), t('usage.model'), t('usage.upstreamModel'), t('usage.reasoningEffort'), t('admin.usage.group'),
       t('usage.inboundEndpoint'), t('usage.upstreamEndpoint'),
       t('usage.type'),
@@ -829,7 +844,9 @@ const exportToExcel = async () => {
       )
       if (c.signal.aborted) break; if (p === 1) { total = res.total; exportProgress.total = total }
       const rows = (res.items || []).map((log: AdminUsageLog) => [
-        log.created_at, log.user?.email || '', log.api_key?.name || '', log.account?.name || '', log.model,
+        log.created_at, log.user?.email || '', log.api_key_id || '', log.api_key?.name || '',
+        log.api_key?.deleted_at ? t('admin.usage.apiKeyDeletedBadge') : (log.api_key ? t('admin.usage.apiKeyActiveBadge') : ''),
+        log.api_key?.deleted_at || '', log.account?.name || '', log.model,
         log.upstream_model || '', formatReasoningEffort(log.reasoning_effort), log.group?.name || '',
         log.inbound_endpoint || '', log.upstream_endpoint || '', getRequestTypeLabel(log),
         log.input_tokens, log.output_tokens, log.cache_read_tokens, log.cache_creation_tokens,

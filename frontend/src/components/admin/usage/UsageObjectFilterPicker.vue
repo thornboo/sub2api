@@ -109,6 +109,15 @@
                   @keydown.escape="close"
                 />
               </div>
+              <label class="mt-2 flex items-center gap-2 px-1 text-xs text-stone-600 dark:text-stone-400">
+                <input
+                  v-model="includeDeletedApiKeys"
+                  type="checkbox"
+                  class="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 dark:border-white/20 dark:bg-neutral-900"
+                  @change="loadApiKeys()"
+                />
+                <span>{{ t('admin.usage.profile.includeDeletedApiKeys') }}</span>
+              </label>
 
               <div class="mt-2.5 max-h-60 space-y-0.5 overflow-auto pr-1">
                 <button
@@ -143,6 +152,9 @@
                   <span class="flex min-w-0 flex-1 items-center gap-2">
                     <span class="min-w-0 truncate text-sm font-medium leading-5">{{ key.name || `#${key.id}` }}</span>
                     <span class="shrink-0 text-xs text-stone-500 dark:text-stone-400">#{{ key.id }}</span>
+                    <span v-if="key.deleted" class="shrink-0 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-300">
+                      {{ t('admin.usage.apiKeyDeletedBadge') }}
+                    </span>
                   </span>
                   <span v-if="key.id === apiKey?.id" class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500">
                     <Icon name="check" size="xs" :stroke-width="2" />
@@ -214,6 +226,7 @@ let userListRequestId = 0
 const apiKeyKeyword = ref('')
 const apiKeyResults = ref<SimpleApiKey[]>([])
 const apiKeysLoading = ref(false)
+const includeDeletedApiKeys = ref(false)
 let apiKeySearchTimeout: ReturnType<typeof setTimeout> | null = null
 
 const userLabel = computed(() => {
@@ -361,7 +374,9 @@ const loadApiKeys = async (userId = props.user?.id, keyword = apiKeyKeyword.valu
   }
   apiKeysLoading.value = true
   try {
-    apiKeyResults.value = await adminAPI.usage.searchApiKeys(userId, keyword)
+    apiKeyResults.value = await adminAPI.usage.searchApiKeys(userId, keyword, {
+      includeDeleted: includeDeletedApiKeys.value,
+    })
   } catch {
     apiKeyResults.value = []
   } finally {
@@ -387,6 +402,7 @@ const openPicker = async () => {
   open.value = true
   userKeyword.value = ''
   apiKeyKeyword.value = ''
+  includeDeletedApiKeys.value = Boolean(props.apiKey?.id && props.apiKey.notFound)
   void loadUsers(true)
   void loadApiKeys()
   await nextTick()
