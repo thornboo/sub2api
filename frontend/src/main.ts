@@ -42,4 +42,7 @@ async function bootstrap() {
   app.mount('#app')
 }
 
-bootstrap()
+bootstrap().catch((error: unknown) => {
+  console.error('[sub2api] frontend bootstrap failed', error)
+  window.dispatchEvent(new CustomEvent('sub2api:bootstrap-error', { detail: error }))
+})
