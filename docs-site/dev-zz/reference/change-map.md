@@ -4,19 +4,19 @@
 
 | 项 | 值 |
 | --- | --- |
-| dev-zz HEAD | `3a7d0474` |
-| origin/main | `e34ad2b1` |
-| merge-base | `e34ad2b1` |
-| 差异规模 | 243 个文件，约 25923 行新增、3623 行删除 |
+| dev-zz HEAD | `a807e096` |
+| origin/main | `b8a482e1` |
+| merge-base | `b8a482e1` |
+| 差异规模 | 323 个文件，约 32727 行新增、3942 行删除 |
 
 ## 变更分布
 
 | 区域 | 文件数 | 说明 |
 | --- | ---: | --- |
-| `frontend/` | 133 | 用户/API Key、owner 用量分析、可用渠道模型、运维弹窗栈、主题与控制台 UI |
-| `backend/` | 63 | API Key 批量/标签/状态、owner analytics、usage 聚合、配置默认值、测试与迁移 |
-| `docs-site/` | 23 | dev-zz 文档中心、功能文档、部署/开发/维护记录 |
-| `deploy/` | 13 | fork 镜像默认值、源码构建脚本、Compose/安装脚本与部署样例 |
+| `frontend/` | 189 | 用户/API Key、owner 用量分析、管理员用量下钻、可用渠道模型、运维弹窗栈、主题与控制台 UI |
+| `backend/` | 80 | API Key 批量/标签/状态、owner analytics、usage 聚合、已删除 Key 证据 hydrate、配置默认值、测试与迁移 |
+| `docs-site/` | 29 | dev-zz 文档中心、功能文档、部署/开发/维护记录 |
+| `deploy/` | 14 | fork 镜像默认值、源码构建脚本、备份脚本、Compose/安装脚本与部署样例 |
 | `.github/` | 3 | CI、release、security scan 的 Node 24 actions runtime 验证 |
 | 根目录 / README / Dockerfile | 8 | release 镜像、版本号、项目说明、分布式 Dockerfile 与设计索引 |
 
@@ -40,6 +40,8 @@
 - owner analytics 接口在 `/api/v1/usage/analytics/*`，所有查询绑定当前登录用户，不接收外部 `user_id`。
 - owner DTO 不返回 `account_cost`、上游账号、渠道、`upstream_model` 等管理员字段。
 - 标签聚合采用“多标签重复计入”的归因语义，不作为严格财务分摊。
+- 管理员用量下钻已落地：`/admin/usage` 顶部对象选择器、用户/Key 双栏下钻、路由 query 同步（含显式日期范围回写，刷新和分享链接保留时间口径）、趋势月粒度和密集图表展开。
+- 已删除 Key 证据展示阶段 1 已落地：`/admin/usage` 管理员证据视图穿透软删除 hydrate Key 名称与删除状态，DTO 隐藏明文 key，导出保留已删除 Key 的 ID、名称和删除时间；用户侧 `/usage` 和普通 Key 列表仍只解析活跃 Key。
 
 ### 可用渠道模型与账号模型维护
 

@@ -1,5 +1,13 @@
 # 变更记录
 
+## 2026-06-17
+
+- 管理员用量证据完整性阶段 1 落地：`/admin/usage` 在管理员证据上下文中穿透软删除解析已删除 Key 的名称和删除状态，明细、画像和导出会展示原 Key 名称加“已删除”标识，导出补充 Key ID、名称和删除时间。用户侧 `/usage` 和普通 `/keys` 列表仍只解析活跃 Key，不改变用户侧展示语义；DTO 不暴露已删除 Key 的明文。
+- `/admin/usage` 的显式日期范围选择现在会回写到路由 query，刷新页面或分享链接时保留所选时间范围；首次无参数加载仍保持干净 URL 并使用内部默认日期。
+- 同步上游 `main`（`b8a482e1`）：OpenAI `cyber_policy` 硬阻断透传与计费、OpenAI 账号 rate-limit quota 查询/重置、scheduler outbox 去重与 pending dedup 索引恢复、网关非 JSON/zstd/图片故障转移修复、渠道监控检测间隔 jitter、账号过期自动暂停索引等。用户用量页冲突已解决并补入 `cyber` 请求类型分支，沿用 dev-zz 深色主题 badge。
+- 发布 v1.1.2 patch release，`backend/cmd/server/VERSION` 更新为 `1.1.2`，固定版本镜像示例同步为 `thornboo/sub2api:1.1.2`。
+- dev-zz 镜像更新流程改为备份优先：部署文档明确日常更新先执行 `deploy/backup-dev-zz.sh` 备份，再 `docker compose pull` 并只重建应用容器，不删除数据目录和 `.env`。
+
 ## 2026-06-15
 
 - 企业 owner 用量分析已从设计阶段进入实现阶段：用户侧 Usage 页面新增分析视图，后端提供 `/api/v1/usage/analytics/summary`、`leaderboard`、`models`、`groups`、`tags`、`trend` 六个用户认证域接口，统计范围始终绑定当前登录用户。

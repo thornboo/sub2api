@@ -57,7 +57,9 @@ export default defineConfig({
           { text: '可用渠道模型广场', link: '/dev-zz/features/available-channels-model-marketplace' },
           { text: '企业 Key 成员管理', link: '/dev-zz/features/enterprise-key-member-management' },
           { text: 'API Key 用量下钻', link: '/dev-zz/features/api-key-usage-drilldown' },
+          { text: '管理员用量分析下钻', link: '/dev-zz/features/admin-usage-profile-drilldown' },
           { text: '企业用量分析中心', link: '/dev-zz/features/enterprise-usage-analytics' },
+          { text: '用量账本与已删除 Key 证据', link: '/dev-zz/features/usage-ledger-evidence-integrity' },
           { text: 'dev-zz 接口索引', link: '/dev-zz/reference/api-surface' },
           { text: 'ADR 0001: 文档中心', link: '/dev-zz/decisions/adr-0001-docs-site-as-dev-zz-doc-hub' },
           { text: 'ADR 0002: Key 作为成员', link: '/dev-zz/decisions/adr-0002-key-as-enterprise-member' }

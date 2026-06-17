@@ -1,5 +1,68 @@
 # 补丁记录
 
+## 2026-06-17 - 已删除 Key 证据展示阶段 1
+
+范围：
+- `backend/internal/handler/admin/usage_handler.go`
+- `backend/internal/handler/dto/{mappers.go,types.go}`
+- `backend/internal/repository/{api_key_repo.go,usage_log_repo.go}`
+- `backend/internal/service/api_key.go`
+- `backend/internal/handler/admin/usage_handler_search_users_test.go`
+- `backend/internal/handler/dto/mappers_deleted_api_key_test.go`
+- `backend/internal/repository/usage_log_repo_deleted_user_integration_test.go`
+- `frontend/src/views/admin/UsageView.vue` 及 admin usage 组件
+- `docs-site/dev-zz/features/usage-ledger-evidence-integrity.md`
+
+改动：
+- 仅在管理员证据视图（`/admin/usage`）穿透软删除解析 Key 名称和删除状态，hydrate 已删除 Key 时返回 `deleted` / `deleted_at`，不改变用户侧 `/usage` 的 hydration 口径。
+- DTO 隐藏已删除 Key 的明文 key，仅向管理员证据上下文暴露删除元数据；导出补充 Key ID、名称和删除时间。
+- usage_logs 被定位为不可变消费账本，维度对象软删除不影响历史明细数值；阶段 2（快照字段）和阶段 3（外键约束）保持设计阶段。
+
+验证：
+- `go test ./internal/repository ./internal/handler/admin ./internal/handler/dto ./internal/service ./internal/server/middleware -count=1`
+- `pnpm -C frontend test:run src/components/admin/usage/__tests__/UsageObjectFilterPicker.spec.ts src/components/admin/usage/__tests__/UsageTable.spec.ts src/views/admin/__tests__/UsageView.spec.ts`
+- `pnpm -C frontend typecheck`
+- `git diff --check`
+
+未验证：
+- 依赖 testcontainers/Postgres 的 repository 集成测试本地无 rootless Docker 未跑，新增集成断言以 CI 或带 Docker 环境为准。
+
+## 2026-06-17 - 管理员用量日期范围可共享
+
+范围：
+- `frontend/src/views/admin/UsageView.vue`
+- `frontend/src/views/admin/__tests__/UsageView.spec.ts`
+
+改动：
+- `/admin/usage` 显式修改日期范围时把所选区间回写到路由 query，刷新和分享链接保留时间口径。
+- 首次无 query 加载保持干净 URL，内部使用默认日期，不把默认值写进 URL。
+- 初始 route 规范化与用户显式筛选改动保持分离，避免干净 URL 行为被意外改变。
+
+验证：
+- `pnpm --dir frontend test:run src/views/admin/__tests__/UsageView.spec.ts`
+- `pnpm --dir frontend typecheck`
+- `git diff --check`
+
+未验证：
+- 浏览器运行时冒烟，由用户在自有前后端服务验证。
+
+## 2026-06-17 - v1.1.2 发布与镜像备份优先更新
+
+范围：
+- `backend/cmd/server/VERSION`
+- `docs-site/dev-zz/deployment/deploy-dev-zz.md`
+- `docs-site/dev-zz/reference/{change-map.md,configuration-and-migrations.md}`
+- `docs-site/dev-zz/testing/verification-matrix.md`
+
+改动：
+- `VERSION` 更新为 `1.1.2`，固定版本镜像示例同步为 `thornboo/sub2api:1.1.2`。
+- 部署文档把 dev-zz 镜像更新流程改为备份优先：先 `deploy/backup-dev-zz.sh` 备份，再 `docker compose pull sub2api` 并只重建应用容器，不执行 `down -v`，不删除 `.env` 和数据目录。
+- 同步配置/迁移索引、变更地图和验证矩阵中的镜像版本与备份脚本口径。
+
+验证：
+- `git diff --check`
+- 文档复核镜像名、版本号、备份脚本和数据目录保护口径
+
 ## 2026-06-15 - docs-site 全量重构与 dev-zz 变更索引
 
 范围：

@@ -5,9 +5,9 @@
 ## 当前分支画像
 
 - 对比口径：`origin/main...dev-zz`。
-- 当前 HEAD：`3a7d0474`。
-- 差异规模：243 个文件，约 25923 行新增、3623 行删除。
-- 主要方向：企业 API Key 管理、owner 用量分析、可用渠道模型展示、账号模型探测、fork 镜像部署、控制台 UI/运维体验和 CI/发布链路。
+- 当前 HEAD：`a807e096`（上游 `origin/main` 已合并至 `b8a482e1`）。
+- 差异规模：323 个文件，约 32727 行新增、3942 行删除。
+- 主要方向：企业 API Key 管理、owner 用量分析、管理员用量下钻、已删除 Key 证据完整性、可用渠道模型展示、账号模型探测、fork 镜像部署、控制台 UI/运维体验和 CI/发布链路。
 
 完整归纳见 [dev-zz 变更地图](./reference/change-map.md)。
 
@@ -29,6 +29,7 @@
 
 - [企业客户 Key 成员管理](./features/enterprise-key-member-management.md)
 - [API Key 用量下钻](./features/api-key-usage-drilldown.md)
+- [管理员用量分析下钻](./features/admin-usage-profile-drilldown.md)
 - [企业用量分析中心](./features/enterprise-usage-analytics.md)
 - [用量账本与已删除 Key 证据完整性](./features/usage-ledger-evidence-integrity.md)
 - [可用渠道模型广场与报价导出](./features/available-channels-model-marketplace.md)
