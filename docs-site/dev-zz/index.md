@@ -16,6 +16,7 @@
 | 目的 | 文档 |
 | --- | --- |
 | 先了解 dev-zz 改了什么 | [变更地图](./reference/change-map.md) |
+| 查分支、镜像和发布边界 | [分支策略](./branch-policy.md) |
 | 查用户可见变化 | [变更记录](./changelog.md) |
 | 查实现与验证 | [补丁记录](./patches.md) |
 | 查新增接口和字段边界 | [接口索引](./reference/api-surface.md) |

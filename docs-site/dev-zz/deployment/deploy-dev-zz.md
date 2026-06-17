@@ -13,6 +13,22 @@ docker pull ghcr.io/thornboo/sub2api:latest
 
 固定版本镜像（例如 `thornboo/sub2api:1.1.2`）只建议用于验收、回滚或需要锁定版本的场景；日常更新应使用 `latest`，拉取最新镜像后重启服务。
 
+## 测试环境镜像
+
+测试环境使用 `dev-zz-develop` 分支镜像，不使用 `latest`：
+
+```dotenv
+SUB2API_IMAGE=ghcr.io/thornboo/sub2api:dev-zz-develop
+```
+
+需要精确锁定一次验证时，使用带 short SHA 的镜像：
+
+```dotenv
+SUB2API_IMAGE=ghcr.io/thornboo/sub2api:dev-zz-develop-<shortsha>
+```
+
+`dev-zz-develop` 和 `dev-zz` push 只构建 GHCR 分支镜像，不更新正式 `latest`。正式 `latest` 仍由 `v*` tag / Release workflow 发布。
+
 ## 推荐 Docker 部署脚本
 
 Docker 部署准备脚本会从当前 fork 的 `dev-zz` 分支拉取 `docker-compose.local.yml` 和 `.env.example`，在当前目录生成 `docker-compose.yml` / `.env`，并使用 `thornboo/sub2api:latest` 作为默认镜像：

@@ -23,7 +23,31 @@
 | 标签与批量 | `api_keys.tags` 是 jsonb 数组，批量操作必须保持所有权、事务和上限 |
 | 用量分析 | owner 只能看自己的 Key 和 `actual_cost`；admin-only 成本字段不外泄 |
 | 模型维护 | 保留账号模型探测、模型映射、models.dev 查询和可用渠道模型表格 |
-| 部署 | 生产默认使用 fork 镜像 `thornboo/sub2api:latest`，本地源码构建是开发/应急路径 |
+| 部署 | `dev-zz-develop` 用于测试环境分支镜像；`dev-zz` 保持二开正式线；`latest` 只代表正式发布 |
+
+## 分支与镜像策略
+
+dev-zz 采用“长期集成分支 + 正式稳定分支 + 版本 tag 发布”的轻量流程：
+
+| 分支 / 事件 | 用途 | 镜像口径 |
+| --- | --- | --- |
+| `dev-zz-develop` | 二开开发、集成和测试环境验证分支 | `ghcr.io/thornboo/sub2api:dev-zz-develop`、`dev-zz-develop-<shortsha>`、`sha-<shortsha>` |
+| `dev-zz` | 二开正式稳定分支，只接收已验证改动 | `ghcr.io/thornboo/sub2api:dev-zz`、`dev-zz-<shortsha>`、`sha-<shortsha>` |
+| `v*` tag / `Release` workflow | 正式版本发布 | `vX.Y.Z`、`latest` 和对应 release 产物 |
+
+推荐流转：
+
+```text
+dev-zz-fix-* / dev-zz-feature-*
+        -> dev-zz-develop
+        -> 测试环境验证分支镜像
+        -> dev-zz
+        -> v* tag 正式发布
+```
+
+`dev-zz-develop` 不是长期试错垃圾桶。它应始终代表下一批准备进入 `dev-zz` 的候选代码，并定期从 `dev-zz` 同步，避免测试环境和正式稳定线长期漂移。
+
+测试环境不要使用 `latest`。正式环境不要使用 `dev-zz-develop` 镜像。需要追溯具体构建时，优先使用带 `<shortsha>` 的镜像 tag 或 `sha-<shortsha>`。
 
 ## 合并判断
 
@@ -34,7 +58,7 @@
 | 前端 UI / 交互 | 对照 dev-zz 视觉方向和已记录行为后再合并 |
 | 认证入口 | 后端能力可保留；前端展示遵循 dev-zz 隐藏策略 |
 | 数据清理 / 保留 | 默认保留 dev-zz 的显式清理策略 |
-| 部署 / release | 保留 fork 镜像和 `dev-zz` 分支默认来源，吸收通用修复 |
+| 部署 / release | 保留 fork 镜像、`dev-zz-develop` 测试镜像和 `dev-zz` 正式线边界，吸收通用修复 |
 | 数据库迁移 | 检查迁移编号、事务要求、索引锁表风险和 ent schema |
 
 ## 冲突处理纪律

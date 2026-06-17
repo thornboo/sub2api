@@ -57,12 +57,14 @@ dev-zz 默认关闭自动数据清理，保留管理员显式清理入口。
 
 | 项 | 当前值 |
 | --- | --- |
-| Docker Hub | `thornboo/sub2api:latest` |
-| GitHub Container Registry | `ghcr.io/thornboo/sub2api:latest` |
+| 测试环境分支镜像 | `ghcr.io/thornboo/sub2api:dev-zz-develop`、`ghcr.io/thornboo/sub2api:dev-zz-develop-<shortsha>` |
+| dev-zz 正式线候选镜像 | `ghcr.io/thornboo/sub2api:dev-zz`、`ghcr.io/thornboo/sub2api:dev-zz-<shortsha>` |
+| 正式发布 Docker Hub | `thornboo/sub2api:latest` |
+| 正式发布 GitHub Container Registry | `ghcr.io/thornboo/sub2api:latest` |
 | 固定版本示例 | `thornboo/sub2api:1.1.2` |
 | 上游镜像 | `weishaw/sub2api:latest`，不包含 dev-zz 二开 |
 
-`deploy/.env.example` 和各 compose 文件默认使用 `SUB2API_IMAGE=thornboo/sub2api:latest`。本地源码构建镜像 `sub2api:dev-zz` 只作为开发验证、应急和未发布代码测试路径。
+`deploy/.env.example` 和各 compose 文件默认使用 `SUB2API_IMAGE=thornboo/sub2api:latest`，该值代表正式发布镜像。测试环境应显式改为 `ghcr.io/thornboo/sub2api:dev-zz-develop` 或带 `<shortsha>` 的测试镜像。本地源码构建镜像 `sub2api:dev-zz` 只作为开发验证、应急和未发布代码测试路径。
 
 ## 部署文件来源
 
@@ -82,6 +84,7 @@ GITHUB_RAW_URL=https://raw.githubusercontent.com/thornboo/sub2api/dev-zz/deploy
 | --- | --- |
 | `.github/workflows/backend-ci.yml` | actions runtime 走 Node 24 验证；Go 版本校验 1.26.4；前端构建 Node 仍是 20 |
 | `.github/workflows/security-scan.yml` | actions runtime 走 Node 24 验证；前端 audit 仍使用 Node 20 |
+| `.github/workflows/dev-zz-branch-images.yml` | `dev-zz-develop` / `dev-zz` push 构建 GHCR amd64 分支镜像，不更新 `latest` |
 | `.github/workflows/release.yml` | release 产物推送 fork 镜像命名 |
 | `.goreleaser.yaml` | 镜像仓库和版本标签按 fork 口径维护 |
 
