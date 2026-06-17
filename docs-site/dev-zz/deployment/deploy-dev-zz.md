@@ -11,7 +11,7 @@ docker pull ghcr.io/thornboo/sub2api:latest
 
 不要使用上游镜像 `weishaw/sub2api:latest`。该镜像来自上游项目，不包含 `dev-zz` 的二开修改。
 
-固定版本镜像（例如 `thornboo/sub2api:1.1.1`）只建议用于验收、回滚或需要锁定版本的场景；日常更新应使用 `latest`，拉取最新镜像后重启服务。
+固定版本镜像（例如 `thornboo/sub2api:1.1.2`）只建议用于验收、回滚或需要锁定版本的场景；日常更新应使用 `latest`，拉取最新镜像后重启服务。
 
 ## 推荐 Docker 部署脚本
 
@@ -24,23 +24,74 @@ curl -sSL https://raw.githubusercontent.com/thornboo/sub2api/dev-zz/deploy/docke
 docker compose up -d
 ```
 
-已部署服务器更新到最新版本：
+已部署服务器更新到最新版本时，先看下面的“已部署服务器日常更新”。如果是用这个脚本创建的独立部署目录，最短流程是：
 
 ```bash
 cd /path/to/sub2api-deploy
+./backup-dev-zz.sh
 docker compose pull sub2api
-docker compose up -d sub2api
+docker compose up -d --no-deps --force-recreate sub2api
 ```
 
-关键点是进入实际保存 `docker-compose.yml` 和 `.env` 的部署目录执行，不需要重新下载或手动改 Compose 文件。
+关键点是进入实际保存 `docker-compose.yml` 和 `.env` 的部署目录执行。
 
 ## 已部署服务器日常更新
 
-如果服务器已经使用 `SUB2API_IMAGE=thornboo/sub2api:latest`，后续每次发布新镜像后只需要拉取最新镜像并重建应用容器：
+如果服务器已经使用 `SUB2API_IMAGE=thornboo/sub2api:latest`，日常更新就是：
+
+1. 备份数据。
+2. 如果部署目录本身是 git 仓库，拉取最新 `dev-zz` 代码。
+3. 拉取最新 Docker 镜像 `thornboo/sub2api:latest`。
+4. 只重建应用容器。
+
+`git pull` 和 `docker compose pull` 的作用不同：`git pull` 更新部署脚本、Compose 模板和文档；真正更新运行中应用的是 `docker compose pull sub2api` 拉到的新镜像。
+
+### 仓库式部署目录
+
+如果服务器上保留的是完整仓库，例如 `/opt/sub2api-zz`，推荐按这个流程更新：
+
+```bash
+cd /opt/sub2api-zz
+git fetch origin
+git switch dev-zz
+git pull --ff-only origin dev-zz
+
+cd deploy
+
+if [ ! -x ./backup-dev-zz.sh ]; then
+  chmod +x backup-dev-zz.sh
+fi
+
+./backup-dev-zz.sh
+docker compose -f docker-compose.local.yml -f docker-compose.override.yml pull sub2api
+docker compose -f docker-compose.local.yml -f docker-compose.override.yml up -d --no-deps --force-recreate sub2api
+
+docker inspect --format '{{.Config.Image}}' sub2api
+docker inspect --format '{{.State.Health.Status}}' sub2api
+docker logs --tail=100 sub2api
+```
+
+### 独立部署目录
+
+如果部署目录是通过 `docker-deploy.sh` 创建的，例如 `/path/to/sub2api-deploy`，这个目录通常不是 git 仓库，所以没有代码可拉。直接备份、拉镜像、重建应用容器即可。
+
+更新前先备份。用量记录、用户余额、API Key 和账号配置都是消费证据，尤其是包含数据库迁移的版本，不应在没有备份的情况下更新。
+
+如果部署目录是旧版本创建的，可能还没有 `backup-dev-zz.sh`。先下载一次；以后如果文档或备份逻辑更新，也可以重复执行这两行刷新脚本：
 
 ```bash
 cd /path/to/sub2api-deploy
 
+curl -sSL https://raw.githubusercontent.com/thornboo/sub2api/dev-zz/deploy/backup-dev-zz.sh -o backup-dev-zz.sh
+chmod +x backup-dev-zz.sh
+```
+
+之后每次更新都先备份，再拉取发布镜像并重建应用容器：
+
+```bash
+cd /path/to/sub2api-deploy
+
+./backup-dev-zz.sh
 docker compose pull sub2api
 docker compose up -d --no-deps --force-recreate sub2api
 
@@ -49,11 +100,12 @@ docker inspect --format '{{.State.Health.Status}}' sub2api
 docker logs --tail=100 sub2api
 ```
 
-如果部署目录仍使用 `docker-compose.local.yml` + `docker-compose.override.yml`，使用同一组 compose 文件更新：
+如果这个独立目录里仍使用 `docker-compose.local.yml` + `docker-compose.override.yml`，使用同一组 compose 文件更新：
 
 ```bash
-cd /opt/sub2api-zz/deploy
+cd /path/to/sub2api-deploy
 
+./backup-dev-zz.sh
 docker compose -f docker-compose.local.yml -f docker-compose.override.yml pull sub2api
 docker compose -f docker-compose.local.yml -f docker-compose.override.yml up -d --no-deps --force-recreate sub2api
 
@@ -63,116 +115,6 @@ docker logs --tail=100 sub2api
 ```
 
 更新过程中不要执行 `docker compose down -v`，也不要删除 `data/`、`postgres_data/`、`redis_data/` 或 `.env`。
-
-## 从本地构建镜像切换到发布镜像
-
-早期 `dev-zz` 部署脚本会在服务器本地构建 `sub2api:dev-zz`，并通过 `docker-compose.override.yml` 覆盖应用镜像。如果 `docker ps` 里看到：
-
-```text
-sub2api:dev-zz
-```
-
-说明当前仍是本地构建部署。可以原地切换到发布镜像，不需要重装，也不需要重新初始化数据库。
-
-先确认当前 compose 配置：
-
-```bash
-cd /opt/sub2api-zz/deploy
-
-grep -R "image:" -n docker-compose*.yml docker-compose.override.yml 2>/dev/null
-grep -E '^(SUB2API_IMAGE|POSTGRES_USER|POSTGRES_DB|SERVER_PORT|BIND_HOST)=' .env
-```
-
-切换前备份配置和数据：
-
-```bash
-cd /opt/sub2api-zz/deploy
-
-ts=$(date +%Y%m%d-%H%M%S)
-mkdir -p "backups/manual-$ts"
-
-cp -a .env docker-compose*.yml "backups/manual-$ts/"
-
-set -a
-. ./.env
-set +a
-
-docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" -t sub2api-postgres pg_dump \
-  -U "${POSTGRES_USER:-sub2api}" \
-  -d "${POSTGRES_DB:-sub2api}" \
-  -Fc > "backups/manual-$ts/sub2api-$ts.dump"
-
-tar czf "backups/manual-$ts/app-data-$ts.tgz" data redis_data
-```
-
-把 override 改为发布镜像。下面用 `printf` 避免 heredoc 结束符缩进导致 shell 卡住：
-
-```bash
-printf '%s\n' \
-'services:' \
-'  sub2api:' \
-'    image: ${SUB2API_IMAGE:-thornboo/sub2api:latest}' \
-> docker-compose.override.yml
-```
-
-在 `.env` 中显式设置镜像：
-
-```bash
-if grep -q '^SUB2API_IMAGE=' .env; then
-  sed -i 's|^SUB2API_IMAGE=.*|SUB2API_IMAGE=thornboo/sub2api:latest|' .env
-else
-  printf '\nSUB2API_IMAGE=thornboo/sub2api:latest\n' >> .env
-fi
-```
-
-先检查 compose 解析结果：
-
-```bash
-docker compose -f docker-compose.local.yml -f docker-compose.override.yml config | grep -n "image:"
-```
-
-确认 `sub2api` 的镜像是 `thornboo/sub2api:latest` 后，再拉取并只重建应用容器：
-
-```bash
-docker compose -f docker-compose.local.yml -f docker-compose.override.yml pull sub2api
-docker compose -f docker-compose.local.yml -f docker-compose.override.yml up -d --no-deps --force-recreate sub2api
-```
-
-验证：
-
-```bash
-docker ps -a
-docker inspect --format '{{.Config.Image}}' sub2api
-docker inspect --format '{{.State.Health.Status}}' sub2api
-docker logs --tail=200 sub2api
-```
-
-如果本次版本包含数据库迁移，可检查迁移记录：
-
-```bash
-set -a
-. ./.env
-set +a
-
-docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" -it sub2api-postgres psql \
-  -U "${POSTGRES_USER:-sub2api}" \
-  -d "${POSTGRES_DB:-sub2api}" \
-  -c "SELECT filename, applied_at FROM schema_migrations ORDER BY applied_at DESC LIMIT 10;"
-```
-
-旧的 `sub2api:dev-zz` 镜像建议保留一段时间。需要临时回滚时，把 `docker-compose.override.yml` 改回：
-
-```yaml
-services:
-  sub2api:
-    image: sub2api:dev-zz
-```
-
-然后执行：
-
-```bash
-docker compose -f docker-compose.local.yml -f docker-compose.override.yml up -d --no-deps --force-recreate sub2api
-```
 
 ## 镜像配置
 
@@ -191,7 +133,7 @@ SUB2API_IMAGE=ghcr.io/thornboo/sub2api:latest
 如需临时回滚到指定版本：
 
 ```dotenv
-SUB2API_IMAGE=thornboo/sub2api:1.1.1
+SUB2API_IMAGE=thornboo/sub2api:1.1.2
 ```
 
 回滚完成后再执行：
@@ -201,131 +143,28 @@ docker compose pull sub2api
 docker compose up -d sub2api
 ```
 
-## 本地源码构建
+## 更新后验证
 
-只有在开发验证、临时测试未发布代码，或需要绕过远程镜像仓库时，才需要从源码构建本地镜像。
-
-在 `dev-zz` 分支的仓库根目录运行：
+确认应用容器仍使用发布镜像，且服务健康：
 
 ```bash
-./deploy/deploy-dev-zz.sh
+docker ps -a
+docker inspect --format '{{.Config.Image}}' sub2api
+docker inspect --format '{{.State.Health.Status}}' sub2api
+docker logs --tail=200 sub2api
 ```
 
-本地构建脚本会：
-
-- 从仓库根目录 `Dockerfile` 构建本地镜像 `sub2api:dev-zz`
-- 基于 `deploy/.env.example` 创建 `deploy/.env`
-- 为新 `.env` 生成 `POSTGRES_PASSWORD`、`JWT_SECRET` 和 `TOTP_ENCRYPTION_KEY`
-- 创建 `deploy/data`、`deploy/postgres_data` 和 `deploy/redis_data`
-- 创建 `deploy/docker-compose.override.yml`，让 Compose 使用 `sub2api:dev-zz`
-- 在启动已有栈前创建备份
-- 使用 `deploy/docker-compose.local.yml` 和 override 文件启动服务
-
-脚本不会默认覆盖已有 `deploy/.env`。拉取源码更新后重复执行脚本，会重新构建本地镜像并用原有数据和密钥重启服务。
-
-## 常用选项
+如果本次版本包含数据库迁移，可检查迁移记录：
 
 ```bash
-./deploy/deploy-dev-zz.sh --no-start
-./deploy/deploy-dev-zz.sh --build-only
-./deploy/deploy-dev-zz.sh --no-build
-./deploy/deploy-dev-zz.sh --skip-backup
-./deploy/deploy-dev-zz.sh --force-env
-./deploy/deploy-dev-zz.sh --force-override
+docker exec -it sub2api-postgres sh -c '
+  : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set in the PostgreSQL container}"
+  export PGPASSWORD="$POSTGRES_PASSWORD"
+  exec psql \
+    -U "${POSTGRES_USER:-sub2api}" \
+    -d "${POSTGRES_DB:-sub2api}" \
+    -c "SELECT filename, applied_at FROM schema_migrations ORDER BY applied_at DESC LIMIT 10;"
+'
 ```
 
-谨慎使用 `--force-env`。它会备份并重新生成 `deploy/.env`，如果新文件投入使用，可能导致登录会话或 TOTP 设置失效。
-
-## 手动部署步骤
-
-### 1. 克隆 dev-zz 分支
-
-```bash
-git clone -b dev-zz https://github.com/thornboo/sub2api.git
-cd sub2api
-```
-
-已有仓库：
-
-```bash
-git fetch origin
-git switch dev-zz
-git pull --ff-only origin dev-zz
-```
-
-### 2. 构建本地镜像
-
-```bash
-docker build -t sub2api:dev-zz .
-```
-
-### 3. 准备部署目录
-
-```bash
-cd deploy
-cp .env.example .env
-mkdir -p data postgres_data redis_data
-```
-
-至少设置：
-
-```dotenv
-POSTGRES_PASSWORD=change_this_to_a_strong_password
-JWT_SECRET=change_this_to_a_fixed_32_byte_hex_secret
-TOTP_ENCRYPTION_KEY=change_this_to_a_fixed_32_byte_hex_secret
-ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD=change_this_to_a_strong_admin_password
-SERVER_PORT=8080
-TZ=Asia/Shanghai
-```
-
-生成固定密钥：
-
-```bash
-openssl rand -hex 32
-```
-
-`JWT_SECRET` 和 `TOTP_ENCRYPTION_KEY` 需要跨重启保持稳定。
-
-### 4. 覆盖镜像名
-
-本地源码构建时，创建本地 override，让 Compose 使用刚构建的 `sub2api:dev-zz`：
-
-```bash
-cat > docker-compose.override.yml <<'EOF'
-services:
-  sub2api:
-    image: sub2api:dev-zz
-EOF
-```
-
-`deploy/docker-compose.override.yml` 是本地部署状态，已被仓库忽略。
-
-### 5. 启动服务
-
-```bash
-docker compose -f docker-compose.local.yml -f docker-compose.override.yml up -d
-```
-
-旧版 Compose：
-
-```bash
-docker-compose -f docker-compose.local.yml -f docker-compose.override.yml up -d
-```
-
-### 6. 更新本地构建服务
-
-```bash
-git fetch origin
-git switch dev-zz
-git pull --ff-only origin dev-zz
-./deploy/deploy-dev-zz.sh
-```
-
-如需手动更新：
-
-```bash
-docker build -t sub2api:dev-zz .
-cd deploy
-docker compose -f docker-compose.local.yml -f docker-compose.override.yml up -d --no-deps --force-recreate sub2api
-```
+如果 `docker image ls` 里还残留 `sub2api:dev-zz`，但 `docker ps` 中运行的 `sub2api` 容器已经是 `thornboo/sub2api:latest`，这个旧镜像只是未使用缓存，不再属于当前更新流程。

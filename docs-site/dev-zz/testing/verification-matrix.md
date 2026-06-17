@@ -7,7 +7,7 @@
 | 场景 | 命令 |
 | --- | --- |
 | 只改 docs-site Markdown / VitePress 配置 | `pnpm --dir docs-site docs:build` |
-| 改部署脚本说明或 shell 脚本 | `bash -n deploy/deploy-dev-zz.sh` |
+| 改部署脚本说明或 shell 脚本 | `bash -n deploy/backup-dev-zz.sh deploy/build-image-dev-zz.sh deploy/docker-deploy.sh` |
 | 改 deploy 安装脚本 | `bash -n deploy/docker-deploy.sh deploy/install.sh` |
 | 改大量 Markdown | `git diff --check` |
 

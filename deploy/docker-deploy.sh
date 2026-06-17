@@ -99,6 +99,19 @@ main() {
     fi
     print_success "Downloaded .env.example"
 
+    # Download backup helper
+    print_info "Downloading backup-dev-zz.sh..."
+    if command_exists curl; then
+        curl -sSL "${GITHUB_RAW_URL}/backup-dev-zz.sh" -o backup-dev-zz.sh
+    elif command_exists wget; then
+        wget -q "${GITHUB_RAW_URL}/backup-dev-zz.sh" -O backup-dev-zz.sh
+    else
+        print_error "Neither curl nor wget is installed. Please install one of them."
+        exit 1
+    fi
+    chmod +x backup-dev-zz.sh
+    print_success "Downloaded backup-dev-zz.sh"
+
     # Generate .env file with auto-generated secrets
     print_info "Generating secure secrets..."
     echo ""
@@ -148,6 +161,7 @@ main() {
     echo ""
     echo "Directory structure:"
     echo "  docker-compose.yml        - Docker Compose configuration"
+    echo "  backup-dev-zz.sh          - Backup helper for safe updates"
     echo "  .env                      - Environment variables (generated secrets)"
     echo "  .env.example              - Example template (for reference)"
     echo "  data/                     - Application data (will be created on first run)"
@@ -159,10 +173,13 @@ main() {
     echo "  2. Start services:"
     echo "     docker-compose up -d"
     echo ""
-    echo "  3. View logs:"
+    echo "  3. Before future updates, create a backup:"
+    echo "     ./backup-dev-zz.sh"
+    echo ""
+    echo "  4. View logs:"
     echo "     docker-compose logs -f sub2api"
     echo ""
-    echo "  4. Access Web UI:"
+    echo "  5. Access Web UI:"
     echo "     http://localhost:8080"
     echo ""
     print_info "If admin password is not set in .env, it will be auto-generated."
