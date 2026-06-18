@@ -57,8 +57,8 @@ dev-zz 默认关闭自动数据清理，保留管理员显式清理入口。
 
 | 项 | 当前值 |
 | --- | --- |
-| 测试环境分支镜像 | `ghcr.io/thornboo/sub2api:dev-zz-develop`、`ghcr.io/thornboo/sub2api:dev-zz-develop-<shortsha>` |
-| dev-zz 正式线候选镜像 | `ghcr.io/thornboo/sub2api:dev-zz`、`ghcr.io/thornboo/sub2api:dev-zz-<shortsha>` |
+| 测试环境分支镜像 | `ghcr.io/thornboo/sub2api:dev-zz-develop`、`ghcr.io/thornboo/sub2api:dev-zz-develop-<shortsha>`，默认多架构 `linux/amd64` + `linux/arm64` |
+| dev-zz 正式线候选镜像 | `ghcr.io/thornboo/sub2api:dev-zz`、`ghcr.io/thornboo/sub2api:dev-zz-<shortsha>`，默认多架构 `linux/amd64` + `linux/arm64` |
 | 正式发布 Docker Hub | `thornboo/sub2api:latest` |
 | 正式发布 GitHub Container Registry | `ghcr.io/thornboo/sub2api:latest` |
 | 固定版本示例 | `thornboo/sub2api:1.1.2` |
@@ -84,7 +84,7 @@ GITHUB_RAW_URL=https://raw.githubusercontent.com/thornboo/sub2api/dev-zz/deploy
 | --- | --- |
 | `.github/workflows/backend-ci.yml` | actions runtime 走 Node 24 验证；Go 版本校验 1.26.4；前端构建 Node 仍是 20 |
 | `.github/workflows/security-scan.yml` | actions runtime 走 Node 24 验证；前端 audit 仍使用 Node 20 |
-| `.github/workflows/dev-zz-branch-images.yml` | `dev-zz-develop` / `dev-zz` push 构建 GHCR amd64 分支镜像，不更新 `latest` |
+| `.github/workflows/dev-zz-branch-images.yml` | `dev-zz-develop` / `dev-zz` push 构建 GHCR 多架构分支镜像，不更新 `latest` |
 | `.github/workflows/release.yml` | release 产物推送 fork 镜像命名 |
 | `.goreleaser.yaml` | 镜像仓库和版本标签按 fork 口径维护 |
 

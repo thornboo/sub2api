@@ -27,6 +27,8 @@ SUB2API_IMAGE=ghcr.io/thornboo/sub2api:dev-zz-develop
 SUB2API_IMAGE=ghcr.io/thornboo/sub2api:dev-zz-develop-<shortsha>
 ```
 
+这些分支镜像默认支持 `linux/amd64` 和 `linux/arm64`，Apple Silicon Mac 可以直接拉取，不需要指定 `--platform`。只有排查架构特定问题时，才使用 `dev-zz-develop-<shortsha>-amd64` 或 `dev-zz-develop-<shortsha>-arm64` 这类架构专用 tag。
+
 `dev-zz-develop` 和 `dev-zz` push 只构建 GHCR 分支镜像，不更新正式 `latest`。正式 `latest` 仍由 `v*` tag / Release workflow 发布。
 
 ## 推荐 Docker 部署脚本
