@@ -257,7 +257,7 @@ manualChunks(id: string) {
 
 ## 当前修复方案
 
-### 1. 删除手写 `manualChunks`
+### 删除手写 `manualChunks`
 
 当前补丁删除了 `frontend/vite.config.ts` 中的 `manualChunks`，保留默认 Rollup/Vite 拆分：
 
@@ -271,44 +271,6 @@ build: {
 ```
 
 这是根因修复。它放弃人工 vendor 分包，避免再次把第三方依赖切出循环初始化图。
-
-### 2. 添加 HTML 级启动失败兜底
-
-`frontend/index.html` 在 `<div id="app"></div>` 后、入口 module 前增加一个带 nonce placeholder 的 inline script：
-
-```html
-<script nonce="__CSP_NONCE_VALUE__">
-  ...
-</script>
-```
-
-作用：
-
-1. 监听 `error`，覆盖入口模块初始化错误和 script load 错误。
-2. 监听 `unhandledrejection`，覆盖异步启动失败。
-3. 监听 `sub2api:bootstrap-error`，接收 `main.ts` 主动转发的启动失败。
-4. 如果 10 秒后 `#app` 仍为空，显示“前端加载失败”而不是纯白屏。
-
-注意：生产构建后 Vite 会把 module 入口移动到 `<head>`，但 module script 是 defer 语义；body 中的经典 inline script 会在文档解析期间执行，早于 module 入口执行。第二审查已确认该执行顺序成立。
-
-### 3. `main.ts` 捕获 bootstrap 错误
-
-`frontend/src/main.ts` 现在将：
-
-```ts
-bootstrap()
-```
-
-改为：
-
-```ts
-bootstrap().catch((error: unknown) => {
-  console.error('[sub2api] frontend bootstrap failed', error)
-  window.dispatchEvent(new CustomEvent('sub2api:bootstrap-error', { detail: error }))
-})
-```
-
-注意：这不能捕获静态 import 初始化错误，因此不是本次根因修复；它只是防止后续异步启动失败继续表现为纯白屏。
 
 ## 修复后验证
 
@@ -359,9 +321,7 @@ cycles 0
 
 解释：这是两个独立请求，每次请求生成不同 nonce 是预期行为。后端 `embed_on.go` 会把 `__CSP_NONCE_VALUE__` 替换为当前请求 nonce；`security_headers.go` 会把同一 nonce 写入 CSP。
 
-当前补丁新增的 inline 兜底脚本也使用 `nonce="__CSP_NONCE_VALUE__"`，并由既有后端测试覆盖 nonce 替换链路。
-
-第二审查补充确认：`replaceNoncePlaceholder` 使用 `bytes.ReplaceAll`，已有测试覆盖多个 `__CSP_NONCE_VALUE__` 同时替换；兜底脚本也没有 `onclick=` 这类 inline 事件处理器，按钮使用 `addEventListener`，因此 nonce-based CSP 下是合规的。
+nonce 行为不能解释本次“构建后始终白屏”：事故构建的 HTML 和入口资源均能从源站返回，实际失败点在前端 ESM chunk 初始化阶段。
 
 ### Cloudflare 缓存不是主因
 
@@ -371,7 +331,6 @@ Cloudflare 可能影响旧 HTML/旧 asset 混用，但事故期间本机 `127.0.
 
 1. 没有事故现场浏览器 Console 截图，因此无法 100% 证明用户浏览器里的第一条错误就是上述 ReferenceError。
 2. Node + jsdom smoke 能证明同 hash 入口模块存在初始化错误，不能完全替代真实浏览器 E2E。
-3. 当前补丁的 HTML 兜底 UI 需要在测试环境真实浏览器中验证一次，包括 CSP、Cloudflare 和生产构建后的真实渲染行为。module/inline script 执行顺序已由第二审查确认，但仍应做浏览器 smoke 作为发布门禁。
 
 ## 建议测试环境验证步骤
 
@@ -409,24 +368,20 @@ curl -sS https://<test-domain>/ | head -100
 2. Console 无 `ReferenceError: Cannot access ... before initialization`。
 3. 登录态场景访问 `/api/v1/auth/me` 正常。
 4. 控制台 Network 中入口 JS 与 CSS 均为 200。
-5. 可选：临时阻断入口 JS 或某个 chunk，页面应显示“前端加载失败”，不是纯白。
 
 建议发布门禁补充一个真实浏览器 smoke：
 
 1. 正常加载首页，断言 `#app` 非空且没有白屏。
-2. 拦截入口 JS 返回错误，断言页面显示“前端加载失败”。
-3. 对测试环境开启与生产一致的 CSP/Cloudflare 路径时重复上述检查。
+2. 对测试环境开启与生产一致的 CSP/Cloudflare 路径时重复上述检查。
 
 ## 第二审查结论
 
-Claude 对根因和三处改动的审查结论：
+Claude 对根因和当时补丁的审查结论如下；后续复核后，HTML 兜底脚本和 `main.ts` `.catch` 被认定为非根因修复，已从代码方案中移除。
 
 1. 根因判断成立：坏 hash 与本地未修复构建产物一致，同 hash jsdom 导入复现 TDZ 错误，静态 import 图存在 `vendor-vue <-> vendor-misc` 循环。
 2. 删除 `manualChunks` 是合适的根因修复，比继续微调 include 规则更稳妥；代价是失去自定义 vendor 缓存粒度，对正确性无影响。
-3. nonce 链路成立：新增 inline 兜底脚本会和 `__APP_CONFIG__` 脚本一样被替换为同一个请求级 nonce，不会被 CSP 拦截。
-4. 兜底脚本执行顺序成立：生产构建后 module 入口位于 `<head>`，但 module script 具备 defer 语义；body 内经典 inline 脚本会先注册 `error`、`unhandledrejection` 和自定义事件监听。
-5. `main.ts` 的 `.catch` 定位准确：它不能捕获静态 import 初始化错误，只覆盖异步 bootstrap 失败；本次根因修复仍是删除错误拆包和 HTML 级兜底。
-6. 唯一仍建议补强的是上线前真实浏览器 smoke，尤其验证正常首页和入口 JS 失败时的兜底 UI。
+3. 本次事故修复应收敛到删除错误拆包；运行时兜底页属于额外体验策略，不应混入根因修复。
+4. 仍建议补强上线前真实浏览器 smoke，验证正常首页可挂载且不再出现原始 TDZ 白屏。
 
 ## 给 Claude 的审查问题
 
