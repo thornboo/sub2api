@@ -5,17 +5,20 @@
     width="wide"
     @close="emit('close')"
   >
-    <div class="space-y-4">
+    <div class="space-y-5">
       <!-- No Group Assigned Warning -->
-      <div v-if="!platform" class="flex items-start gap-3 p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
-        <svg class="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+      <div
+        v-if="!platform"
+        class="flex items-start gap-3 rounded-2xl border border-amber-200/80 bg-amber-50/80 p-4 shadow-sm dark:border-amber-300/20 dark:bg-amber-400/[0.08] dark:shadow-black/20"
+      >
+        <svg class="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-500 dark:text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
         </svg>
         <div>
-          <p class="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+          <p class="text-sm font-semibold text-amber-900 dark:text-amber-100">
             {{ t('keys.useKeyModal.noGroupTitle') }}
           </p>
-          <p class="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
+          <p class="mt-1 text-sm text-amber-800/80 dark:text-amber-200/75">
             {{ t('keys.useKeyModal.noGroupDescription') }}
           </p>
         </div>
@@ -24,26 +27,24 @@
       <!-- Platform-specific content -->
       <template v-else>
         <!-- Description -->
-        <p class="text-sm text-gray-600 dark:text-gray-400">
+        <p class="rounded-2xl border border-stone-200/70 bg-white/80 px-4 py-3 text-sm leading-6 text-stone-600 shadow-sm dark:border-white/10 dark:bg-white/[0.035] dark:text-stone-400 dark:shadow-black/20">
           {{ platformDescription }}
         </p>
 
         <!-- Client Tabs -->
-        <div v-if="clientTabs.length" class="border-b border-gray-200 dark:border-dark-700">
-          <nav class="-mb-px flex space-x-6" aria-label="Client">
+        <div v-if="clientTabs.length">
+          <nav
+            class="flex gap-2 overflow-x-auto rounded-2xl border border-stone-200/70 bg-stone-100/80 p-1.5 dark:border-white/10 dark:bg-white/[0.035]"
+            aria-label="Client"
+          >
             <button
               v-for="tab in clientTabs"
               :key="tab.id"
               @click="activeClientTab = tab.id"
-              :class="[
-                'whitespace-nowrap py-2.5 px-1 border-b-2 font-medium text-sm transition-colors',
-                activeClientTab === tab.id
-                  ? 'border-primary-500 text-primary-600 dark:text-primary-400'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-              ]"
+              :class="tabButtonClass(activeClientTab === tab.id)"
             >
               <span class="flex items-center gap-2">
-                <component :is="tab.icon" class="w-4 h-4" />
+                <component :is="tab.icon" class="h-4 w-4" />
                 {{ tab.label }}
               </span>
             </button>
@@ -51,21 +52,19 @@
         </div>
 
         <!-- OS/Shell Tabs -->
-        <div v-if="showShellTabs" class="border-b border-gray-200 dark:border-dark-700">
-          <nav class="-mb-px flex space-x-4" aria-label="Tabs">
+        <div v-if="showShellTabs">
+          <nav
+            class="flex gap-2 overflow-x-auto border-y border-stone-200/70 py-3 dark:border-white/10"
+            aria-label="Tabs"
+          >
             <button
               v-for="tab in currentTabs"
               :key="tab.id"
               @click="activeTab = tab.id"
-              :class="[
-                'whitespace-nowrap py-2.5 px-1 border-b-2 font-medium text-sm transition-colors',
-                activeTab === tab.id
-                  ? 'border-primary-500 text-primary-600 dark:text-primary-400'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-              ]"
+              :class="shellTabButtonClass(activeTab === tab.id)"
             >
               <span class="flex items-center gap-2">
-                <component :is="tab.icon" class="w-4 h-4" />
+                <component :is="tab.icon" class="h-4 w-4" />
                 {{ tab.label }}
               </span>
             </button>
@@ -80,40 +79,46 @@
             class="relative"
           >
             <!-- File Hint (if exists) -->
-            <p v-if="file.hint" class="text-xs text-amber-600 dark:text-amber-400 mb-1.5 flex items-center gap-1">
+            <p
+              v-if="file.hint"
+              class="mb-2 flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-300"
+            >
               <Icon name="exclamationCircle" size="sm" class="flex-shrink-0" />
               {{ file.hint }}
             </p>
-            <div class="bg-gray-900 dark:bg-dark-900 rounded-xl overflow-hidden">
+            <div class="overflow-hidden rounded-2xl border border-stone-200/70 bg-stone-950 shadow-sm shadow-stone-950/10 dark:border-white/10 dark:bg-[#080d18] dark:shadow-black/30">
               <!-- Code Header -->
-              <div class="flex items-center justify-between px-4 py-2 bg-gray-800 dark:bg-dark-800 border-b border-gray-700 dark:border-dark-700">
-                <span class="text-xs text-gray-400 font-mono">{{ file.path }}</span>
+              <div class="flex items-center justify-between gap-3 border-b border-white/10 bg-white/[0.04] px-4 py-3">
+                <span class="min-w-0 truncate font-mono text-xs uppercase tracking-[0.18em] text-stone-400">{{ file.path }}</span>
                 <button
                   @click="copyContent(file.content, index)"
-                  class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg transition-colors"
+                  class="flex flex-shrink-0 items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300/70"
                   :class="copiedIndex === index
-                    ? 'bg-green-500/20 text-green-400'
-                    : 'bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white'"
+                    ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-300'
+                    : 'border-white/10 bg-white/[0.06] text-stone-300 hover:border-teal-300/30 hover:bg-teal-300/10 hover:text-teal-100'"
                 >
-                  <svg v-if="copiedIndex === index" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                  <svg v-if="copiedIndex === index" class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
                   </svg>
-                  <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                  <svg v-else class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
                   </svg>
                   {{ copiedIndex === index ? t('keys.useKeyModal.copied') : t('keys.useKeyModal.copy') }}
                 </button>
               </div>
               <!-- Code Content -->
-              <pre class="p-4 text-sm font-mono text-gray-100 overflow-x-auto"><code v-if="file.highlighted" v-html="file.highlighted"></code><code v-else v-text="file.content"></code></pre>
+              <pre class="overflow-x-auto bg-gradient-to-br from-[#0b1220] via-[#0b1020] to-[#050816] p-4 font-mono text-sm leading-7 text-stone-100"><code v-if="file.highlighted" v-html="file.highlighted"></code><code v-else v-text="file.content"></code></pre>
             </div>
           </div>
         </div>
 
         <!-- Usage Note -->
-        <div v-if="showPlatformNote" class="flex items-start gap-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800">
-          <Icon name="infoCircle" size="md" class="text-blue-500 flex-shrink-0 mt-0.5" />
-          <p class="text-sm text-blue-700 dark:text-blue-300">
+        <div
+          v-if="showPlatformNote"
+          class="flex items-start gap-3 rounded-2xl border border-sky-200/80 bg-sky-50/70 p-4 shadow-sm dark:border-sky-400/25 dark:bg-sky-400/[0.06] dark:shadow-black/20"
+        >
+          <Icon name="infoCircle" size="md" class="mt-0.5 flex-shrink-0 text-sky-600 dark:text-sky-300" />
+          <p class="text-sm leading-6 text-sky-800 dark:text-sky-100/85">
             {{ platformNote }}
           </p>
         </div>
@@ -175,6 +180,20 @@ const { copyToClipboard: clipboardCopy } = useClipboard()
 const copiedIndex = ref<number | null>(null)
 const activeTab = ref<string>('unix')
 const activeClientTab = ref<string>('claude')
+
+const tabButtonClass = (active: boolean) => [
+  'whitespace-nowrap rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300/70',
+  active
+    ? 'bg-white text-teal-700 shadow-sm shadow-stone-950/5 dark:bg-teal-300/10 dark:text-teal-200 dark:ring-1 dark:ring-teal-300/25'
+    : 'text-stone-500 hover:bg-white/80 hover:text-stone-900 dark:text-stone-400 dark:hover:bg-white/[0.06] dark:hover:text-stone-100'
+]
+
+const shellTabButtonClass = (active: boolean) => [
+  'whitespace-nowrap rounded-xl border px-3.5 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300/70',
+  active
+    ? 'border-teal-300/70 bg-teal-50 text-teal-700 shadow-sm shadow-teal-950/5 dark:border-teal-300/35 dark:bg-teal-300/10 dark:text-teal-200'
+    : 'border-transparent text-stone-500 hover:border-stone-200 hover:bg-stone-100/80 hover:text-stone-900 dark:text-stone-400 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-stone-100'
+]
 
 // Reset tabs when platform changes
 const defaultClientTab = computed(() => {

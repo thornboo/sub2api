@@ -199,9 +199,9 @@
       </div>
 
       <!-- Recent Activity -->
-      <div class="card">
-        <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-          <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+      <div class="card overflow-hidden">
+        <div class="border-b border-stone-200/70 px-6 py-4 dark:border-white/10">
+          <h2 class="text-lg font-semibold text-stone-950 dark:text-white">
             {{ t('redeem.recentActivity') }}
           </h2>
         </div>
@@ -230,92 +230,58 @@
             <div
               v-for="item in history"
               :key="item.id"
-              class="flex items-center justify-between rounded-xl bg-gray-50 p-4 dark:bg-dark-800"
+              :class="getHistoryItemSurfaceClass(item)"
             >
-              <div class="flex items-center gap-4">
-                <div
-                  :class="[
-                    'flex h-10 w-10 items-center justify-center rounded-xl',
-                    isBalanceType(item.type)
-                      ? item.value >= 0
-                        ? 'bg-emerald-100 dark:bg-emerald-900/30'
-                        : 'bg-red-100 dark:bg-red-900/30'
-                      : isSubscriptionType(item.type)
-                        ? 'bg-purple-100 dark:bg-purple-900/30'
-                        : item.value >= 0
-                          ? 'bg-blue-100 dark:bg-blue-900/30'
-                          : 'bg-orange-100 dark:bg-orange-900/30'
-                  ]"
-                >
+              <div class="flex min-w-0 items-center gap-4">
+                <div :class="getHistoryIconSurfaceClass(item)">
                   <!-- 余额类型图标 -->
                   <Icon
                     v-if="isBalanceType(item.type)"
                     name="dollar"
                     size="md"
-                    :class="
-                      item.value >= 0
-                        ? 'text-emerald-600 dark:text-emerald-400'
-                        : 'text-red-600 dark:text-red-400'
-                    "
+                    :class="getHistoryIconClass(item)"
                   />
                   <!-- 订阅类型图标 -->
                   <Icon
                     v-else-if="isSubscriptionType(item.type)"
                     name="badge"
                     size="md"
-                    class="text-purple-600 dark:text-purple-400"
+                    :class="getHistoryIconClass(item)"
                   />
                   <!-- 并发类型图标 -->
                   <Icon
                     v-else
                     name="bolt"
                     size="md"
-                    :class="
-                      item.value >= 0
-                        ? 'text-blue-600 dark:text-blue-400'
-                        : 'text-orange-600 dark:text-orange-400'
-                    "
+                    :class="getHistoryIconClass(item)"
                   />
                 </div>
-                <div>
-                  <p class="text-sm font-medium text-gray-900 dark:text-white">
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-semibold text-stone-900 dark:text-stone-100">
                     {{ getHistoryItemTitle(item) }}
                   </p>
-                  <p class="text-xs text-gray-500 dark:text-dark-400">
+                  <p class="text-xs text-stone-500 dark:text-stone-500">
                     {{ formatDateTime(item.used_at) }}
                   </p>
                 </div>
               </div>
-              <div class="text-right">
-                <p
-                  :class="[
-                    'text-sm font-semibold',
-                    isBalanceType(item.type)
-                      ? item.value >= 0
-                        ? 'text-emerald-600 dark:text-emerald-400'
-                        : 'text-red-600 dark:text-red-400'
-                      : isSubscriptionType(item.type)
-                        ? 'text-purple-600 dark:text-purple-400'
-                        : item.value >= 0
-                          ? 'text-blue-600 dark:text-blue-400'
-                          : 'text-orange-600 dark:text-orange-400'
-                  ]"
-                >
+              <div class="flex-shrink-0 text-right">
+                <p :class="getHistoryValueClass(item)">
                   {{ formatHistoryValue(item) }}
                 </p>
                 <p
                   v-if="!isAdminAdjustment(item.type)"
-                  class="font-mono text-xs text-gray-400 dark:text-dark-500"
+                  class="font-mono text-xs text-stone-400 dark:text-stone-600"
                 >
                   {{ item.code.slice(0, 8) }}...
                 </p>
-                <p v-else class="text-xs text-gray-400 dark:text-dark-500">
+                <p v-else class="text-xs text-stone-500 dark:text-stone-500">
                   {{ t('redeem.adminAdjustment') }}
                 </p>
                 <!-- Display notes for admin adjustments -->
                 <p
                   v-if="item.notes"
-                  class="mt-1 text-xs text-gray-500 dark:text-dark-400 italic max-w-[200px] truncate"
+                  class="mt-1 max-w-[200px] truncate text-xs italic text-stone-500 dark:text-stone-500"
                   :title="item.notes"
                 >
                   {{ item.notes }}
@@ -389,6 +355,62 @@ const isSubscriptionType = (type: string) => {
 const isAdminAdjustment = (type: string) => {
   return type === 'admin_balance' || type === 'admin_concurrency'
 }
+
+const getHistoryTone = (item: RedeemHistoryItem) => {
+  if (isBalanceType(item.type)) {
+    return item.value >= 0 ? 'emerald' : 'red'
+  }
+  if (isSubscriptionType(item.type)) {
+    return 'violet'
+  }
+  return item.value >= 0 ? 'blue' : 'orange'
+}
+
+const getHistoryItemSurfaceClass = (item: RedeemHistoryItem) => [
+  'group relative flex items-center justify-between gap-4 overflow-hidden rounded-xl border bg-gradient-to-r p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md',
+  {
+    emerald:
+      'border-stone-200/70 from-white to-emerald-50/70 shadow-stone-950/5 hover:border-emerald-300/70 hover:shadow-emerald-950/5 dark:border-white/10 dark:from-white/[0.055] dark:via-white/[0.035] dark:to-emerald-400/[0.045] dark:shadow-black/20 dark:hover:border-emerald-300/25 dark:hover:from-white/[0.075] dark:hover:to-emerald-400/[0.075]',
+    red:
+      'border-stone-200/70 from-white to-red-50/70 shadow-stone-950/5 hover:border-red-300/70 hover:shadow-red-950/5 dark:border-white/10 dark:from-white/[0.055] dark:via-white/[0.035] dark:to-red-400/[0.045] dark:shadow-black/20 dark:hover:border-red-300/25 dark:hover:from-white/[0.075] dark:hover:to-red-400/[0.075]',
+    violet:
+      'border-stone-200/70 from-white to-violet-50/70 shadow-stone-950/5 hover:border-violet-300/70 hover:shadow-violet-950/5 dark:border-white/10 dark:from-white/[0.055] dark:via-white/[0.035] dark:to-violet-400/[0.045] dark:shadow-black/20 dark:hover:border-violet-300/25 dark:hover:from-white/[0.075] dark:hover:to-violet-400/[0.075]',
+    blue:
+      'border-stone-200/70 from-white to-blue-50/70 shadow-stone-950/5 hover:border-blue-300/70 hover:shadow-blue-950/5 dark:border-white/10 dark:from-white/[0.055] dark:via-white/[0.035] dark:to-blue-400/[0.045] dark:shadow-black/20 dark:hover:border-blue-300/25 dark:hover:from-white/[0.075] dark:hover:to-blue-400/[0.075]',
+    orange:
+      'border-stone-200/70 from-white to-orange-50/70 shadow-stone-950/5 hover:border-orange-300/70 hover:shadow-orange-950/5 dark:border-white/10 dark:from-white/[0.055] dark:via-white/[0.035] dark:to-orange-400/[0.045] dark:shadow-black/20 dark:hover:border-orange-300/25 dark:hover:from-white/[0.075] dark:hover:to-orange-400/[0.075]'
+  }[getHistoryTone(item)]
+]
+
+const getHistoryIconSurfaceClass = (item: RedeemHistoryItem) => [
+  'flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl ring-1 transition-all duration-200 group-hover:scale-105',
+  {
+    emerald:
+      'bg-emerald-50 ring-emerald-200/70 group-hover:bg-emerald-100 dark:bg-emerald-400/10 dark:ring-emerald-300/20 dark:group-hover:bg-emerald-400/15',
+    red:
+      'bg-red-50 ring-red-200/70 group-hover:bg-red-100 dark:bg-red-400/10 dark:ring-red-300/20 dark:group-hover:bg-red-400/15',
+    violet:
+      'bg-violet-50 ring-violet-200/70 group-hover:bg-violet-100 dark:bg-violet-400/10 dark:ring-violet-300/20 dark:group-hover:bg-violet-400/15',
+    blue:
+      'bg-blue-50 ring-blue-200/70 group-hover:bg-blue-100 dark:bg-blue-400/10 dark:ring-blue-300/20 dark:group-hover:bg-blue-400/15',
+    orange:
+      'bg-orange-50 ring-orange-200/70 group-hover:bg-orange-100 dark:bg-orange-400/10 dark:ring-orange-300/20 dark:group-hover:bg-orange-400/15'
+  }[getHistoryTone(item)]
+]
+
+const getHistoryIconClass = (item: RedeemHistoryItem) =>
+  ({
+    emerald: 'text-emerald-600 dark:text-emerald-300',
+    red: 'text-red-600 dark:text-red-300',
+    violet: 'text-violet-600 dark:text-violet-300',
+    blue: 'text-blue-600 dark:text-blue-300',
+    orange: 'text-orange-600 dark:text-orange-300'
+  })[getHistoryTone(item)]
+
+const getHistoryValueClass = (item: RedeemHistoryItem) => [
+  'font-mono text-sm font-semibold',
+  getHistoryIconClass(item)
+]
 
 const getHistoryItemTitle = (item: RedeemHistoryItem) => {
   if (item.type === 'balance') {
