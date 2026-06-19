@@ -1,5 +1,27 @@
 # 补丁记录
 
+## 2026-06-19 - v1.1.4 白屏修复边界收敛
+
+范围：
+- `backend/cmd/server/VERSION`
+- `frontend/index.html`
+- `frontend/src/main.ts`
+- `docs-site/dev-zz/{changelog.md,patches.md,maintenance/frontend-white-screen-2026-06-17.md}`
+- `docs-site/dev-zz/{deployment/deploy-dev-zz.md,reference/configuration-and-migrations.md}`
+
+改动：
+- 移除 v1.1.3 中额外加入的 HTML 级“前端加载失败”兜底页，避免把网络慢、资源中断等非本次事故问题表现为错误页。
+- 恢复 `frontend/src/main.ts` 为单纯 `bootstrap()`，删除 `sub2api:bootstrap-error` 自定义事件链路。
+- 将 2026-06-17 白屏事故复盘收敛为根因修复：删除错误的手写 `manualChunks` 拆包，避免生产构建出现 ESM chunk 循环初始化错误。
+- `VERSION` 更新为 `1.1.4`，固定版本镜像示例同步为 `thornboo/sub2api:1.1.4`。
+
+验证：
+- `pnpm -C frontend run build`
+- `git diff --check`
+
+未验证：
+- 新发布镜像的浏览器 smoke，待 Release workflow 构建完成后在测试或正式环境验证。
+
 ## 2026-06-17 - 已删除 Key 证据展示阶段 1
 
 范围：
