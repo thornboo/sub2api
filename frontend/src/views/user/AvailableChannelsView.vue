@@ -394,14 +394,17 @@ function filterChannelsForSearch(source: UserAvailableChannel[]): UserAvailableC
     .map((ch) => {
       const nameHit = ch.name.toLowerCase().includes(q)
       const descHit = (ch.description || '').toLowerCase().includes(q)
-      const matchingSections = ch.platforms.filter((p) => {
+      const sections = Array.isArray(ch.platforms) ? ch.platforms : []
+      const matchingSections = sections.filter((p) => {
+        const groups = Array.isArray(p.groups) ? p.groups : []
+        const supportedModels = Array.isArray(p.supported_models) ? p.supported_models : []
         if (selectedPlatform && p.platform !== selectedPlatform) return false
         if (!q) return true
         if (nameHit || descHit) return true
         return (
           p.platform.toLowerCase().includes(q) ||
-          p.groups.some((g) => g.name.toLowerCase().includes(q)) ||
-          p.supported_models.some((m) => m.name.toLowerCase().includes(q))
+          groups.some((g) => g.name.toLowerCase().includes(q)) ||
+          supportedModels.some((m) => m.name.toLowerCase().includes(q))
         )
       })
       if (matchingSections.length === 0) return null

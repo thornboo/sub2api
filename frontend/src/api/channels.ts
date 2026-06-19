@@ -63,12 +63,38 @@ export interface UserAvailableChannel {
   platforms: UserChannelPlatformSection[]
 }
 
+function arrayOrEmpty<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : []
+}
+
+export function normalizeAvailableChannels<T extends UserAvailableChannel>(
+  channels: T[] | null | undefined,
+): T[] {
+  return arrayOrEmpty(channels).map((channel) => ({
+    ...channel,
+    description: channel.description ?? '',
+    platforms: arrayOrEmpty(channel.platforms).map((section) => ({
+      ...section,
+      groups: arrayOrEmpty(section.groups),
+      supported_models: arrayOrEmpty(section.supported_models).map((model) => ({
+        ...model,
+        pricing: model.pricing
+          ? {
+              ...model.pricing,
+              intervals: arrayOrEmpty(model.pricing.intervals),
+            }
+          : null,
+      })),
+    })),
+  }))
+}
+
 /** 列出当前用户可见的「可用渠道」（与 /groups/available 保持一致，返回平数组）。 */
 export async function getAvailable(options?: { signal?: AbortSignal }): Promise<UserAvailableChannel[]> {
   const { data } = await apiClient.get<UserAvailableChannel[]>('/channels/available', {
     signal: options?.signal
   })
-  return data
+  return normalizeAvailableChannels(data)
 }
 
 export const userChannelsAPI = { getAvailable }

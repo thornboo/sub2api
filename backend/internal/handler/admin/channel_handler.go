@@ -297,6 +297,9 @@ func intervalToResponse(iv service.PricingInterval) pricingIntervalResponse {
 
 func availableCatalogToResponse(ch service.AvailableChannel) availableCatalogChannelResponse {
 	sections := buildAvailableCatalogPlatformSections(ch)
+	if sections == nil {
+		sections = []availableCatalogPlatformSectionResponse{}
+	}
 	return availableCatalogChannelResponse{
 		ID:          ch.ID,
 		Name:        ch.Name,
@@ -344,12 +347,16 @@ func buildAvailableCatalogPlatformSections(ch service.AvailableChannel) []availa
 
 	sections := make([]availableCatalogPlatformSectionResponse, 0, len(platforms))
 	for _, platform := range platforms {
-		sort.SliceStable(groupsByPlatform[platform], func(i, j int) bool {
-			return groupsByPlatform[platform][i].Name < groupsByPlatform[platform][j].Name
+		groups := groupsByPlatform[platform]
+		if groups == nil {
+			groups = []availableCatalogGroupResponse{}
+		}
+		sort.SliceStable(groups, func(i, j int) bool {
+			return groups[i].Name < groups[j].Name
 		})
 		sections = append(sections, availableCatalogPlatformSectionResponse{
 			Platform:        platform,
-			Groups:          groupsByPlatform[platform],
+			Groups:          groups,
 			SupportedModels: availableCatalogSupportedModels(ch.SupportedModels, platform),
 		})
 	}

@@ -180,10 +180,10 @@ void props.userGroupRates
 const { t } = useI18n()
 
 function exclusiveGroups(section: UserChannelPlatformSection): UserAvailableGroup[] {
-  return section.groups.filter((g) => g.is_exclusive)
+  return (Array.isArray(section.groups) ? section.groups : []).filter((g) => g.is_exclusive)
 }
 
 function publicGroups(section: UserChannelPlatformSection): UserAvailableGroup[] {
-  return section.groups.filter((g) => !g.is_exclusive)
+  return (Array.isArray(section.groups) ? section.groups : []).filter((g) => !g.is_exclusive)
 }
 </script>

@@ -5,7 +5,7 @@
 
 import { apiClient } from '../client'
 import type { BillingMode, ChannelStatus, BillingModelSource } from '@/constants/channel'
-import type { UserAvailableChannel } from '@/api/channels'
+import { normalizeAvailableChannels, type UserAvailableChannel } from '@/api/channels'
 
 export type { BillingMode } from '@/constants/channel'
 
@@ -177,7 +177,7 @@ export async function getAvailableCatalog(options?: { signal?: AbortSignal }): P
   const { data } = await apiClient.get<AdminAvailableChannel[]>('/admin/channels/available-catalog', {
     signal: options?.signal
   })
-  return data
+  return normalizeAvailableChannels(data)
 }
 
 export interface SyncPricingModelsResult {

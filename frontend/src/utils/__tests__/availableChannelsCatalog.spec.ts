@@ -189,6 +189,51 @@ describe('availableChannelsCatalog', () => {
     expect(rows.find((row) => row.modelName === 'gpt-5.4')?.groups.map((group) => group.name)).toEqual(['public'])
   })
 
+  it('treats null catalog arrays from backend responses as empty arrays', () => {
+    const channels = [
+      {
+        name: 'Admin Catalog Channel',
+        description: '',
+        platforms: [
+          {
+            platform: 'anthropic',
+            groups: null,
+            supported_models: [
+              {
+                name: 'claude-sonnet-4.6',
+                platform: 'anthropic',
+                pricing: {
+                  billing_mode: BILLING_MODE_TOKEN,
+                  input_price: null,
+                  output_price: null,
+                  cache_write_price: null,
+                  cache_read_price: null,
+                  image_output_price: null,
+                  per_request_price: null,
+                  intervals: null,
+                },
+              },
+            ],
+          },
+        ],
+      },
+      {
+        name: 'Empty Catalog Channel',
+        description: '',
+        platforms: null,
+      },
+    ] as unknown as UserAvailableChannel[]
+
+    const rows = buildAvailableChannelCatalogRows(channels, {
+      includeSubscriptionGroups: false,
+      expandIntervals: true,
+    })
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0].modelName).toBe('claude-sonnet-4.6')
+    expect(rows[0].groups).toEqual([])
+  })
+
   it('filters group scope, billing mode and price status before building rows', () => {
     const channels: UserAvailableChannel[] = [
       {

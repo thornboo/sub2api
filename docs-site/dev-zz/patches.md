@@ -1,5 +1,32 @@
 # 补丁记录
 
+## 2026-06-19 - v1.1.5 可用渠道 null 数组容错
+
+范围：
+- `backend/cmd/server/VERSION`
+- `backend/internal/handler/admin/channel_handler.go`
+- `frontend/src/api/{channels.ts,admin/channels.ts}`
+- `frontend/src/components/channels/AvailableChannelsTable.vue`
+- `frontend/src/views/user/AvailableChannelsView.vue`
+- `frontend/src/utils/{availableChannelsCatalog.ts,__tests__/availableChannelsCatalog.spec.ts}`
+- `docs-site/dev-zz/{changelog.md,patches.md,deployment/deploy-dev-zz.md,reference/configuration-and-migrations.md}`
+
+改动：
+- 修复管理员进入「可用渠道」时，管理端全量目录响应中 `groups` / `platforms` / `intervals` 为 `null` 导致前端 `.filter()` 崩溃、页面主体空白的问题。
+- 用户侧与管理端可用渠道 API 响应在前端入口统一归一化数组字段，历史或异常响应里的 `null` 会被当作空数组处理。
+- 可用渠道搜索、表格分组和导出行构建逻辑增加容错，避免绕过 API 入口的数据再次触发空白。
+- 后端管理端全量目录对空 `platforms` / `groups` 返回 `[]`，不再编码成 JSON `null`。
+- `VERSION` 更新为 `1.1.5`，固定版本镜像示例同步为 `thornboo/sub2api:1.1.5`。
+
+验证：
+- `pnpm --dir frontend test:run src/utils/__tests__/availableChannelsCatalog.spec.ts`
+- `pnpm --dir frontend run build`
+- `go test ./internal/handler/admin ./internal/handler -run 'Available|Channel' -count=1`
+- `git diff --check`
+
+未验证：
+- 新发布镜像的正式环境浏览器 smoke，待 Release workflow 构建完成后在生产容器更新后验证。
+
 ## 2026-06-19 - v1.1.4 白屏修复边界收敛
 
 范围：

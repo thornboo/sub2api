@@ -91,6 +91,10 @@ const EXCEL_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.
 const ACTIVE_STATUS = 'active'
 const DISABLED_STATUS = 'disabled'
 
+function arrayOrEmpty<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : []
+}
+
 export function buildAvailableChannelCatalogRows(
   channels: UserAvailableChannel[],
   options: AvailableChannelCatalogOptions = {},
@@ -108,11 +112,13 @@ export function buildAvailableChannelCatalogRows(
     const channelStatus = getChannelStatus(channel)
     if (!matchesChannelStatus(channelStatus, statusScope, options.activeOnly)) return
 
-    channel.platforms.forEach((section, sectionIndex) => {
-      const groups = filterCatalogGroups(section.groups, includeSubscriptionGroups, groupScope)
-      if (section.groups.length > 0 && groups.length === 0) return
+    arrayOrEmpty(channel.platforms).forEach((section, sectionIndex) => {
+      const sectionGroups = arrayOrEmpty(section.groups)
+      const supportedModels = arrayOrEmpty(section.supported_models)
+      const groups = filterCatalogGroups(sectionGroups, includeSubscriptionGroups, groupScope)
+      if (sectionGroups.length > 0 && groups.length === 0) return
 
-      section.supported_models.forEach((model, modelIndex) => {
+      supportedModels.forEach((model, modelIndex) => {
         if (options.billingMode && model.pricing?.billing_mode !== options.billingMode) return
 
         const intervals = expandIntervals ? getValuedIntervals(model.pricing) : []
@@ -384,12 +390,13 @@ export async function exportAvailableChannelsCatalog(
 }
 
 function filterCatalogGroups(
-  groups: UserAvailableGroup[],
+  groups: UserAvailableGroup[] | null | undefined,
   includeSubscriptionGroups: boolean,
   groupScope: AvailableChannelGroupScope,
 ): UserAvailableGroup[] {
-  const nonSubscriptionGroups = groups.filter((group) => group.subscription_type !== 'subscription')
-  const baseGroups = includeSubscriptionGroups ? groups : nonSubscriptionGroups
+  const safeGroups = arrayOrEmpty(groups)
+  const nonSubscriptionGroups = safeGroups.filter((group) => group.subscription_type !== 'subscription')
+  const baseGroups = includeSubscriptionGroups ? safeGroups : nonSubscriptionGroups
 
   switch (groupScope) {
     case 'public':

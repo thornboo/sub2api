@@ -11,7 +11,7 @@ docker pull ghcr.io/thornboo/sub2api:latest
 
 不要使用上游镜像 `weishaw/sub2api:latest`。该镜像来自上游项目，不包含 `dev-zz` 的二开修改。
 
-固定版本镜像（例如 `thornboo/sub2api:1.1.4`）只建议用于验收、回滚或需要锁定版本的场景；日常更新应使用 `latest`，拉取最新镜像后重启服务。
+固定版本镜像（例如 `thornboo/sub2api:1.1.5`）只建议用于验收、回滚或需要锁定版本的场景；日常更新应使用 `latest`，拉取最新镜像后重启服务。
 
 ## 测试环境镜像
 
@@ -151,7 +151,7 @@ SUB2API_IMAGE=ghcr.io/thornboo/sub2api:latest
 如需临时回滚到指定版本：
 
 ```dotenv
-SUB2API_IMAGE=thornboo/sub2api:1.1.4
+SUB2API_IMAGE=thornboo/sub2api:1.1.5
 ```
 
 回滚完成后再执行：

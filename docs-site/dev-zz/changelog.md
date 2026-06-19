@@ -2,6 +2,9 @@
 
 ## 2026-06-19
 
+- 发布 v1.1.5 patch release：修复管理员访问「可用渠道」时，管理端全量目录中 `groups` / `platforms` / `intervals` 等数组字段为 `null` 导致前端执行 `.filter()` 崩溃、页面主体空白的问题。
+- 可用渠道接口前端入口现在会把后端返回的 `null` 数组归一为空数组；后端管理端全量目录也避免把空 platform / group 切片编码为 JSON `null`。
+- `backend/cmd/server/VERSION` 更新为 `1.1.5`，固定版本镜像示例同步为 `thornboo/sub2api:1.1.5`。
 - 发布 v1.1.4 patch release：将 v1.1.3 中额外加入的前端启动失败兜底页移除，使 2026-06-17 白屏事故修复重新收敛到根因修复，即删除危险的手写 `manualChunks` 拆包并保持 Rollup/Vite 默认 chunk graph。
 - `backend/cmd/server/VERSION` 更新为 `1.1.4`，固定版本镜像示例同步为 `thornboo/sub2api:1.1.4`。
 
