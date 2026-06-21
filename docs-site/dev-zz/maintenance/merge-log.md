@@ -2,6 +2,54 @@
 
 本文件记录二开分支吸收上游变更的同步工作。
 
+## 2026-06-21 - 将上游 `main` 合并到 `dev-zz`：thinking 协议、国产模型兜底定价与账号 ID 展示
+
+分支：
+- 目标：`dev-zz`
+- 上游：`origin/main`
+- Base：`b8a482e1`
+- 合并前目标：`e5027c48`
+- 上游 head：`945b9b20`
+- 结果提交：本次合并提交
+
+上游要点：
+- 新增邮箱绑定后缀白名单校验，发送绑定验证码和绑定提交都复用注册邮箱策略。
+- 新增 SSE `event:error` 响应体保留，运维错误日志可以看到真实上游错误内容。
+- 新增 thinking 协议识别、DeepSeek `max` reasoning effort 归一化、MiniMax M 系列 `enabled` thinking 自适应处理，以及 Anthropic 兼容上游 thinking block passback 保护。
+- 新增 DeepSeek V4、GLM、Kimi、MiniMax、Kimi coding 和 Doubao embedding vision 兜底定价，并支持图片输入 token 单独计价。
+- 修复 Anthropic 官方 5h / 7d 窗口限流冷却被通用 429 临时不可调度规则缩短的问题。
+- API Key IP ACL 拒绝响应携带客户端 IP；管理端账号列表展示并支持排序账号 ID。
+
+合并策略：
+- 合并前阅读 `docs-site/dev-zz/branch-policy.md`、`docs-site/dev-zz/patches.md`、`docs-site/dev-zz/maintenance/merge-main.md`、`docs-site/dev-zz/maintenance/merge-log.md`、`docs-site/dev-zz/changelog.md`、`docs-site/dev-zz/reference/change-map.md`、`docs-site/dev-zz/reference/api-surface.md`、`docs-site/dev-zz/reference/configuration-and-migrations.md` 和 `docs-site/dev-zz/testing/verification-matrix.md`，并扫描 `docs-site/` 全站结构与关键词。
+- 用 `git fetch origin` 刷新远程引用；本地 `main` 与 `origin/main` 均为 `945b9b20`。
+- 在正式合并前用 `git merge-tree --write-tree --merge-base b8a482e127c58dce1441bd14042793524b760867 HEAD origin/main` 预检，预测到一处内容冲突。
+- 用 `git merge --no-commit origin/main` 把上游 `main` 合并进 `dev-zz`。
+- 接受上游后端正确性、安全策略、计费、网关兼容性和账号 ID 展示改动；保留 dev-zz 的发布版本号、控制台视觉方向、认证入口隐藏策略、企业 Key 和 docs-site 文档中心。
+
+冲突文件：
+- `backend/cmd/server/VERSION`
+
+解决说明：
+- `backend/cmd/server/VERSION` 的 base 为 `0.1.136`，dev-zz 为 `1.1.6`，上游为 `0.1.137`；按 dev-zz 正式发布线保留 `1.1.6`。
+- `frontend/src/views/admin/AccountsView.vue` 自动合并后仅新增账号 ID 列与排序 key，保留 dev-zz 表格多选按钮和当前 stone / emerald 样式。
+- `frontend/src/i18n/locales/{zh,en}.ts` 自动合并新增账号 ID 列文案，没有改变 dev-zz 隐藏 LinuxDo / 微信入口的认证展示策略。
+- 本次没有新增数据库迁移，未改变 `151/152/153` 之后的 dev-zz 迁移编号。
+
+验证：
+- `git diff --check`
+- `git diff --cached --check`
+- `rg -n "^(<<<<<<<|=======|>>>>>>>)$" .`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/views/admin/__tests__/AccountsView.bulkEdit.spec.ts src/views/admin/__tests__/AccountsView.usageWindowsHint.spec.ts`
+- `pnpm --dir docs-site docs:build`
+- `mise x -C backend -- go test ./internal/handler ./internal/server/middleware ./internal/service`
+
+未验证：
+- 浏览器人工 smoke。
+- 完整仓库级 `go test ./...` 和完整前端测试套件。
+
 ## 2026-06-17 - 将上游 `main` 合并到 `dev-zz`：Cyber 策略、OpenAI 配额与调度修复
 
 分支：

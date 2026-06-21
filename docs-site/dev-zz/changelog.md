@@ -1,5 +1,11 @@
 # 变更记录
 
+## 2026-06-21
+
+- 同步上游 `main`（`945b9b20`）：合并邮箱绑定后缀白名单校验、API Key IP ACL 拒绝提示携带客户端 IP、SSE `event:error` 响应体保留到运维日志、Anthropic 官方 5h/7d 窗口限流冷却保护、thinking block 协议识别与 retry 过滤收敛，以及 DeepSeek / GLM / Kimi / MiniMax / Doubao 多模态 embedding 的兜底定价。
+- 管理端账号列表吸收上游账号 ID 列展示与排序能力，同时保留 dev-zz 当前表格多选按钮样式和 stone / emerald 控制台视觉方向。
+- `backend/cmd/server/VERSION` 合并冲突按 dev-zz 发布线保留 `1.1.6`，未采用上游 `0.1.137` 版本号。
+
 ## 2026-06-19
 
 - 发布 v1.1.5 patch release：修复管理员访问「可用渠道」时，管理端全量目录中 `groups` / `platforms` / `intervals` 等数组字段为 `null` 导致前端执行 `.filter()` 崩溃、页面主体空白的问题。

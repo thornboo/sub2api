@@ -1,5 +1,40 @@
 # 补丁记录
 
+## 2026-06-21 - 上游 main 同步：thinking 协议、兜底定价与账号 ID
+
+范围：
+- `backend/internal/handler/{gateway_handler.go,gateway_handler_intercept_test.go,auth_oauth_pending_flow_test.go}`
+- `backend/internal/server/middleware/{api_key_auth.go,api_key_auth_test.go}`
+- `backend/internal/service/{auth_email_binding.go,billing_service.go,gateway_*.go,openai_*.go,ratelimit_service.go,thinking_protocol.go}`
+- `frontend/src/views/admin/AccountsView.vue`
+- `frontend/src/i18n/locales/{zh,en}.ts`
+- `docs-site/dev-zz/{changelog.md,patches.md,maintenance/merge-log.md}`
+
+改动：
+- 合并上游 `main` 到 `dev-zz`，上游 head 为 `945b9b20`。
+- 吸收邮箱绑定后缀白名单校验，使发送绑定验证码和实际绑定都走注册邮箱策略。
+- API Key IP ACL 拒绝响应现在包含客户端 IP；空 IP 以 `unknown` 展示。
+- 网关保留 SSE `event:error` 真实响应体用于运维日志，并补强 haiku 探针、OpenAI/Gemini/WebSocket/Responses 兼容路径。
+- 新增 thinking 协议识别：Anthropic 官方 strict 路径继续剥离无效签名 thinking block，DeepSeek / Kimi / GLM / MiniMax / Qwen thinking 等 passback-required 上游保留历史 thinking block，避免破坏第三方 Anthropic 兼容协议。
+- 合并 DeepSeek V4、GLM、Kimi、MiniMax、Kimi coding 和 Doubao embedding vision 的兜底定价，并为图文不同价 embedding 增加图片输入 token 单价。
+- Anthropic 官方 5h / 7d 窗口耗尽时优先持久化真实 reset 冷却，避免被宽泛 429 临时不可调度规则缩短。
+- 管理端账号列表新增账号 ID 列和排序能力；dev-zz 的表格选择按钮样式保持不变。
+- `backend/cmd/server/VERSION` 冲突按 dev-zz 发布线保留 `1.1.6`，没有采用上游 `0.1.137`。
+
+验证：
+- `git diff --check`
+- `git diff --cached --check`
+- `rg -n "^(<<<<<<<|=======|>>>>>>>)$" .`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/views/admin/__tests__/AccountsView.bulkEdit.spec.ts src/views/admin/__tests__/AccountsView.usageWindowsHint.spec.ts`
+- `pnpm --dir docs-site docs:build`
+- `mise x -C backend -- go test ./internal/handler ./internal/server/middleware ./internal/service`
+
+未验证：
+- 浏览器人工 smoke。
+- 完整仓库级 `go test ./...` 和完整前端测试套件。
+
 ## 2026-06-19 - v1.1.5 可用渠道 null 数组容错
 
 范围：
