@@ -51,7 +51,7 @@ git show stash@{0}^3:secondary-dev/DEV_SEED_DESIGN.md
 - 订阅计划。
 - 兑换码。
 
-主要决策：
+主要取舍：
 
 - 只在精确设置 `DEV_SEED=local-fixtures` 时启用。
 - 拒绝 `true`、`1`、`yes` 等宽松布尔值，避免生产误启。

@@ -1,5 +1,7 @@
 # 企业用量分析中心
 
+> 状态：部分落地。owner 用量分析第一版已经实现；管理员全站增强、异常治理和多分组 Key 仍是后续阶段。
+
 ## 已落地情况
 
 - owner 用量分析第一版已落地；管理员全站增强、异常治理和多分组 Key 仍在后续阶段。
@@ -7,7 +9,7 @@
 - 前置成果：
   - API Key 批量创建、批量维护、标签、筛选批量操作已落地。
   - 单 Key 用量下钻已落地，包含趋势、模型分布和请求记录。
-  - ADR 0002 已明确：用 API Key 承载企业成员管理，不引入员工登录实体。
+  - [设计取舍 0002](../decisions/adr-0002-key-as-enterprise-member.md) 已明确：用 API Key 承载企业成员管理，不引入员工登录实体。
 - 已落地成果：
   - 用户侧 Usage 页面新增分析视图，前端组件为 `frontend/src/components/user/UsageAnalyticsPanel.vue`。
   - 用户认证域新增 `/api/v1/usage/analytics/summary`、`leaderboard`、`models`、`groups`、`tags`、`trend`。
@@ -89,7 +91,7 @@
 
 ### 关键约束
 
-- ADR 0002 当前结论是“一把 Key 等于一个员工席位”，不引入员工登录主体。
+- [设计取舍 0002](../decisions/adr-0002-key-as-enterprise-member.md) 当前结论是“一把 Key 等于一个员工席位”，不引入员工登录主体。
 - `APIKeyAuthSnapshot` 当前只有单个 `GroupID` 和单个 `Group` 快照。
 - API Key 绑定分组不能只看 `api_keys.group_id`。现有授权语义包括：
   - 非专属分组：普通用户可绑定。
@@ -460,14 +462,14 @@ GET /api/v1/admin/dashboard/cost-margin
 
 - 绑定列表中的每个 group 都必须是 owner 当时可绑定的分组，不能绕过 `AllowedGroups`、订阅型分组和现有 `CanBindGroup` / `canUserBindGroupInternal` 规则。
 - auth snapshot v2 应复用并扩展现有 `AllowedGroups`、`GroupID`、`Group`、fallback group 的语义，而不是定义一套平行授权模型。
-- fallback group 如何计入 Key 的访问范围必须写入 ADR：默认 group fallback 是否自动允许、fallback 目标是否也要在 owner 可绑定范围内、usage log 最终写入哪个 group。
+- fallback group 如何计入 Key 的访问范围必须写入设计取舍文档：默认 group fallback 是否自动允许、fallback 目标是否也要在 owner 可绑定范围内、usage log 最终写入哪个 group。
 
 ### 方案对比
 
 | 方案 | 说明 | 优点 | 缺点 | 结论 |
 | --- | --- | --- | --- | --- |
 | 多把物理 Key + 共享标签 | 继续每个供应商一把 Key，用 `employee:alice` 标签归并 | 无 schema 风险，立刻可用 | 员工体验差，quota/限流重复，排行榜需二次归并 | 只作为短期过渡 |
-| 新增员工/成员实体 | 新建不一定能登录的 `members`，一个成员挂多把 Key | 员工概念清晰，可做严格成本中心 | 与 ADR 0002 “Key 即员工席位”冲突，模型变重 | 暂不推荐 |
+| 新增员工/成员实体 | 新建不一定能登录的 `members`，一个成员挂多把 Key | 员工概念清晰，可做严格成本中心 | 与“Key 即员工席位”的设计取舍冲突，模型变重 | 暂不推荐 |
 | API Key 多分组访问范围 | 一把 Key 仍是员工席位，但可绑定多个分组/能力包 | 员工只有一把 Key，quota/限流统一，usage log 仍可按 group 归因 | 需要改 auth cache、网关选组、计费和 UI | 推荐作为企业级目标方案 |
 
 ### 推荐方向：Key Access Profile
@@ -541,7 +543,7 @@ UI 策略：
 - 模型到平台/分组的解析必须有确定性，否则同一请求可能路由到错误分组。
 - 管理员和 owner 的用量统计要同时支持“按 Key 合计”和“按 Key + group 拆分”。
 
-因此，多分组 Key 应作为单独阶段，先写 ADR，再实现。
+因此，多分组 Key 应作为单独阶段，先写设计取舍文档，再实现。
 
 ## 实施阶段建议
 
@@ -588,8 +590,8 @@ UI 策略：
 
 ### 阶段 4：Key Access Profile / 多分组 Key
 
-- 先写 ADR。
-- ADR 必须先梳理 `users.AllowedGroups`、订阅型分组、`api_keys.group_id`、auth snapshot `GroupID` / `Group`、group fallback 之间的现有关系。
+- 先写设计取舍文档。
+- 设计取舍文档必须先梳理 `users.AllowedGroups`、订阅型分组、`api_keys.group_id`、auth snapshot `GroupID` / `Group`、group fallback 之间的现有关系。
 - 设计 `api_key_group_bindings` 或 access profile schema。
 - 绑定校验必须复用现有分组可绑定规则，禁止把 Key 绑定到 owner 自身无权访问的分组。
 - auth snapshot v2。
@@ -613,7 +615,7 @@ UI 策略：
 
 - 权限矩阵是否覆盖用户、owner、admin。
 - owner DTO 是否明确排除 admin-only 字段。
-- 多供应商 Key 是否不破坏 ADR 0002。
+- 多供应商 Key 是否不破坏“Key 即员工席位”的既定取舍。
 - 多供应商 Key 是否明确继承 `AllowedGroups`、订阅型分组和 fallback group 的现有授权语义。
 - 阶段划分是否避免把 schema 重构混入 owner analytics。
 - tags 统计是否明确“重复计入”契约，且没有把 `share_percent` 暗示为总和 100% 的占比。

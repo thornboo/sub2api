@@ -292,15 +292,15 @@
 - `docs-site/dev-zz/features/{enterprise-key-member-management.md,enterprise-usage-analytics.md}`
 
 改动：
-- 新增根部 `DESIGN.md`，作为 dev-zz 后续 UI/UX 和分析型功能的设计决策索引，记录产品目标、角色、视觉语言、组件复用、权限边界和实现约束。
+- 新增根部 `DESIGN.md`，作为 dev-zz 后续 UI/UX 和分析型功能的设计取舍索引，记录产品目标、角色、视觉语言、组件复用、权限边界和实现约束。
 - 新增 `enterprise-usage-analytics.md`，把企业 owner 自助分析、平台管理员全站分析、Key-only 员工查询和单 Key 下钻分层说明。
 - 明确 owner 新接口应挂在用户认证域，强制绑定当前 `subject.UserID`，并使用独立 DTO 排除 `account_cost`、上游账号、渠道、`upstream_model` 等管理员专属字段。
 - 明确员工 Key 排行、分组/标签统计、模型调用分布、趋势和异常面板作为下一阶段 owner 用量总览范围。
 - 对“员工需要同时使用 OpenAI / Anthropic / Gemini”给出阶段性方案：短期可用标签归并多把物理 Key，长期推荐 Key Access Profile / 多分组访问范围，让一把员工 Key 绑定多个可用分组，同时保留 `api_keys.group_id` 兼容旧逻辑。
-- 根据设计审查补强多分组 Key 的授权前置条件：阶段四 ADR 必须先梳理 `AllowedGroups`、订阅型分组、`api_keys.group_id`、auth snapshot 和 fallback group 的现有关系，禁止 Key 绑定到 owner 自身无权访问的分组。
+- 根据设计审查补强多分组 Key 的授权前置条件：阶段四设计取舍文档必须先梳理 `AllowedGroups`、订阅型分组、`api_keys.group_id`、auth snapshot 和 fallback group 的现有关系，禁止 Key 绑定到 owner 自身无权访问的分组。
 - 明确 owner 统计契约：tags 聚合第一版不返回 `share_percent`，避免多标签重复计入时被误画为总和 100% 的占比；summary 将历史时间范围聚合与当前 quota / 限流实时快照分开。
 - 修正 usage log 索引表述：现有 `user_id, created_at` 支撑 owner 时间范围扫描，但 `GROUP BY api_key_id` 等聚合仍需在 owner 时间窗内计算，真实数据量证明瓶颈后再评估复合索引或预聚合。
-- 将企业 Key 成员管理、API Key 用量下钻、企业用量分析中心和 ADR 0002 加入 docs-site 侧边栏，便于后续审查和实现查找。
+- 将企业 Key 成员管理、API Key 用量下钻、企业用量分析中心和设计取舍 0002 加入 docs-site 侧边栏，便于后续审查和实现查找。
 
 验证：
 - `pnpm --dir docs-site docs:build`
@@ -344,7 +344,7 @@
 - 筛选批量支持 `search` / `status` / `group_id` / `tags`，要求至少一个筛选条件，避免空筛选误操作全量 Key。
 - 后端先将筛选结果解析为当前 owner 名下的 Key ID 集合，并限制单次最多 500 个，再复用现有按 ID 批量事务、越权检查和缓存失效链路。
 - 当前用户侧 Key 页面仍以列表勾选作为批量修改 / 删除入口，不在筛选下拉选择时自动显示批量操作。
-- 本轮不引入子账号 / 员工登录实体，也不改变 ADR 0002 的 Key-as-member 边界。
+- 本轮不引入子账号 / 员工登录实体，也不改变设计取舍 0002 的 Key-as-member 边界。
 
 验证：
 - `mise x -C backend -- go test ./internal/service -run 'TestAPIKeyServiceBatch(Update|Delete)'`
@@ -527,7 +527,7 @@
 改动：
 - 把 `docs-site/` 从一个生成的镜像目录改造为 `dev-zz` 的源文档中心。
 - 在 `docs-site/project/` 下新增结构化项目文档。
-- 将二开记录迁移到 `docs-site/dev-zz/`，包括变更记录、补丁说明、分支策略、部署文档、合并流程、合并记录、功能规划，以及文档中心的决策记录。
+- 将二开记录迁移到 `docs-site/dev-zz/`，包括变更记录、补丁说明、分支策略、部署文档、合并流程、合并记录、功能规划，以及文档中心的设计取舍文档。
 - 把 dev-zz 源码构建部署脚本移到 `deploy/deploy-dev-zz.sh`。
 - 移除生成内容的同步脚本，并取消 `secondary-dev/` 作为独立文档目录。
 - 把本地开发和可用渠道模型广场规划文档移入 `docs-site/dev-zz/`。

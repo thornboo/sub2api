@@ -1,23 +1,24 @@
 # dev-zz 变更地图
 
-这页按 `origin/main...dev-zz` 的真实差异整理二开范围。最近一次盘点基于：
+这页按 `origin/main...dev-zz-develop` 的真实差异整理二开范围。`dev-zz-develop` 是当前持续开发分支，正式线 `dev-zz` 只接收验证后的改动。最近一次盘点基于：
 
 | 项 | 值 |
 | --- | --- |
-| dev-zz HEAD | `a807e096` |
-| origin/main | `b8a482e1` |
-| merge-base | `b8a482e1` |
-| 差异规模 | 323 个文件，约 32727 行新增、3942 行删除 |
+| dev-zz-develop HEAD | `48f62862` |
+| origin/dev-zz | `738a15be` |
+| origin/main | `945b9b20` |
+| merge-base | `945b9b20` |
+| 差异规模 | 339 个文件，约 34828 行新增、4174 行删除 |
 
 ## 变更分布
 
 | 区域 | 文件数 | 说明 |
 | --- | ---: | --- |
-| `frontend/` | 189 | 用户/API Key、owner 用量分析、管理员用量下钻、可用渠道模型、运维弹窗栈、主题与控制台 UI |
+| `frontend/` | 199 | 用户/API Key、owner 用量分析、管理员用量下钻、可用渠道模型、运维弹窗栈、主题与控制台 UI |
 | `backend/` | 80 | API Key 批量/标签/状态、owner analytics、usage 聚合、已删除 Key 证据 hydrate、配置默认值、测试与迁移 |
-| `docs-site/` | 29 | dev-zz 文档中心、功能文档、部署/开发/维护记录 |
+| `docs-site/` | 34 | dev-zz 文档中心、功能文档、部署/开发/维护记录 |
 | `deploy/` | 14 | fork 镜像默认值、源码构建脚本、备份脚本、Compose/安装脚本与部署样例 |
-| `.github/` | 3 | CI、release、security scan 的 Node 24 actions runtime 验证 |
+| `.github/` | 4 | CI、release、security scan 的 Node 24 actions runtime 验证 |
 | 根目录 / README / Dockerfile | 8 | release 镜像、版本号、项目说明、分布式 Dockerfile 与设计索引 |
 
 ## 已落地功能

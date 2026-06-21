@@ -1,5 +1,7 @@
 # 管理员用量分析下钻
 
+> 状态：已落地。管理员侧用户 / API Key 下钻入口、日期回写和月粒度趋势已经实现。
+
 ## 已落地情况
 
 - 对应提交：`d4192194 Add admin usage drilldown for users and keys`。

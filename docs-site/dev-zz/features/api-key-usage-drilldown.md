@@ -1,5 +1,7 @@
 # API Key 用量下钻
 
+> 状态：已落地。用户侧单 Key 趋势、模型分布和请求记录下钻已经实现。
+
 ## 已落地情况
 
 - 已按第一版范围落地。
@@ -243,7 +245,7 @@ timezone=Asia/Shanghai
 - `ApiKeyUsageLogsPanel` 负责逐请求记录分页。
 - 若第一版先不内嵌请求明细，也仍应保留 `ApiKeyUsageModal` / `ApiKeyUsageTrendPanel` 的边界，避免后续再从 `KeysView.vue` 大文件中拆分。
 
-## 时区与分桶决策
+## 时区与分桶取舍
 
 当前代码中存在一个需要显式处理的边界：
 

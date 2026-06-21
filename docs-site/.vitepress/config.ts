@@ -43,30 +43,51 @@ export default defineConfig({
         ]
       },
       {
-        text: '维护',
+        text: '分支、复盘与旧稿',
         items: [
-          { text: '合并 main 到 dev-zz', link: '/dev-zz/maintenance/merge-main' },
+          { text: '同步上游 main', link: '/dev-zz/maintenance/merge-main' },
           { text: '上游合并记录', link: '/dev-zz/maintenance/merge-log' },
+          { text: '前端白屏复盘', link: '/dev-zz/maintenance/frontend-white-screen-2026-06-17' },
           { text: 'dev-zz-apipool 分支清单', link: '/dev-zz/maintenance/dev-zz-apipool-branch-inventory' },
           { text: 'DEV_SEED stash 设计清单', link: '/dev-zz/maintenance/stash-dev-seed-design' },
-          { text: '维度化计费 stash 设计清单', link: '/dev-zz/maintenance/stash-billing-dimensional-pricing' },
+          { text: '维度化计费 stash 设计清单', link: '/dev-zz/maintenance/stash-billing-dimensional-pricing' }
+        ]
+      },
+      {
+        text: '参考索引',
+        items: [
+          { text: 'dev-zz 接口索引', link: '/dev-zz/reference/api-surface' },
           { text: '配置与迁移索引', link: '/dev-zz/reference/configuration-and-migrations' },
           { text: '验证矩阵', link: '/dev-zz/testing/verification-matrix' }
         ]
       },
       {
-        text: '功能与决策',
+        text: '已落地功能',
         items: [
           { text: '可用渠道模型广场', link: '/dev-zz/features/available-channels-model-marketplace' },
-          { text: '企业 Key 成员管理', link: '/dev-zz/features/enterprise-key-member-management' },
           { text: 'API Key 用量下钻', link: '/dev-zz/features/api-key-usage-drilldown' },
-          { text: '管理员用量分析下钻', link: '/dev-zz/features/admin-usage-profile-drilldown' },
-          { text: '上游成本感知调度', link: '/dev-zz/features/upstream-provider-cost-aware-scheduling' },
+          { text: '管理员用量分析下钻', link: '/dev-zz/features/admin-usage-profile-drilldown' }
+        ]
+      },
+      {
+        text: '部分落地功能',
+        items: [
+          { text: '企业 Key 成员管理', link: '/dev-zz/features/enterprise-key-member-management' },
           { text: '企业用量分析中心', link: '/dev-zz/features/enterprise-usage-analytics' },
-          { text: '用量账本与已删除 Key 证据', link: '/dev-zz/features/usage-ledger-evidence-integrity' },
-          { text: 'dev-zz 接口索引', link: '/dev-zz/reference/api-surface' },
-          { text: 'ADR 0001: 文档中心', link: '/dev-zz/decisions/adr-0001-docs-site-as-dev-zz-doc-hub' },
-          { text: 'ADR 0002: Key 作为成员', link: '/dev-zz/decisions/adr-0002-key-as-enterprise-member' }
+          { text: '用量账本与已删除 Key 证据', link: '/dev-zz/features/usage-ledger-evidence-integrity' }
+        ]
+      },
+      {
+        text: '方案稿（未实现）',
+        items: [
+          { text: '上游成本感知调度', link: '/dev-zz/features/upstream-provider-cost-aware-scheduling' }
+        ]
+      },
+      {
+        text: '设计取舍',
+        items: [
+          { text: '0001：文档中心', link: '/dev-zz/decisions/adr-0001-docs-site-as-dev-zz-doc-hub' },
+          { text: '0002：Key 作为成员', link: '/dev-zz/decisions/adr-0002-key-as-enterprise-member' }
         ]
       }
     ],

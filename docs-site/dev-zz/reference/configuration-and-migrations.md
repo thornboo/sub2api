@@ -61,7 +61,7 @@ dev-zz 默认关闭自动数据清理，保留管理员显式清理入口。
 | dev-zz 正式线候选镜像 | `ghcr.io/thornboo/sub2api:dev-zz`、`ghcr.io/thornboo/sub2api:dev-zz-<shortsha>`，默认多架构 `linux/amd64` + `linux/arm64` |
 | 正式发布 Docker Hub | `thornboo/sub2api:latest` |
 | 正式发布 GitHub Container Registry | `ghcr.io/thornboo/sub2api:latest` |
-| 固定版本示例 | `thornboo/sub2api:1.1.5` |
+| 固定版本示例 | `thornboo/sub2api:1.1.6` |
 | 上游镜像 | `weishaw/sub2api:latest`，不包含 dev-zz 二开 |
 
 `deploy/.env.example` 和各 compose 文件默认使用 `SUB2API_IMAGE=thornboo/sub2api:latest`，该值代表正式发布镜像。测试环境应显式改为 `ghcr.io/thornboo/sub2api:dev-zz-develop` 或带 `<shortsha>` 的测试镜像。本地源码构建镜像 `sub2api:dev-zz` 只作为开发验证、应急和未发布代码测试路径。

@@ -83,4 +83,4 @@ dev-zz-fix-* / dev-zz-feature-*
 - 补丁实现：更新 [补丁记录](./patches.md)。
 - 新接口或接口语义：更新 [接口索引](./reference/api-surface.md)。
 - 配置、迁移、镜像、CI：更新 [配置与迁移索引](./reference/configuration-and-migrations.md)。
-- 长期设计决策：放入 `docs-site/dev-zz/decisions/`。
+- 长期设计取舍：放入 `docs-site/dev-zz/decisions/`。

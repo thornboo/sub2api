@@ -1,17 +1,17 @@
-# 合并 main 到 dev-zz
+# 同步上游 main
 
-这页记录把上游 `main` 合并到 `dev-zz` 的标准流程。默认比较对象是 `origin/main`，避免本地 `main` 停在旧提交上，导致误判合并范围。
+这页记录把上游 `main` 同步到 dev-zz 系列分支的标准流程。默认先合并到 `dev-zz-develop` 做集成和测试；验证通过后，再把改动推进到正式线 `dev-zz`。默认比较对象是 `origin/main`，避免本地 `main` 停在旧提交上，导致误判合并范围。
 
 ## 目标
 
-- 吸收上游 `main` 的修复和功能。
+- 把上游 `main` 的修复和功能先吸收到 `dev-zz-develop`。
 - 保留 dev-zz 已记录的二开策略。
-- 记录冲突、取舍和验证命令。
+- 记录冲突、取舍、验证命令和是否已经推进 `dev-zz`。
 
 ## 前置检查
 
 ```bash
-git switch dev-zz
+git switch dev-zz-develop
 git status --short --branch
 git fetch origin
 ```
@@ -21,7 +21,7 @@ git fetch origin
 ```bash
 git switch main
 git pull --ff-only origin main
-git switch dev-zz
+git switch dev-zz-develop
 ```
 
 ## 读取上下文
@@ -90,7 +90,7 @@ pnpm --dir docs-site docs:build
 
 合并完成后更新 [上游合并记录](./merge-log.md)，记录：
 
-- 目标分支
+- 目标分支和后续是否推进 `dev-zz`
 - 上游分支
 - base、合并前目标、上游 head
 - 上游 highlights
@@ -106,6 +106,17 @@ pnpm --dir docs-site docs:build
 - [dev-zz 变更地图](../reference/change-map.md)
 - [验证矩阵](../testing/verification-matrix.md)
 
+## 推进正式线
+
+`dev-zz-develop` 验证通过后，再把同一批改动推进到 `dev-zz`。如果 `dev-zz` 没有额外提交，优先快进，避免制造无意义的合并提交：
+
+```bash
+git switch dev-zz
+git merge --ff-only dev-zz-develop
+```
+
+如果不能快进，先查清楚 `dev-zz` 上多出的提交是什么，再决定是合并、挑选还是先补同步记录。
+
 ## 完成条件
 
 - 没有冲突标记。
@@ -113,4 +124,4 @@ pnpm --dir docs-site docs:build
 - 针对性验证通过。
 - [上游合并记录](./merge-log.md) 已更新。
 - `docs-site` 中与本次合并相关的功能、部署、接口和验证文档已同步。
-- 合并提交创建完成。
+- `dev-zz-develop` 合并提交创建完成；需要发布到正式线时，`dev-zz` 也已按验证结果推进。
