@@ -1,6 +1,6 @@
 # 合并 main 到 dev-zz
 
-本文档记录将上游 `main` 合并到 `dev-zz` 的标准流程。默认比较对象是 `origin/main`，避免本地 `main` 停留在旧提交时误判合并范围。
+这页记录把上游 `main` 合并到 `dev-zz` 的标准流程。默认比较对象是 `origin/main`，避免本地 `main` 停在旧提交上，导致误判合并范围。
 
 ## 目标
 
@@ -16,7 +16,7 @@ git status --short --branch
 git fetch origin
 ```
 
-确认本地 `main` 与目标上游一致。如果只做预检，也可以直接以 `origin/main` 为比较对象，不必切换本地 `main`。
+确认本地 `main` 与目标上游一致。如果只是预检，也可以直接以 `origin/main` 为比较对象，不必切换本地 `main`。
 
 ```bash
 git switch main
@@ -41,7 +41,7 @@ git switch dev-zz
 git merge-tree --write-tree "$(git merge-base HEAD origin/main)" HEAD origin/main
 ```
 
-这一步是只读预检，用来提前看到可能的冲突文件。
+这一步是只读预检，用来提前看到可能冲突的文件。
 
 ## 执行合并
 
@@ -49,7 +49,7 @@ git merge-tree --write-tree "$(git merge-base HEAD origin/main)" HEAD origin/mai
 git merge --no-commit origin/main
 ```
 
-解决冲突时优先遵循：
+解决冲突时按下面的优先级判断：
 
 - 后端正确性修复优先吸收。
 - dev-zz 已记录的视觉、认证显示、数据保留、模型探测和源码部署策略默认保留。
@@ -78,7 +78,7 @@ pnpm --dir frontend lint:check
 mise x -C backend -- go test ./internal/server ./internal/handler ./internal/config
 ```
 
-根据冲突和变更范围补充更具体的测试。
+再根据冲突和变更范围补充更具体的测试。
 
 文档站检查：
 
@@ -99,7 +99,7 @@ pnpm --dir docs-site docs:build
 - 验证命令
 - 未验证范围
 
-如合并带来用户可见行为变化，也更新：
+如果合并带来用户可见行为变化，也更新：
 
 - [变更记录](../changelog.md)
 - [补丁记录](../patches.md)

@@ -7,7 +7,7 @@
 ## 中文
 
 ### 目标
-本文档用于对接外部支付系统（如 `sub2apipay`）与 Sub2API 的 Admin API，覆盖：
+这页用于说明外部支付系统（如 `sub2apipay`）如何对接 Sub2API 的 Admin API，覆盖：
 - 支付成功后充值
 - 用户查询
 - 人工余额修正
@@ -23,7 +23,7 @@
 - `Content-Type: application/json`
 - 幂等接口额外传：`Idempotency-Key`
 
-说明：管理员 JWT 也可访问 admin 路由，但服务间调用建议使用 Admin API Key。
+说明：管理员 JWT 也能访问 admin 路由，但服务间调用建议使用 Admin API Key。
 
 ### 1) 一步完成创建并兑换
 `POST /api/v1/admin/redeem-codes/create-and-redeem`
@@ -76,7 +76,7 @@ curl -s "${BASE}/api/v1/admin/users/123" \
 ### 3) 余额调整（已有接口）
 `POST /api/v1/admin/users/:id/balance`
 
-用途：人工补偿 / 扣减，支持 `set` / `add` / `subtract`。
+用途：人工补偿或扣减，支持 `set` / `add` / `subtract`。
 
 请求体示例（扣减）：
 ```json
@@ -104,7 +104,7 @@ curl -X POST "${BASE}/api/v1/admin/users/123/balance" \
 - `user_id`
 - `token`
 - `theme`（`light` / `dark`）
-- `lang`（例如 `zh` / `en`，用于向嵌入页传递当前界面语言）
+- `lang`（例如 `zh` / `en`，把当前界面语言传给嵌入页）
 - `ui_mode`（固定 `embedded`）
 
 示例：
@@ -113,7 +113,7 @@ https://pay.example.com/pay?user_id=123&token=<jwt>&theme=light&lang=zh&ui_mode=
 ```
 
 ### 5) 失败处理建议
-- 支付成功与充值成功分状态落库
+- 支付成功和充值成功要分开落库
 - 回调验签成功后立即标记“支付成功”
 - 支付成功但充值失败的订单允许后续重试
 - 重试保持相同 `code`，并使用新的 `Idempotency-Key`

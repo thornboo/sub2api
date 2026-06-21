@@ -1,8 +1,8 @@
 # 企业用量分析中心
 
-## 实施状态
+## 已落地情况
 
-- 状态：owner 用量分析第一版已落地；管理员全站增强、异常治理和多分组 Key 仍是后续阶段。
+- owner 用量分析第一版已落地；管理员全站增强、异常治理和多分组 Key 仍在后续阶段。
 - 最近更新：2026-06-15。
 - 前置成果：
   - API Key 批量创建、批量维护、标签、筛选批量操作已落地。
@@ -12,13 +12,13 @@
   - 用户侧 Usage 页面新增分析视图，前端组件为 `frontend/src/components/user/UsageAnalyticsPanel.vue`。
   - 用户认证域新增 `/api/v1/usage/analytics/summary`、`leaderboard`、`models`、`groups`、`tags`、`trend`。
   - 后端所有 owner 查询都绑定当前登录用户，不接收外部 `user_id`。
-- 本文目标：记录 owner 自助分析的真实实现口径，并继续保留平台管理员全站增强、异常治理和多供应商员工 Key 的后续设计边界。
+- 本页记录 owner 自助分析的真实实现边界，同时保留平台管理员全站增强、异常治理和多供应商员工 Key 的后续设计边界。
 
 ## 背景
 
 当前用户侧 `API 密钥` 已经可以把一把 Key 当作一个员工席位来管理。最近完成的单 Key 用量下钻解决了“点开某个员工 Key，看它在小时/天/周/月上的消耗、模型分布、请求记录”的问题。
 
-但企业客户继续会问更高一层的问题：
+但企业客户还会继续追问更高一层的问题：
 
 - 老板想看所有员工 Key 的用量排行榜，而不是一个个点开。
 - 财务或团队负责人想按部门、标签、分组、模型拆分成本。
@@ -26,11 +26,11 @@
 - 平台管理员想看所有用户、所有分组、所有账号的全站运营数据和真实上游成本。
 - 如果员工 A 同时需要 OpenAI、Anthropic、Gemini，当前“一把 Key 只绑一个 `group_id`”会逼迫 owner 创建多把员工 A 的 Key，管理体验不够企业级。
 
-参考项目 `ding113/claude-code-hub` 把“实时监控与统计、日志审计、消耗排行榜、按用户统计请求数/Token/成本”作为企业网关核心能力，并提供多供应商统一接入、限流、负载均衡等能力。sub2api 可以借鉴这些产品形态，但不能照搬其数据模型：claude-code-hub 是平台管理员管理多个 user 的视角，而 sub2api 的企业客户通常只是一个普通 `users` 行，企业员工目前映射为该账号名下的多个 `api_keys`。
+参考项目 `ding113/claude-code-hub` 把“实时监控与统计、日志审计、消耗排行榜、按用户统计请求数/Token/成本”作为企业网关核心功能，并提供多供应商统一接入、限流、负载均衡等能力。sub2api 可以借鉴这些产品形态，但不能照搬数据模型：claude-code-hub 是平台管理员管理多个 user 的视角，而 sub2api 的企业客户通常只是一个普通 `users` 行，企业员工目前映射为该账号名下的多把 `api_keys`。
 
-## 当前事实
+## 现有基础
 
-### 已有用户侧能力
+### 用户侧已有功能
 
 - `frontend/src/views/user/KeysView.vue`：owner 管理自己名下 API Key。
 - `frontend/src/components/keys/ApiKeyUsageModal.vue`：单 Key 用量详情 Modal。
@@ -47,7 +47,7 @@
   - `GET /api/v1/usage/analytics/tags`
   - `GET /api/v1/usage/analytics/trend`
 
-### 已有管理员能力
+### 管理员已有功能
 
 - `frontend/src/views/admin/UsageView.vue` 已有全站 Usage 页面，包含统计卡片、趋势、模型分布、分组分布、端点分布、请求记录和导出。
 - `frontend/src/api/admin/dashboard.ts` 已有：
@@ -547,7 +547,7 @@ UI 策略：
 
 ### 阶段 0：文档和边界确认
 
-- 完成本文档。
+- 完成这份设计文档。
 - 给 Claude 审查权限矩阵、API 形态和多供应商 Key 方向。
 - 不改代码。
 

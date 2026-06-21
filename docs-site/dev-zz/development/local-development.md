@@ -1,6 +1,6 @@
 # 完全本地开发指南
 
-本文档记录 `dev-zz` 分支推荐的完全本地开发方式：前端、后端、PostgreSQL、Redis 都在本机运行，前端使用 Vite 热更新，后端使用 Go 直接运行或 Air 自动重启。
+这页记录 `dev-zz` 推荐的本地开发方式：前端、后端、PostgreSQL、Redis 都跑在本机，前端用 Vite 热更新，后端可以直接 `go run`，也可以用 Air 自动重启。
 
 ## 目标拓扑
 
@@ -13,19 +13,19 @@ Browser
               -> Redis: 127.0.0.1:6380
 ```
 
-这种方式和 `deploy/docker-compose.dev.yml` 不同：Compose 开发文件会从源码构建并运行完整容器栈，但不会把本机 Go 源码挂载进容器做后端热重启。日常开发更推荐只用 Docker 跑数据库和 Redis，前后端代码直接在宿主机运行。
+这套方式和 `deploy/docker-compose.dev.yml` 不一样：Compose 开发文件会从源码构建并运行完整容器栈，但不会把本机 Go 源码挂进容器做后端热重启。日常开发更建议只用 Docker 跑数据库和 Redis，前后端代码直接在宿主机上运行。
 
 ## 前置要求
 
 - Docker 或兼容的容器运行时
 - pnpm
 - Go 1.26.4，或通过仓库的 mise 配置启动 Go
-- Node 20+ 用于本地前端和文档站构建；GitHub Actions 额外通过 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` 验证 JavaScript actions runtime 的 Node 24 兼容性。
+- Node 20+ 用于本地前端和文档站构建；GitHub Actions 里额外用 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` 验证 JavaScript actions runtime 的 Node 24 兼容性。
 - 可选：Air，用于后端文件变化后自动重启
 
 ## 1. 启动本地 PostgreSQL 和 Redis
 
-PostgreSQL 使用宿主机 `5433`，避免和已有本机数据库冲突。Redis 使用宿主机 `6380`。
+PostgreSQL 绑定宿主机 `5433`，避免和本机已有数据库冲突。Redis 绑定宿主机 `6380`。
 
 ```bash
 docker run -d \
@@ -59,7 +59,7 @@ docker start sub2api-postgres-dev sub2api-redis-dev
 
 ## 2. 启动后端
 
-仓库后端会优先读取 `DATA_DIR`，建议把开发数据放在仓库根目录的 `.dev/backend-data`。`.dev/` 已被忽略，不会进入版本控制。
+后端会优先读取 `DATA_DIR`。建议把开发数据放在仓库根目录的 `.dev/backend-data`，`.dev/` 已被忽略，不会进入版本控制。
 
 ```bash
 mkdir -p .dev/backend-data
@@ -93,7 +93,7 @@ cd backend
 go run ./cmd/server
 ```
 
-保留同一组环境变量即可。
+保留同一组环境变量即可，不需要额外配置。
 
 ## 3. 后端自动重启
 
@@ -133,11 +133,11 @@ air \
   --build.bin "./.dev/tmp/sub2api"
 ```
 
-Air 负责监听文件变化、重新编译并重启后端进程。数据库和 Redis 容器不需要重启。
+Air 只负责监听文件变化、重新编译并重启后端进程。数据库和 Redis 容器不需要跟着重启。
 
 ## 4. 启动前端
 
-前端 Vite 配置默认把 `/api`、`/v1`、`/setup` 代理到 `http://localhost:8080`，也可以用 `VITE_DEV_PROXY_TARGET` 显式指定。
+前端 Vite 默认把 `/api`、`/v1`、`/setup` 代理到 `http://localhost:8080`，也可以用 `VITE_DEV_PROXY_TARGET` 显式指定。
 
 ```bash
 cd frontend
@@ -208,7 +208,7 @@ pnpm --dir docs-site docs:build
 
 ## 6. 重置本地数据
 
-以下操作会删除本地开发数据库、Redis 数据和后端 `.dev` 数据目录，只用于需要从零初始化时：
+下面这些操作会删除本地开发数据库、Redis 数据和后端 `.dev` 数据目录。只有需要从零初始化时再执行：
 
 ```bash
 docker rm -f sub2api-postgres-dev sub2api-redis-dev
@@ -241,7 +241,7 @@ SERVER_PORT=8080
 
 ### 端口被占用
 
-可以换端口，但要同步修改前后端配置：
+可以换端口，但前后端配置要一起改：
 
 - 后端端口：`SERVER_PORT`
 - 前端代理目标：`VITE_DEV_PROXY_TARGET`

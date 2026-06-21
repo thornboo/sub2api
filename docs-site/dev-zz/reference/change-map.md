@@ -1,6 +1,6 @@
 # dev-zz 变更地图
 
-本文按 `origin/main...dev-zz` 的真实差异整理二开范围。最近一次盘点基于：
+这页按 `origin/main...dev-zz` 的真实差异整理二开范围。最近一次盘点基于：
 
 | 项 | 值 |
 | --- | --- |
@@ -20,7 +20,7 @@
 | `.github/` | 3 | CI、release、security scan 的 Node 24 actions runtime 验证 |
 | 根目录 / README / Dockerfile | 8 | release 镜像、版本号、项目说明、分布式 Dockerfile 与设计索引 |
 
-## 已落地能力
+## 已落地功能
 
 ### 企业 API Key 管理
 
@@ -35,7 +35,7 @@
 
 ### 用量分析
 
-- 用户侧单 Key 下钻已落地：趋势、模型分布、请求记录三块能力。
+- 用户侧单 Key 下钻已落地：趋势、模型分布、请求记录三块功能。
 - 企业 owner 级用量分析已落地在用户 Usage 页的分析 Tab，包括 summary、leaderboard、models、groups、tags、trend。
 - owner analytics 接口在 `/api/v1/usage/analytics/*`，所有查询绑定当前登录用户，不接收外部 `user_id`。
 - owner DTO 不返回 `account_cost`、上游账号、渠道、`upstream_model` 等管理员字段。
@@ -45,7 +45,7 @@
 
 ### 可用渠道模型与账号模型维护
 
-- 用户侧可用渠道增加模型级表格视图和导出能力。
+- 用户侧可用渠道增加模型级表格视图和导出功能。
 - 账号模型配置支持从上游 `/v1/models` 探测、将探测结果写入白名单或同名映射行。
 - 自定义模型输入可以查询 models.dev 目录。
 - 映射模式支持清空全部模型，并保留映射模式语义。

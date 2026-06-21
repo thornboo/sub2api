@@ -1,10 +1,10 @@
 # 配置与迁移索引
 
-本文记录 dev-zz 相对上游新增或语义明显不同的配置、迁移、镜像和 CI 约束。
+这页记录 dev-zz 相对上游新增或语义明显不同的配置、迁移、镜像和 CI 约束。
 
 ## 运行时版本
 
-| 项 | 当前口径 |
+| 项 | 当前约定 |
 | --- | --- |
 | Go | `backend/go.mod` 声明 `go 1.26.4`，CI 会校验 `go1.26.4` |
 | 前端构建 Node | GitHub Actions 仍使用 `node-version: '20'` |
@@ -12,7 +12,7 @@
 | pnpm | 前端和 docs-site 独立 lockfile，CI 前端使用 pnpm 9 |
 | docs-site | VitePress 1.x，命令见 `docs-site/package.json` |
 
-Node 24 runtime 变量只验证 GitHub action 执行环境，不等价于项目构建 Node 升级。升级前端构建 Node 版本前，需要单独验证依赖兼容。
+Node 24 runtime 变量只验证 GitHub action 执行环境，不等价于项目构建 Node 升级。升级前端构建 Node 前，需要单独验证依赖兼容。
 
 ## API Key 相关配置
 

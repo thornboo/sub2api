@@ -47,6 +47,9 @@ export default defineConfig({
         items: [
           { text: '合并 main 到 dev-zz', link: '/dev-zz/maintenance/merge-main' },
           { text: '上游合并记录', link: '/dev-zz/maintenance/merge-log' },
+          { text: 'dev-zz-apipool 分支清单', link: '/dev-zz/maintenance/dev-zz-apipool-branch-inventory' },
+          { text: 'DEV_SEED stash 设计清单', link: '/dev-zz/maintenance/stash-dev-seed-design' },
+          { text: '维度化计费 stash 设计清单', link: '/dev-zz/maintenance/stash-billing-dimensional-pricing' },
           { text: '配置与迁移索引', link: '/dev-zz/reference/configuration-and-migrations' },
           { text: '验证矩阵', link: '/dev-zz/testing/verification-matrix' }
         ]
@@ -58,6 +61,7 @@ export default defineConfig({
           { text: '企业 Key 成员管理', link: '/dev-zz/features/enterprise-key-member-management' },
           { text: 'API Key 用量下钻', link: '/dev-zz/features/api-key-usage-drilldown' },
           { text: '管理员用量分析下钻', link: '/dev-zz/features/admin-usage-profile-drilldown' },
+          { text: '上游成本感知调度', link: '/dev-zz/features/upstream-provider-cost-aware-scheduling' },
           { text: '企业用量分析中心', link: '/dev-zz/features/enterprise-usage-analytics' },
           { text: '用量账本与已删除 Key 证据', link: '/dev-zz/features/usage-ledger-evidence-integrity' },
           { text: 'dev-zz 接口索引', link: '/dev-zz/reference/api-surface' },
