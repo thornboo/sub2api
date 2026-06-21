@@ -48,6 +48,7 @@ export default defineConfig({
           { text: '同步上游 main', link: '/dev-zz/maintenance/merge-main' },
           { text: '上游合并记录', link: '/dev-zz/maintenance/merge-log' },
           { text: '前端白屏复盘', link: '/dev-zz/maintenance/frontend-white-screen-2026-06-17' },
+          { text: '删除 Key 用量排查', link: '/dev-zz/maintenance/deleted-key-usage-ledger-triage-2026-06-22' },
           { text: 'dev-zz-apipool 分支清单', link: '/dev-zz/maintenance/dev-zz-apipool-branch-inventory' },
           { text: 'DEV_SEED stash 设计清单', link: '/dev-zz/maintenance/stash-dev-seed-design' },
           { text: '维度化计费 stash 设计清单', link: '/dev-zz/maintenance/stash-billing-dimensional-pricing' }

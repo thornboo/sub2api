@@ -25,6 +25,7 @@
 | 部署或更新服务器 | [dev-zz 部署](./deployment/deploy-dev-zz.md) |
 | 从上游 main 同步 | [同步上游 main](./maintenance/merge-main.md) |
 | 确认该跑哪些测试 | [验证矩阵](./testing/verification-matrix.md) |
+| 排查删除 Key 后用量是否丢失 | [删除 Key 后用量显示归零排查](./maintenance/deleted-key-usage-ledger-triage-2026-06-22.md) |
 
 ## 功能状态
 
