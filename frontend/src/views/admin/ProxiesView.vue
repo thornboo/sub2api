@@ -99,23 +99,35 @@
           @sort="handleSort"
         >
           <template #header-select>
-            <input
-              type="checkbox"
-              class="h-4 w-4 cursor-pointer rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-              :checked="allVisibleSelected"
-              @click.stop
-              @change="toggleSelectAllVisible($event)"
-            />
+            <button
+              type="button"
+              role="checkbox"
+              :class="selectionCheckboxClasses(allVisibleSelected || someVisibleSelected)"
+              :aria-checked="someVisibleSelected && !allVisibleSelected ? 'mixed' : allVisibleSelected"
+              :aria-label="t('common.selectAll')"
+              @click.stop="toggleSelectAllVisible"
+              @keydown.space.prevent="toggleSelectAllVisible"
+            >
+              <Icon v-if="allVisibleSelected" name="check" size="xs" :stroke-width="2.5" />
+              <span
+                v-else-if="someVisibleSelected"
+                class="h-0.5 w-2.5 rounded-full bg-current"
+              />
+            </button>
           </template>
 
           <template #cell-select="{ row }">
-            <input
-              type="checkbox"
-              class="h-4 w-4 cursor-pointer rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-              :checked="selectedProxyIds.has(row.id)"
-              @click.stop
-              @change="toggleSelectRow(row.id, $event)"
-            />
+            <button
+              type="button"
+              role="checkbox"
+              :class="selectionCheckboxClasses(isSelected(row.id))"
+              :aria-checked="isSelected(row.id)"
+              :aria-label="selectionLabel(row.name, `${t('admin.proxies.columns.name')} #${row.id}`)"
+              @click.stop="toggleSelectRow(row.id)"
+              @keydown.space.prevent="toggleSelectRow(row.id)"
+            >
+              <Icon v-if="isSelected(row.id)" name="check" size="xs" :stroke-width="2.5" />
+            </button>
           </template>
 
           <template #cell-name="{ value }">
@@ -988,13 +1000,14 @@ import { useTableSelection } from '@/composables/useTableSelection'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { formatDateTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
+import { tableSelectionCheckboxClasses as selectionCheckboxClasses, tableSelectionLabel as selectionLabel } from '@/utils/tableSelectionCheckbox'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const { copyToClipboard } = useClipboard()
 
 const columns = computed<Column[]>(() => [
-  { key: 'select', label: '', sortable: false },
+  { key: 'select', label: '', sortable: false, class: 'w-12 text-center' },
   { key: 'name', label: t('admin.proxies.columns.name'), sortable: true },
   { key: 'protocol', label: t('admin.proxies.columns.protocol'), sortable: true },
   { key: 'address', label: t('admin.proxies.columns.address'), sortable: false },
@@ -1089,6 +1102,10 @@ const {
   rows: proxies,
   getId: (proxy) => proxy.id
 })
+
+const someVisibleSelected = computed(() =>
+  proxies.value.some((proxy) => isSelected(proxy.id))
+)
 useSwipeSelect(proxyTableRef, {
   isSelected,
   select,
@@ -1165,18 +1182,16 @@ const isAbortError = (error: unknown) => {
   return maybeError.name === 'AbortError' || maybeError.code === 'ERR_CANCELED'
 }
 
-const toggleSelectRow = (id: number, event: Event) => {
-  const target = event.target as HTMLInputElement
-  if (target.checked) {
-    select(id)
+const toggleSelectRow = (id: number) => {
+  if (isSelected(id)) {
+    deselect(id)
     return
   }
-  deselect(id)
+  select(id)
 }
 
-const toggleSelectAllVisible = (event: Event) => {
-  const target = event.target as HTMLInputElement
-  toggleVisible(target.checked)
+const toggleSelectAllVisible = () => {
+  toggleVisible(!allVisibleSelected.value)
 }
 
 const buildProxyQueryFilters = () => ({

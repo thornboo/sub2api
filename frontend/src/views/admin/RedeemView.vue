@@ -66,25 +66,37 @@
           @sort="handleSort"
         >
           <template #header-select>
-            <input
+            <button
               data-test="select-all-codes"
-              type="checkbox"
-              class="h-4 w-4 cursor-pointer rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-              :checked="allVisibleSelected"
-              @click.stop
-              @change="toggleSelectAllVisible($event)"
-            />
+              type="button"
+              role="checkbox"
+              :class="selectionCheckboxClasses(allVisibleSelected || someVisibleSelected)"
+              :aria-checked="someVisibleSelected && !allVisibleSelected ? 'mixed' : allVisibleSelected"
+              :aria-label="t('common.selectAll')"
+              @click.stop="toggleSelectAllVisible"
+              @keydown.space.prevent="toggleSelectAllVisible"
+            >
+              <Icon v-if="allVisibleSelected" name="check" size="xs" :stroke-width="2.5" />
+              <span
+                v-else-if="someVisibleSelected"
+                class="h-0.5 w-2.5 rounded-full bg-current"
+              />
+            </button>
           </template>
 
           <template #cell-select="{ row }">
-            <input
+            <button
               data-test="select-code"
-              type="checkbox"
-              class="h-4 w-4 cursor-pointer rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-              :checked="selectedCodeIds.has(row.id)"
-              @click.stop
-              @change="toggleSelectRow(row.id, $event)"
-            />
+              type="button"
+              role="checkbox"
+              :class="selectionCheckboxClasses(isSelected(row.id))"
+              :aria-checked="isSelected(row.id)"
+              :aria-label="selectionLabel(row.code, `${t('admin.redeem.columns.code')} #${row.id}`)"
+              @click.stop="toggleSelectRow(row.id)"
+              @keydown.space.prevent="toggleSelectRow(row.id)"
+            >
+              <Icon v-if="isSelected(row.id)" name="check" size="xs" :stroke-width="2.5" />
+            </button>
           </template>
 
           <template #cell-code="{ value }">
@@ -616,6 +628,7 @@ import { useTableSelection } from '@/composables/useTableSelection'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { adminAPI } from '@/api/admin'
 import { formatDateTime } from '@/utils/format'
+import { tableSelectionCheckboxClasses as selectionCheckboxClasses, tableSelectionLabel as selectionLabel } from '@/utils/tableSelectionCheckbox'
 import type {
   RedeemCode,
   RedeemCodeType,
@@ -720,7 +733,7 @@ const downloadGeneratedCodes = () => {
 }
 
 const columns = computed<Column[]>(() => [
-  { key: 'select', label: '' },
+  { key: 'select', label: '', class: 'w-12 text-center' },
   { key: 'code', label: t('admin.redeem.columns.code') },
   { key: 'type', label: t('admin.redeem.columns.type'), sortable: true },
   { key: 'value', label: t('admin.redeem.columns.value'), sortable: true },
@@ -796,6 +809,7 @@ const {
   selectedSet: selectedCodeIds,
   selectedCount,
   allVisibleSelected,
+  isSelected,
   select,
   deselect,
   clear: clearSelectedCodes,
@@ -804,6 +818,10 @@ const {
   rows: codes,
   getId: (code) => code.id
 })
+
+const someVisibleSelected = computed(() =>
+  codes.value.some((code) => isSelected(code.id))
+)
 
 const batchUpdateForm = reactive({
   update_status: false,
@@ -924,18 +942,16 @@ const handleSort = (key: string, order: 'asc' | 'desc') => {
   loadCodes()
 }
 
-const toggleSelectRow = (id: number, event: Event) => {
-  const target = event.target as HTMLInputElement
-  if (target.checked) {
-    select(id)
+const toggleSelectRow = (id: number) => {
+  if (isSelected(id)) {
+    deselect(id)
     return
   }
-  deselect(id)
+  select(id)
 }
 
-const toggleSelectAllVisible = (event: Event) => {
-  const target = event.target as HTMLInputElement
-  toggleVisible(target.checked)
+const toggleSelectAllVisible = () => {
+  toggleVisible(!allVisibleSelected.value)
 }
 
 const getRedeemCodeExpiresInDays = () => {

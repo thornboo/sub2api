@@ -126,7 +126,7 @@ describe('admin RedeemView batch update', () => {
         },
         {
           id: 2,
-          code: 'CODE-2',
+          code: '',
           type: 'balance',
           value: 20,
           status: 'unused',
@@ -167,7 +167,20 @@ describe('admin RedeemView batch update', () => {
     })
 
     await flushPromises()
-    await wrapper.findAll('[data-test="select-code"]')[0].setValue(true)
+    let codeButtons = wrapper.findAll('[data-test="select-code"]')
+    expect(codeButtons[0].element.tagName).toBe('BUTTON')
+    expect(codeButtons[0].attributes('type')).toBe('button')
+    expect(codeButtons[0].attributes('role')).toBe('checkbox')
+    expect(codeButtons[0].attributes('aria-checked')).toBe('false')
+    expect(codeButtons[1].attributes('aria-label')).toBe('admin.redeem.columns.code #2')
+
+    await codeButtons[0].trigger('keydown', { key: ' ' })
+    await flushPromises()
+
+    codeButtons = wrapper.findAll('[data-test="select-code"]')
+    expect(codeButtons[0].attributes('aria-checked')).toBe('true')
+    expect(wrapper.get('[data-test="select-all-codes"]').attributes('aria-checked')).toBe('mixed')
+
     await wrapper.get('[data-test="batch-update-open"]').trigger('click')
     await flushPromises()
 

@@ -114,6 +114,7 @@
               :aria-checked="somePageKeysSelected && !allPageKeysSelected ? 'mixed' : allPageKeysSelected"
               :aria-label="t('keys.batchActions.selectPage')"
               @click.stop="togglePageSelection"
+              @keydown.space.prevent="togglePageSelection"
             >
               <Icon v-if="allPageKeysSelected" name="check" size="xs" :stroke-width="2.5" />
               <span
@@ -129,8 +130,9 @@
               role="checkbox"
               :class="selectionCheckboxClasses(isKeySelected(row.id))"
               :aria-checked="isKeySelected(row.id)"
-              :aria-label="t('keys.batchActions.selectOne', { name: row.name })"
+              :aria-label="t('keys.batchActions.selectOne', { name: selectionLabel(row.name, `#${row.id}`) })"
               @click.stop="toggleKeySelection(row.id)"
+              @keydown.space.prevent="toggleKeySelection(row.id)"
             >
               <Icon v-if="isKeySelected(row.id)" name="check" size="xs" :stroke-width="2.5" />
             </button>
@@ -1836,6 +1838,7 @@ import type { Column } from '@/components/common/types'
 import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
 import { maskApiKey } from '@/utils/maskApiKey'
+import { tableSelectionCheckboxClasses as selectionCheckboxClasses, tableSelectionLabel as selectionLabel } from '@/utils/tableSelectionCheckbox'
 import {
   canToggleApiKeyStatus,
   initialApiKeyEditStatus,
@@ -2142,15 +2145,6 @@ const allPageKeysSelected = computed(() =>
 const somePageKeysSelected = computed(() => pageKeyIds.value.some((id) => selectedKeyIds.value.has(id)))
 
 const isKeySelected = (id: number) => selectedKeyIds.value.has(id)
-
-const selectionCheckboxClasses = (active: boolean) => [
-  'inline-flex h-5 w-5 items-center justify-center rounded-md border shadow-sm transition-all duration-150',
-  'focus:outline-none focus:ring-2 focus:ring-emerald-500/35 focus:ring-offset-1 focus:ring-offset-white',
-  'dark:focus:ring-offset-black',
-  active
-    ? 'border-emerald-500 bg-emerald-500 text-neutral-950 shadow-emerald-500/20 hover:border-emerald-400 hover:bg-emerald-400 dark:border-emerald-400 dark:bg-emerald-400 dark:text-black dark:hover:bg-emerald-300'
-    : 'border-stone-300/80 bg-white/80 text-transparent hover:border-emerald-500/40 hover:bg-emerald-50/60 dark:border-white/10 dark:bg-neutral-950/70 dark:shadow-black/20 dark:hover:border-emerald-400/45 dark:hover:bg-emerald-500/5'
-]
 
 const batchUpdateFieldCardClasses = (active: boolean) => [
   'flex items-start gap-3 rounded-lg border p-3 transition-colors duration-150',

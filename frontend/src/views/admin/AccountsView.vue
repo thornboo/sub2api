@@ -199,16 +199,34 @@
           :overscan="5"
         >
           <template #header-select>
-            <input
-              type="checkbox"
-              class="h-4 w-4 cursor-pointer rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
-              :checked="allVisibleSelected"
-              @click.stop
-              @change="toggleSelectAllVisible($event)"
-            />
+            <button
+              type="button"
+              role="checkbox"
+              :class="selectionCheckboxClasses(allVisibleSelected || someVisibleSelected)"
+              :aria-checked="someVisibleSelected && !allVisibleSelected ? 'mixed' : allVisibleSelected"
+              :aria-label="t('common.selectAll')"
+              @click.stop="toggleSelectAllVisible"
+              @keydown.space.prevent="toggleSelectAllVisible"
+            >
+              <Icon v-if="allVisibleSelected" name="check" size="xs" :stroke-width="2.5" />
+              <span
+                v-else-if="someVisibleSelected"
+                class="h-0.5 w-2.5 rounded-full bg-current"
+              />
+            </button>
           </template>
           <template #cell-select="{ row }">
-            <input type="checkbox" :checked="isSelected(row.id)" @change="toggleSel(row.id)" class="rounded border-stone-300 text-emerald-600 focus:ring-emerald-500" />
+            <button
+              type="button"
+              role="checkbox"
+              :class="selectionCheckboxClasses(isSelected(row.id))"
+              :aria-checked="isSelected(row.id)"
+              :aria-label="selectionLabel(row.name, `${t('admin.accounts.columns.name')} #${row.id}`)"
+              @click.stop="toggleSel(row.id)"
+              @keydown.space.prevent="toggleSel(row.id)"
+            >
+              <Icon v-if="isSelected(row.id)" name="check" size="xs" :stroke-width="2.5" />
+            </button>
           </template>
           <template #cell-name="{ row, value }">
             <div class="flex flex-col">
@@ -434,6 +452,7 @@ import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfil
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
+import { tableSelectionCheckboxClasses as selectionCheckboxClasses, tableSelectionLabel as selectionLabel } from '@/utils/tableSelectionCheckbox'
 import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
 
 const { t } = useI18n()
@@ -774,6 +793,10 @@ const {
   rows: accounts,
   getId: (account) => account.id
 })
+
+const someVisibleSelected = computed(() =>
+  accounts.value.some((account) => isSelected(account.id))
+)
 
 const swipeVirtualContext: SwipeSelectVirtualContext = {
   getVirtualizer: () => dataTableRef.value?.virtualizer ?? null,
@@ -1134,7 +1157,7 @@ function getAntigravityTierClass(row: any): string {
 // All available columns
 const allColumns = computed(() => {
   const c = [
-    { key: 'select', label: '', sortable: false },
+    { key: 'select', label: '', sortable: false, class: 'w-12 text-center' },
     { key: 'name', label: t('admin.accounts.columns.name'), sortable: true },
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
@@ -1223,9 +1246,8 @@ const openMenu = (a: Account, e: MouseEvent) => {
 
   menu.show = true
 }
-const toggleSelectAllVisible = (event: Event) => {
-  const target = event.target as HTMLInputElement
-  toggleVisible(target.checked)
+const toggleSelectAllVisible = () => {
+  toggleVisible(!allVisibleSelected.value)
 }
 const handleBulkDelete = async () => { if(!confirm(t('common.confirm'))) return; try { await Promise.all(selIds.value.map(id => adminAPI.accounts.delete(id))); clearSelection(); reload() } catch (error) { console.error('Failed to bulk delete accounts:', error) } }
 const handleBulkResetStatus = async () => {
