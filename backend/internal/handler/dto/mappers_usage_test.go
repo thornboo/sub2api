@@ -152,7 +152,7 @@ func TestUsageLogFromServiceAdmin_IncludesScheduleMetaAdminOnly(t *testing.T) {
 	userDTO := UsageLogFromService(log)
 	adminDTO := UsageLogFromServiceAdmin(log)
 
-	require.Nil(t, adminDTO.UsageLog.User)
+	require.Nil(t, adminDTO.User)
 	require.NotNil(t, adminDTO.ScheduleMeta)
 	require.Equal(t, "openai", adminDTO.ScheduleMeta.Provider)
 	require.Equal(t, "load_balance", adminDTO.ScheduleMeta.Layer)
