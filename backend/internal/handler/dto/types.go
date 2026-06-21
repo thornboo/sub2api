@@ -516,12 +516,27 @@ type AdminUsageLog struct {
 	AccountRateMultiplier *float64 `json:"account_rate_multiplier"`
 	// AccountStatsCost 自定义定价规则计算的账号统计费用（nil 表示使用默认公式）
 	AccountStatsCost *float64 `json:"account_stats_cost,omitempty"`
+	// ScheduleMeta 调度诊断信息（仅管理员可见）。
+	ScheduleMeta *UsageScheduleMeta `json:"schedule_meta,omitempty"`
 
 	// IPAddress 用户请求 IP（仅管理员可见）
 	IPAddress *string `json:"ip_address,omitempty"`
 
 	// Account 最小账号信息（避免泄露敏感字段）
 	Account *AccountSummary `json:"account,omitempty"`
+}
+
+type UsageScheduleMeta struct {
+	Provider            string  `json:"provider,omitempty"`
+	Layer               string  `json:"layer,omitempty"`
+	StickyPreviousHit   bool    `json:"sticky_previous_hit,omitempty"`
+	StickySessionHit    bool    `json:"sticky_session_hit,omitempty"`
+	CandidateCount      int     `json:"candidate_count,omitempty"`
+	TopK                int     `json:"top_k,omitempty"`
+	LatencyMs           int64   `json:"latency_ms,omitempty"`
+	LoadSkew            float64 `json:"load_skew,omitempty"`
+	SelectedAccountID   int64   `json:"selected_account_id,omitempty"`
+	SelectedAccountType string  `json:"selected_account_type,omitempty"`
 }
 
 type UsageCleanupFilters struct {

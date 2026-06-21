@@ -1,6 +1,7 @@
 package service
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -109,4 +110,34 @@ func TestUsageLogSyncRequestTypeAndLegacyFieldsNilReceiver(t *testing.T) {
 
 	var log *UsageLog
 	log.SyncRequestTypeAndLegacyFields()
+}
+
+func TestUsageScheduleMetaFromOpenAIDecision(t *testing.T) {
+	t.Parallel()
+
+	got := UsageScheduleMetaFromOpenAIDecision(OpenAIAccountScheduleDecision{
+		Layer:               openAIAccountScheduleLayerLoadBalance,
+		CandidateCount:      3,
+		TopK:                2,
+		LatencyMs:           7,
+		LoadSkew:            math.Inf(1),
+		SelectedAccountID:   42,
+		SelectedAccountType: AccountTypeAPIKey,
+	})
+
+	require.NotNil(t, got)
+	require.Equal(t, "openai", got.Provider)
+	require.Equal(t, openAIAccountScheduleLayerLoadBalance, got.Layer)
+	require.Equal(t, 3, got.CandidateCount)
+	require.Equal(t, 2, got.TopK)
+	require.Equal(t, int64(7), got.LatencyMs)
+	require.Zero(t, got.LoadSkew)
+	require.Equal(t, int64(42), got.SelectedAccountID)
+	require.Equal(t, AccountTypeAPIKey, got.SelectedAccountType)
+}
+
+func TestUsageScheduleMetaFromOpenAIDecisionEmpty(t *testing.T) {
+	t.Parallel()
+
+	require.Nil(t, UsageScheduleMetaFromOpenAIDecision(OpenAIAccountScheduleDecision{}))
 }

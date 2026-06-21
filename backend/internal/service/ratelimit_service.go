@@ -70,9 +70,16 @@ const (
 const (
 	openAIImageRateLimitDefaultCooldown = time.Minute
 	openAIImageRateLimitReason          = "openai_image_rate_limited"
+	openAIModelRateLimitDefaultCooldown = time.Minute
+	openAIModelRateLimitReason          = "openai_model_rate_limited"
+	modelUpstreamFailureCooldown        = time.Minute
+	modelUpstreamFailureReason          = "model_upstream_error"
 )
 
-var openAIImageTryAgainPattern = regexp.MustCompile(`(?i)try again in\s+([0-9]+(?:\.[0-9]+)?)\s*(ms|s|sec|secs|second|seconds|m|min|mins|minute|minutes)`)
+var (
+	openAIImageTryAgainPattern       = regexp.MustCompile(`(?i)try again in\s+([0-9]+(?:\.[0-9]+)?)\s*(ms|s|sec|secs|second|seconds|m|min|mins|minute|minutes)`)
+	openAIModelRateLimitModelPattern = regexp.MustCompile(`(?i)\brate limit reached for\s+([^\s,:(]+)`)
+)
 
 const (
 	openAI403CooldownMinutesDefault = 10
@@ -159,9 +166,10 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 	return ErrorPolicyNone
 }
 
-// HandleUpstreamError 处理上游错误响应，标记账号状态
-// 返回是否应该停止该账号的调度
-func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {
+// HandleUpstreamError 处理上游错误响应，并按错误粒度更新账号状态。
+// 返回 true 表示调用方应让本次请求 failover/停止继续使用当前账号；
+// 具体状态变更可能是账号级，也可能只是 account+model 的模型级冷却。
+func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldFailover bool) {
 	customErrorCodesEnabled := account.IsCustomErrorCodesEnabled()
 
 	// 池模式默认不标记本地账号状态；仅当用户显式配置自定义错误码时按本地策略处理。
@@ -177,8 +185,12 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		return false
 	}
 
-	if len(requestedModel) > 0 && s.HandleUpstreamModelNotFound(ctx, account, requestedModel[0], statusCode, responseBody) {
-		return true
+	if len(requestedModel) > 0 {
+		if handled, shouldFailover := s.HandleModelScopedFailure(ctx, account, requestedModel[0], statusCode, headers, responseBody); handled {
+			// Model-scoped upstream failures should fail over the current request,
+			// but the persisted state mutation stays limited to account+model.
+			return shouldFailover
+		}
 	}
 
 	// Anthropic official 5h / 7d window exhaustion is a hard account limit.
@@ -211,17 +223,17 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		if strings.Contains(strings.ToLower(upstreamMsg), "organization has been disabled") {
 			msg := "Organization disabled (400): " + upstreamMsg
 			s.handleAuthError(ctx, account, msg)
-			shouldDisable = true
+			shouldFailover = true
 		} else if account.Platform == PlatformAnthropic && strings.Contains(strings.ToLower(upstreamMsg), "credit balance") {
 			// Anthropic API key 余额不足（语义等同 402），停止调度
 			msg := "Credit balance exhausted (400): " + upstreamMsg
 			s.handleAuthError(ctx, account, msg)
-			shouldDisable = true
+			shouldFailover = true
 		} else if strings.Contains(strings.ToLower(upstreamMsg), "identity verification is required") {
 			// KYC 身份验证要求 → 永久禁用，账号需完成身份验证后才能恢复
 			msg := "Identity verification required (400): " + upstreamMsg
 			s.handleAuthError(ctx, account, msg)
-			shouldDisable = true
+			shouldFailover = true
 		}
 		// 其他 400 错误（如参数问题）不处理，不禁用账号
 	case 401:
@@ -233,7 +245,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 				msg = "Token revoked (401): " + upstreamMsg
 			}
 			s.handleAuthError(ctx, account, msg)
-			shouldDisable = true
+			shouldFailover = true
 			break
 		}
 		// OpenAI: {"detail":"Unauthorized"} 表示 token 完全无效（非标准 OpenAI 错误格式），直接标记 error
@@ -243,7 +255,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 				msg = "Unauthorized (401): " + upstreamMsg
 			}
 			s.handleAuthError(ctx, account, msg)
-			shouldDisable = true
+			shouldFailover = true
 			break
 		}
 		// OAuth 账号在 401 错误时临时不可调度（给 token 刷新窗口）；非 OAuth 账号保持原有 SetError 行为。
@@ -263,7 +275,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 					msg = "OAuth 401 (no refresh_token): " + upstreamMsg
 				}
 				s.handleAuthError(ctx, account, msg)
-				shouldDisable = true
+				shouldFailover = true
 				break
 			}
 			// 2. 临时不可调度，替代 SetError（保持 status=active 让刷新服务能拾取）
@@ -288,7 +300,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, msg); err != nil {
 				slog.Warn("oauth_401_set_temp_unschedulable_failed", "account_id", account.ID, "error", err)
 			}
-			shouldDisable = true
+			shouldFailover = true
 		} else {
 			// 非 OAuth / Antigravity OAuth：保持 SetError 行为
 			msg := "Authentication failed (401): invalid or expired credentials"
@@ -296,14 +308,14 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 				msg = "Authentication failed (401): " + upstreamMsg
 			}
 			s.handleAuthError(ctx, account, msg)
-			shouldDisable = true
+			shouldFailover = true
 		}
 	case 402:
 		// OpenAI: deactivated_workspace 表示工作区已停用，直接标记 error
 		if account.Platform == PlatformOpenAI && gjson.GetBytes(responseBody, "detail.code").String() == "deactivated_workspace" {
 			msg := "Workspace deactivated (402): workspace has been deactivated"
 			s.handleAuthError(ctx, account, msg)
-			shouldDisable = true
+			shouldFailover = true
 			break
 		}
 		// 支付要求：余额不足或计费问题，停止调度
@@ -312,7 +324,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			msg = "Payment required (402): " + upstreamMsg
 		}
 		s.handleAuthError(ctx, account, msg)
-		shouldDisable = true
+		shouldFailover = true
 	case 403:
 		logger.LegacyPrintf(
 			"service.ratelimit",
@@ -325,13 +337,13 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			upstreamMsg,
 			truncateForLog(responseBody, 1024),
 		)
-		shouldDisable = s.handle403(ctx, account, upstreamMsg, responseBody)
+		shouldFailover = s.handle403(ctx, account, upstreamMsg, responseBody)
 	case 429:
 		s.handle429(ctx, account, headers, responseBody)
-		shouldDisable = false
+		shouldFailover = false
 	case 529:
 		s.handle529(ctx, account)
-		shouldDisable = false
+		shouldFailover = false
 	default:
 		// 自定义错误码启用时：在列表中的错误码都应该停止调度
 		if customErrorCodesEnabled {
@@ -340,15 +352,15 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 				msg = upstreamMsg
 			}
 			s.handleCustomErrorCode(ctx, account, statusCode, msg)
-			shouldDisable = true
+			shouldFailover = true
 		} else if statusCode >= 500 {
 			// 未启用自定义错误码时：仅记录5xx错误
 			slog.Warn("account_upstream_error", "account_id", account.ID, "status_code", statusCode)
-			shouldDisable = false
+			shouldFailover = false
 		}
 	}
 
-	return shouldDisable
+	return shouldFailover
 }
 
 // PreCheckUsage proactively checks local quota before dispatching a request.
@@ -758,7 +770,7 @@ func buildForbiddenErrorMessage(prefix string, upstreamMsg string, responseBody 
 // handle403 处理 403 Forbidden 错误
 // Antigravity 平台区分 validation/violation/generic 三种类型，均 SetError 永久禁用；
 // 其他平台保持原有 SetError 行为。
-func (s *RateLimitService) handle403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
+func (s *RateLimitService) handle403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldFailover bool) {
 	if account.Platform == PlatformAntigravity {
 		return s.handleAntigravity403(ctx, account, upstreamMsg, responseBody)
 	}
@@ -776,7 +788,7 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	return true
 }
 
-func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
+func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldFailover bool) {
 	msg := buildForbiddenErrorMessage(
 		"Access forbidden (403):",
 		upstreamMsg,
@@ -825,7 +837,7 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 // validation（需要验证）→ 永久 SetError（需人工去 Google 验证后恢复）
 // violation（违规封号）→ 永久 SetError（需人工处理）
 // generic（通用禁止）→ 永久 SetError
-func (s *RateLimitService) handleAntigravity403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
+func (s *RateLimitService) handleAntigravity403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldFailover bool) {
 	fbType := classifyForbiddenType(string(responseBody))
 
 	switch fbType {
@@ -1767,6 +1779,379 @@ func (s *RateLimitService) HandleOpenAIImageRateLimit(ctx context.Context, accou
 	}
 	slog.Info("openai_image_rate_limited", "account_id", account.ID, "scope", openAIImageGenerationRateLimitKey, "reset_at", resetAt, "reset_in", time.Until(resetAt).Truncate(time.Second))
 	return true
+}
+
+func (s *RateLimitService) HandleOpenAIModelRateLimit(ctx context.Context, account *Account, requestedModel string, statusCode int, headers http.Header, responseBody []byte) bool {
+	if s == nil || account == nil || s.accountRepo == nil {
+		return false
+	}
+	if account.Platform != PlatformOpenAI {
+		return false
+	}
+	if statusCode != http.StatusTooManyRequests {
+		return false
+	}
+	if !account.ShouldHandleErrorCode(statusCode) {
+		slog.Info("openai_model_rate_limit_skipped_by_error_code_policy", "account_id", account.ID, "status_code", statusCode)
+		return false
+	}
+	if isOpenAIImageRateLimitError(statusCode, responseBody) {
+		return false
+	}
+
+	scope := openAIModelRateLimitScope(ctx, account, requestedModel, responseBody)
+	if scope == "" {
+		return false
+	}
+
+	resetAt := openAIModelRateLimitResetAt(headers, responseBody)
+	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, scope, resetAt, openAIModelRateLimitReason); err != nil {
+		slog.Warn("openai_model_rate_limit_set_model_rate_limit_failed", "account_id", account.ID, "scope", scope, "error", err)
+		return true
+	}
+	slog.Info("openai_model_rate_limited", "account_id", account.ID, "scope", scope, "reset_at", resetAt, "reset_in", time.Until(resetAt).Truncate(time.Second))
+	return true
+}
+
+func (s *RateLimitService) HandleModelScopedFailure(ctx context.Context, account *Account, requestedModel string, statusCode int, headers http.Header, responseBody []byte) (handled bool, shouldFailover bool) {
+	if s.HandleOpenAIModelRateLimit(ctx, account, requestedModel, statusCode, headers, responseBody) {
+		return true, true
+	}
+	if s.HandleUpstreamModelNotFound(ctx, account, requestedModel, statusCode, responseBody) {
+		return true, true
+	}
+	if s.handleProviderModelUpstreamFailure(ctx, account, requestedModel, statusCode, headers, responseBody) {
+		return true, true
+	}
+	return false, false
+}
+
+func (s *RateLimitService) handleProviderModelUpstreamFailure(ctx context.Context, account *Account, requestedModel string, statusCode int, headers http.Header, responseBody []byte) bool {
+	if s == nil || account == nil || s.accountRepo == nil {
+		return false
+	}
+	if !supportsProviderModelScopedFailure(account) {
+		return false
+	}
+	if strings.TrimSpace(requestedModel) == "" {
+		return false
+	}
+	if !isProviderModelUpstreamFailureStatus(statusCode) {
+		return false
+	}
+	if !account.ShouldHandleErrorCode(statusCode) {
+		slog.Info("provider_model_upstream_failure_skipped_by_error_code_policy", "account_id", account.ID, "platform", account.Platform, "status_code", statusCode)
+		return false
+	}
+	if isOpenAIImageRateLimitError(statusCode, responseBody) {
+		return false
+	}
+	if isProviderAccountLevelFailure(account, statusCode, headers, responseBody) {
+		return false
+	}
+
+	scope := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, requestedModel)
+	if scope == "" {
+		return false
+	}
+
+	resetAt := modelUpstreamFailureResetAt(account, statusCode, headers, responseBody)
+	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, scope, resetAt, modelUpstreamFailureReason); err != nil {
+		slog.Warn("provider_model_upstream_failure_set_model_rate_limit_failed", "account_id", account.ID, "platform", account.Platform, "scope", scope, "status_code", statusCode, "error", err)
+		return true
+	}
+	slog.Info("provider_model_upstream_failure_cooling_down", "account_id", account.ID, "platform", account.Platform, "scope", scope, "status_code", statusCode, "reset_at", resetAt, "reset_in", time.Until(resetAt).Truncate(time.Second))
+	return true
+}
+
+func isProviderModelUpstreamFailureStatus(statusCode int) bool {
+	return statusCode >= http.StatusBadRequest
+}
+
+func supportsProviderModelScopedFailure(account *Account) bool {
+	if account == nil {
+		return false
+	}
+	switch account.Platform {
+	case PlatformOpenAI, PlatformAnthropic, PlatformGemini:
+		return true
+	default:
+		return false
+	}
+}
+
+func isProviderAccountLevelFailure(account *Account, statusCode int, headers http.Header, body []byte) bool {
+	if account == nil {
+		return true
+	}
+	switch account.Platform {
+	case PlatformOpenAI:
+		return isOpenAIAccountLevelFailure(statusCode, body)
+	case PlatformAnthropic:
+		return isAnthropicAccountLevelFailure(statusCode, headers, body)
+	case PlatformGemini:
+		return isGeminiAccountLevelFailure(statusCode, headers, body)
+	default:
+		return true
+	}
+}
+
+func isOpenAIAccountLevelFailure(statusCode int, body []byte) bool {
+	switch statusCode {
+	case http.StatusUnauthorized, http.StatusPaymentRequired:
+		return true
+	}
+
+	errorCode := strings.ToLower(strings.TrimSpace(extractUpstreamErrorCode(body)))
+	switch errorCode {
+	case "token_invalidated",
+		"token_revoked",
+		"invalid_api_key",
+		"invalid_api_key_error",
+		"deactivated_workspace",
+		"billing_not_active",
+		"insufficient_quota":
+		return true
+	}
+
+	message := strings.TrimSpace(extractUpstreamErrorMessage(body))
+	lower := strings.ToLower(string(body))
+	if message != "" {
+		lower += " " + strings.ToLower(message)
+	}
+	normalized := strings.Join(strings.Fields(strings.NewReplacer("_", " ", "-", " ").Replace(lower)), " ")
+	if normalized == "" {
+		return false
+	}
+
+	for _, marker := range []string{
+		"organization has been disabled",
+		"identity verification is required",
+		"workspace has been deactivated",
+		"deactivated workspace",
+		"invalid api key",
+		"incorrect api key",
+		"authentication failed",
+		"unauthorized",
+		"credit balance",
+		"insufficient balance",
+		"payment required",
+		"billing",
+		"usage limit",
+	} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+
+	if strings.Contains(normalized, "quota") {
+		for _, owner := range []string{"account", "organization", "project", "billing", "balance"} {
+			if strings.Contains(normalized, owner) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func isAnthropicAccountLevelFailure(statusCode int, headers http.Header, body []byte) bool {
+	switch statusCode {
+	case http.StatusUnauthorized, http.StatusPaymentRequired:
+		return true
+	case http.StatusTooManyRequests:
+		if selectAnthropicExhaustedWindow(headers, time.Now()) != nil {
+			return true
+		}
+	}
+
+	errorCode := strings.ToLower(strings.TrimSpace(extractUpstreamErrorCode(body)))
+	switch errorCode {
+	case "authentication_error",
+		"billing_error",
+		"insufficient_quota",
+		"account_deactivated":
+		return true
+	}
+
+	normalized := normalizedUpstreamErrorText(body)
+	if normalized == "" {
+		return false
+	}
+	for _, marker := range []string{
+		"invalid api key",
+		"invalid x api key",
+		"authentication",
+		"unauthorized",
+		"credit balance",
+		"insufficient balance",
+		"payment required",
+		"billing",
+		"workspace disabled",
+		"organization disabled",
+		"account disabled",
+	} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	if strings.Contains(normalized, "quota") {
+		for _, owner := range []string{"account", "organization", "workspace", "billing", "balance", "per day", "daily"} {
+			if strings.Contains(normalized, owner) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isGeminiAccountLevelFailure(statusCode int, headers http.Header, body []byte) bool {
+	switch statusCode {
+	case http.StatusUnauthorized, http.StatusPaymentRequired:
+		return true
+	case http.StatusForbidden:
+		if isGeminiInsufficientScope(headers, body) {
+			return true
+		}
+	}
+
+	errorCode := strings.ToLower(strings.TrimSpace(extractUpstreamErrorCode(body)))
+	switch errorCode {
+	case "unauthorized",
+		"access_token_scope_insufficient",
+		"api_key_invalid",
+		"billing_not_enabled",
+		"project_deleted",
+		"consumer_invalid",
+		"consumer_suspended":
+		return true
+	}
+
+	message := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(body)))
+	if isGoogleProjectConfigError(message) || looksLikeGeminiDailyQuota(message) {
+		return true
+	}
+
+	normalized := normalizedUpstreamErrorText(body)
+	if normalized == "" {
+		return false
+	}
+	for _, marker := range []string{
+		"api key not valid",
+		"invalid api key",
+		"authentication",
+		"unauthorized",
+		"insufficient authentication scopes",
+		"access token scope insufficient",
+		"billing",
+		"payment required",
+		"project has been deleted",
+		"project is disabled",
+		"consumer suspended",
+		"service has been disabled",
+		"not enabled for project",
+	} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	if strings.Contains(normalized, "quota") {
+		for _, owner := range []string{"project", "consumer", "billing", "account", "per day", "daily"} {
+			if strings.Contains(normalized, owner) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func normalizedUpstreamErrorText(body []byte) string {
+	message := strings.TrimSpace(extractUpstreamErrorMessage(body))
+	lower := strings.ToLower(string(body))
+	if message != "" {
+		lower += " " + strings.ToLower(message)
+	}
+	return strings.Join(strings.Fields(strings.NewReplacer("_", " ", "-", " ").Replace(lower)), " ")
+}
+
+func openAIModelRateLimitScope(ctx context.Context, account *Account, requestedModel string, body []byte) string {
+	limitedModel := extractOpenAIModelRateLimitModel(body)
+	if limitedModel == "" {
+		return ""
+	}
+
+	scope := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, requestedModel)
+	if scope == "" {
+		return ""
+	}
+	if !openAIModelNamesEqual(limitedModel, scope) {
+		return ""
+	}
+	return scope
+}
+
+func extractOpenAIModelRateLimitModel(body []byte) string {
+	message := strings.TrimSpace(extractUpstreamErrorMessage(body))
+	if message == "" {
+		return ""
+	}
+	match := openAIModelRateLimitModelPattern.FindStringSubmatch(message)
+	if len(match) < 2 {
+		return ""
+	}
+	return strings.Trim(strings.TrimSpace(match[1]), `"'`)
+}
+
+func openAIModelRateLimitResetAt(headers http.Header, body []byte) time.Time {
+	now := time.Now()
+	if resetAt := parseRetryAfterResetTime(headers, now); resetAt != nil && resetAt.After(now) {
+		return *resetAt
+	}
+	if resetUnix := parseOpenAIRateLimitResetTime(body); resetUnix != nil {
+		if resetAt := time.Unix(*resetUnix, 0); resetAt.After(now) {
+			return resetAt
+		}
+	}
+	if cooldown := parseOpenAIImageTryAgainCooldown(body); cooldown > 0 {
+		return now.Add(cooldown)
+	}
+	return now.Add(openAIModelRateLimitDefaultCooldown)
+}
+
+func modelUpstreamFailureResetAt(account *Account, statusCode int, headers http.Header, body []byte) time.Time {
+	now := time.Now()
+	if resetAt := parseRetryAfterResetTime(headers, now); resetAt != nil && resetAt.After(now) {
+		return *resetAt
+	}
+	if account != nil {
+		switch account.Platform {
+		case PlatformOpenAI:
+			if resetAt := calculateOpenAI429ResetTime(headers); resetAt != nil && resetAt.After(now) {
+				return *resetAt
+			}
+			if resetUnix := parseOpenAIRateLimitResetTime(body); resetUnix != nil {
+				if resetAt := time.Unix(*resetUnix, 0); resetAt.After(now) {
+					return resetAt
+				}
+			}
+		case PlatformGemini:
+			if statusCode == http.StatusTooManyRequests {
+				if resetUnix := ParseGeminiRateLimitResetTime(body); resetUnix != nil {
+					if resetAt := time.Unix(*resetUnix, 0); resetAt.After(now) {
+						return resetAt
+					}
+				}
+			}
+		}
+	}
+	if cooldown := parseOpenAIImageTryAgainCooldown(body); cooldown > 0 {
+		return now.Add(cooldown)
+	}
+	return now.Add(modelUpstreamFailureCooldown)
+}
+
+func openAIModelNamesEqual(a, b string) bool {
+	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
 }
 
 func isOpenAIImageRateLimitError(statusCode int, body []byte) bool {

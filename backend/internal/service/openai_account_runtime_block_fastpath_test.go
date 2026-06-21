@@ -64,7 +64,7 @@ func TestOpenAIModelNotFound_DoesNotRuntimeBlockWholeAccount(t *testing.T) {
 	}
 	account := openAIModelNotFoundTempAccount()
 
-	shouldDisable := svc.handleOpenAIAccountUpstreamError(
+	shouldFailover := svc.handleOpenAIAccountUpstreamError(
 		context.Background(),
 		account,
 		http.StatusNotFound,
@@ -73,7 +73,7 @@ func TestOpenAIModelNotFound_DoesNotRuntimeBlockWholeAccount(t *testing.T) {
 		"gpt-5.4",
 	)
 
-	require.True(t, shouldDisable)
+	require.True(t, shouldFailover)
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 	require.Zero(t, repo.tempCalls)
 	require.Len(t, repo.modelRateLimitCalls, 1)

@@ -22,12 +22,18 @@ type modelNotFoundRateLimitCall struct {
 type modelNotFoundAccountRepoStub struct {
 	mockAccountRepoForGemini
 	tempCalls           int
+	rateLimitedCalls    int
 	modelRateLimitCalls []modelNotFoundRateLimitCall
 	modelRateLimitErr   error
 }
 
 func (r *modelNotFoundAccountRepoStub) SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error {
 	r.tempCalls++
+	return nil
+}
+
+func (r *modelNotFoundAccountRepoStub) SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error {
+	r.rateLimitedCalls++
 	return nil
 }
 
@@ -44,12 +50,12 @@ func (r *modelNotFoundAccountRepoStub) SetModelRateLimit(ctx context.Context, id
 	return r.modelRateLimitErr
 }
 
-func TestRateLimitService_HandleUpstreamError_ModelNotFoundUsesModelRateLimit(t *testing.T) {
+func TestRateLimitService_HandleUpstreamError_ModelNotFoundUsesModelRateLimitAndFailover(t *testing.T) {
 	repo := &modelNotFoundAccountRepoStub{}
 	svc := &RateLimitService{accountRepo: repo}
 	account := openAIModelNotFoundTempAccount()
 
-	handled := svc.HandleUpstreamError(
+	shouldFailover := svc.HandleUpstreamError(
 		context.Background(),
 		account,
 		http.StatusNotFound,
@@ -58,7 +64,7 @@ func TestRateLimitService_HandleUpstreamError_ModelNotFoundUsesModelRateLimit(t 
 		"gpt-5.4",
 	)
 
-	require.True(t, handled)
+	require.True(t, shouldFailover)
 	require.Zero(t, repo.tempCalls)
 	require.Len(t, repo.modelRateLimitCalls, 1)
 	call := repo.modelRateLimitCalls[0]
@@ -73,7 +79,7 @@ func TestRateLimitService_HandleUpstreamError_ModelNotFoundWriteFailureDoesNotTe
 	svc := &RateLimitService{accountRepo: repo}
 	account := openAIModelNotFoundTempAccount()
 
-	handled := svc.HandleUpstreamError(
+	shouldFailover := svc.HandleUpstreamError(
 		context.Background(),
 		account,
 		http.StatusNotFound,
@@ -82,17 +88,17 @@ func TestRateLimitService_HandleUpstreamError_ModelNotFoundWriteFailureDoesNotTe
 		"gpt-5.4",
 	)
 
-	require.True(t, handled)
+	require.True(t, shouldFailover)
 	require.Zero(t, repo.tempCalls)
 	require.Len(t, repo.modelRateLimitCalls, 1)
 }
 
-func TestRateLimitService_HandleUpstreamError_Bare404KeepsTempUnschedulablePath(t *testing.T) {
+func TestRateLimitService_HandleUpstreamError_Bare404UsesModelScopedFallback(t *testing.T) {
 	repo := &modelNotFoundAccountRepoStub{}
 	svc := &RateLimitService{accountRepo: repo}
 	account := openAIModelNotFoundTempAccount()
 
-	handled := svc.HandleUpstreamError(
+	shouldFailover := svc.HandleUpstreamError(
 		context.Background(),
 		account,
 		http.StatusNotFound,
@@ -101,9 +107,11 @@ func TestRateLimitService_HandleUpstreamError_Bare404KeepsTempUnschedulablePath(
 		"gpt-5.4",
 	)
 
-	require.True(t, handled)
-	require.Equal(t, 1, repo.tempCalls)
-	require.Empty(t, repo.modelRateLimitCalls)
+	require.True(t, shouldFailover)
+	require.Zero(t, repo.tempCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, "gpt-5.4", repo.modelRateLimitCalls[0].scope)
+	require.Equal(t, modelUpstreamFailureReason, repo.modelRateLimitCalls[0].reason)
 }
 
 func openAIModelNotFoundTempAccount() *Account {

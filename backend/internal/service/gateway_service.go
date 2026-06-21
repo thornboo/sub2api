@@ -6185,11 +6185,11 @@ func (s *GatewayService) invalidNonStreamingJSONFailoverError(
 	)
 
 	if s.rateLimitService != nil && account != nil {
-		if len(requestedModel) > 0 {
-			s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, resp.Header, body, requestedModel[0])
-		} else {
-			s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, resp.Header, body)
-		}
+		// This is a local synthetic 502 for an invalid response envelope, not a
+		// provider-confirmed failure for the requested upstream model. Keep it on
+		// the account/temp-unschedulable path so broad model cooldown does not
+		// shadow operator rules for broken upstream responses.
+		s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, resp.Header, body)
 	}
 
 	return &UpstreamFailoverError{

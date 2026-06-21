@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -127,6 +128,8 @@ type UsageLog struct {
 	InboundEndpoint *string
 	// UpstreamEndpoint is the normalized upstream endpoint path, e.g. /v1/responses.
 	UpstreamEndpoint *string
+	// ScheduleMeta records non-sensitive scheduler diagnostics for admin troubleshooting.
+	ScheduleMeta *UsageScheduleMeta
 
 	GroupID        *int64
 	SubscriptionID *int64
@@ -182,6 +185,51 @@ type UsageLog struct {
 	Account      *Account
 	Group        *Group
 	Subscription *UserSubscription
+}
+
+type UsageScheduleMeta struct {
+	Provider            string  `json:"provider,omitempty"`
+	Layer               string  `json:"layer,omitempty"`
+	StickyPreviousHit   bool    `json:"sticky_previous_hit,omitempty"`
+	StickySessionHit    bool    `json:"sticky_session_hit,omitempty"`
+	CandidateCount      int     `json:"candidate_count,omitempty"`
+	TopK                int     `json:"top_k,omitempty"`
+	LatencyMs           int64   `json:"latency_ms,omitempty"`
+	LoadSkew            float64 `json:"load_skew,omitempty"`
+	SelectedAccountID   int64   `json:"selected_account_id,omitempty"`
+	SelectedAccountType string  `json:"selected_account_type,omitempty"`
+}
+
+func UsageScheduleMetaFromOpenAIDecision(decision OpenAIAccountScheduleDecision) *UsageScheduleMeta {
+	if decision.Layer == "" &&
+		!decision.StickyPreviousHit &&
+		!decision.StickySessionHit &&
+		decision.CandidateCount == 0 &&
+		decision.TopK == 0 &&
+		decision.LatencyMs == 0 &&
+		decision.LoadSkew == 0 &&
+		decision.SelectedAccountID == 0 &&
+		decision.SelectedAccountType == "" {
+		return nil
+	}
+
+	loadSkew := decision.LoadSkew
+	if math.IsNaN(loadSkew) || math.IsInf(loadSkew, 0) {
+		loadSkew = 0
+	}
+
+	return &UsageScheduleMeta{
+		Provider:            "openai",
+		Layer:               strings.TrimSpace(decision.Layer),
+		StickyPreviousHit:   decision.StickyPreviousHit,
+		StickySessionHit:    decision.StickySessionHit,
+		CandidateCount:      decision.CandidateCount,
+		TopK:                decision.TopK,
+		LatencyMs:           decision.LatencyMs,
+		LoadSkew:            loadSkew,
+		SelectedAccountID:   decision.SelectedAccountID,
+		SelectedAccountType: strings.TrimSpace(decision.SelectedAccountType),
+	}
 }
 
 func (u *UsageLog) TotalTokens() int {

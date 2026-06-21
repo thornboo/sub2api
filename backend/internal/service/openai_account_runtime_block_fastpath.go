@@ -42,14 +42,17 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		return false
 	}
 
+	if s != nil && s.rateLimitService != nil && len(requestedModel) > 0 {
+		if handled, shouldFailover := s.rateLimitService.HandleModelScopedFailure(stateCtx, account, requestedModel[0], statusCode, headers, responseBody); handled {
+			return shouldFailover
+		}
+	}
+
 	if statusCode == http.StatusTooManyRequests {
 		s.markOpenAIOAuth429RateLimited(stateCtx, account, headers, responseBody)
 	}
 	if s == nil || account == nil || s.rateLimitService == nil {
 		return false
-	}
-	if len(requestedModel) > 0 && s.rateLimitService.HandleUpstreamModelNotFound(stateCtx, account, requestedModel[0], statusCode, responseBody) {
-		return true
 	}
 	shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody)
 	if shouldDisable {

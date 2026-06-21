@@ -661,8 +661,27 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 		BillingTier:           l.BillingTier,
 		AccountRateMultiplier: l.AccountRateMultiplier,
 		AccountStatsCost:      l.AccountStatsCost,
+		ScheduleMeta:          UsageScheduleMetaFromService(l.ScheduleMeta),
 		IPAddress:             l.IPAddress,
 		Account:               AccountSummaryFromService(l.Account),
+	}
+}
+
+func UsageScheduleMetaFromService(meta *service.UsageScheduleMeta) *UsageScheduleMeta {
+	if meta == nil {
+		return nil
+	}
+	return &UsageScheduleMeta{
+		Provider:            meta.Provider,
+		Layer:               meta.Layer,
+		StickyPreviousHit:   meta.StickyPreviousHit,
+		StickySessionHit:    meta.StickySessionHit,
+		CandidateCount:      meta.CandidateCount,
+		TopK:                meta.TopK,
+		LatencyMs:           meta.LatencyMs,
+		LoadSkew:            meta.LoadSkew,
+		SelectedAccountID:   meta.SelectedAccountID,
+		SelectedAccountType: meta.SelectedAccountType,
 	}
 }
 

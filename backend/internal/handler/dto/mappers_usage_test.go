@@ -133,6 +133,42 @@ func TestUsageLogFromService_UsesRequestedModelAndKeepsUpstreamAdminOnly(t *test
 	require.Contains(t, string(adminJSON), `"upstream_model":"claude-sonnet-4-20250514"`)
 }
 
+func TestUsageLogFromServiceAdmin_IncludesScheduleMetaAdminOnly(t *testing.T) {
+	t.Parallel()
+
+	log := &service.UsageLog{
+		RequestID: "req_sched",
+		Model:     "gpt-5.5",
+		ScheduleMeta: &service.UsageScheduleMeta{
+			Provider:            "openai",
+			Layer:               "load_balance",
+			CandidateCount:      3,
+			TopK:                2,
+			SelectedAccountID:   9,
+			SelectedAccountType: service.AccountTypeAPIKey,
+		},
+	}
+
+	userDTO := UsageLogFromService(log)
+	adminDTO := UsageLogFromServiceAdmin(log)
+
+	require.Nil(t, adminDTO.UsageLog.User)
+	require.NotNil(t, adminDTO.ScheduleMeta)
+	require.Equal(t, "openai", adminDTO.ScheduleMeta.Provider)
+	require.Equal(t, "load_balance", adminDTO.ScheduleMeta.Layer)
+	require.Equal(t, 3, adminDTO.ScheduleMeta.CandidateCount)
+	require.Equal(t, int64(9), adminDTO.ScheduleMeta.SelectedAccountID)
+
+	userJSON, err := json.Marshal(userDTO)
+	require.NoError(t, err)
+	require.NotContains(t, string(userJSON), "schedule_meta")
+
+	adminJSON, err := json.Marshal(adminDTO)
+	require.NoError(t, err)
+	require.Contains(t, string(adminJSON), `"schedule_meta"`)
+	require.Contains(t, string(adminJSON), `"candidate_count":3`)
+}
+
 func TestUsageLogFromService_FallsBackToLegacyModelWhenRequestedModelMissing(t *testing.T) {
 	t.Parallel()
 

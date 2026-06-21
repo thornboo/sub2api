@@ -312,6 +312,48 @@ func TestOpenAIGatewayServiceRecordUsage_ZeroUsageStillWritesUsageLog(t *testing
 	require.Zero(t, billingRepo.lastCmd.AccountQuotaCost)
 }
 
+func TestOpenAIGatewayServiceRecordUsage_PropagatesScheduleMeta(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}
+	svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(
+		usageRepo,
+		billingRepo,
+		&openAIRecordUsageUserRepoStub{},
+		&openAIRecordUsageSubRepoStub{},
+		nil,
+	)
+
+	scheduleMeta := &UsageScheduleMeta{
+		Provider:            "openai",
+		Layer:               openAIAccountScheduleLayerLoadBalance,
+		CandidateCount:      4,
+		TopK:                2,
+		LatencyMs:           5,
+		LoadSkew:            0.25,
+		SelectedAccountID:   3003,
+		SelectedAccountType: AccountTypeAPIKey,
+	}
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID: "resp_schedule_meta",
+			Usage: OpenAIUsage{
+				InputTokens:  100,
+				OutputTokens: 20,
+			},
+			Model:    "gpt-5.1",
+			Duration: time.Second,
+		},
+		APIKey:       &APIKey{ID: 1003, Quota: 100, Group: &Group{RateMultiplier: 1}},
+		User:         &User{ID: 2003},
+		Account:      &Account{ID: 3003, Type: AccountTypeAPIKey},
+		ScheduleMeta: scheduleMeta,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Same(t, scheduleMeta, usageRepo.lastLog.ScheduleMeta)
+}
+
 func TestOpenAIGatewayServiceRecordUsage_MissingPricingRecordsZeroCostUsageLog(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}

@@ -414,6 +414,60 @@ func TestHandleGeminiUpstreamError_GoogleOneCapacityExhaustedUsesTierCooldown(t 
 	require.True(t, repo.lastRateLimitReset.Before(after.Add(5*time.Minute).Add(2*time.Second)))
 }
 
+func TestHandleGeminiUpstreamError_ModelCapacityWithRequestedModelUsesModelCooldownAndFailover(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	rlSvc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc := &GeminiMessagesCompatService{
+		accountRepo:      repo,
+		rateLimitService: rlSvc,
+	}
+	account := &Account{
+		ID:       512,
+		Platform: PlatformGemini,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"oauth_type": "google_one",
+			"tier_id":    "google_ai_pro",
+		},
+	}
+	body := []byte(`{"error":{"code":429,"details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","domain":"cloudcode-pa.googleapis.com","metadata":{"model":"gemini-3.1-pro-preview"},"reason":"MODEL_CAPACITY_EXHAUSTED"}],"message":"No capacity available for model gemini-3.1-pro-preview on the server","status":"RESOURCE_EXHAUSTED"}}`)
+
+	before := time.Now()
+	handled, shouldFailover := svc.handleGeminiUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, body, "gemini-3.1-pro-preview")
+
+	require.True(t, handled)
+	require.True(t, shouldFailover)
+	require.Zero(t, repo.rateLimitedCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	call := repo.modelRateLimitCalls[0]
+	require.Equal(t, int64(512), call.accountID)
+	require.Equal(t, "gemini-3.1-pro-preview", call.scope)
+	require.Equal(t, modelUpstreamFailureReason, call.reason)
+	require.WithinDuration(t, before.Add(modelUpstreamFailureCooldown), call.resetAt, 2*time.Second)
+}
+
+func TestHandleGeminiUpstreamError_DailyQuotaWithRequestedModelStaysAccountLevel(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	rlSvc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc := &GeminiMessagesCompatService{
+		accountRepo:      repo,
+		rateLimitService: rlSvc,
+	}
+	account := &Account{
+		ID:       513,
+		Platform: PlatformGemini,
+		Type:     AccountTypeAPIKey,
+	}
+	body := []byte(`{"error":{"code":429,"message":"Quota exceeded for quota metric Generate requests per day in project 123. Please submit a quota increase request.","status":"RESOURCE_EXHAUSTED"}}`)
+
+	handled, shouldFailover := svc.handleGeminiUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, body, "gemini-2.5-flash")
+
+	require.True(t, handled)
+	require.False(t, shouldFailover)
+	require.Equal(t, 1, repo.rateLimitedCalls)
+	require.Empty(t, repo.modelRateLimitCalls)
+}
+
 type geminiErrorPolicyRepo struct {
 	mockAccountRepoForGemini
 	setErrorCalls       int

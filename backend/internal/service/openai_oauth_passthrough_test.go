@@ -199,8 +199,15 @@ func TestOpenAIGatewayService_OAuthMessagesBridgeDoesNotInjectDefaultInstruction
 
 type openAIPassthroughFailoverRepo struct {
 	stubOpenAIAccountRepo
-	rateLimitCalls []time.Time
-	overloadCalls  []time.Time
+	rateLimitCalls      []time.Time
+	overloadCalls       []time.Time
+	modelRateLimitCalls []openAIPassthroughModelLimitCall
+}
+
+type openAIPassthroughModelLimitCall struct {
+	scope   string
+	resetAt time.Time
+	reason  string
 }
 
 func (r *openAIPassthroughFailoverRepo) SetRateLimited(_ context.Context, _ int64, resetAt time.Time) error {
@@ -210,6 +217,18 @@ func (r *openAIPassthroughFailoverRepo) SetRateLimited(_ context.Context, _ int6
 
 func (r *openAIPassthroughFailoverRepo) SetOverloaded(_ context.Context, _ int64, until time.Time) error {
 	r.overloadCalls = append(r.overloadCalls, until)
+	return nil
+}
+
+func (r *openAIPassthroughFailoverRepo) SetModelRateLimit(_ context.Context, _ int64, scope string, resetAt time.Time, reason ...string) error {
+	call := openAIPassthroughModelLimitCall{
+		scope:   scope,
+		resetAt: resetAt,
+	}
+	if len(reason) > 0 {
+		call.reason = reason[0]
+	}
+	r.modelRateLimitCalls = append(r.modelRateLimitCalls, call)
 	return nil
 }
 
@@ -840,6 +859,7 @@ func TestOpenAIGatewayService_OpenAIPassthrough_429And529TriggerFailover(t *test
 			assertRepo: func(t *testing.T, repo *openAIPassthroughFailoverRepo, _ time.Time) {
 				require.Len(t, repo.rateLimitCalls, 1)
 				require.Empty(t, repo.overloadCalls)
+				require.Empty(t, repo.modelRateLimitCalls)
 				require.True(t, time.Until(repo.rateLimitCalls[0]) > 24*time.Hour)
 			},
 		},
@@ -850,8 +870,11 @@ func TestOpenAIGatewayService_OpenAIPassthrough_429And529TriggerFailover(t *test
 			body:        `{"error":{"message":"server overloaded","type":"server_error"}}`,
 			assertRepo: func(t *testing.T, repo *openAIPassthroughFailoverRepo, start time.Time) {
 				require.Empty(t, repo.rateLimitCalls)
-				require.Len(t, repo.overloadCalls, 1)
-				require.WithinDuration(t, start.Add(10*time.Minute), repo.overloadCalls[0], 5*time.Second)
+				require.Empty(t, repo.overloadCalls)
+				require.Len(t, repo.modelRateLimitCalls, 1)
+				require.Equal(t, "gpt-5.2", repo.modelRateLimitCalls[0].scope)
+				require.Equal(t, modelUpstreamFailureReason, repo.modelRateLimitCalls[0].reason)
+				require.WithinDuration(t, start.Add(modelUpstreamFailureCooldown), repo.modelRateLimitCalls[0].resetAt, 5*time.Second)
 			},
 		},
 		{
@@ -865,6 +888,7 @@ func TestOpenAIGatewayService_OpenAIPassthrough_429And529TriggerFailover(t *test
 			assertRepo: func(t *testing.T, repo *openAIPassthroughFailoverRepo, _ time.Time) {
 				require.Len(t, repo.rateLimitCalls, 1)
 				require.Empty(t, repo.overloadCalls)
+				require.Empty(t, repo.modelRateLimitCalls)
 				require.True(t, time.Until(repo.rateLimitCalls[0]) > 24*time.Hour)
 			},
 		},
@@ -875,8 +899,11 @@ func TestOpenAIGatewayService_OpenAIPassthrough_429And529TriggerFailover(t *test
 			body:        `{"error":{"message":"server overloaded","type":"server_error"}}`,
 			assertRepo: func(t *testing.T, repo *openAIPassthroughFailoverRepo, start time.Time) {
 				require.Empty(t, repo.rateLimitCalls)
-				require.Len(t, repo.overloadCalls, 1)
-				require.WithinDuration(t, start.Add(10*time.Minute), repo.overloadCalls[0], 5*time.Second)
+				require.Empty(t, repo.overloadCalls)
+				require.Len(t, repo.modelRateLimitCalls, 1)
+				require.Equal(t, "gpt-5.2", repo.modelRateLimitCalls[0].scope)
+				require.Equal(t, modelUpstreamFailureReason, repo.modelRateLimitCalls[0].reason)
+				require.WithinDuration(t, start.Add(modelUpstreamFailureCooldown), repo.modelRateLimitCalls[0].resetAt, 5*time.Second)
 			},
 		},
 	}

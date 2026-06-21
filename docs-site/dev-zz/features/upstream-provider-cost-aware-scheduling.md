@@ -1,10 +1,10 @@
 # 上游供应商成本感知与模型级调度
 
-> 状态：方案稿，尚未实现。这里只记录调度、成本配置、综合折扣和余额查询的设计方向。
+> 状态：分阶段落地中。模型级错误转移第一版已覆盖 OpenAI / Claude / Gemini；供应商成本配置、综合折扣、余额查询仍是后续设计。
 
 ## 这份设计解决什么
 
-- 这还是设计稿，尚未进入实现。
+- 这份文档既记录已经落地的模型级错误转移，也记录后续成本感知调度设计。
 - 讨论范围包括：上游账号调度解释、模型级健康、供应商成本配置、综合折扣计算、上游余额查询。
 - 会影响到的页面主要是：
   - 管理员账号管理：`/admin/accounts`
@@ -54,8 +54,8 @@
 
 - `Account.IsSchedulable()` 是账号级可调度判断，会受 `RateLimitResetAt`、`TempUnschedulableUntil`、`OverloadUntil`、账号状态、配额等影响。
 - `IsSchedulableForModelWithContext()` 已经会读取 `model_rate_limits`，支持模型级或能力级冷却。
-- OpenAI 图片限流和上游模型不存在已经有模型级写入路径。
-- 通用 429、临时不可调度规则、OAuth 运行时 block 等仍可能把账号整体排除。
+- OpenAI 图片限流、上游模型不存在、OpenAI / Claude / Gemini 非明确账号级的上游模型错误已经写入模型级冷却。
+- 账号认证失败、余额不足、工作区停用、明确全局额度或账单问题仍按账号级处理。
 - OpenAI 选择器也不是简单粗暴地“只选 priority=1”：
   - 先尝试粘性会话。
   - 再按可调度、模型支持、渠道限制、能力支持过滤。
@@ -146,8 +146,11 @@ B selected: lowest effective cost among healthy candidates
 | 429 with model-specific signal | 模型级或模型族级冷却 |
 | 429 with global quota header | 账号级冷却 |
 | 404 / model_not_found | 模型级冷却 |
+| 非明确账号级的上游 4xx / 5xx / 529 | 当前账号 + 当前 upstream model 短冷却，并触发本次请求转移 |
 | 上游网络错误 / 代理不可达 | 账号级临时不可调度，短冷却 |
-| 参数错误 / 客户端请求错误 | 不应冷却账号 |
+| 本地能识别的参数错误 / 客户端请求错误 | 不进入上游调度，不冷却账号 |
+
+第一版上线策略会故意偏向可用性：只要请求已经明确落到某个上游模型，且错误内容不是认证、余额、工作区停用、全局额度、账单这类账号级问题，就先认为是“这个供应商的这个模型暂时不可用”。这样能最大限度保住同一个低成本供应商的其它模型。
 
 ### 冷却键
 
@@ -158,7 +161,7 @@ B selected: lowest effective cost among healthy candidates
   "model_rate_limits": {
     "claude-3-5-haiku": {
       "rate_limit_reset_at": "2026-06-21T12:30:00+08:00",
-      "reason": "upstream_429_model_rate_limit"
+      "reason": "model_upstream_error"
     },
     "family:haiku": {
       "rate_limit_reset_at": "2026-06-21T12:30:00+08:00",
@@ -173,6 +176,31 @@ B selected: lowest effective cost among healthy candidates
 ```
 
 第一版先只做“具体 upstream model key”更稳，避免模型族推断误伤；模型族和能力级可以后续再增强。
+
+### 自动转移流程
+
+```mermaid
+flowchart TD
+    A[收到请求] --> B[解析用户模型和目标能力]
+    B --> C[按分组、渠道、账号状态、模型支持过滤候选]
+    C --> D[按 priority / 调度策略选择供应商 A]
+    D --> E[请求供应商 A 的目标 upstream model]
+    E --> F{上游成功?}
+    F -- 是 --> G[记录用量和调度信息]
+    F -- 否 --> H{是否明确账号级错误?}
+    H -- 是 --> I[账号级冷却或禁用<br/>例如认证、余额、工作区停用、全局额度]
+    I --> J[本次请求进入 failover]
+    H -- 否 --> K[写入模型级冷却<br/>account_id + upstream_model]
+    K --> L[本次请求进入 failover]
+    J --> M[把供应商 A 加入本次请求排除列表]
+    L --> M
+    M --> N{还有支持同模型的候选?}
+    N -- 是 --> O[按优先级选择下一个健康供应商]
+    O --> E
+    N -- 否 --> P[返回最后一次上游错误]
+```
+
+这个流程的关键点是：`供应商 A + haiku` 失败后，只冷却这个模型组合；同一个供应商 A 的 `sonnet`、`opus` 不会因为这次 `haiku` 错误被整体跳过。
 
 ## 成本配置设计
 
@@ -412,15 +440,18 @@ score =
 
 ### 阶段 2：模型级冷却扩展
 
+当前状态：第一版已落地到 OpenAI / Claude / Gemini。非明确账号级错误会写入 `account_id + upstream_model` 的短冷却，并触发本次请求 failover；认证、余额、账单、工作区停用、明确全局额度等仍走账号级处理。
+
 要做的事：
 
-- 将更多单模型错误写入 `model_rate_limits`。
+- 将非明确账号级的模型请求错误写入 `model_rate_limits`。（已覆盖 OpenAI / Claude / Gemini）
 - 保留账号级错误对整账号的影响。
 - 避免 `haiku` 异常误伤 `sonnet` / `opus`。
 
 验收点：
 
-- 供应商 A 的 `haiku` 429 后，A 的 `sonnet` 仍可被选。
+- 供应商 A 的 `haiku` 报错后，本次请求会转移到下一个支持 `haiku` 的供应商。
+- 供应商 A 的 `haiku` 报错后，A 的 `sonnet` 仍可被选。
 - 模型不存在只影响对应 mapped upstream model。
 - 账号认证失败仍整账号不可调度。
 
@@ -492,9 +523,9 @@ score =
 
 ### 模型级错误可能误判
 
-上游错误格式不统一。某些 429 是账号级额度耗尽，不能错误地当成单模型限流。
+上游错误格式不统一。某些错误虽然发生在模型请求上，实际可能是账号级额度耗尽、认证失败或供应商整体异常。
 
-第一版要保守分类：只有明确模型信号时才写模型级冷却。
+为了尽快上线验证，第一版不再只盯 429 或明确模型信号，而是采用“账号级明确证据优先”的判断：认证、余额、工作区停用、全局额度、账单问题仍按账号级处理；其它带目标模型的上游错误先按模型级短冷却处理。这个策略更符合当前上游返回不规范的现实，但需要通过调度记录观察误判率。
 
 ### 余额接口不统一
 

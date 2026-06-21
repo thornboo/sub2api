@@ -341,6 +341,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				Subscription:       subscription,
 				InboundEndpoint:    inboundEndpoint,
 				UpstreamEndpoint:   upstreamEndpoint,
+				ScheduleMeta:       service.UsageScheduleMetaFromOpenAIDecision(scheduleDecision),
 				UserAgent:          userAgent,
 				IPAddress:          clientIP,
 				RequestPayloadHash: requestPayloadHash,

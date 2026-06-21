@@ -1381,6 +1381,19 @@ export interface UsageLogAccountSummary {
   name: string
 }
 
+export interface UsageScheduleMeta {
+  provider?: string
+  layer?: string
+  sticky_previous_hit?: boolean
+  sticky_session_hit?: boolean
+  candidate_count?: number
+  top_k?: number
+  latency_ms?: number
+  load_skew?: number
+  selected_account_id?: number
+  selected_account_type?: string
+}
+
 export interface AdminUsageLog extends UsageLog {
   upstream_model?: string | null
   model_mapping_chain?: string | null
@@ -1389,6 +1402,8 @@ export interface AdminUsageLog extends UsageLog {
   account_rate_multiplier?: number | null
   // 自定义定价规则计算的账号统计费用（nil 时使用 total_cost * multiplier）
   account_stats_cost?: number | null
+  // 调度诊断信息（仅管理员接口返回）
+  schedule_meta?: UsageScheduleMeta | null
 
   // 渠道 ID 和计费等级（仅管理员可见）
   channel_id?: number | null

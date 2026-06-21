@@ -113,6 +113,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	)
 
 	var resp *http.Response
+	modelFailoverAlreadyHandled := false
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
 		upstreamReq, idHeader, err := buildReq(ctx)
 		if err != nil {
@@ -161,8 +162,14 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 				}
 				break
 			}
-			if resp.StatusCode == http.StatusTooManyRequests {
-				s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+			if _, shouldModelFailover := s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel); shouldModelFailover {
+				modelFailoverAlreadyHandled = true
+				resp = &http.Response{
+					StatusCode: resp.StatusCode,
+					Header:     resp.Header.Clone(),
+					Body:       io.NopCloser(bytes.NewReader(respBody)),
+				}
+				break
 			}
 			if attempt < geminiMaxRetries {
 				upstreamReqID := resp.Header.Get(requestIDHeader)
@@ -211,10 +218,13 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
-		s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		shouldModelFailover := modelFailoverAlreadyHandled
+		if !modelFailoverAlreadyHandled {
+			_, shouldModelFailover = s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
+		}
 		evBody := unwrapIfNeeded(account.Type == AccountTypeOAuth, respBody)
 
-		if s.shouldFailoverGeminiUpstreamError(resp.StatusCode) {
+		if shouldModelFailover || s.shouldFailoverGeminiUpstreamError(resp.StatusCode) {
 			upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(evBody)))
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,

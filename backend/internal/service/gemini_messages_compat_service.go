@@ -764,6 +764,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 	var resp *http.Response
 	signatureRetryStage := 0
+	modelFailoverAlreadyHandled := false
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
 		upstreamReq, idHeader, err := buildReq(ctx)
 		if err != nil {
@@ -886,9 +887,14 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				}
 				break
 			}
-			if resp.StatusCode == 429 {
-				// Mark as rate-limited early so concurrent requests avoid this account.
-				s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+			if _, shouldModelFailover := s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel); shouldModelFailover {
+				modelFailoverAlreadyHandled = true
+				resp = &http.Response{
+					StatusCode: resp.StatusCode,
+					Header:     resp.Header.Clone(),
+					Body:       io.NopCloser(bytes.NewReader(respBody)),
+				}
+				break
 			}
 			if attempt < geminiMaxRetries {
 				upstreamReqID := resp.Header.Get(requestIDHeader)
@@ -975,7 +981,10 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		}
 
 		// ErrorPolicyNone → 原有逻辑
-		s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		shouldModelFailover := modelFailoverAlreadyHandled
+		if !modelFailoverAlreadyHandled {
+			_, shouldModelFailover = s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
+		}
 		// 精确匹配服务端配置类 400 错误，触发 failover + 临时封禁
 		if resp.StatusCode == http.StatusBadRequest {
 			msg400 := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
@@ -1007,7 +1016,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody, RetryableOnSameAccount: true}
 			}
 		}
-		if s.shouldFailoverGeminiUpstreamError(resp.StatusCode) {
+		if shouldModelFailover || s.shouldFailoverGeminiUpstreamError(resp.StatusCode) {
 			upstreamReqID := resp.Header.Get(requestIDHeader)
 			if upstreamReqID == "" {
 				upstreamReqID = resp.Header.Get("x-goog-request-id")
@@ -1288,6 +1297,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	}
 
 	var resp *http.Response
+	modelFailoverAlreadyHandled := false
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
 		upstreamReq, idHeader, err := buildReq(ctx)
 		if err != nil {
@@ -1355,8 +1365,14 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				}
 				break
 			}
-			if resp.StatusCode == 429 {
-				s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+			if _, shouldModelFailover := s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel); shouldModelFailover {
+				modelFailoverAlreadyHandled = true
+				resp = &http.Response{
+					StatusCode: resp.StatusCode,
+					Header:     resp.Header.Clone(),
+					Body:       io.NopCloser(bytes.NewReader(respBody)),
+				}
+				break
 			}
 			if attempt < geminiMaxRetries {
 				upstreamReqID := resp.Header.Get(requestIDHeader)
@@ -1483,7 +1499,10 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		}
 
 		// ErrorPolicyNone → 原有逻辑
-		s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		shouldModelFailover := modelFailoverAlreadyHandled
+		if !modelFailoverAlreadyHandled {
+			_, shouldModelFailover = s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
+		}
 		// 精确匹配服务端配置类 400 错误，触发 failover + 临时封禁
 		if resp.StatusCode == http.StatusBadRequest {
 			msg400 := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
@@ -1512,7 +1531,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: evBody, RetryableOnSameAccount: true}
 			}
 		}
-		if s.shouldFailoverGeminiUpstreamError(resp.StatusCode) {
+		if shouldModelFailover || s.shouldFailoverGeminiUpstreamError(resp.StatusCode) {
 			evBody := unwrapIfNeeded(isOAuth, respBody)
 			upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(evBody))
 			upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
@@ -2828,17 +2847,21 @@ func asInt(v any) (int, bool) {
 	}
 }
 
-func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, body []byte) {
+func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, body []byte, requestedModel ...string) (handled bool, shouldFailover bool) {
 	// 遵守自定义错误码策略：未命中则跳过所有限流处理
 	if !account.ShouldHandleErrorCode(statusCode) {
-		return
+		return false, false
+	}
+	if s.rateLimitService != nil && len(requestedModel) > 0 {
+		if handled, shouldFailover := s.rateLimitService.HandleModelScopedFailure(ctx, account, requestedModel[0], statusCode, headers, body); handled {
+			return true, shouldFailover
+		}
 	}
 	if s.rateLimitService != nil && (statusCode == 401 || statusCode == 403 || statusCode == 529) {
-		s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, headers, body)
-		return
+		return true, s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, headers, body)
 	}
 	if statusCode != 429 {
-		return
+		return false, false
 	}
 
 	oauthType := account.GeminiOAuthType()
@@ -2874,7 +2897,7 @@ func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Cont
 			}
 		}
 		_ = s.accountRepo.SetRateLimited(ctx, account.ID, ra)
-		return
+		return true, false
 	}
 
 	// 使用解析到的重置时间
@@ -2882,6 +2905,7 @@ func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Cont
 	_ = s.accountRepo.SetRateLimited(ctx, account.ID, resetTime)
 	logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d rate limited until %v (oauth_type=%s, tier=%s)",
 		account.ID, resetTime, oauthType, tierID)
+	return true, false
 }
 
 // ParseGeminiRateLimitResetTime 解析 Gemini 格式的 429 响应，返回重置时间的 Unix 时间戳

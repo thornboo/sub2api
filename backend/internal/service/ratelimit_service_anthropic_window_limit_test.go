@@ -66,3 +66,61 @@ func TestHandleUpstreamError_AnthropicWindowLimitPreemptsTempUnschedRule(t *test
 	require.Equal(t, 1, repo.rateLimitCalls)
 	require.Equal(t, resetAt, repo.lastRateLimitReset)
 }
+
+func TestHandleUpstreamError_AnthropicWindowLimitWithRequestedModelStaysAccountLevel(t *testing.T) {
+	resetAt := time.Now().Add(3 * time.Hour).Truncate(time.Second)
+	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-5h-utilization", "1.02")
+	headers.Set("anthropic-ratelimit-unified-5h-reset", strconv.FormatInt(resetAt.Unix(), 10))
+
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+	account := &Account{
+		ID:       43,
+		Type:     AccountTypeAPIKey,
+		Platform: PlatformAnthropic,
+	}
+
+	shouldFailover := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		headers,
+		[]byte(`{"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account's rate limit. Please try again later."}}`),
+		"claude-3-5-haiku-latest",
+	)
+
+	require.False(t, shouldFailover)
+	require.Equal(t, 1, repo.rateLimitedCalls)
+	require.Empty(t, repo.modelRateLimitCalls)
+}
+
+func TestHandleUpstreamError_AnthropicGeneric500UsesModelCooldownAndFailover(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+	account := &Account{
+		ID:       44,
+		Type:     AccountTypeAPIKey,
+		Platform: PlatformAnthropic,
+	}
+	body := []byte(`{"type":"error","error":{"type":"api_error","message":"upstream model backend failed"}}`)
+
+	before := time.Now()
+	shouldFailover := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusInternalServerError,
+		http.Header{},
+		body,
+		"claude-3-5-haiku-latest",
+	)
+
+	require.True(t, shouldFailover)
+	require.Zero(t, repo.rateLimitedCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	call := repo.modelRateLimitCalls[0]
+	require.Equal(t, int64(44), call.accountID)
+	require.Equal(t, "claude-3-5-haiku-latest", call.scope)
+	require.Equal(t, modelUpstreamFailureReason, call.reason)
+	require.WithinDuration(t, before.Add(modelUpstreamFailureCooldown), call.resetAt, 2*time.Second)
+}

@@ -84,6 +84,7 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // reasoning_effort
 			sqlmock.AnyArg(), // inbound_endpoint
 			sqlmock.AnyArg(), // upstream_endpoint
+			sqlmock.AnyArg(), // schedule_meta
 			log.CacheTTLOverridden,
 			sqlmock.AnyArg(), // channel_id
 			sqlmock.AnyArg(), // model_mapping_chain
@@ -167,6 +168,7 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(),
 			sqlmock.AnyArg(),
 			sqlmock.AnyArg(),
+			sqlmock.AnyArg(), // schedule_meta
 			log.CacheTTLOverridden,
 			sqlmock.AnyArg(), // channel_id
 			sqlmock.AnyArg(), // model_mapping_chain
@@ -634,6 +636,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
+			sql.NullString{},
 			false,
 			sql.NullInt64{},
 			sql.NullString{},
@@ -702,6 +705,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
+			sql.NullString{},
 			false,
 			sql.NullInt64{},   // channel_id
 			sql.NullString{},  // model_mapping_chain
@@ -751,6 +755,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{}, // image_size_source
 			sql.NullString{}, // image_size_breakdown
 			sql.NullString{Valid: true, String: "flex"},
+			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
@@ -806,6 +811,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
+			sql.NullString{Valid: true, String: `{"provider":"openai","layer":"load_balance","candidate_count":3}`},
 			false,
 			sql.NullInt64{},   // channel_id
 			sql.NullString{},  // model_mapping_chain
@@ -817,6 +823,10 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, log.ServiceTier)
 		require.Equal(t, "priority", *log.ServiceTier)
+		require.NotNil(t, log.ScheduleMeta)
+		require.Equal(t, "openai", log.ScheduleMeta.Provider)
+		require.Equal(t, "load_balance", log.ScheduleMeta.Layer)
+		require.Equal(t, 3, log.ScheduleMeta.CandidateCount)
 	})
 
 }
