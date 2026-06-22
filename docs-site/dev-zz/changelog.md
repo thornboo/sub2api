@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-06-22
+
+- 同步上游 `main`（`85a3b122`）到 `dev-zz-develop`：合并缓存 Token 明细展示、OpenAI 图片 incomplete 故障转移、Gemini / Vertex Anthropic schema 兼容修复、Claude Code / CC Switch 识别更新、调度优先最早重置账号能力、订阅 affiliate rebate、promo code 过期时间清空、SELinux bind mount 标记和 sponsor 资料更新。
+- 管理端 usage 统计卡片吸收上游缓存 Token tooltip，同时保留 dev-zz 当前 stone / emerald 视觉方向。
+- OpenAI usage 记录端点冲突保留 dev-zz 的真实 result endpoint 口径，避免 chat-only API Key fallback 的上游端点记录回退为按请求路径猜测。
+- `backend/cmd/server/VERSION` 合并冲突按 dev-zz 发布线保留 `1.2.1`，未采用上游 `0.1.138` 版本号。
+
 ## 2026-06-21
 
 - 同步上游 `main`（`945b9b20`）：合并邮箱绑定后缀白名单校验、API Key IP ACL 拒绝提示携带客户端 IP、SSE `event:error` 响应体保留到运维日志、Anthropic 官方 5h/7d 窗口限流冷却保护、thinking block 协议识别与 retry 过滤收敛，以及 DeepSeek / GLM / Kimi / MiniMax / Doubao 多模态 embedding 的兜底定价。

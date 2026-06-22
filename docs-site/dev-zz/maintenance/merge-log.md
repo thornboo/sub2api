@@ -2,6 +2,59 @@
 
 这里记录二开分支吸收上游变更的同步工作。
 
+## 2026-06-22 - 将上游 `main` 合并到 `dev-zz-develop`：缓存 Token 明细、调度重置偏好与 Claude Code 兼容修复
+
+分支：
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`945b9b20`
+- 合并前目标：`2fa893bf`
+- 上游 head：`85a3b122`
+- 结果提交：本次合并提交
+
+上游要点：
+- 管理端 usage 统计卡片新增缓存 Token 总量提示，可查看缓存创建与缓存读取拆分。
+- 新增账号调度“优先选择最早重置账号”能力，用于 rate-limit reset 场景的可选调度策略。
+- 修复 OpenAI 图片 `response.incomplete` 软失败识别与故障转移记录。
+- 修复 Gemini / Vertex Anthropic 兼容路径中的不支持 schema 字段和 `anthropic-beta` 过滤。
+- 更新 Claude Code / CC Switch 识别逻辑与默认模型，识别新的 IDE entrypoint 和新版 CLI billing block。
+- 新增订阅支付 affiliate rebate，允许清空 promo code 过期时间。
+- 部署 compose bind mount 增加 SELinux `:Z` 标记，CI/CLA workflow 补充 Node 24 actions runtime 相关更新。
+- 更新 sponsor 资料和合作方 logo。
+
+合并策略：
+- 合并前阅读 `docs-site/dev-zz/branch-policy.md`、`docs-site/dev-zz/maintenance/merge-main.md`、`docs-site/dev-zz/maintenance/merge-log.md`、`docs-site/dev-zz/patches.md`、`docs-site/dev-zz/changelog.md`、`docs-site/dev-zz/reference/change-map.md` 和 `docs-site/dev-zz/testing/verification-matrix.md`。
+- 当前存在未提交的 new-api 缓存 Token 口径修复，合并前用 `git stash push -u -m "wip new-api cache token usage before main merge"` 暂存保护。
+- 用 `git fetch origin` 刷新远程引用，以上游 `origin/main` 的 `85a3b122` 作为合并目标。
+- 本机 Git 需要使用 `git merge-tree --write-tree --merge-base "$(git merge-base HEAD origin/main)" HEAD origin/main` 预检；预检预测到三处内容冲突。
+- 用 `git merge --no-commit origin/main` 把上游 `main` 合并进 `dev-zz-develop`。
+- 接受上游后端正确性、调度、Claude Code 识别、Gemini/Vertex 兼容、支付 rebate、缓存 Token 展示和部署 SELinux 修复；保留 dev-zz 的发布版本号、docs-site 文档中心、stone / emerald 管理端视觉方向，以及 OpenAI usage 上游端点记录的真实 result endpoint 口径。
+
+冲突文件：
+- `backend/cmd/server/VERSION`
+- `backend/internal/handler/openai_gateway_handler.go`
+- `frontend/src/components/admin/usage/UsageStatsCards.vue`
+
+解决说明：
+- `backend/cmd/server/VERSION` 的 base 为 `0.1.137`，dev-zz-develop 为 `1.2.1`，上游为 `0.1.138`；按 dev-zz 发布线保留 `1.2.1`。
+- `backend/internal/handler/openai_gateway_handler.go` 三处 usage 记录端点冲突保留 `openAIUsageUpstreamEndpoint(c, account, result)`，继续优先使用 `OpenAIForwardResult.UpstreamEndpoint`，避免 chat-only API Key fallback 被错误记录为 `/v1/responses`。
+- `frontend/src/components/admin/usage/UsageStatsCards.vue` 吸收上游缓存 Token 明细 tooltip，同时保留 dev-zz 的 stone / emerald 卡片样式。
+
+验证：
+- `git diff --check`
+- `git diff --cached --check`
+- `rg -n "^(<<<<<<<|>>>>>>>|=======$)" .`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/components/admin/usage/__tests__/UsageStatsCards.spec.ts src/utils/__tests__/ccswitchImport.spec.ts`
+- `go test ./internal/service ./internal/handler`
+- `pnpm --dir docs-site docs:build`
+
+未验证：
+- 浏览器人工 smoke。
+- 完整前端测试套件。
+- 完整仓库级 `go test ./...`。
+
 ## 2026-06-21 - 将上游 `main` 合并到 `dev-zz`：thinking 协议、国产模型兜底定价与账号 ID 展示
 
 分支：

@@ -1,5 +1,41 @@
 # 补丁记录
 
+## 2026-06-22 - 上游 main 同步到 dev-zz-develop：缓存 Token 明细与兼容修复
+
+范围：
+- `.github/workflows/{backend-ci.yml,cla.yml,release.yml,security-scan.yml}`
+- `backend/internal/{config,handler,service}/**`
+- `deploy/{config.example.yaml,docker-compose.dev.yml,docker-compose.local.yml}`
+- `frontend/src/{App.vue,api/admin/usage.ts,components/admin/usage,i18n,router,utils}`
+- `assets/partners/logos/*`
+- `docs-site/dev-zz/{changelog.md,patches.md,maintenance/merge-log.md}`
+
+改动：
+- 合并上游 `main` 到 `dev-zz-develop`，上游 head 为 `85a3b122`。
+- 吸收管理端 usage 缓存 Token 明细展示，统计卡片可以查看缓存创建和缓存读取拆分。
+- 吸收 OpenAI 图片 `response.incomplete` 软失败识别、OpenAI / Chat Completions endpoint 记录修复，以及 Gemini / Vertex Anthropic schema 与 beta header 兼容修复。
+- 吸收 Claude Code / CC Switch 新版识别逻辑、默认模型更新和新版 CLI billing block 测试。
+- 吸收账号调度“优先选择最早重置账号”能力，订阅 affiliate rebate，promo code 过期时间清空，以及部署 SELinux bind mount `:Z` 标记。
+- 更新 sponsor 资料和合作方 logo。
+- `backend/cmd/server/VERSION` 冲突按 dev-zz 发布线保留 `1.2.1`，没有采用上游 `0.1.138`。
+- `backend/internal/handler/openai_gateway_handler.go` 冲突保留 dev-zz 的 `openAIUsageUpstreamEndpoint` 口径，继续优先使用真实转发结果中的上游端点。
+- `frontend/src/components/admin/usage/UsageStatsCards.vue` 吸收上游缓存 tooltip 功能，同时保留 dev-zz 的 stone / emerald 样式。
+
+验证：
+- `git diff --check`
+- `git diff --cached --check`
+- `rg -n "^(<<<<<<<|>>>>>>>|=======$)" .`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/components/admin/usage/__tests__/UsageStatsCards.spec.ts src/utils/__tests__/ccswitchImport.spec.ts`
+- `go test ./internal/service ./internal/handler`
+- `pnpm --dir docs-site docs:build`
+
+未验证：
+- 浏览器人工 smoke。
+- 完整前端测试套件。
+- 完整仓库级 `go test ./...`。
+
 ## 2026-06-21 - 上游 main 同步：thinking 协议、兜底定价与账号 ID
 
 范围：
