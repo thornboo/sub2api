@@ -4013,6 +4013,11 @@ export default {
         responsesModeForceResponses: '强制 Responses',
         responsesModeForceChatCompletions: '强制 Chat Completions',
         responsesModeTextDisabledHint: '未启用 Responses / Chat Completions 端点时，此设置不适用。',
+        cacheTokenUsageMode: '缓存 Token 口径',
+        cacheTokenUsageModeDesc:
+          '决定上游 usage 里的输入 Token 是否已经包含缓存命中。OpenAI 官方一般选默认；new-api 等代理如果把 prompt_tokens 与 cached_tokens 分开返回，选“输入不含缓存”。',
+        cacheTokenUsageIncludes: '输入包含缓存（OpenAI 默认）',
+        cacheTokenUsageExcludes: '输入不含缓存（new-api/代理）',
         endpointCapabilities: '端点能力',
         endpointCapabilitiesDesc:
           '用于调度筛选。文本端点会跟随上方 Responses API 支持显示为 Responses、Chat Completions 或自动模式；Embeddings 独立控制 /v1/embeddings。',

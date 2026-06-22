@@ -5893,6 +5893,17 @@ func (s *OpenAIGatewayService) RecordCyberPolicyUsageLog(ctx context.Context, in
 	}
 }
 
+func openAIActualInputTokensForUsage(account *Account, usage OpenAIUsage) int {
+	actualInputTokens := usage.InputTokens
+	if account == nil || account.OpenAIUsageInputIncludesCacheRead() {
+		actualInputTokens -= usage.CacheReadInputTokens
+	}
+	if actualInputTokens < 0 {
+		return 0
+	}
+	return actualInputTokens
+}
+
 // RecordUsage records usage and deducts balance
 func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRecordUsageInput) error {
 	if input == nil {
@@ -5912,12 +5923,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	subscription := input.Subscription
 	ApplyOpenAIImageBillingResolution(result)
 
-	// 计算实际的新输入token（减去缓存读取的token）
-	// 因为 input_tokens 包含了 cache_read_tokens，而缓存读取的token不应按输入价格计费
-	actualInputTokens := result.Usage.InputTokens - result.Usage.CacheReadInputTokens
-	if actualInputTokens < 0 {
-		actualInputTokens = 0
-	}
+	actualInputTokens := openAIActualInputTokensForUsage(account, result.Usage)
 
 	// Calculate cost
 	tokens := UsageTokens{

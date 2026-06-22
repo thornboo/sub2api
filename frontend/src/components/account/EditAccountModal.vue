@@ -1701,6 +1701,21 @@
         >
           {{ t('admin.accounts.openai.responsesModeTextDisabledHint') }}
         </div>
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.cacheTokenUsageMode') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.cacheTokenUsageModeDesc') }}
+            </p>
+          </div>
+          <div class="w-64">
+            <Select
+              v-model="openAICacheTokenUsageMode"
+              :options="openAICacheTokenUsageModeOptions"
+              data-testid="openai-cache-token-usage-mode-select"
+            />
+          </div>
+        </div>
         <div>
           <label class="input-label mb-2 block">{{ t('admin.accounts.openai.endpointCapabilities') }}</label>
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -2618,7 +2633,8 @@ import type {
   CheckMixedChannelResponse,
   OpenAICompactMode,
   OpenAIResponsesMode,
-  OpenAIEndpointCapability
+  OpenAIEndpointCapability,
+  OpenAICacheTokenUsageMode
 } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -2822,6 +2838,7 @@ const customBaseUrl = ref('')
 const openaiPassthroughEnabled = ref(false)
 const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
+const openAICacheTokenUsageMode = ref<OpenAICacheTokenUsageMode>('input_includes_cache')
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
@@ -2930,6 +2947,10 @@ const openAIResponsesModeOptions = computed(() => [
   { value: 'force_responses', label: t('admin.accounts.openai.responsesModeForceResponses') },
   { value: 'force_chat_completions', label: t('admin.accounts.openai.responsesModeForceChatCompletions') }
 ])
+const openAICacheTokenUsageModeOptions = computed(() => [
+  { value: 'input_includes_cache', label: t('admin.accounts.openai.cacheTokenUsageIncludes') },
+  { value: 'input_excludes_cache', label: t('admin.accounts.openai.cacheTokenUsageExcludes') }
+])
 const openAITextEndpointCapabilityLabel = computed(() => {
   if (openAIResponsesMode.value === 'force_responses') {
     return t('admin.accounts.openai.capabilityResponses')
@@ -3014,6 +3035,18 @@ const normalizeOpenAIResponsesMode = (mode: unknown): OpenAIResponsesMode => {
     return mode
   }
   return 'auto'
+}
+const normalizeOpenAICacheTokenUsageMode = (mode: unknown): OpenAICacheTokenUsageMode => {
+  if (mode === 'input_excludes_cache') {
+    return 'input_excludes_cache'
+  }
+  return 'input_includes_cache'
+}
+const readOpenAICacheTokenUsageMode = (extra?: Record<string, unknown>): OpenAICacheTokenUsageMode => {
+  if (extra?.openai_cache_tokens_included_in_input === false) {
+    return 'input_excludes_cache'
+  }
+  return normalizeOpenAICacheTokenUsageMode(extra?.openai_cache_token_usage_mode)
 }
 const isOpenAIModelRestrictionDisabled = computed(() =>
   props.account?.platform === 'openai' && openaiPassthroughEnabled.value
@@ -3390,6 +3423,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openaiPassthroughEnabled.value = false
   openAICompactMode.value = 'auto'
   openAIResponsesMode.value = 'auto'
+  openAICacheTokenUsageMode.value = 'input_includes_cache'
   openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
   openAICompactModelMappings.value = []
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
@@ -3404,6 +3438,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     openAICompactMode.value = (extra?.openai_compact_mode as OpenAICompactMode) || 'auto'
     if (newAccount.type === 'apikey') {
       openAIResponsesMode.value = normalizeOpenAIResponsesMode(extra?.openai_responses_mode)
+      openAICacheTokenUsageMode.value = readOpenAICacheTokenUsageMode(extra)
       openAIEndpointCapabilities.value = readOpenAIEndpointCapabilities(
         newAccount.credentials as Record<string, unknown> | undefined
       )
@@ -4587,6 +4622,12 @@ const handleSubmit = async () => {
           delete newExtra.openai_responses_mode
         } else {
           newExtra.openai_responses_mode = openAIResponsesMode.value
+        }
+        delete newExtra.openai_cache_tokens_included_in_input
+        if (openAICacheTokenUsageMode.value === 'input_excludes_cache') {
+          newExtra.openai_cache_token_usage_mode = openAICacheTokenUsageMode.value
+        } else {
+          delete newExtra.openai_cache_token_usage_mode
         }
 		}
 		if (autoPause5hThreshold.value != null && autoPause5hThreshold.value > 0) {

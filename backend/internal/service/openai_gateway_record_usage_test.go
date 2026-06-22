@@ -449,6 +449,175 @@ func TestOpenAIGatewayServiceRecordUsage_UsesUserSpecificGroupRate(t *testing.T)
 	require.Equal(t, 1, userRepo.deductCalls)
 }
 
+func TestOpenAIGatewayServiceRecordUsage_UsesSeparatedCacheUsageMode(t *testing.T) {
+	usage := OpenAIUsage{InputTokens: 15, OutputTokens: 4, CacheReadInputTokens: 3}
+
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	subRepo := &openAIRecordUsageSubRepoStub{}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, subRepo, nil)
+
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID: "resp_separated_cache_usage_mode",
+			Usage:     usage,
+			Model:     "gpt-5.1",
+			Duration:  time.Second,
+		},
+		APIKey: &APIKey{ID: 1002},
+		User:   &User{ID: 2002},
+		Account: &Account{
+			ID:       3002,
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Extra: map[string]any{
+				openAICacheTokenUsageModeExtraKey: string(OpenAICacheTokenUsageModeInputExcludesCache),
+			},
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Equal(t, 15, usageRepo.lastLog.InputTokens)
+	require.Equal(t, 3, usageRepo.lastLog.CacheReadTokens)
+
+	expected, calcErr := svc.billingService.CalculateCost("gpt-5.1", UsageTokens{
+		InputTokens:     15,
+		OutputTokens:    4,
+		CacheReadTokens: 3,
+	}, 1.1)
+	require.NoError(t, calcErr)
+	require.InDelta(t, expected.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, expected.ActualCost, userRepo.lastAmount, 1e-12)
+	require.Equal(t, 1, userRepo.deductCalls)
+}
+
+func TestOpenAIGatewayServiceRecordUsage_OpenAIAPIKeyDefaultIncludesCacheRead(t *testing.T) {
+	usage := OpenAIUsage{InputTokens: 15, OutputTokens: 4, CacheReadInputTokens: 3}
+
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	subRepo := &openAIRecordUsageSubRepoStub{}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, subRepo, nil)
+
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID: "resp_openai_apikey_default_cache_usage_mode",
+			Usage:     usage,
+			Model:     "gpt-5.1",
+			Duration:  time.Second,
+		},
+		APIKey: &APIKey{ID: 1003},
+		User:   &User{ID: 2003},
+		Account: &Account{
+			ID:       3003,
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Equal(t, 12, usageRepo.lastLog.InputTokens)
+	require.Equal(t, 3, usageRepo.lastLog.CacheReadTokens)
+
+	expected, calcErr := svc.billingService.CalculateCost("gpt-5.1", UsageTokens{
+		InputTokens:     12,
+		OutputTokens:    4,
+		CacheReadTokens: 3,
+	}, 1.1)
+	require.NoError(t, calcErr)
+	require.InDelta(t, expected.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, expected.ActualCost, userRepo.lastAmount, 1e-12)
+	require.Equal(t, 1, userRepo.deductCalls)
+}
+
+func TestOpenAIGatewayServiceRecordUsage_LegacySeparatedCacheUsageMode(t *testing.T) {
+	usage := OpenAIUsage{InputTokens: 15, OutputTokens: 4, CacheReadInputTokens: 3}
+
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	subRepo := &openAIRecordUsageSubRepoStub{}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, subRepo, nil)
+
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID: "resp_legacy_separated_cache_usage_mode",
+			Usage:     usage,
+			Model:     "gpt-5.1",
+			Duration:  time.Second,
+		},
+		APIKey: &APIKey{ID: 1004},
+		User:   &User{ID: 2004},
+		Account: &Account{
+			ID:       3004,
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Extra: map[string]any{
+				"openai_cache_tokens_included_in_input": false,
+			},
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Equal(t, 15, usageRepo.lastLog.InputTokens)
+	require.Equal(t, 3, usageRepo.lastLog.CacheReadTokens)
+
+	expected, calcErr := svc.billingService.CalculateCost("gpt-5.1", UsageTokens{
+		InputTokens:     15,
+		OutputTokens:    4,
+		CacheReadTokens: 3,
+	}, 1.1)
+	require.NoError(t, calcErr)
+	require.InDelta(t, expected.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, expected.ActualCost, userRepo.lastAmount, 1e-12)
+	require.Equal(t, 1, userRepo.deductCalls)
+}
+
+func TestOpenAIGatewayServiceRecordUsage_OpenAIOAuthIgnoresSeparatedCacheUsageMode(t *testing.T) {
+	usage := OpenAIUsage{InputTokens: 15, OutputTokens: 4, CacheReadInputTokens: 3}
+
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	subRepo := &openAIRecordUsageSubRepoStub{}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, subRepo, nil)
+
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID: "resp_openai_oauth_ignores_cache_usage_mode",
+			Usage:     usage,
+			Model:     "gpt-5.1",
+			Duration:  time.Second,
+		},
+		APIKey: &APIKey{ID: 1005},
+		User:   &User{ID: 2005},
+		Account: &Account{
+			ID:       3005,
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeOAuth,
+			Extra: map[string]any{
+				openAICacheTokenUsageModeExtraKey: string(OpenAICacheTokenUsageModeInputExcludesCache),
+			},
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Equal(t, 12, usageRepo.lastLog.InputTokens)
+	require.Equal(t, 3, usageRepo.lastLog.CacheReadTokens)
+
+	expected, calcErr := svc.billingService.CalculateCost("gpt-5.1", UsageTokens{
+		InputTokens:     12,
+		OutputTokens:    4,
+		CacheReadTokens: 3,
+	}, 1.1)
+	require.NoError(t, calcErr)
+	require.InDelta(t, expected.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, expected.ActualCost, userRepo.lastAmount, 1e-12)
+	require.Equal(t, 1, userRepo.deductCalls)
+}
+
 func TestOpenAIGatewayServiceRecordUsage_IncludesEndpointMetadata(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	userRepo := &openAIRecordUsageUserRepoStub{}

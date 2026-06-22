@@ -934,8 +934,8 @@ export interface Account {
   // 改为通过 credentials_status.has_<key> 暴露存在性。
   credentials?: Record<string, unknown>
   credentials_status?: Record<string, boolean>
-  // Extra fields including Codex usage, OpenAI compact capability, and model-level rate limits.
-  extra?: (CodexUsageSnapshot & OpenAICompactState & {
+  // Extra fields including Codex usage, OpenAI capability state, and model-level rate limits.
+  extra?: (CodexUsageSnapshot & OpenAICompactState & OpenAIResponsesState & {
     model_rate_limits?: Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
     antigravity_credits_overages?: Record<string, { activated_at: string; active_until: string }>
   } & Record<string, unknown>)
@@ -1112,6 +1112,7 @@ export interface CodexUsageSnapshot {
 export type OpenAICompactMode = 'auto' | 'force_on' | 'force_off'
 export type OpenAIResponsesMode = 'auto' | 'force_responses' | 'force_chat_completions'
 export type OpenAIEndpointCapability = 'chat_completions' | 'embeddings'
+export type OpenAICacheTokenUsageMode = 'input_includes_cache' | 'input_excludes_cache'
 
 export interface OpenAICompactState {
   openai_compact_mode?: OpenAICompactMode
@@ -1124,6 +1125,7 @@ export interface OpenAICompactState {
 export interface OpenAIResponsesState {
   openai_responses_mode?: OpenAIResponsesMode
   openai_responses_supported?: boolean
+  openai_cache_token_usage_mode?: OpenAICacheTokenUsageMode
 }
 
 export interface CreateAccountRequest {

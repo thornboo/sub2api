@@ -77,6 +77,15 @@ const (
 
 const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
 
+type OpenAICacheTokenUsageMode string
+
+const (
+	OpenAICacheTokenUsageModeInputIncludesCache OpenAICacheTokenUsageMode = "input_includes_cache"
+	OpenAICacheTokenUsageModeInputExcludesCache OpenAICacheTokenUsageMode = "input_excludes_cache"
+)
+
+const openAICacheTokenUsageModeExtraKey = "openai_cache_token_usage_mode"
+
 type TempUnschedulableRule struct {
 	ErrorCode       int      `json:"error_code"`
 	Keywords        []string `json:"keywords"`
@@ -1062,6 +1071,22 @@ func (a *Account) IsOpenAIOAuth() bool {
 
 func (a *Account) IsOpenAIApiKey() bool {
 	return a.IsOpenAI() && a.Type == AccountTypeAPIKey
+}
+
+func (a *Account) OpenAIUsageInputIncludesCacheRead() bool {
+	if a == nil || !a.IsOpenAIApiKey() || a.Extra == nil {
+		return true
+	}
+	switch strings.TrimSpace(a.GetExtraString(openAICacheTokenUsageModeExtraKey)) {
+	case string(OpenAICacheTokenUsageModeInputExcludesCache):
+		return false
+	case string(OpenAICacheTokenUsageModeInputIncludesCache):
+		return true
+	}
+	if included, ok := a.Extra["openai_cache_tokens_included_in_input"].(bool); ok {
+		return included
+	}
+	return true
 }
 
 func (a *Account) GetOpenAIBaseURL() string {

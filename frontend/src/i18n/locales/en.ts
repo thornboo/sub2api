@@ -3862,6 +3862,11 @@ export default {
         responsesModeForceChatCompletions: 'Force Chat Completions',
         responsesModeTextDisabledHint:
           'Not applicable when the Responses / Chat Completions endpoint is not enabled.',
+        cacheTokenUsageMode: 'Cache token usage semantics',
+        cacheTokenUsageModeDesc:
+          'Controls whether upstream input tokens already include cache hits. Use the default for official OpenAI; choose the proxy mode when new-api or another proxy reports prompt_tokens and cached_tokens separately.',
+        cacheTokenUsageIncludes: 'Input includes cache (OpenAI default)',
+        cacheTokenUsageExcludes: 'Input excludes cache (new-api/proxy)',
         endpointCapabilities: 'Endpoint capabilities',
         endpointCapabilitiesDesc:
           'Used by account routing. The text endpoint follows the Responses API support setting above and is shown as Responses, Chat Completions, or auto mode; Embeddings independently controls /v1/embeddings.',
