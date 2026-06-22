@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -72,7 +73,8 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 	compatReplayTrimmed := false
 	compatReplayGuardEnabled := shouldAutoInjectPromptCacheKeyForCompat(upstreamModel)
-	compatContinuationEnabled := openAICompatContinuationEnabled(account, upstreamModel)
+	useChatCompletionsFallback := account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra)
+	compatContinuationEnabled := !useChatCompletionsFallback && openAICompatContinuationEnabled(account, upstreamModel)
 	previousResponseID := ""
 	if compatContinuationEnabled {
 		previousResponseID = s.getOpenAICompatSessionResponseID(ctx, c, account, promptCacheKey)
@@ -237,6 +239,10 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		return nil, policyErr
 	}
 	responsesBody = updatedBody
+
+	if useChatCompletionsFallback {
+		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, responsesBody, originalModel, billingModel, upstreamModel, clientStream, startTime)
+	}
 
 	// 5. Get access token
 	token, _, err := s.GetAccessToken(ctx, account)

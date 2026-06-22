@@ -225,6 +225,9 @@ type OpenAIForwardResult struct {
 	ResponseID string
 	Usage      OpenAIUsage
 	Model      string // 原始模型（用于响应和日志显示）
+	// UpstreamEndpoint is the normalized endpoint actually used by the upstream
+	// request, e.g. /v1/responses or /v1/chat/completions.
+	UpstreamEndpoint string
 	// BillingModel is the model used for cost calculation.
 	// When non-empty, CalculateCost uses this instead of Model.
 	// This is set by the Anthropic Messages conversion path where
