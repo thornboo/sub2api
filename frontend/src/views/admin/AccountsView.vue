@@ -170,21 +170,48 @@
             {{ t('admin.accounts.listPendingSyncAction') }}
           </button>
         </div>
+        <div class="mt-3 inline-flex rounded-lg bg-gray-100 p-1 dark:bg-white/[0.06]">
+          <button
+            type="button"
+            :class="[
+              'rounded-md px-3 py-1.5 text-sm font-medium transition-all',
+              activeAccountView === 'list'
+                ? 'bg-white text-gray-900 shadow-sm dark:bg-white/[0.08] dark:text-white'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+            @click="setAccountView('list')"
+          >
+            {{ t('admin.accounts.views.list') }}
+          </button>
+          <button
+            type="button"
+            :class="[
+              'rounded-md px-3 py-1.5 text-sm font-medium transition-all',
+              activeAccountView === 'cost'
+                ? 'bg-white text-emerald-700 shadow-sm dark:bg-white/[0.08] dark:text-emerald-300'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+            @click="setAccountView('cost')"
+          >
+            {{ t('admin.accounts.views.upstreamCost') }}
+          </button>
+        </div>
       </template>
       <template #table>
-        <AccountBulkActionsBar
-          :selected-ids="selIds"
-          @delete="handleBulkDelete"
-          @reset-status="handleBulkResetStatus"
-          @refresh-token="handleBulkRefreshToken"
-          @edit-selected="openBulkEditSelected"
-          @edit-filtered="openBulkEditFiltered"
-          @clear="clearSelection"
-          @select-page="selectPage"
-          @toggle-schedulable="handleBulkToggleSchedulable"
-        />
-        <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <DataTable
+        <template v-if="activeAccountView === 'list'">
+          <AccountBulkActionsBar
+            :selected-ids="selIds"
+            @delete="handleBulkDelete"
+            @reset-status="handleBulkResetStatus"
+            @refresh-token="handleBulkRefreshToken"
+            @edit-selected="openBulkEditSelected"
+            @edit-filtered="openBulkEditFiltered"
+            @clear="clearSelection"
+            @select-page="selectPage"
+            @toggle-schedulable="handleBulkToggleSchedulable"
+          />
+          <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <DataTable
           ref="dataTableRef"
           :columns="cols"
           :data="accounts"
@@ -378,16 +405,27 @@
               </button>
             </div>
           </template>
-        </DataTable>
-        </div>
+          </DataTable>
+          </div>
+        </template>
+        <UpstreamCostComparison
+          v-else
+          :accounts="costComparisonAccounts"
+          :loading="costComparisonLoading"
+          :error="costComparisonError"
+          @refresh="loadCostComparisonAccounts"
+          @edit="handleEdit"
+          @recharge-records="openRechargeRecords"
+        />
       </template>
-      <template #pagination><Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
+      <template #pagination><Pagination v-if="activeAccountView === 'list' && pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
-    <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
+    <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="handleAccountCreated" />
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
+    <UpstreamRechargeRecordsModal :show="showRechargeRecords" :account="rechargeRecordsAcc" @close="closeRechargeRecords" @updated="handleAccountUpdated" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
@@ -437,6 +475,8 @@ import AccountTableActions from '@/components/admin/account/AccountTableActions.
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
+import UpstreamCostComparison from '@/components/admin/account/UpstreamCostComparison.vue'
+import UpstreamRechargeRecordsModal from '@/components/admin/account/UpstreamRechargeRecordsModal.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
@@ -518,6 +558,7 @@ const showDeleteDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
 const showStats = ref(false)
+const showRechargeRecords = ref(false)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
 const edAcc = ref<Account | null>(null)
@@ -526,12 +567,20 @@ const deletingAcc = ref<Account | null>(null)
 const reAuthAcc = ref<Account | null>(null)
 const testingAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
+const rechargeRecordsAcc = ref<Account | null>(null)
 const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
 const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null}>({ show: false, acc: null, pos: null })
 const exportingData = ref(false)
+type AccountViewMode = 'list' | 'cost'
+const activeAccountView = ref<AccountViewMode>('list')
+const costComparisonAccounts = ref<Account[]>([])
+const costComparisonLoading = ref(false)
+const costComparisonError = ref<string | null>(null)
+let costComparisonAbortController: AbortController | null = null
+const costComparisonPageSize = 1000
 
 // Account tools dropdown
 const showAccountToolsDropdown = ref(false)
@@ -822,6 +871,10 @@ const resetAutoRefreshCache = () => {
 const isFirstLoad = ref(true)
 
 const load = async () => {
+  if (activeAccountView.value === 'cost') {
+    await loadCostComparisonAccounts()
+    return
+  }
   const requestParams = params as any
   hasPendingListSync.value = false
   resetAutoRefreshCache()
@@ -838,6 +891,10 @@ const load = async () => {
 }
 
 const reload = async () => {
+  if (activeAccountView.value === 'cost') {
+    await loadCostComparisonAccounts()
+    return
+  }
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
@@ -846,6 +903,12 @@ const reload = async () => {
 }
 
 const debouncedReload = () => {
+  if (activeAccountView.value === 'cost') {
+    loadCostComparisonAccounts().catch((error) => {
+      console.error('Failed to load upstream cost comparison:', error)
+    })
+    return
+  }
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
@@ -901,6 +964,7 @@ const isAnyModalOpen = computed(() => {
     showReAuth.value ||
     showTest.value ||
     showStats.value ||
+    showRechargeRecords.value ||
     showSchedulePanel.value ||
     showErrorPassthrough.value ||
     showTLSFingerprintProfiles.value
@@ -1011,7 +1075,9 @@ const refreshAccountsIncrementally = async () => {
 const handleManualRefresh = async () => {
   await load()
   // Force usage cells to refetch /usage on explicit user refresh.
-  usageManualRefreshToken.value += 1
+  if (activeAccountView.value === 'list') {
+    usageManualRefreshToken.value += 1
+  }
 }
 
 const closeAccountToolsDropdown = () => {
@@ -1453,6 +1519,71 @@ const buildAccountQueryFilters = () => ({
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order
 })
+
+const buildCostComparisonFilters = () => ({
+  platform: params.platform || '',
+  type: params.type || '',
+  status: params.status || '',
+  group: params.group || '',
+  privacy_mode: params.privacy_mode || '',
+  search: params.search || '',
+  sort_by: 'priority',
+  sort_order: 'asc' as AccountSortOrder
+})
+
+const loadCostComparisonAccounts = async () => {
+  costComparisonAbortController?.abort()
+  const controller = new AbortController()
+  costComparisonAbortController = controller
+  costComparisonLoading.value = true
+  costComparisonError.value = null
+  try {
+    const filters = buildCostComparisonFilters()
+    const allAccounts: Account[] = []
+    let page = 1
+
+    while (!controller.signal.aborted) {
+      const result = await adminAPI.accounts.list(page, costComparisonPageSize, filters, {
+        signal: controller.signal
+      })
+      if (controller.signal.aborted) return
+
+      const items = result.items || []
+      allAccounts.push(...items)
+
+      const total = result.total ?? allAccounts.length
+      const pages = result.pages || Math.ceil(total / (result.page_size || costComparisonPageSize))
+      if (items.length === 0 || allAccounts.length >= total || page >= pages) {
+        break
+      }
+      page += 1
+    }
+
+    if (controller.signal.aborted) return
+    costComparisonAccounts.value = allAccounts
+  } catch (error: any) {
+    if (controller.signal.aborted) return
+    costComparisonError.value = error?.message || t('admin.accounts.upstreamCost.loadFailed')
+    costComparisonAccounts.value = []
+  } finally {
+    if (!controller.signal.aborted) {
+      costComparisonLoading.value = false
+    }
+    if (costComparisonAbortController === controller) {
+      costComparisonAbortController = null
+    }
+  }
+}
+
+const setAccountView = (view: AccountViewMode) => {
+  activeAccountView.value = view
+  if (view === 'cost') {
+    clearSelection()
+    loadCostComparisonAccounts().catch((error) => {
+      console.error('Failed to load upstream cost comparison:', error)
+    })
+  }
+}
 const accountMatchesCurrentFilters = (account: Account) => {
   const filters = buildAccountQueryFilters()
   if (filters.platform && account.platform !== filters.platform) return false
@@ -1536,8 +1667,34 @@ const patchAccountInList = (updatedAccount: Account) => {
   accounts.value = nextAccounts
   syncAccountRefs(mergedAccount)
 }
+
+const patchAccountInCostComparison = (updatedAccount: Account) => {
+  const index = costComparisonAccounts.value.findIndex(account => account.id === updatedAccount.id)
+  if (!accountMatchesCurrentFilters(updatedAccount)) {
+    if (index !== -1) {
+      costComparisonAccounts.value = costComparisonAccounts.value.filter(account => account.id !== updatedAccount.id)
+    }
+    return
+  }
+  if (index === -1) {
+    costComparisonAccounts.value = [...costComparisonAccounts.value, updatedAccount]
+    return
+  }
+  const nextAccounts = [...costComparisonAccounts.value]
+  nextAccounts[index] = updatedAccount
+  costComparisonAccounts.value = nextAccounts
+}
+
+const handleAccountCreated = () => {
+  reload()
+}
+
 const handleAccountUpdated = (updatedAccount: Account) => {
   patchAccountInList(updatedAccount)
+  patchAccountInCostComparison(updatedAccount)
+  if (rechargeRecordsAcc.value?.id === updatedAccount.id) {
+    rechargeRecordsAcc.value = updatedAccount
+  }
   enterAutoRefreshSilentWindow()
 }
 const formatExportTimestamp = () => {
@@ -1583,6 +1740,8 @@ const closeStatsModal = () => { showStats.value = false; statsAcc.value = null }
 const closeReAuthModal = () => { showReAuth.value = false; reAuthAcc.value = null }
 const handleTest = (a: Account) => { testingAcc.value = a; showTest.value = true }
 const handleViewStats = (a: Account) => { statsAcc.value = a; showStats.value = true }
+const openRechargeRecords = (a: Account) => { rechargeRecordsAcc.value = a; showRechargeRecords.value = true }
+const closeRechargeRecords = () => { showRechargeRecords.value = false; rechargeRecordsAcc.value = null }
 const handleSchedule = async (a: Account) => {
   scheduleAcc.value = a
   scheduleModelOptions.value = []
@@ -1733,6 +1892,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  costComparisonAbortController?.abort()
   window.removeEventListener('scroll', handleScroll, true)
   document.removeEventListener('click', handleClickOutside)
 })

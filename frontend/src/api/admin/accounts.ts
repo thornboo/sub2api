@@ -21,6 +21,7 @@ import type {
   CheckMixedChannelRequest,
   CheckMixedChannelResponse
 } from '@/types'
+import type { UpstreamCostProfile } from '@/utils/upstreamCost'
 
 /**
  * List all accounts with pagination
@@ -143,6 +144,89 @@ export async function create(accountData: CreateAccountRequest): Promise<Account
  */
 export async function update(id: number, updates: UpdateAccountRequest): Promise<Account> {
   const { data } = await apiClient.put<Account>(`/admin/accounts/${id}`, updates)
+  return data
+}
+
+export async function updateUpstreamCostProfile(id: number, profile: UpstreamCostProfile): Promise<Account> {
+  const { data } = await apiClient.patch<Account>(`/admin/accounts/${id}/upstream-cost-profile`, profile)
+  return data
+}
+
+export type UpstreamRechargeRecordType = 'recharge' | 'bonus' | 'adjustment'
+
+export interface UpstreamRechargeRecord {
+  id: number
+  account_id?: number | null
+  account_name_snapshot: string
+  account_platform_snapshot: string
+  account_type_snapshot: string
+  type: UpstreamRechargeRecordType
+  paid_amount: number
+  paid_currency: string
+  received_credit_amount: number
+  received_credit_currency: string
+  reference_fx_rate: number
+  effective_cny_per_usd?: number | null
+  recharge_discount?: number | null
+  recorded_at: string
+  note?: string | null
+  created_by?: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface UpstreamRechargeSummary {
+  record_count: number
+  total_paid_amount: number
+  total_received_credit_amount: number
+  weighted_effective_cny_per_usd?: number | null
+  weighted_recharge_discount?: number | null
+  latest_effective_cny_per_usd?: number | null
+  latest_recharge_discount?: number | null
+  latest_recorded_at?: string | null
+  reference_fx_rate: number
+}
+
+export interface UpstreamRechargeRecordsResult {
+  items: UpstreamRechargeRecord[]
+  summary: UpstreamRechargeSummary
+}
+
+export interface UpstreamRechargeRecordPayload {
+  type?: UpstreamRechargeRecordType
+  paid_amount: number
+  paid_currency?: string
+  received_credit_amount: number
+  received_credit_currency?: string
+  reference_fx_rate?: number
+  recorded_at?: string | null
+  note?: string | null
+}
+
+export async function listUpstreamRechargeRecords(id: number): Promise<UpstreamRechargeRecordsResult> {
+  const { data } = await apiClient.get<UpstreamRechargeRecordsResult>(`/admin/accounts/${id}/recharge-records`)
+  return data
+}
+
+export async function createUpstreamRechargeRecord(
+  id: number,
+  payload: UpstreamRechargeRecordPayload
+): Promise<UpstreamRechargeRecord> {
+  const { data } = await apiClient.post<UpstreamRechargeRecord>(`/admin/accounts/${id}/recharge-records`, payload)
+  return data
+}
+
+export async function updateUpstreamRechargeRecord(
+  id: number,
+  recordId: number,
+  payload: UpstreamRechargeRecordPayload
+): Promise<UpstreamRechargeRecord> {
+  const { data } = await apiClient.put<UpstreamRechargeRecord>(`/admin/accounts/${id}/recharge-records/${recordId}`, payload)
+  return data
+}
+
+export async function deleteUpstreamRechargeRecord(id: number, recordId: number): Promise<{ message: string }> {
+  const { data } = await apiClient.delete<{ message: string }>(`/admin/accounts/${id}/recharge-records/${recordId}`)
   return data
 }
 
@@ -795,6 +879,11 @@ export const accountsAPI = {
   getById,
   create,
   update,
+  updateUpstreamCostProfile,
+  listUpstreamRechargeRecords,
+  createUpstreamRechargeRecord,
+  updateUpstreamRechargeRecord,
+  deleteUpstreamRechargeRecord,
   checkMixedChannelRisk,
   delete: deleteAccount,
   toggleStatus,

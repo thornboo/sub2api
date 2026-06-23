@@ -1491,6 +1491,11 @@
 
       </div>
 
+      <UpstreamCostSettings
+        v-if="showUpstreamCostSettings"
+        v-model="upstreamCostProfile"
+      />
+
       <!-- Bedrock credentials (only for Anthropic Bedrock type) -->
       <div v-if="form.platform === 'anthropic' && accountCategory === 'bedrock'" class="space-y-4">
         <!-- Auth Mode Radio -->
@@ -3438,6 +3443,7 @@ import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import ModelCatalogSearch from '@/components/account/ModelCatalogSearch.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
+import UpstreamCostSettings from '@/components/account/UpstreamCostSettings.vue'
 import { buildChannelModelRecommendations } from '@/components/account/channelModelRecommendations'
 import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
@@ -3451,6 +3457,10 @@ import {
   resolveOpenAIWSModeConcurrencyHintKey,
   type OpenAIWSMode
 } from '@/utils/openaiWsMode'
+import {
+  maybeMergeUpstreamCostProfileExtra,
+  type UpstreamCostProfile
+} from '@/utils/upstreamCost'
 import OAuthAuthorizationFlow from './OAuthAuthorizationFlow.vue'
 
 // Type for exposed OAuthAuthorizationFlow component
@@ -3562,6 +3572,7 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
+const upstreamCostProfile = ref<UpstreamCostProfile>({})
 
 const syncPreviewCredentials = computed(() => {
   if (!apiKeyValue.value) return undefined
@@ -3572,6 +3583,8 @@ const syncPreviewCredentials = computed(() => {
     api_key: apiKeyValue.value
   }
 })
+
+const showUpstreamCostSettings = computed(() => form.type === 'apikey')
 
 const editQuotaLimit = ref<number | null>(null)
 const editQuotaDailyLimit = ref<number | null>(null)
@@ -4632,6 +4645,7 @@ const resetForm = () => {
   addMethod.value = 'oauth'
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
+  upstreamCostProfile.value = {}
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -4807,6 +4821,13 @@ const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unk
   }
 
   return Object.keys(extra).length > 0 ? extra : undefined
+}
+
+const buildUpstreamCostExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
+  if (!showUpstreamCostSettings.value) {
+    return base
+  }
+  return maybeMergeUpstreamCostProfileExtra(base, upstreamCostProfile.value)
 }
 
 // Helper function to create account with mixed channel warning handling
@@ -5014,7 +5035,7 @@ const handleSubmit = async () => {
 
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
 
-    const extra = buildAntigravityExtra()
+    const extra = buildUpstreamCostExtra(buildAntigravityExtra())
     await createAccountAndFinish(form.platform, 'apikey', credentials, extra)
     return
   }
@@ -5103,7 +5124,7 @@ const handleSubmit = async () => {
   }
 
   form.credentials = credentials
-  const extra = buildAnthropicExtra(buildOpenAIExtra())
+  const extra = buildUpstreamCostExtra(buildAnthropicExtra(buildOpenAIExtra()))
 
   await doCreateAccount({
     ...form,
