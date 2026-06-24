@@ -1494,6 +1494,8 @@
       <UpstreamCostSettings
         v-if="showUpstreamCostSettings"
         v-model="upstreamCostProfile"
+        v-model:balance-auth-token-value="upstreamBalanceAuthToken"
+        :balance-auth-token-configured="false"
       />
 
       <!-- Bedrock credentials (only for Anthropic Bedrock type) -->
@@ -3458,7 +3460,9 @@ import {
   type OpenAIWSMode
 } from '@/utils/openaiWsMode'
 import {
+  UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY,
   maybeMergeUpstreamCostProfileExtra,
+  requiresUpstreamBalanceAuthToken,
   type UpstreamCostProfile
 } from '@/utils/upstreamCost'
 import OAuthAuthorizationFlow from './OAuthAuthorizationFlow.vue'
@@ -3573,6 +3577,7 @@ const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
 const upstreamCostProfile = ref<UpstreamCostProfile>({})
+const upstreamBalanceAuthToken = ref('')
 
 const syncPreviewCredentials = computed(() => {
   if (!apiKeyValue.value) return undefined
@@ -4646,6 +4651,7 @@ const resetForm = () => {
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
   upstreamCostProfile.value = {}
+  upstreamBalanceAuthToken.value = ''
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -5081,6 +5087,16 @@ const handleSubmit = async () => {
   const credentials: Record<string, unknown> = {
     base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl,
     api_key: apiKeyValue.value.trim()
+  }
+  if (showUpstreamCostSettings.value && requiresUpstreamBalanceAuthToken(upstreamCostProfile.value)) {
+    const balanceAuthToken = upstreamBalanceAuthToken.value.trim()
+    if (!balanceAuthToken) {
+      appStore.showError(t('admin.accounts.upstreamCost.balanceQuery.authTokenRequired'))
+      return
+    }
+    credentials.upstream_balance_auth_token = balanceAuthToken
+  } else if (upstreamCostProfile.value.balance_auth_mode === UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY) {
+    upstreamBalanceAuthToken.value = ''
   }
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value

@@ -40,6 +40,11 @@ type upstreamCostProfileRequest struct {
 	GroupMultiplier   *float64                    `json:"group_multiplier"`
 	Note              *string                     `json:"note"`
 	ModelFamilies     []upstreamCostFamilyRequest `json:"model_families"`
+	BalanceEnabled    *bool                       `json:"balance_query_enabled"`
+	BalanceProvider   *string                     `json:"balance_provider"`
+	BalanceEndpoint   *string                     `json:"balance_endpoint"`
+	BalanceAuthMode   *string                     `json:"balance_auth_mode"`
+	BalanceAuthHeader *string                     `json:"balance_auth_header"`
 }
 
 type upstreamCostFamilyRequest struct {
@@ -271,11 +276,88 @@ func buildUpstreamCostProfileExtraUpdates(c *gin.Context, req upstreamCostProfil
 		}
 		updates["upstream_cost_model_families"] = families
 	}
+	if req.BalanceEnabled != nil {
+		updates["upstream_balance_query_enabled"] = *req.BalanceEnabled
+		if *req.BalanceEnabled {
+			balanceUpdates, ok := normalizeUpstreamBalanceProfile(c, req)
+			if !ok {
+				return nil, false
+			}
+			for key, value := range balanceUpdates {
+				updates[key] = value
+			}
+		}
+	}
 	if len(updates) == 0 {
 		response.BadRequest(c, "No upstream cost fields provided")
 		return nil, false
 	}
 	return updates, true
+}
+
+func normalizeUpstreamBalanceProfile(c *gin.Context, req upstreamCostProfileRequest) (map[string]any, bool) {
+	provider := service.UpstreamBalanceDefaultProvider
+	if req.BalanceProvider != nil {
+		switch strings.TrimSpace(*req.BalanceProvider) {
+		case service.UpstreamBalanceProviderSub2API, service.UpstreamBalanceProviderNewAPICompatible:
+			provider = strings.TrimSpace(*req.BalanceProvider)
+		default:
+			response.BadRequest(c, "balance_provider is unsupported")
+			return nil, false
+		}
+	}
+
+	authMode := service.UpstreamBalanceAuthModeAccountAPIKey
+	if req.BalanceAuthMode != nil {
+		switch strings.TrimSpace(*req.BalanceAuthMode) {
+		case service.UpstreamBalanceAuthModeAccountAPIKey,
+			service.UpstreamBalanceAuthModeBearerToken,
+			service.UpstreamBalanceAuthModeCustomHeader:
+			authMode = strings.TrimSpace(*req.BalanceAuthMode)
+		default:
+			response.BadRequest(c, "balance_auth_mode is unsupported")
+			return nil, false
+		}
+	}
+
+	endpoint := defaultBalanceEndpointForProvider(provider)
+	if req.BalanceEndpoint != nil {
+		if value := strings.TrimSpace(*req.BalanceEndpoint); value != "" {
+			endpoint = value
+		}
+	}
+
+	cfg := service.ResolveUpstreamBalanceConfig(map[string]any{
+		"upstream_balance_query_enabled": true,
+		"upstream_balance_provider":      provider,
+		"upstream_balance_endpoint":      endpoint,
+		"upstream_balance_auth_mode":     authMode,
+	})
+
+	updates := map[string]any{
+		"upstream_balance_provider":  cfg.Provider,
+		"upstream_balance_endpoint":  cfg.Endpoint,
+		"upstream_balance_auth_mode": cfg.AuthMode,
+	}
+	if cfg.AuthMode == service.UpstreamBalanceAuthModeCustomHeader {
+		header := "Authorization"
+		if req.BalanceAuthHeader != nil {
+			if value := strings.TrimSpace(*req.BalanceAuthHeader); value != "" {
+				header = value
+			}
+		}
+		updates["upstream_balance_auth_header"] = header
+	}
+	return updates, true
+}
+
+func defaultBalanceEndpointForProvider(provider string) string {
+	switch provider {
+	case service.UpstreamBalanceProviderNewAPICompatible:
+		return service.UpstreamBalanceNewAPIDefaultEndpoint
+	default:
+		return service.UpstreamBalanceDefaultEndpoint
+	}
 }
 
 func normalizeUpstreamCostFamilies(c *gin.Context, input []upstreamCostFamilyRequest) ([]map[string]any, bool) {

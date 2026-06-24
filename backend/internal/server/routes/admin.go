@@ -301,6 +301,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		accounts.POST("/sync/crs", h.Admin.Account.SyncFromCRS)
 		accounts.POST("/sync/crs/preview", h.Admin.Account.PreviewFromCRS)
 		accounts.POST("/:id/recharge-records", h.Admin.Account.CreateUpstreamRechargeRecord)
+		accounts.POST("/:id/upstream-balance/refresh", h.Admin.Account.RefreshUpstreamBalance)
 		accounts.PUT("/:id/recharge-records/:record_id", h.Admin.Account.UpdateUpstreamRechargeRecord)
 		accounts.PUT("/:id", h.Admin.Account.Update)
 		accounts.PATCH("/:id/upstream-cost-profile", h.Admin.Account.UpdateUpstreamCostProfile)

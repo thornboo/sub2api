@@ -1,12 +1,31 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_UPSTREAM_BALANCE_ENDPOINT,
+  NEW_API_UPSTREAM_BALANCE_ENDPOINT,
+  SUB2API_PROFILE_UPSTREAM_BALANCE_ENDPOINT,
+  UPSTREAM_BALANCE_AUTH_HEADER_KEY,
+  UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY,
+  UPSTREAM_BALANCE_AUTH_MODE_BEARER_TOKEN,
+  UPSTREAM_BALANCE_AUTH_MODE_CUSTOM_HEADER,
+  UPSTREAM_BALANCE_AUTH_MODE_KEY,
+  UPSTREAM_BALANCE_ENDPOINT_KEY,
+  UPSTREAM_BALANCE_PROVIDER_KEY,
+  UPSTREAM_BALANCE_PROVIDER_NEW_API,
+  UPSTREAM_BALANCE_PROVIDER_SUB2API,
+  UPSTREAM_BALANCE_QUERY_ENABLED_KEY,
+  UPSTREAM_BALANCE_SNAPSHOT_KEY,
   UPSTREAM_COST_MODEL_FAMILIES_KEY,
   UPSTREAM_GROUP_MULTIPLIER_KEY,
   UPSTREAM_RECHARGE_CNY_PER_USD_KEY,
   UPSTREAM_REFERENCE_FX_RATE_KEY,
   calculateUpstreamCost,
+  isUpstreamBalanceQueryEnabled,
   mergeUpstreamCostProfileExtra,
-  readUpstreamCostProfile
+  normalizeUpstreamBalanceAuthMode,
+  normalizeUpstreamBalanceEndpoint,
+  readUpstreamBalanceSnapshot,
+  readUpstreamCostProfile,
+  requiresUpstreamBalanceAuthToken
 } from '@/utils/upstreamCost'
 
 describe('upstreamCost utils', () => {
@@ -102,9 +121,127 @@ describe('upstreamCost utils', () => {
       preserved: true,
       [UPSTREAM_RECHARGE_CNY_PER_USD_KEY]: 1,
       [UPSTREAM_REFERENCE_FX_RATE_KEY]: 7,
-      [UPSTREAM_GROUP_MULTIPLIER_KEY]: 0.5
+      [UPSTREAM_GROUP_MULTIPLIER_KEY]: 0.5,
+      upstream_account_balance_query_enabled: true,
+      upstream_account_balance_endpoint: '/api/v1/user/profile'
     }, {})
 
     expect(extra).toEqual({ preserved: true })
   })
+
+  it('reads and writes upstream balance query config separately from cost completeness', () => {
+    const extra = mergeUpstreamCostProfileExtra(
+      { preserved: true },
+      { balance_query_enabled: true, balance_auth_mode: UPSTREAM_BALANCE_AUTH_MODE_BEARER_TOKEN }
+    )
+
+    expect(extra.preserved).toBe(true)
+    expect(extra[UPSTREAM_BALANCE_QUERY_ENABLED_KEY]).toBe(true)
+    expect(extra[UPSTREAM_BALANCE_PROVIDER_KEY]).toBe(UPSTREAM_BALANCE_PROVIDER_SUB2API)
+    expect(extra[UPSTREAM_BALANCE_ENDPOINT_KEY]).toBe(DEFAULT_UPSTREAM_BALANCE_ENDPOINT)
+    expect(extra[UPSTREAM_BALANCE_AUTH_MODE_KEY]).toBe(UPSTREAM_BALANCE_AUTH_MODE_BEARER_TOKEN)
+    expect(isUpstreamBalanceQueryEnabled(extra)).toBe(true)
+    expect(readUpstreamCostProfile(extra)).toEqual({
+      balance_query_enabled: true,
+      balance_provider: UPSTREAM_BALANCE_PROVIDER_SUB2API,
+      balance_endpoint: DEFAULT_UPSTREAM_BALANCE_ENDPOINT,
+      balance_auth_mode: UPSTREAM_BALANCE_AUTH_MODE_BEARER_TOKEN
+    })
+    expect(calculateUpstreamCost(readUpstreamCostProfile(extra)).configured).toBe(false)
+  })
+
+  it('uses New API defaults only when that provider is selected', () => {
+    const extra = mergeUpstreamCostProfileExtra({}, {
+      balance_query_enabled: true,
+      balance_provider: UPSTREAM_BALANCE_PROVIDER_NEW_API
+    })
+
+    expect(extra[UPSTREAM_BALANCE_PROVIDER_KEY]).toBe(UPSTREAM_BALANCE_PROVIDER_NEW_API)
+    expect(extra[UPSTREAM_BALANCE_ENDPOINT_KEY]).toBe(NEW_API_UPSTREAM_BALANCE_ENDPOINT)
+    expect(extra[UPSTREAM_BALANCE_AUTH_MODE_KEY]).toBe(UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY)
+    expect(requiresUpstreamBalanceAuthToken(readUpstreamCostProfile(extra))).toBe(false)
+  })
+
+  it('keeps Sub2API account API key auth on the usage endpoint', () => {
+    const extra = mergeUpstreamCostProfileExtra({}, {
+      balance_query_enabled: true,
+      balance_provider: UPSTREAM_BALANCE_PROVIDER_SUB2API,
+      balance_auth_mode: UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY
+    })
+
+    expect(normalizeUpstreamBalanceAuthMode(
+      UPSTREAM_BALANCE_PROVIDER_SUB2API,
+      UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY
+    )).toBe(UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY)
+    expect(extra[UPSTREAM_BALANCE_ENDPOINT_KEY]).toBe(DEFAULT_UPSTREAM_BALANCE_ENDPOINT)
+    expect(extra[UPSTREAM_BALANCE_AUTH_MODE_KEY]).toBe(UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY)
+    expect(readUpstreamCostProfile(extra).balance_auth_mode).toBe(UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY)
+    expect(requiresUpstreamBalanceAuthToken(readUpstreamCostProfile(extra))).toBe(false)
+  })
+
+  it('migrates legacy Sub2API profile endpoint when using model API key auth', () => {
+    const extra = mergeUpstreamCostProfileExtra({}, {
+      balance_query_enabled: true,
+      balance_provider: UPSTREAM_BALANCE_PROVIDER_SUB2API,
+      balance_endpoint: SUB2API_PROFILE_UPSTREAM_BALANCE_ENDPOINT,
+      balance_auth_mode: UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY
+    })
+
+    expect(normalizeUpstreamBalanceEndpoint(
+      UPSTREAM_BALANCE_PROVIDER_SUB2API,
+      SUB2API_PROFILE_UPSTREAM_BALANCE_ENDPOINT,
+      UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY
+    )).toBe(DEFAULT_UPSTREAM_BALANCE_ENDPOINT)
+    expect(extra[UPSTREAM_BALANCE_ENDPOINT_KEY]).toBe(DEFAULT_UPSTREAM_BALANCE_ENDPOINT)
+    expect(extra[UPSTREAM_BALANCE_AUTH_MODE_KEY]).toBe(UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY)
+  })
+
+  it('writes custom header auth config only when custom header mode is enabled', () => {
+    const extra = mergeUpstreamCostProfileExtra({}, {
+      balance_query_enabled: true,
+      balance_auth_mode: UPSTREAM_BALANCE_AUTH_MODE_CUSTOM_HEADER,
+      balance_auth_header: 'X-Panel-Token'
+    })
+
+    expect(extra[UPSTREAM_BALANCE_AUTH_MODE_KEY]).toBe(UPSTREAM_BALANCE_AUTH_MODE_CUSTOM_HEADER)
+    expect(extra[UPSTREAM_BALANCE_AUTH_HEADER_KEY]).toBe('X-Panel-Token')
+    expect(readUpstreamCostProfile(extra).balance_auth_header).toBe('X-Panel-Token')
+  })
+
+  it('requires a dedicated balance token only for non-account-key auth modes', () => {
+    expect(requiresUpstreamBalanceAuthToken({})).toBe(false)
+    expect(requiresUpstreamBalanceAuthToken({
+      balance_query_enabled: true,
+      balance_provider: UPSTREAM_BALANCE_PROVIDER_SUB2API
+    })).toBe(false)
+    expect(requiresUpstreamBalanceAuthToken({
+      balance_query_enabled: true,
+      balance_provider: UPSTREAM_BALANCE_PROVIDER_NEW_API,
+      balance_auth_mode: UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY
+    })).toBe(false)
+    expect(requiresUpstreamBalanceAuthToken({
+      balance_query_enabled: true,
+      balance_auth_mode: UPSTREAM_BALANCE_AUTH_MODE_BEARER_TOKEN
+    })).toBe(true)
+    expect(requiresUpstreamBalanceAuthToken({
+      balance_query_enabled: true,
+      balance_auth_mode: UPSTREAM_BALANCE_AUTH_MODE_CUSTOM_HEADER
+    })).toBe(true)
+  })
+
+  it('reads upstream balance snapshot from account extra', () => {
+    const snapshot = {
+      status: 'ok',
+      available_usd: 8.64,
+      raw_available: 4320000,
+      fetched_at: '2026-06-23T00:00:00Z'
+    }
+    const extra = {
+      [UPSTREAM_BALANCE_SNAPSHOT_KEY]: snapshot
+    }
+
+    expect(readUpstreamBalanceSnapshot(extra)).toEqual(snapshot)
+    expect(readUpstreamBalanceSnapshot({})).toBeNull()
+  })
+
 })

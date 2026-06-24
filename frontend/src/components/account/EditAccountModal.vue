@@ -470,6 +470,8 @@
       <UpstreamCostSettings
         v-if="showUpstreamCostSettings"
         v-model="upstreamCostProfile"
+        v-model:balance-auth-token-value="upstreamBalanceAuthToken"
+        :balance-auth-token-configured="props.account?.credentials_status?.has_upstream_balance_auth_token === true"
       />
 
       <!-- OpenAI OAuth Model Mapping (OAuth 类型没有 apikey 容器，需要独立的模型映射区域) -->
@@ -2668,6 +2670,7 @@ import {
 import {
   mergeUpstreamCostProfileExtra,
   readUpstreamCostProfile,
+  requiresUpstreamBalanceAuthToken,
   type UpstreamCostProfile
 } from '@/utils/upstreamCost'
 import {
@@ -2725,6 +2728,7 @@ const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
 const upstreamCostProfile = ref<UpstreamCostProfile>({})
+const upstreamBalanceAuthToken = ref('')
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
@@ -3425,14 +3429,15 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // Load mixed scheduling setting (only for antigravity accounts)
   mixedScheduling.value = false
   allowOverages.value = false
-	const extra = newAccount.extra as Record<string, unknown> | undefined
-	mixedScheduling.value = extra?.mixed_scheduling === true
-	allowOverages.value = extra?.allow_overages === true
-	autoPause5hThreshold.value = typeof extra?.auto_pause_5h_threshold === 'number' ? extra.auto_pause_5h_threshold * 100 : null
-	autoPause7dThreshold.value = typeof extra?.auto_pause_7d_threshold === 'number' ? extra.auto_pause_7d_threshold * 100 : null
-	autoPause5hDisabled.value = extra?.auto_pause_5h_disabled === true
-	autoPause7dDisabled.value = extra?.auto_pause_7d_disabled === true
+  const extra = newAccount.extra as Record<string, unknown> | undefined
+  mixedScheduling.value = extra?.mixed_scheduling === true
+  allowOverages.value = extra?.allow_overages === true
+  autoPause5hThreshold.value = typeof extra?.auto_pause_5h_threshold === 'number' ? extra.auto_pause_5h_threshold * 100 : null
+  autoPause7dThreshold.value = typeof extra?.auto_pause_7d_threshold === 'number' ? extra.auto_pause_7d_threshold * 100 : null
+  autoPause5hDisabled.value = extra?.auto_pause_5h_disabled === true
+  autoPause7dDisabled.value = extra?.auto_pause_7d_disabled === true
   upstreamCostProfile.value = newAccount.type === 'apikey' ? readUpstreamCostProfile(extra) : {}
+  upstreamBalanceAuthToken.value = ''
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/API Key)
   openaiPassthroughEnabled.value = false
@@ -4226,6 +4231,18 @@ const handleSubmit = async () => {
         return
       }
 
+      if (requiresUpstreamBalanceAuthToken(upstreamCostProfile.value)) {
+        const balanceAuthToken = upstreamBalanceAuthToken.value.trim()
+        const hasExistingBalanceAuthToken =
+          props.account.credentials_status?.has_upstream_balance_auth_token ??
+          Boolean(currentCredentials.upstream_balance_auth_token)
+        if (balanceAuthToken) {
+          newCredentials.upstream_balance_auth_token = balanceAuthToken
+        } else if (!hasExistingBalanceAuthToken) {
+          appStore.showError(t('admin.accounts.upstreamCost.balanceQuery.authTokenRequired'))
+          return
+        }
+      }
       // Add model mapping if configured（OpenAI 开启自动透传时保留现有映射，不再编辑）
       if (shouldApplyModelMapping) {
         const modelMapping = buildModelRestrictionMapping()

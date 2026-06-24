@@ -3,7 +3,31 @@ export const UPSTREAM_REFERENCE_FX_RATE_KEY = 'upstream_reference_fx_rate'
 export const UPSTREAM_GROUP_MULTIPLIER_KEY = 'upstream_group_multiplier'
 export const UPSTREAM_COST_NOTE_KEY = 'upstream_cost_note'
 export const UPSTREAM_COST_MODEL_FAMILIES_KEY = 'upstream_cost_model_families'
+export const UPSTREAM_BALANCE_QUERY_ENABLED_KEY = 'upstream_balance_query_enabled'
+export const UPSTREAM_BALANCE_PROVIDER_KEY = 'upstream_balance_provider'
+export const UPSTREAM_BALANCE_ENDPOINT_KEY = 'upstream_balance_endpoint'
+export const UPSTREAM_BALANCE_AUTH_MODE_KEY = 'upstream_balance_auth_mode'
+export const UPSTREAM_BALANCE_AUTH_HEADER_KEY = 'upstream_balance_auth_header'
+export const UPSTREAM_BALANCE_SNAPSHOT_KEY = 'upstream_balance_snapshot'
 export const DEFAULT_UPSTREAM_REFERENCE_FX_RATE = 7
+export const UPSTREAM_BALANCE_PROVIDER_SUB2API = 'sub2api'
+export const UPSTREAM_BALANCE_PROVIDER_NEW_API = 'new_api_compatible'
+export const DEFAULT_UPSTREAM_BALANCE_PROVIDER = UPSTREAM_BALANCE_PROVIDER_SUB2API
+export const DEFAULT_UPSTREAM_BALANCE_ENDPOINT = '/v1/usage'
+export const SUB2API_PROFILE_UPSTREAM_BALANCE_ENDPOINT = '/api/v1/user/profile'
+export const NEW_API_UPSTREAM_BALANCE_ENDPOINT = '/api/usage/token/'
+export const UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY = 'account_api_key'
+export const UPSTREAM_BALANCE_AUTH_MODE_BEARER_TOKEN = 'bearer_token'
+export const UPSTREAM_BALANCE_AUTH_MODE_CUSTOM_HEADER = 'custom_header'
+
+export type UpstreamBalanceProvider =
+  | typeof UPSTREAM_BALANCE_PROVIDER_SUB2API
+  | typeof UPSTREAM_BALANCE_PROVIDER_NEW_API
+
+export type UpstreamBalanceAuthMode =
+  | typeof UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY
+  | typeof UPSTREAM_BALANCE_AUTH_MODE_BEARER_TOKEN
+  | typeof UPSTREAM_BALANCE_AUTH_MODE_CUSTOM_HEADER
 
 export type UpstreamCostMissingField =
   | 'recharge_cny_per_usd'
@@ -22,6 +46,27 @@ export interface UpstreamCostProfile {
   group_multiplier?: number
   note?: string
   model_families?: UpstreamCostFamilyOverride[]
+  balance_query_enabled?: boolean
+  balance_provider?: UpstreamBalanceProvider
+  balance_endpoint?: string
+  balance_auth_mode?: UpstreamBalanceAuthMode
+  balance_auth_header?: string
+}
+
+export interface UpstreamBalanceSnapshot {
+  provider?: string
+  status?: 'ok' | 'error' | string
+  endpoint?: string
+  raw_unit?: string
+  raw_available?: number | null
+  raw_used?: number | null
+  raw_granted?: number | null
+  available_usd?: number | null
+  unlimited?: boolean
+  expires_at?: string | null
+  fetched_at?: string
+  status_code?: number
+  error?: string
 }
 
 export interface UpstreamCostCalculation {
@@ -54,6 +99,58 @@ const toPositiveNumber = (value: unknown): number | undefined => {
 
 const normalizeFamily = (value: unknown): string => normalizeString(value)
 
+export const defaultUpstreamBalanceEndpoint = (
+  provider: UpstreamBalanceProvider = DEFAULT_UPSTREAM_BALANCE_PROVIDER
+): string => (
+  provider === UPSTREAM_BALANCE_PROVIDER_NEW_API
+    ? NEW_API_UPSTREAM_BALANCE_ENDPOINT
+    : DEFAULT_UPSTREAM_BALANCE_ENDPOINT
+)
+
+export const defaultUpstreamBalanceAuthMode = (
+  provider: UpstreamBalanceProvider = DEFAULT_UPSTREAM_BALANCE_PROVIDER
+): UpstreamBalanceAuthMode => (
+  provider === UPSTREAM_BALANCE_PROVIDER_NEW_API || provider === UPSTREAM_BALANCE_PROVIDER_SUB2API
+    ? UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY
+    : UPSTREAM_BALANCE_AUTH_MODE_BEARER_TOKEN
+)
+
+export const normalizeUpstreamBalanceAuthMode = (
+  provider: UpstreamBalanceProvider = DEFAULT_UPSTREAM_BALANCE_PROVIDER,
+  authMode?: UpstreamBalanceAuthMode
+): UpstreamBalanceAuthMode => {
+  return authMode || defaultUpstreamBalanceAuthMode(provider)
+}
+
+const normalizeEndpointPath = (endpoint?: string): string => {
+  const value = normalizeString(endpoint)
+  if (!value) return ''
+  try {
+    const parsed = new URL(value, 'http://local.invalid')
+    return parsed.pathname.replace(/\/+$/, '') || '/'
+  } catch {
+    const withSlash = value.startsWith('/') ? value : `/${value}`
+    return withSlash.replace(/\/+$/, '') || '/'
+  }
+}
+
+export const normalizeUpstreamBalanceEndpoint = (
+  provider: UpstreamBalanceProvider = DEFAULT_UPSTREAM_BALANCE_PROVIDER,
+  endpoint?: string,
+  authMode?: UpstreamBalanceAuthMode
+): string => {
+  const mode = normalizeUpstreamBalanceAuthMode(provider, authMode)
+  const normalizedEndpoint = normalizeEndpointPath(endpoint)
+  if (
+    provider === UPSTREAM_BALANCE_PROVIDER_SUB2API &&
+    mode === UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY &&
+    normalizedEndpoint === SUB2API_PROFILE_UPSTREAM_BALANCE_ENDPOINT
+  ) {
+    return DEFAULT_UPSTREAM_BALANCE_ENDPOINT
+  }
+  return normalizeString(endpoint) || defaultUpstreamBalanceEndpoint(provider)
+}
+
 const cloneExtraWithoutCostKeys = (base?: Record<string, unknown>): Record<string, unknown> => {
   const next: Record<string, unknown> = { ...(base || {}) }
   delete next[UPSTREAM_RECHARGE_CNY_PER_USD_KEY]
@@ -61,6 +158,16 @@ const cloneExtraWithoutCostKeys = (base?: Record<string, unknown>): Record<strin
   delete next[UPSTREAM_GROUP_MULTIPLIER_KEY]
   delete next[UPSTREAM_COST_NOTE_KEY]
   delete next[UPSTREAM_COST_MODEL_FAMILIES_KEY]
+  delete next[UPSTREAM_BALANCE_QUERY_ENABLED_KEY]
+  delete next[UPSTREAM_BALANCE_PROVIDER_KEY]
+  delete next[UPSTREAM_BALANCE_ENDPOINT_KEY]
+  delete next[UPSTREAM_BALANCE_AUTH_MODE_KEY]
+  delete next[UPSTREAM_BALANCE_AUTH_HEADER_KEY]
+  delete next.upstream_account_balance_query_enabled
+  delete next.upstream_account_balance_provider
+  delete next.upstream_account_balance_endpoint
+  delete next.upstream_account_balance_auth_mode
+  delete next.upstream_account_balance_auth_header
   return next
 }
 
@@ -72,11 +179,37 @@ export const normalizeUpstreamCostProfile = (profile?: UpstreamCostProfile | nul
   const fx = toPositiveNumber(profile.reference_fx_rate)
   const multiplier = toPositiveNumber(profile.group_multiplier)
   const note = normalizeString(profile.note)
+  const balanceEndpoint = normalizeString(profile.balance_endpoint)
+  const balanceAuthHeader = normalizeString(profile.balance_auth_header)
 
   if (recharge !== undefined) normalized.recharge_cny_per_usd = recharge
   if (fx !== undefined) normalized.reference_fx_rate = fx
   if (multiplier !== undefined) normalized.group_multiplier = multiplier
   if (note) normalized.note = note
+  if (typeof profile.balance_query_enabled === 'boolean') {
+    normalized.balance_query_enabled = profile.balance_query_enabled
+  }
+  if (
+    profile.balance_provider === UPSTREAM_BALANCE_PROVIDER_SUB2API ||
+    profile.balance_provider === UPSTREAM_BALANCE_PROVIDER_NEW_API
+  ) {
+    normalized.balance_provider = profile.balance_provider
+  }
+  if (balanceEndpoint) normalized.balance_endpoint = balanceEndpoint
+  if (
+    profile.balance_auth_mode === UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY ||
+    profile.balance_auth_mode === UPSTREAM_BALANCE_AUTH_MODE_BEARER_TOKEN ||
+    profile.balance_auth_mode === UPSTREAM_BALANCE_AUTH_MODE_CUSTOM_HEADER
+  ) {
+    normalized.balance_auth_mode = profile.balance_auth_mode
+  }
+  if (balanceAuthHeader) normalized.balance_auth_header = balanceAuthHeader
+
+  if (normalized.balance_query_enabled === true) {
+    const provider = normalized.balance_provider || DEFAULT_UPSTREAM_BALANCE_PROVIDER
+    normalized.balance_auth_mode = normalizeUpstreamBalanceAuthMode(provider, normalized.balance_auth_mode)
+    normalized.balance_endpoint = normalizeUpstreamBalanceEndpoint(provider, normalized.balance_endpoint, normalized.balance_auth_mode)
+  }
 
   const seen = new Set<string>()
   const dedupedFamilies: UpstreamCostFamilyOverride[] = []
@@ -118,7 +251,23 @@ export const readUpstreamCostProfile = (extra?: Record<string, unknown> | null):
     recharge_cny_per_usd: toPositiveNumber(extra[UPSTREAM_RECHARGE_CNY_PER_USD_KEY]),
     reference_fx_rate: toPositiveNumber(extra[UPSTREAM_REFERENCE_FX_RATE_KEY]),
     group_multiplier: toPositiveNumber(extra[UPSTREAM_GROUP_MULTIPLIER_KEY]),
-    note: normalizeString(extra[UPSTREAM_COST_NOTE_KEY]) || undefined
+    note: normalizeString(extra[UPSTREAM_COST_NOTE_KEY]) || undefined,
+    balance_query_enabled: typeof extra[UPSTREAM_BALANCE_QUERY_ENABLED_KEY] === 'boolean'
+      ? (extra[UPSTREAM_BALANCE_QUERY_ENABLED_KEY] as boolean)
+      : undefined,
+    balance_provider: extra[UPSTREAM_BALANCE_PROVIDER_KEY] === UPSTREAM_BALANCE_PROVIDER_SUB2API ||
+      extra[UPSTREAM_BALANCE_PROVIDER_KEY] === UPSTREAM_BALANCE_PROVIDER_NEW_API
+      ? (extra[UPSTREAM_BALANCE_PROVIDER_KEY] as UpstreamBalanceProvider)
+      : undefined,
+    balance_endpoint: normalizeString(extra[UPSTREAM_BALANCE_ENDPOINT_KEY]) || undefined,
+    balance_auth_mode: (
+      extra[UPSTREAM_BALANCE_AUTH_MODE_KEY] === UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY ||
+      extra[UPSTREAM_BALANCE_AUTH_MODE_KEY] === UPSTREAM_BALANCE_AUTH_MODE_BEARER_TOKEN ||
+      extra[UPSTREAM_BALANCE_AUTH_MODE_KEY] === UPSTREAM_BALANCE_AUTH_MODE_CUSTOM_HEADER
+    )
+      ? extra[UPSTREAM_BALANCE_AUTH_MODE_KEY] as UpstreamBalanceAuthMode
+      : undefined,
+    balance_auth_header: normalizeString(extra[UPSTREAM_BALANCE_AUTH_HEADER_KEY]) || undefined
   }
 
   const rawFamilies = extra[UPSTREAM_COST_MODEL_FAMILIES_KEY]
@@ -193,8 +342,41 @@ export const mergeUpstreamCostProfileExtra = (
       ...(item.note ? { note: item.note } : {})
     }))
   }
-
+  if (typeof normalized.balance_query_enabled === 'boolean') {
+    next[UPSTREAM_BALANCE_QUERY_ENABLED_KEY] = normalized.balance_query_enabled
+    if (normalized.balance_query_enabled) {
+      const provider = normalized.balance_provider || DEFAULT_UPSTREAM_BALANCE_PROVIDER
+      const authMode = normalizeUpstreamBalanceAuthMode(provider, normalized.balance_auth_mode)
+      next[UPSTREAM_BALANCE_PROVIDER_KEY] = provider
+      next[UPSTREAM_BALANCE_ENDPOINT_KEY] = normalizeUpstreamBalanceEndpoint(provider, normalized.balance_endpoint, authMode)
+      next[UPSTREAM_BALANCE_AUTH_MODE_KEY] = authMode
+      if (authMode === UPSTREAM_BALANCE_AUTH_MODE_CUSTOM_HEADER) {
+        next[UPSTREAM_BALANCE_AUTH_HEADER_KEY] = normalized.balance_auth_header || 'Authorization'
+      }
+    }
+  }
   return next
+}
+
+export const readUpstreamBalanceSnapshot = (extra?: Record<string, unknown> | null): UpstreamBalanceSnapshot | null => {
+  const raw = extra?.[UPSTREAM_BALANCE_SNAPSHOT_KEY]
+  if (!raw || typeof raw !== 'object') return null
+  return raw as UpstreamBalanceSnapshot
+}
+
+export const isUpstreamBalanceQueryEnabled = (extra?: Record<string, unknown> | null): boolean => {
+  return extra?.[UPSTREAM_BALANCE_QUERY_ENABLED_KEY] === true
+}
+
+export const readUpstreamKeyQuotaSnapshot = readUpstreamBalanceSnapshot
+
+export const isUpstreamKeyQuotaQueryEnabled = isUpstreamBalanceQueryEnabled
+
+export const requiresUpstreamBalanceAuthToken = (profile?: UpstreamCostProfile | null): boolean => {
+  const normalized = normalizeUpstreamCostProfile(profile)
+  if (normalized.balance_query_enabled !== true) return false
+  const provider = normalized.balance_provider || DEFAULT_UPSTREAM_BALANCE_PROVIDER
+  return normalizeUpstreamBalanceAuthMode(provider, normalized.balance_auth_mode) !== UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY
 }
 
 export const maybeMergeUpstreamCostProfileExtra = (

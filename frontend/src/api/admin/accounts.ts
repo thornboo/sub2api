@@ -21,7 +21,7 @@ import type {
   CheckMixedChannelRequest,
   CheckMixedChannelResponse
 } from '@/types'
-import type { UpstreamCostProfile } from '@/utils/upstreamCost'
+import type { UpstreamBalanceSnapshot, UpstreamCostProfile } from '@/utils/upstreamCost'
 
 /**
  * List all accounts with pagination
@@ -151,6 +151,13 @@ export async function updateUpstreamCostProfile(id: number, profile: UpstreamCos
   const { data } = await apiClient.patch<Account>(`/admin/accounts/${id}/upstream-cost-profile`, profile)
   return data
 }
+
+export async function refreshUpstreamBalance(id: number): Promise<Account> {
+  const { data } = await apiClient.post<Account>(`/admin/accounts/${id}/upstream-balance/refresh`)
+  return data
+}
+
+export type { UpstreamBalanceSnapshot }
 
 export type UpstreamRechargeRecordType = 'recharge' | 'bonus' | 'adjustment'
 
@@ -880,6 +887,7 @@ export const accountsAPI = {
   create,
   update,
   updateUpstreamCostProfile,
+  refreshUpstreamBalance,
   listUpstreamRechargeRecords,
   createUpstreamRechargeRecord,
   updateUpstreamRechargeRecord,

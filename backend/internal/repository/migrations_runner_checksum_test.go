@@ -161,4 +161,22 @@ func TestIsMigrationChecksumCompatible(t *testing.T) {
 		)
 		require.False(t, ok)
 	})
+
+	t.Run("159历史checksum可兼容补充币种约束版本", func(t *testing.T) {
+		ok := isMigrationChecksumCompatible(
+			"159_create_upstream_recharge_records.sql",
+			"af8427188001996affb4183da67222588dad6994dce2063a38a7ac7775e8f0c5",
+			"104360632efad0fe25f081aa8f274701333e2de35a82ea35198bc81c76a03248",
+		)
+		require.True(t, ok)
+	})
+
+	t.Run("159未知checksum不兼容", func(t *testing.T) {
+		ok := isMigrationChecksumCompatible(
+			"159_create_upstream_recharge_records.sql",
+			"af8427188001996affb4183da67222588dad6994dce2063a38a7ac7775e8f0c5",
+			"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+		)
+		require.False(t, ok)
+	})
 }

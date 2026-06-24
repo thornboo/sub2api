@@ -70,6 +70,107 @@
       />
     </label>
 
+    <div class="rounded-lg border border-sky-200/70 bg-sky-50/45 p-3 dark:border-sky-500/20 dark:bg-sky-500/[0.06]">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h4 class="text-sm font-semibold text-gray-900 dark:text-white">
+            {{ t('admin.accounts.upstreamCost.balanceQuery.title') }}
+          </h4>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ balanceProviderLabel }}
+          </p>
+        </div>
+        <button
+          type="button"
+          class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors"
+          :class="balanceQueryEnabled
+            ? 'border-emerald-300 bg-emerald-100 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300'
+            : 'border-gray-200 bg-white text-gray-600 hover:border-sky-300 dark:border-white/10 dark:bg-white/[0.05] dark:text-gray-300'"
+          @click="updateBalanceEnabled(!balanceQueryEnabled)"
+        >
+          <span class="h-2 w-2 rounded-full" :class="balanceQueryEnabled ? 'bg-emerald-500' : 'bg-gray-400'" />
+          {{ balanceQueryEnabled ? t('common.enabled') : t('common.disabled') }}
+        </button>
+      </div>
+
+      <div v-if="balanceQueryEnabled" class="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1fr]">
+        <div>
+          <span class="input-label">{{ t('admin.accounts.upstreamCost.balanceQuery.provider') }}</span>
+          <div class="grid grid-cols-2 gap-2">
+            <button
+              v-for="option in balanceProviderOptions"
+              :key="option.value"
+              type="button"
+              class="rounded-lg border px-3 py-2 text-left text-sm font-medium transition-colors"
+              :class="balanceProvider === option.value
+                ? 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-300'
+                : 'border-gray-200 bg-white text-gray-600 hover:border-sky-300 dark:border-white/10 dark:bg-white/[0.05] dark:text-gray-300'"
+              @click="updateBalanceProvider(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
+        <label class="block">
+          <span class="input-label">{{ t('admin.accounts.upstreamCost.balanceQuery.endpoint') }}</span>
+          <input
+            :value="balanceEndpoint"
+            type="text"
+            class="input"
+            :placeholder="balanceDefaultEndpoint"
+            @input="updateBalanceEndpoint"
+          />
+        </label>
+      </div>
+
+      <div v-if="balanceQueryEnabled" class="mt-3 space-y-3">
+        <div>
+          <span class="input-label">{{ t('admin.accounts.upstreamCost.balanceQuery.authMode') }}</span>
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <button
+              v-for="option in balanceAuthModeOptions"
+              :key="option.value"
+              type="button"
+              class="rounded-lg border px-3 py-2 text-left text-sm font-medium transition-colors"
+              :class="balanceAuthMode === option.value
+                ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300'
+                : 'border-gray-200 bg-white text-gray-600 hover:border-sky-300 dark:border-white/10 dark:bg-white/[0.05] dark:text-gray-300'"
+              @click="updateBalanceAuthMode(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="balanceAuthMode !== UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY" class="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr]">
+          <label v-if="balanceAuthMode === UPSTREAM_BALANCE_AUTH_MODE_CUSTOM_HEADER" class="block">
+            <span class="input-label">{{ t('admin.accounts.upstreamCost.balanceQuery.authHeader') }}</span>
+            <input
+              :value="profile.balance_auth_header || 'Authorization'"
+              type="text"
+              class="input"
+              placeholder="Authorization"
+              @input="updateBalanceAuthHeader"
+            />
+          </label>
+          <label class="block" :class="balanceAuthMode === UPSTREAM_BALANCE_AUTH_MODE_BEARER_TOKEN ? 'sm:col-span-2' : ''">
+            <span class="input-label">{{ t('admin.accounts.upstreamCost.balanceQuery.authToken') }}</span>
+            <input
+              :value="balanceAuthTokenValue || ''"
+              type="password"
+              class="input"
+              autocomplete="off"
+              :placeholder="balanceAuthTokenConfigured
+                ? t('admin.accounts.upstreamCost.balanceQuery.authTokenConfigured')
+                : t('admin.accounts.upstreamCost.balanceQuery.authTokenPlaceholder')"
+              @input="updateBalanceAuthToken"
+            />
+            <span class="input-hint">{{ t('admin.accounts.upstreamCost.balanceQuery.authTokenHint') }}</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
     <div class="rounded-lg border border-gray-200 bg-gray-50/70 p-3 dark:border-dark-600 dark:bg-dark-800/70">
       <div class="grid grid-cols-1 gap-3 text-sm sm:grid-cols-4">
         <div>
@@ -168,9 +269,21 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import {
+  DEFAULT_UPSTREAM_BALANCE_PROVIDER,
   DEFAULT_UPSTREAM_REFERENCE_FX_RATE,
+  UPSTREAM_BALANCE_PROVIDER_SUB2API,
+  UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY,
+  UPSTREAM_BALANCE_AUTH_MODE_BEARER_TOKEN,
+  UPSTREAM_BALANCE_AUTH_MODE_CUSTOM_HEADER,
+  UPSTREAM_BALANCE_PROVIDER_NEW_API,
   calculateUpstreamCost,
+  defaultUpstreamBalanceAuthMode,
+  defaultUpstreamBalanceEndpoint,
   formatUpstreamRatio,
+  normalizeUpstreamBalanceAuthMode,
+  normalizeUpstreamBalanceEndpoint,
+  type UpstreamBalanceAuthMode,
+  type UpstreamBalanceProvider,
   type UpstreamCostFamilyOverride,
   type UpstreamCostMissingField,
   type UpstreamCostProfile
@@ -178,10 +291,13 @@ import {
 
 const props = defineProps<{
   modelValue?: UpstreamCostProfile
+  balanceAuthTokenValue?: string
+  balanceAuthTokenConfigured?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: UpstreamCostProfile]
+  'update:balanceAuthTokenValue': [value: string]
 }>()
 
 const { t } = useI18n()
@@ -195,6 +311,27 @@ const profile = computed<UpstreamCostProfile>(() => {
 })
 const families = computed(() => profile.value.model_families || [])
 const defaultCalculation = computed(() => calculateUpstreamCost(profile.value))
+const balanceQueryEnabled = computed(() => profile.value.balance_query_enabled === true)
+const balanceProvider = computed<UpstreamBalanceProvider>(() => profile.value.balance_provider || DEFAULT_UPSTREAM_BALANCE_PROVIDER)
+const balanceDefaultEndpoint = computed(() => defaultUpstreamBalanceEndpoint(balanceProvider.value))
+const balanceAuthMode = computed<UpstreamBalanceAuthMode>(() => normalizeUpstreamBalanceAuthMode(balanceProvider.value, profile.value.balance_auth_mode))
+const balanceEndpoint = computed(() => normalizeUpstreamBalanceEndpoint(balanceProvider.value, profile.value.balance_endpoint, balanceAuthMode.value))
+const balanceProviderOptions = computed<Array<{ value: UpstreamBalanceProvider; label: string }>>(() => [
+  { value: UPSTREAM_BALANCE_PROVIDER_SUB2API, label: t('admin.accounts.upstreamCost.balanceQuery.providerSub2Api') },
+  { value: UPSTREAM_BALANCE_PROVIDER_NEW_API, label: t('admin.accounts.upstreamCost.balanceQuery.providerNewApi') }
+])
+const balanceProviderLabel = computed(() => {
+  const option = balanceProviderOptions.value.find(item => item.value === balanceProvider.value)
+  return option?.label || t('admin.accounts.upstreamCost.balanceQuery.providerSub2Api')
+})
+const balanceAuthModeOptions = computed<Array<{ value: UpstreamBalanceAuthMode; label: string }>>(() => {
+  const options: Array<{ value: UpstreamBalanceAuthMode; label: string }> = [
+    { value: UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY, label: t('admin.accounts.upstreamCost.balanceQuery.authModeAccountKey') },
+    { value: UPSTREAM_BALANCE_AUTH_MODE_BEARER_TOKEN, label: t('admin.accounts.upstreamCost.balanceQuery.authModeBearer') },
+    { value: UPSTREAM_BALANCE_AUTH_MODE_CUSTOM_HEADER, label: t('admin.accounts.upstreamCost.balanceQuery.authModeCustomHeader') }
+  ]
+  return options
+})
 
 const emitProfile = (patch: Partial<UpstreamCostProfile>) => {
   emit('update:modelValue', {
@@ -217,6 +354,64 @@ const updateNumber = (key: 'recharge_cny_per_usd' | 'reference_fx_rate' | 'group
 const updateText = (key: 'note', event: Event) => {
   const value = (event.target as HTMLInputElement).value.trim()
   emitProfile({ [key]: value || undefined })
+}
+
+const updateBalanceEnabled = (enabled: boolean) => {
+  const provider = balanceProvider.value
+  emitProfile({
+    balance_query_enabled: enabled,
+    balance_provider: enabled ? provider : undefined,
+    balance_endpoint: enabled ? balanceEndpoint.value : undefined,
+    balance_auth_mode: enabled ? normalizeUpstreamBalanceAuthMode(provider, profile.value.balance_auth_mode) : undefined,
+    balance_auth_header: enabled ? profile.value.balance_auth_header : undefined
+  })
+}
+
+const updateBalanceProvider = (provider: UpstreamBalanceProvider) => {
+  emitProfile({
+    balance_query_enabled: true,
+    balance_provider: provider,
+    balance_endpoint: defaultUpstreamBalanceEndpoint(provider),
+    balance_auth_mode: defaultUpstreamBalanceAuthMode(provider),
+    balance_auth_header: undefined
+  })
+}
+
+const updateBalanceEndpoint = (event: Event) => {
+  const value = (event.target as HTMLInputElement).value.trim()
+  emitProfile({
+    balance_query_enabled: true,
+    balance_provider: balanceProvider.value,
+    balance_endpoint: value || balanceDefaultEndpoint.value,
+    balance_auth_mode: balanceAuthMode.value
+  })
+}
+
+const updateBalanceAuthMode = (mode: UpstreamBalanceAuthMode) => {
+  emitProfile({
+    balance_query_enabled: true,
+    balance_provider: balanceProvider.value,
+    balance_endpoint: balanceEndpoint.value,
+    balance_auth_mode: mode,
+    balance_auth_header: mode === UPSTREAM_BALANCE_AUTH_MODE_CUSTOM_HEADER
+      ? (profile.value.balance_auth_header || 'Authorization')
+      : undefined
+  })
+}
+
+const updateBalanceAuthHeader = (event: Event) => {
+  const value = (event.target as HTMLInputElement).value.trim()
+  emitProfile({
+    balance_query_enabled: true,
+    balance_provider: balanceProvider.value,
+    balance_endpoint: balanceEndpoint.value,
+    balance_auth_mode: UPSTREAM_BALANCE_AUTH_MODE_CUSTOM_HEADER,
+    balance_auth_header: value || 'Authorization'
+  })
+}
+
+const updateBalanceAuthToken = (event: Event) => {
+  emit('update:balanceAuthTokenValue', (event.target as HTMLInputElement).value)
 }
 
 const emitFamilies = (nextFamilies: UpstreamCostFamilyOverride[]) => {

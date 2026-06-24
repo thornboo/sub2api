@@ -413,9 +413,14 @@
           :accounts="costComparisonAccounts"
           :loading="costComparisonLoading"
           :error="costComparisonError"
+          :refreshing-balance-ids="refreshingBalanceIds"
+          :batch-refreshing-balances="batchRefreshingBalances"
+          :balance-refresh-progress="balanceRefreshProgress"
           @refresh="loadCostComparisonAccounts"
           @edit="handleEdit"
           @recharge-records="openRechargeRecords"
+          @refresh-balance="handleRefreshUpstreamBalance"
+          @refresh-all-balances="handleRefreshVisibleUpstreamBalances"
         />
       </template>
       <template #pagination><Pagination v-if="activeAccountView === 'list' && pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
@@ -455,7 +460,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch, type Ref } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -495,6 +500,10 @@ import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfil
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
+import {
+  isUpstreamKeyQuotaQueryEnabled,
+  readUpstreamKeyQuotaSnapshot
+} from '@/utils/upstreamCost'
 import { tableSelectionCheckboxClasses as selectionCheckboxClasses, tableSelectionLabel as selectionLabel } from '@/utils/tableSelectionCheckbox'
 import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
 
@@ -579,8 +588,12 @@ const activeAccountView = ref<AccountViewMode>('list')
 const costComparisonAccounts = ref<Account[]>([])
 const costComparisonLoading = ref(false)
 const costComparisonError = ref<string | null>(null)
+const refreshingBalanceIds = ref<number[]>([])
+const batchRefreshingBalances = ref(false)
+const balanceRefreshProgress = ref<{ done: number; total: number } | null>(null)
 let costComparisonAbortController: AbortController | null = null
 const costComparisonPageSize = 1000
+const balanceRefreshConcurrency = 4
 
 // Account tools dropdown
 const showAccountToolsDropdown = ref(false)
@@ -1572,6 +1585,115 @@ const loadCostComparisonAccounts = async () => {
     if (costComparisonAbortController === controller) {
       costComparisonAbortController = null
     }
+  }
+}
+
+type UpstreamBalanceRefreshResult = {
+  ok: boolean
+  error?: string
+}
+
+const addRefreshingId = (ids: Ref<number[]>, accountId: number) => {
+  if (ids.value.includes(accountId)) return false
+  ids.value = [...ids.value, accountId]
+  return true
+}
+
+const removeRefreshingId = (ids: Ref<number[]>, accountId: number) => {
+  ids.value = ids.value.filter(id => id !== accountId)
+}
+
+const refreshUpstreamBalanceAccount = async (account: Account): Promise<UpstreamBalanceRefreshResult> => {
+  if (!addRefreshingId(refreshingBalanceIds, account.id)) {
+    return { ok: false, error: t('admin.accounts.upstreamCost.balanceQuery.refreshSkipped') }
+  }
+
+  try {
+    const updated = await adminAPI.accounts.refreshUpstreamBalance(account.id)
+    handleAccountUpdated(updated)
+    const snapshot = readUpstreamKeyQuotaSnapshot(updated.extra)
+    if (snapshot?.status === 'ok') {
+      return { ok: true }
+    }
+    return {
+      ok: false,
+      error: snapshot?.error || t('admin.accounts.upstreamCost.balanceQuery.refreshFailed')
+    }
+  } catch (error: any) {
+    return {
+      ok: false,
+      error: error?.response?.data?.message || error?.message || t('admin.accounts.upstreamCost.balanceQuery.refreshFailed')
+    }
+  } finally {
+    removeRefreshingId(refreshingBalanceIds, account.id)
+  }
+}
+
+const handleRefreshUpstreamBalance = async (account: Account) => {
+  const result = await refreshUpstreamBalanceAccount(account)
+  if (result.ok) {
+    appStore.showSuccess(t('admin.accounts.upstreamCost.balanceQuery.refreshSuccess'))
+  } else {
+    appStore.showWarning(result.error || t('admin.accounts.upstreamCost.balanceQuery.refreshFailed'))
+  }
+}
+
+const handleRefreshVisibleUpstreamBalances = async () => {
+  if (batchRefreshingBalances.value) return
+
+  const activeRefreshingIds = new Set(refreshingBalanceIds.value)
+  const targets = costComparisonAccounts.value.filter(account =>
+    isUpstreamKeyQuotaQueryEnabled(account.extra) && !activeRefreshingIds.has(account.id)
+  )
+
+  if (targets.length === 0) {
+    appStore.showWarning(t('admin.accounts.upstreamCost.balanceQuery.noRefreshableAccounts'))
+    return
+  }
+
+  batchRefreshingBalances.value = true
+  balanceRefreshProgress.value = { done: 0, total: targets.length }
+
+  let cursor = 0
+  let success = 0
+  let failed = 0
+  const errors: string[] = []
+
+  const runWorker = async () => {
+    while (cursor < targets.length) {
+      const account = targets[cursor]
+      cursor += 1
+      const result = await refreshUpstreamBalanceAccount(account)
+      if (result.ok) {
+        success += 1
+      } else {
+        failed += 1
+        if (result.error) {
+          errors.push(`${account.name}: ${result.error}`)
+        }
+      }
+      balanceRefreshProgress.value = { done: success + failed, total: targets.length }
+    }
+  }
+
+  try {
+    const workerCount = Math.min(balanceRefreshConcurrency, targets.length)
+    await Promise.all(Array.from({ length: workerCount }, () => runWorker()))
+
+    if (failed === 0) {
+      appStore.showSuccess(t('admin.accounts.upstreamCost.balanceQuery.batchRefreshSuccess', { count: success }))
+    } else if (success > 0) {
+      appStore.showWarning(t('admin.accounts.upstreamCost.balanceQuery.batchRefreshPartial', { success, failed }))
+    } else {
+      appStore.showError(t('admin.accounts.upstreamCost.balanceQuery.batchRefreshFailed', { failed }))
+    }
+
+    if (errors.length > 0) {
+      console.warn('Some upstream balance refresh tasks failed:', errors)
+    }
+  } finally {
+    batchRefreshingBalances.value = false
+    balanceRefreshProgress.value = null
   }
 }
 
