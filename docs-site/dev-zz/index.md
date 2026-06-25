@@ -38,6 +38,7 @@
 | 部分落地 | [企业用量分析中心](./features/enterprise-usage-analytics.md) | owner 用量分析第一版已实现；管理员全站增强、异常治理和多分组 Key 仍是后续阶段。 |
 | 部分落地 | [用量账本与已删除 Key 证据完整性](./features/usage-ledger-evidence-integrity.md) | 阶段 1 管理员证据视图已实现；快照字段和外键约束仍是方案。 |
 | 方案稿 | [上游供应商成本感知与模型级调度](./features/upstream-provider-cost-aware-scheduling.md) | 尚未实现，只记录调度、成本配置、综合折扣和余额查询的设计方向。 |
+| 部分落地 | [运维监控客户可见错误排障](./features/ops-customer-visible-error-triage.md) | 第一版已拆分客户可见失败、SLA 错误、客户侧限制和上游 429/529 明细入口；流式 200 后失败仍是后续阶段。 |
 
 ## 设计取舍
 

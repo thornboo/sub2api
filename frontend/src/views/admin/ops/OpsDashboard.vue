@@ -117,9 +117,12 @@
         <OpsErrorDetailsModal
           :show="showErrorDetails"
           :time-range="timeRange"
+          :custom-start-time="customStartTime"
+          :custom-end-time="customEndTime"
           :platform="platform"
           :group-id="groupId"
           :error-type="errorDetailsType"
+          :preset="errorDetailsPreset"
           @update:show="showErrorDetails = $event"
           @openErrorDetail="openError"
         />
@@ -129,6 +132,8 @@
         <OpsRequestDetailsModal
           v-model="showRequestDetails"
           :time-range="timeRange"
+          :custom-start-time="customStartTime"
+          :custom-end-time="customEndTime"
           :preset="requestDetailsPreset"
           :platform="platform"
           :group-id="groupId"
@@ -368,6 +373,7 @@ const loadingErrorDistribution = ref(false)
 
 const {
   errorDetailsType,
+  errorDetailsPreset,
   requestDetailsPreset,
   selectedErrorId,
   selectedErrorType,

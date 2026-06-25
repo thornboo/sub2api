@@ -5,14 +5,17 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
 import OpsErrorLogTable from './OpsErrorLogTable.vue'
 import { opsAPI, type OpsErrorLog } from '@/api/admin/ops'
-import type { OpsErrorDetailType } from '../composables/useOpsModalStack'
+import type { OpsErrorDetailsPreset, OpsErrorDetailsStatusCode, OpsErrorDetailType, OpsErrorDetailsView } from '../composables/useOpsModalStack'
 
 interface Props {
   show: boolean
   timeRange: string
+  customStartTime?: string | null
+  customEndTime?: string | null
   platform?: string
   groupId?: number | null
   errorType: 'request' | 'upstream'
+  preset?: OpsErrorDetailsPreset | null
 }
 
 const props = defineProps<Props>()
@@ -31,13 +34,14 @@ const page = ref(1)
 const pageSize = ref(10)
 
 const q = ref('')
-const statusCode = ref<number | 'other' | null>(null)
+const statusCode = ref<OpsErrorDetailsStatusCode>(null)
 const phase = ref<string>('')
 const errorOwner = ref<string>('')
-const viewMode = ref<'errors' | 'excluded' | 'all'>('errors')
+const viewMode = ref<OpsErrorDetailsView>('errors')
 let searchTimeout: number | null = null
 let resettingFilters = false
 let fetchErrorLogsRequestId = 0
+const rateLimitStatusCodes = '429,529'
 
 function clearSearchTimeout() {
   if (!searchTimeout) return
@@ -52,16 +56,25 @@ function invalidateFetchErrorLogs() {
 
 
 const modalTitle = computed(() => {
+  const title = String(props.preset?.title || '').trim()
+  if (title) return title
   return props.errorType === 'upstream' ? t('admin.ops.errorDetails.upstreamErrors') : t('admin.ops.errorDetails.requestErrors')
 })
 
 const statusCodeSelectOptions = computed(() => {
   const codes = [400, 401, 403, 404, 409, 422, 429, 500, 502, 503, 504, 529]
-  return [
+  const options: Array<{ value: OpsErrorDetailsStatusCode; label: string }> = [
     { value: null, label: t('common.all') },
+    ...(props.errorType === 'upstream'
+      ? [
+          { value: 'rate_overload' as const, label: t('admin.ops.errorDetails.statusRateOverload') },
+          { value: 'non_rate_overload' as const, label: t('admin.ops.errorDetails.statusNonRateOverload') }
+        ]
+      : []),
     ...codes.map((c) => ({ value: c, label: String(c) })),
     { value: 'other', label: t('admin.ops.errorDetails.statusCodeOther') || 'Other' }
   ]
+  return options
 })
 
 const ownerSelectOptions = computed(() => {
@@ -78,7 +91,7 @@ const viewModeSelectOptions = computed(() => {
   return [
     { value: 'errors', label: t('admin.ops.errorDetails.viewErrors') || 'errors' },
     { value: 'excluded', label: t('admin.ops.errorDetails.viewExcluded') || 'excluded' },
-    { value: 'all', label: t('common.all') }
+    { value: 'all', label: t('admin.ops.errorDetails.viewAllFailures') || t('common.all') }
   ]
 })
 
@@ -108,8 +121,18 @@ async function fetchErrorLogs() {
     const params: Record<string, any> = {
       page: page.value,
       page_size: pageSize.value,
-      time_range: props.timeRange,
       view: viewMode.value
+    }
+
+    if (props.timeRange === 'custom') {
+      if (props.customStartTime && props.customEndTime) {
+        params.start_time = props.customStartTime
+        params.end_time = props.customEndTime
+      } else {
+        params.time_range = '1h'
+      }
+    } else {
+      params.time_range = props.timeRange
     }
 
     const platform = String(props.platform || '').trim()
@@ -118,6 +141,8 @@ async function fetchErrorLogs() {
 
     if (q.value.trim()) params.q = q.value.trim()
     if (statusCode.value === 'other') params.status_codes_other = '1'
+    else if (statusCode.value === 'rate_overload') params.status_codes = rateLimitStatusCodes
+    else if (statusCode.value === 'non_rate_overload') params.status_codes_exclude = rateLimitStatusCodes
     else if (typeof statusCode.value === 'number') params.status_codes = String(statusCode.value)
 
     const phaseVal = String(phase.value || '').trim()
@@ -152,11 +177,12 @@ async function resetFilters(options: { resetPageSize?: boolean } = {}) {
   // the awaited nextTick resolves. Revisit this guard before using flush: 'post'.
   resettingFilters = true
   clearSearchTimeout()
+  const preset = props.preset ?? null
   q.value = ''
-  statusCode.value = null
-  phase.value = props.errorType === 'upstream' ? 'upstream' : ''
-  errorOwner.value = ''
-  viewMode.value = 'errors'
+  statusCode.value = preset?.statusCode ?? null
+  phase.value = preset?.phase ?? ''
+  errorOwner.value = preset?.owner ?? ''
+  viewMode.value = preset?.view ?? 'errors'
   page.value = 1
   if (options.resetPageSize) pageSize.value = 10
   fetchErrorLogs()
@@ -177,7 +203,7 @@ function fetchFirstPage() {
 
 
 watch(
-  () => [props.show, props.errorType] as const,
+  () => [props.show, props.errorType, props.preset] as const,
   ([open]) => {
     if (!open) {
       clearSearchTimeout()
@@ -190,7 +216,7 @@ watch(
 )
 
 watch(
-  () => [props.timeRange, props.platform, props.groupId] as const,
+  () => [props.timeRange, props.customStartTime, props.customEndTime, props.platform, props.groupId] as const,
   () => {
     if (!props.show) return
     fetchFirstPage()

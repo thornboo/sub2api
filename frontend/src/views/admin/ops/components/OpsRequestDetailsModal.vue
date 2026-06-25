@@ -12,6 +12,8 @@ import { parseTimeRangeMinutes, formatDateTime } from '../utils/opsFormatters'
 interface Props {
   modelValue: boolean
   timeRange: string
+  customStartTime?: string | null
+  customEndTime?: string | null
   preset: OpsRequestDetailsPreset
   platform?: string
   groupId?: number | null
@@ -35,13 +37,37 @@ const pageSize = ref(10)
 
 const close = () => emit('update:modelValue', false)
 
+function formatShortDateTime(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+  return `${month}-${day} ${hour}:${minute}`
+}
+
 const rangeLabel = computed(() => {
+  if (props.timeRange === 'custom' && props.customStartTime && props.customEndTime) {
+    const start = new Date(props.customStartTime)
+    const end = new Date(props.customEndTime)
+    if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
+      return `${formatShortDateTime(start)} ~ ${formatShortDateTime(end)}`
+    }
+    return t('admin.ops.timeRange.custom')
+  }
+
   const minutes = parseTimeRangeMinutes(props.timeRange)
   if (minutes >= 60) return t('admin.ops.requestDetails.rangeHours', { n: Math.round(minutes / 60) })
   return t('admin.ops.requestDetails.rangeMinutes', { n: minutes })
 })
 
 function buildTimeParams(): Pick<OpsRequestDetailsParams, 'start_time' | 'end_time'> {
+  if (props.timeRange === 'custom' && props.customStartTime && props.customEndTime) {
+    return {
+      start_time: props.customStartTime,
+      end_time: props.customEndTime
+    }
+  }
+
   const minutes = parseTimeRangeMinutes(props.timeRange)
   const endTime = new Date()
   const startTime = new Date(endTime.getTime() - minutes * 60 * 1000)
@@ -98,6 +124,8 @@ watch(
 watch(
   () => [
     props.timeRange,
+    props.customStartTime,
+    props.customEndTime,
     props.platform,
     props.groupId,
     props.preset.kind,

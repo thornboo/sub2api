@@ -7,7 +7,14 @@ vi.mock('vue-i18n', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vue-i18n')>()
   return {
     ...actual,
-    useI18n: () => ({ t: (key: string) => key })
+    useI18n: () => ({
+      t: (key: string, params?: Record<string, unknown>) => {
+        if (key === 'admin.ops.requestDetails.rangeLabel' && params?.range) {
+          return `Window: ${params.range}`
+        }
+        return key
+      }
+    })
   }
 })
 
@@ -92,5 +99,45 @@ describe('OpsRequestDetailsModal', () => {
 
     expect(wrapper.emitted('openErrorDetail')).toEqual([[42, 'request']])
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('uses explicit custom start and end times for request detail queries', async () => {
+    vi.mocked(opsAPI.listRequestDetails).mockResolvedValue({ items: [], total: 0 })
+
+    const wrapper = mount(OpsRequestDetailsModal, {
+      props: {
+        modelValue: true,
+        timeRange: 'custom',
+        customStartTime: '2026-06-22T00:00:00',
+        customEndTime: '2026-06-23T00:00:00',
+        preset: {
+          title: 'Requests',
+          kind: 'all',
+          sort: 'created_at_desc'
+        },
+        platform: '',
+        groupId: null
+      },
+      global: {
+        stubs: {
+          BaseDialog: BaseDialogStub,
+          Pagination: PaginationStub
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(opsAPI.listRequestDetails).toHaveBeenCalledWith(
+      expect.objectContaining({
+        start_time: '2026-06-22T00:00:00',
+        end_time: '2026-06-23T00:00:00',
+        page: 1,
+        page_size: 10,
+        kind: 'all',
+        sort: 'created_at_desc'
+      })
+    )
+    expect(wrapper.text()).toContain('Window: 06-22 00:00 ~ 06-23 00:00')
   })
 })

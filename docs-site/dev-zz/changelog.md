@@ -1,5 +1,14 @@
 # 变更记录
 
+## 2026-06-25
+
+- 运维监控总览新增“客户可见失败”口径，用 `error_count_total / request_count_total` 展示客户实际收到失败响应的比例；SLA 卡片继续保留排除客户侧限制后的稳定性口径。
+- 运维错误明细入口支持从“客户可见失败”“SLA 错误”“客户侧限制”“非限流上游错误”“上游限流/过载”直接带筛选进入，减少客户投诉排查时反复手动切筛选。
+- 错误明细视图文案从“错误 / 排除项 / 全部”调整为“SLA 错误 / 客户侧限制 / 全部失败”，上游错误文案从“错误数（排除429/529）/ 429/529”调整为“非限流上游错误 / 上游限流/过载”。
+- 错误列表接口新增 `status_codes_exclude` 筛选参数，用于查看非 429/529 的上游错误明细；现有 SLA、客户侧限制和状态码筛选口径保持不变。
+- 修复自定义时间范围下，运维总览和错误 / 请求明细使用不同时间窗口导致“卡片有数、明细为空”的问题。
+- 修复上游错误卡片按 `provider` 归因统计、明细却强制 `phase=upstream` 的口径错位；上游错误明细默认改为 provider 归因口径，避免 network/provider 类失败被漏查。
+
 ## 2026-06-22
 
 - 同步上游 `main`（`85a3b122`）到 `dev-zz-develop`：合并缓存 Token 明细展示、OpenAI 图片 incomplete 故障转移、Gemini / Vertex Anthropic schema 兼容修复、Claude Code / CC Switch 识别更新、调度优先最早重置账号能力、订阅 affiliate rebate、promo code 过期时间清空、SELinux bind mount 标记和 sponsor 资料更新。

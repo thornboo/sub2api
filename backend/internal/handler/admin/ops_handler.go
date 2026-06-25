@@ -68,6 +68,61 @@ func parseOpsViewParam(c *gin.Context) string {
 	}
 }
 
+func parseOpsStatusCodesCSV(raw string) ([]int, error) {
+	parts := strings.Split(raw, ",")
+	out := make([]int, 0, len(parts))
+	for _, part := range parts {
+		p := strings.TrimSpace(part)
+		if p == "" {
+			continue
+		}
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return nil, fmt.Errorf("invalid status code")
+		}
+		out = append(out, n)
+	}
+	return out, nil
+}
+
+func applyOpsStatusCodeFilters(c *gin.Context, filter *service.OpsErrorLogFilter) bool {
+	if c == nil || filter == nil {
+		return true
+	}
+
+	if raw := strings.TrimSpace(c.Query("status_codes")); raw != "" {
+		codes, err := parseOpsStatusCodesCSV(raw)
+		if err != nil {
+			response.BadRequest(c, "Invalid status_codes")
+			return false
+		}
+		filter.StatusCodes = codes
+	}
+
+	if raw := strings.TrimSpace(c.Query("status_codes_exclude")); raw != "" {
+		codes, err := parseOpsStatusCodesCSV(raw)
+		if err != nil {
+			response.BadRequest(c, "Invalid status_codes_exclude")
+			return false
+		}
+		filter.StatusCodesExclude = codes
+	}
+
+	if raw := strings.TrimSpace(c.Query("status_codes_other")); raw != "" {
+		switch strings.ToLower(raw) {
+		case "1", "true", "yes":
+			filter.StatusCodesOther = true
+		case "0", "false", "no":
+			filter.StatusCodesOther = false
+		default:
+			response.BadRequest(c, "Invalid status_codes_other")
+			return false
+		}
+	}
+
+	return true
+}
+
 func NewOpsHandler(opsService *service.OpsService) *OpsHandler {
 	return &OpsHandler{opsService: opsService}
 }
@@ -169,22 +224,8 @@ func (h *OpsHandler) GetErrorLogs(c *gin.Context) {
 			return
 		}
 	}
-	if statusCodesStr := strings.TrimSpace(c.Query("status_codes")); statusCodesStr != "" {
-		parts := strings.Split(statusCodesStr, ",")
-		out := make([]int, 0, len(parts))
-		for _, part := range parts {
-			p := strings.TrimSpace(part)
-			if p == "" {
-				continue
-			}
-			n, err := strconv.Atoi(p)
-			if err != nil || n < 0 {
-				response.BadRequest(c, "Invalid status_codes")
-				return
-			}
-			out = append(out, n)
-		}
-		filter.StatusCodes = out
+	if !applyOpsStatusCodeFilters(c, filter) {
+		return
 	}
 
 	result, err := h.opsService.GetErrorLogs(c.Request.Context(), filter)
@@ -273,22 +314,8 @@ func (h *OpsHandler) ListRequestErrors(c *gin.Context) {
 			return
 		}
 	}
-	if statusCodesStr := strings.TrimSpace(c.Query("status_codes")); statusCodesStr != "" {
-		parts := strings.Split(statusCodesStr, ",")
-		out := make([]int, 0, len(parts))
-		for _, part := range parts {
-			p := strings.TrimSpace(part)
-			if p == "" {
-				continue
-			}
-			n, err := strconv.Atoi(p)
-			if err != nil || n < 0 {
-				response.BadRequest(c, "Invalid status_codes")
-				return
-			}
-			out = append(out, n)
-		}
-		filter.StatusCodes = out
+	if !applyOpsStatusCodeFilters(c, filter) {
+		return
 	}
 
 	result, err := h.opsService.GetErrorLogs(c.Request.Context(), filter)
@@ -441,7 +468,7 @@ func (h *OpsHandler) ListUpstreamErrors(c *gin.Context) {
 	}
 
 	filter.View = parseOpsViewParam(c)
-	filter.Phase = "upstream"
+	filter.Phase = strings.TrimSpace(c.Query("phase"))
 	filter.Owner = "provider"
 	filter.Source = strings.TrimSpace(c.Query("error_source"))
 	filter.Query = strings.TrimSpace(c.Query("q"))
@@ -479,22 +506,8 @@ func (h *OpsHandler) ListUpstreamErrors(c *gin.Context) {
 			return
 		}
 	}
-	if statusCodesStr := strings.TrimSpace(c.Query("status_codes")); statusCodesStr != "" {
-		parts := strings.Split(statusCodesStr, ",")
-		out := make([]int, 0, len(parts))
-		for _, part := range parts {
-			p := strings.TrimSpace(part)
-			if p == "" {
-				continue
-			}
-			n, err := strconv.Atoi(p)
-			if err != nil || n < 0 {
-				response.BadRequest(c, "Invalid status_codes")
-				return
-			}
-			out = append(out, n)
-		}
-		filter.StatusCodes = out
+	if !applyOpsStatusCodeFilters(c, filter) {
+		return
 	}
 
 	result, err := h.opsService.GetErrorLogs(c.Request.Context(), filter)

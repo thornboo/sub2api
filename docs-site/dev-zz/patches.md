@@ -1,5 +1,41 @@
 # 补丁记录
 
+## 2026-06-25 - 运维监控客户可见失败排障入口
+
+范围：
+- `backend/internal/handler/admin/ops_handler.go`
+- `backend/internal/repository/ops_repo.go`
+- `backend/internal/service/ops_models.go`
+- `frontend/src/api/admin/ops.ts`
+- `frontend/src/views/admin/ops/{OpsDashboard.vue,components/OpsDashboardHeader.vue,components/OpsErrorDetailsModal.vue,composables/useOpsModalStack.ts}`
+- `frontend/src/views/admin/ops/{components,composables}/__tests__/*`
+- `frontend/src/i18n/locales/{zh,en}.ts`
+- `docs-site/dev-zz/{changelog.md,patches.md,index.md,features/ops-customer-visible-error-triage.md}`
+- `docs-site/.vitepress/config.ts`
+
+改动：
+- 运维总览新增“客户可见失败”口径，展示所有 `status_code >= 400` 的客户可见失败比例，并把 SLA 错误和客户侧限制拆开展示。
+- SLA 卡片继续沿用 `error_count_sla` / `request_count_sla` 口径，只把卡片明细入口改为“SLA 错误”。
+- 上游错误卡片拆成“非限流上游错误”和“上游限流/过载”，两个数字都可以直接进入对应错误明细。
+- 错误明细弹窗新增 preset 链路，支持从不同卡片打开时自动设置标题、视图、归因和状态码筛选。
+- 错误明细和请求明细在自定义时间范围下统一透传 `start_time` / `end_time`，不再让弹窗退回默认最近 1 小时。
+- 上游错误明细默认对齐卡片的 provider 归因口径，不再强制 `phase=upstream`，避免 network/provider 类失败被卡片统计但明细漏查。
+- 请求明细自定义时间范围的窗口文案改为真实起止时间，避免显示成默认 1 小时。
+- 错误列表接口新增 `status_codes_exclude` 参数，前端用于查询非 429/529 的上游错误；原有 `status_codes` 和 `status_codes_other` 继续保留。
+- 运维错误明细文案调整为“SLA 错误 / 客户侧限制 / 全部失败”，降低客服排查客户报错时的理解成本。
+
+验证：
+- `git diff --check`
+- `pnpm --dir frontend test:run src/views/admin/ops/components/__tests__/OpsErrorDetailsModal.spec.ts src/views/admin/ops/components/__tests__/OpsRequestDetailsModal.spec.ts src/views/admin/ops/composables/__tests__/useOpsModalStack.spec.ts`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `mise x -C backend -- go test ./internal/handler/admin ./internal/repository ./internal/service`
+- `pnpm --dir docs-site docs:build`
+
+未验证：
+- 浏览器人工 smoke，由管理员在本地页面验证交互和视觉细节。
+- 完整仓库级前端测试套件和完整 `go test ./...`。
+
 ## 2026-06-22 - 上游 main 同步到 dev-zz-develop：缓存 Token 明细与兼容修复
 
 范围：

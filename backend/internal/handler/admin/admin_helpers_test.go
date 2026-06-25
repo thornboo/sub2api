@@ -50,6 +50,55 @@ func TestParseOpsViewParam(t *testing.T) {
 	require.Equal(t, "", parseOpsViewParam(nil))
 }
 
+func TestApplyOpsStatusCodeFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/?status_codes=400,500&status_codes_exclude=429,529&status_codes_other=true", nil)
+
+	filter := &service.OpsErrorLogFilter{}
+	require.True(t, applyOpsStatusCodeFilters(c, filter))
+	require.Equal(t, []int{400, 500}, filter.StatusCodes)
+	require.Equal(t, []int{429, 529}, filter.StatusCodesExclude)
+	require.True(t, filter.StatusCodesOther)
+}
+
+func TestApplyOpsStatusCodeFiltersRejectsInvalidExclude(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/?status_codes_exclude=429,bad", nil)
+
+	filter := &service.OpsErrorLogFilter{}
+	require.False(t, applyOpsStatusCodeFilters(c, filter))
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestApplyOpsStatusCodeFiltersOtherFalseValues(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, raw := range []string{"false", "0", "no"} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/?status_codes_other="+raw, nil)
+
+		// Start from true to confirm the falsey values actively disable the flag.
+		filter := &service.OpsErrorLogFilter{StatusCodesOther: true}
+		require.True(t, applyOpsStatusCodeFilters(c, filter), "raw=%s", raw)
+		require.False(t, filter.StatusCodesOther, "raw=%s should disable StatusCodesOther", raw)
+	}
+}
+
+func TestApplyOpsStatusCodeFiltersRejectsInvalidOther(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/?status_codes_other=maybe", nil)
+
+	filter := &service.OpsErrorLogFilter{}
+	require.False(t, applyOpsStatusCodeFilters(c, filter))
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
 func TestParseOpsDuration(t *testing.T) {
 	dur, ok := parseOpsDuration("1h")
 	require.True(t, ok)

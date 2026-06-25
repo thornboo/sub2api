@@ -7,7 +7,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { adminAPI } from '@/api'
 import { opsAPI, type OpsDashboardOverview, type OpsMetricThresholds, type OpsRealtimeTrafficSummary } from '@/api/admin/ops'
-import type { OpsRequestDetailsPreset } from '../composables/useOpsModalStack'
+import type { OpsErrorDetailsPreset, OpsRequestDetailsPreset } from '../composables/useOpsModalStack'
 import { useAdminSettingsStore } from '@/stores'
 import { formatNumber } from '@/utils/format'
 
@@ -37,7 +37,7 @@ interface Emits {
   (e: 'update:customTimeRange', startTime: string, endTime: string): void
   (e: 'refresh'): void
   (e: 'openRequestDetails', preset?: OpsRequestDetailsPreset): void
-  (e: 'openErrorDetails', kind: 'request' | 'upstream'): void
+  (e: 'openErrorDetails', kind: 'request' | 'upstream', preset?: OpsErrorDetailsPreset): void
   (e: 'openSettings'): void
   (e: 'openAlertRules'): void
   (e: 'enterFullscreen'): void
@@ -212,8 +212,47 @@ function openDetails(preset?: OpsRequestDetailsPreset) {
   emit('openRequestDetails', preset)
 }
 
-function openErrorDetails(kind: 'request' | 'upstream') {
-  emit('openErrorDetails', kind)
+function openErrorDetails(kind: 'request' | 'upstream', preset?: OpsErrorDetailsPreset) {
+  emit('openErrorDetails', kind, preset)
+}
+
+function openCustomerVisibleFailures() {
+  openErrorDetails('request', {
+    title: t('admin.ops.customerVisibleFailures'),
+    view: 'all'
+  })
+}
+
+function openCustomerSideLimits() {
+  openErrorDetails('request', {
+    title: t('admin.ops.customerSideLimits'),
+    view: 'excluded'
+  })
+}
+
+function openSlaErrors() {
+  openErrorDetails('request', {
+    title: t('admin.ops.slaErrors'),
+    view: 'errors'
+  })
+}
+
+function openUpstreamNonRateErrors() {
+  openErrorDetails('upstream', {
+    title: t('admin.ops.upstreamNonRateErrors'),
+    view: 'errors',
+    owner: 'provider',
+    statusCode: 'non_rate_overload'
+  })
+}
+
+function openUpstreamRateOverloadErrors() {
+  openErrorDetails('upstream', {
+    title: t('admin.ops.upstreamRateOverload'),
+    view: 'errors',
+    owner: 'provider',
+    statusCode: 'rate_overload'
+  })
 }
 
 // --- Threshold checking helpers ---
@@ -395,10 +434,12 @@ const slaPercent = computed(() => {
   return v * 100
 })
 
-const errorRatePercent = computed(() => {
-  const v = overview.value?.error_rate
-  if (typeof v !== 'number') return null
-  return v * 100
+const customerVisibleErrorRatePercent = computed(() => {
+  const ov = overview.value
+  if (!ov) return null
+  const total = ov.request_count_total ?? 0
+  if (total <= 0) return null
+  return ((ov.error_count_total ?? 0) / total) * 100
 })
 
 const upstreamErrorRatePercent = computed(() => {
@@ -406,6 +447,8 @@ const upstreamErrorRatePercent = computed(() => {
   if (typeof v !== 'number') return null
   return v * 100
 })
+
+const upstreamRateOverloadCount = computed(() => (overview.value?.upstream_429_count ?? 0) + (overview.value?.upstream_529_count ?? 0))
 
 const durationP99Ms = computed(() => overview.value?.duration?.p99_ms ?? null)
 const durationP95Ms = computed(() => overview.value?.duration?.p95_ms ?? null)
@@ -1256,7 +1299,7 @@ function handleToolbarRefresh() {
               v-if="!props.fullscreen"
               class="text-[10px] font-bold text-emerald-600 hover:underline dark:text-emerald-300"
               type="button"
-              @click="openDetails({ title: t('admin.ops.requestDetails.title'), kind: 'error' })"
+              @click="openSlaErrors"
             >
               {{ t('admin.ops.requestDetails.details') }}
             </button>
@@ -1269,8 +1312,10 @@ function handleToolbarRefresh() {
           </div>
           <div class="mt-3 text-xs">
             <div class="flex justify-between">
-              <span class="text-gray-500">{{ t('admin.ops.exceptions') }}:</span>
-              <span class="font-bold text-red-600 dark:text-red-400">{{ formatNumber((overview.request_count_sla ?? 0) - (overview.success_count ?? 0)) }}</span>
+              <span class="text-gray-500">{{ t('admin.ops.slaErrors') }}:</span>
+              <button type="button" class="font-bold text-red-600 hover:underline dark:text-red-400" @click="openSlaErrors">
+                {{ formatNumber(overview.error_count_sla ?? 0) }}
+              </button>
             </div>
           </div>
         </div>
@@ -1377,28 +1422,38 @@ function handleToolbarRefresh() {
           </div>
         </div>
 
-        <!-- Card 3: Request Errors -->
+        <!-- Card 3: Customer-visible failures -->
         <div class="rounded-xl border border-stone-200/70 bg-white/65 p-4 dark:border-white/10 dark:bg-black/25" style="order: 3;">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-1">
-              <span class="text-[10px] font-bold uppercase text-gray-400">{{ t('admin.ops.requestErrors') }}</span>
-              <HelpTooltip v-if="!props.fullscreen" :content="t('admin.ops.tooltips.errors')" />
+              <span class="text-[10px] font-bold uppercase text-gray-400">{{ t('admin.ops.customerVisibleFailures') }}</span>
+              <HelpTooltip v-if="!props.fullscreen" :content="t('admin.ops.tooltips.customerVisibleFailures')" />
             </div>
-            <button v-if="!props.fullscreen" class="text-[10px] font-bold text-emerald-600 hover:underline dark:text-emerald-300" type="button" @click="openErrorDetails('request')">
+            <button v-if="!props.fullscreen" class="text-[10px] font-bold text-emerald-600 hover:underline dark:text-emerald-300" type="button" @click="openCustomerVisibleFailures">
               {{ t('admin.ops.requestDetails.details') }}
             </button>
           </div>
-          <div class="mt-2 text-3xl font-black" :class="getThresholdColorClass(getRequestErrorRateThresholdLevel(errorRatePercent))">
-            {{ errorRatePercent == null ? '-' : `${errorRatePercent.toFixed(2)}%` }}
+          <div class="mt-2 text-3xl font-black" :class="getThresholdColorClass(getRequestErrorRateThresholdLevel(customerVisibleErrorRatePercent))">
+            {{ customerVisibleErrorRatePercent == null ? '-' : `${customerVisibleErrorRatePercent.toFixed(2)}%` }}
           </div>
           <div class="mt-3 space-y-1 text-xs">
             <div class="flex justify-between">
-              <span class="text-gray-500">{{ t('admin.ops.errorCount') }}:</span>
-              <span class="font-bold text-gray-900 dark:text-white">{{ formatNumber(overview.error_count_sla ?? 0) }}</span>
+              <span class="text-gray-500">{{ t('admin.ops.totalFailures') }}:</span>
+              <button type="button" class="font-bold text-gray-900 hover:underline dark:text-white" @click="openCustomerVisibleFailures">
+                {{ formatNumber(overview.error_count_total ?? 0) }}
+              </button>
             </div>
             <div class="flex justify-between">
-              <span class="text-gray-500">{{ t('admin.ops.businessLimited') }}:</span>
-              <span class="font-bold text-gray-900 dark:text-white">{{ formatNumber(overview.business_limited_count ?? 0) }}</span>
+              <span class="text-gray-500">{{ t('admin.ops.customerSideLimits') }}:</span>
+              <button type="button" class="font-bold text-yellow-600 hover:underline dark:text-yellow-300" @click="openCustomerSideLimits">
+                {{ formatNumber(overview.business_limited_count ?? 0) }}
+              </button>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-500">{{ t('admin.ops.slaErrors') }}:</span>
+              <button type="button" class="font-bold text-red-600 hover:underline dark:text-red-400" @click="openSlaErrors">
+                {{ formatNumber(overview.error_count_sla ?? 0) }}
+              </button>
             </div>
           </div>
         </div>
@@ -1410,7 +1465,7 @@ function handleToolbarRefresh() {
               <span class="text-[10px] font-bold uppercase text-gray-400">{{ t('admin.ops.upstreamErrors') }}</span>
               <HelpTooltip v-if="!props.fullscreen" :content="t('admin.ops.tooltips.upstreamErrors')" />
             </div>
-            <button v-if="!props.fullscreen" class="text-[10px] font-bold text-emerald-600 hover:underline dark:text-emerald-300" type="button" @click="openErrorDetails('upstream')">
+            <button v-if="!props.fullscreen" class="text-[10px] font-bold text-emerald-600 hover:underline dark:text-emerald-300" type="button" @click="openUpstreamNonRateErrors">
               {{ t('admin.ops.requestDetails.details') }}
             </button>
           </div>
@@ -1419,12 +1474,16 @@ function handleToolbarRefresh() {
           </div>
           <div class="mt-3 space-y-1 text-xs">
             <div class="flex justify-between">
-              <span class="text-gray-500">{{ t('admin.ops.errorCountExcl429529') }}:</span>
-              <span class="font-bold text-gray-900 dark:text-white">{{ formatNumber(overview.upstream_error_count_excl_429_529 ?? 0) }}</span>
+              <span class="text-gray-500">{{ t('admin.ops.upstreamNonRateErrors') }}:</span>
+              <button type="button" class="font-bold text-gray-900 hover:underline dark:text-white" @click="openUpstreamNonRateErrors">
+                {{ formatNumber(overview.upstream_error_count_excl_429_529 ?? 0) }}
+              </button>
             </div>
             <div class="flex justify-between">
-              <span class="text-gray-500">429/529:</span>
-              <span class="font-bold text-gray-900 dark:text-white">{{ formatNumber((overview.upstream_429_count ?? 0) + (overview.upstream_529_count ?? 0)) }}</span>
+              <span class="text-gray-500">{{ t('admin.ops.upstreamRateOverload') }}:</span>
+              <button type="button" class="font-bold text-yellow-600 hover:underline dark:text-yellow-300" @click="openUpstreamRateOverloadErrors">
+                {{ formatNumber(upstreamRateOverloadCount) }}
+              </button>
             </div>
           </div>
         </div>

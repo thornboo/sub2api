@@ -114,10 +114,10 @@ describe('OpsErrorDetailsModal', () => {
         page: 1,
         page_size: 10,
         time_range: '1h',
-        view: 'errors',
-        phase: 'upstream'
+        view: 'errors'
       })
     )
+    expect(vi.mocked(opsAPI.listUpstreamErrors).mock.calls[0]?.[0]).not.toHaveProperty('phase')
   })
 
   it('ignores stale fetch responses when errorType changes quickly', async () => {
@@ -190,6 +190,84 @@ describe('OpsErrorDetailsModal', () => {
     expect(text).toContain('admin.ops.errorDetails.filters.owner')
     expect(text).toContain('admin.ops.errorDetails.filters.scope')
     expect(wrapper.find('input').attributes('placeholder')).toBe('admin.ops.errorDetails.searchPlaceholder')
+  })
+
+  it('applies preset filters when opening upstream non-rate errors', async () => {
+    vi.mocked(opsAPI.listUpstreamErrors).mockResolvedValue({ items: [], total: 0 })
+
+    mount(OpsErrorDetailsModal, {
+      props: {
+        show: true,
+        timeRange: '1h',
+        platform: '',
+        groupId: null,
+        errorType: 'upstream',
+        preset: {
+          title: 'Non-rate upstream',
+          view: 'errors',
+          owner: 'provider',
+          statusCode: 'non_rate_overload'
+        }
+      },
+      global: {
+        stubs: {
+          BaseDialog: BaseDialogStub,
+          Select: SelectStub,
+          OpsErrorLogTable: OpsErrorLogTableStub
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(opsAPI.listUpstreamErrors).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 1,
+        page_size: 10,
+        time_range: '1h',
+        view: 'errors',
+        error_owner: 'provider',
+        status_codes_exclude: '429,529'
+      })
+    )
+    expect(vi.mocked(opsAPI.listUpstreamErrors).mock.calls[0]?.[0]).not.toHaveProperty('phase')
+  })
+
+  it('uses explicit custom start and end times for detail queries', async () => {
+    vi.mocked(opsAPI.listRequestErrors).mockResolvedValue({ items: [], total: 0 })
+
+    mount(OpsErrorDetailsModal, {
+      props: {
+        show: true,
+        timeRange: 'custom',
+        customStartTime: '2026-06-22T00:00:00.000Z',
+        customEndTime: '2026-06-23T00:00:00.000Z',
+        platform: '',
+        groupId: null,
+        errorType: 'request'
+      },
+      global: {
+        stubs: {
+          BaseDialog: BaseDialogStub,
+          Select: SelectStub,
+          OpsErrorLogTable: OpsErrorLogTableStub
+        }
+      }
+    })
+
+    await flushPromises()
+
+    const params = vi.mocked(opsAPI.listRequestErrors).mock.calls[0]?.[0]
+    expect(params).toEqual(
+      expect.objectContaining({
+        page: 1,
+        page_size: 10,
+        start_time: '2026-06-22T00:00:00.000Z',
+        end_time: '2026-06-23T00:00:00.000Z',
+        view: 'errors'
+      })
+    )
+    expect(params).not.toHaveProperty('time_range')
   })
 })
 

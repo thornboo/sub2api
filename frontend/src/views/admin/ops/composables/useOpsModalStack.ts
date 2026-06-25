@@ -3,6 +3,8 @@ import type { OpsRequestDetailsParams } from '@/api/admin/ops'
 
 export type OpsErrorDetailType = 'request' | 'upstream'
 export type OpsDetailsLayer = 'request-details' | 'request-errors' | 'upstream-errors'
+export type OpsErrorDetailsView = 'errors' | 'excluded' | 'all'
+export type OpsErrorDetailsStatusCode = number | 'other' | 'rate_overload' | 'non_rate_overload' | null
 
 export interface OpsRequestDetailsPreset {
   title: string
@@ -10,6 +12,14 @@ export interface OpsRequestDetailsPreset {
   sort?: OpsRequestDetailsParams['sort']
   min_duration_ms?: number
   max_duration_ms?: number
+}
+
+export interface OpsErrorDetailsPreset {
+  title?: string
+  view?: OpsErrorDetailsView
+  phase?: string
+  owner?: string
+  statusCode?: OpsErrorDetailsStatusCode
 }
 
 interface OpsErrorDetailLayer {
@@ -45,6 +55,7 @@ function createClosedErrorDetail(type: OpsErrorDetailType): OpsErrorDetailLayer 
 export function useOpsModalStack() {
   const activeDetailsLayer = ref<OpsDetailsLayer | null>(null)
   const errorDetailsType = ref<OpsErrorDetailType>('request')
+  const errorDetailsPreset = ref<OpsErrorDetailsPreset | null>(null)
   const requestDetailsPreset = ref<OpsRequestDetailsPreset>(createDefaultRequestPreset())
   const errorDetailLayer = ref<OpsErrorDetailLayer>(createClosedErrorDetail('request'))
 
@@ -57,6 +68,9 @@ export function useOpsModalStack() {
 
   function closeActiveDetailsLayer(layer?: OpsDetailsLayer) {
     if (layer && activeDetailsLayer.value !== layer) return
+    if (activeDetailsLayer.value === 'request-errors' || activeDetailsLayer.value === 'upstream-errors') {
+      errorDetailsPreset.value = null
+    }
     activeDetailsLayer.value = null
     closeErrorDetail()
   }
@@ -111,12 +125,14 @@ export function useOpsModalStack() {
     if (!nextPreset.title) nextPreset.title = fallbackTitle
 
     requestDetailsPreset.value = nextPreset
+    errorDetailsPreset.value = null
     closeErrorDetail()
     activateDetailsLayer('request-details')
   }
 
-  function openErrorDetails(type: OpsErrorDetailType) {
+  function openErrorDetails(type: OpsErrorDetailType, preset?: OpsErrorDetailsPreset) {
     errorDetailsType.value = type
+    errorDetailsPreset.value = preset ?? null
     closeErrorDetail()
     activateDetailsLayer(detailsLayerForErrorType(type))
   }
@@ -135,6 +151,7 @@ export function useOpsModalStack() {
   return {
     activeDetailsLayer,
     errorDetailsType,
+    errorDetailsPreset,
     requestDetailsPreset,
     selectedErrorId,
     selectedErrorType,

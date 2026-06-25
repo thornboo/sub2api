@@ -1101,6 +1101,7 @@ export type OpsErrorListQueryParams = {
 
   q?: string
   status_codes?: string
+  status_codes_exclude?: string
   status_codes_other?: string
 }
 

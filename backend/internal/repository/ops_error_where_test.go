@@ -92,6 +92,45 @@ func TestBuildOpsErrorLogsWhere_CyberPolicyStatusExemption(t *testing.T) {
 	}
 }
 
+func TestBuildOpsErrorLogsWhere_StatusCodesExclude(t *testing.T) {
+	where, args := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{
+		Owner:              "provider",
+		StatusCodesExclude: []int{429, 529},
+	})
+
+	if strings.Contains(where, "e.error_phase =") {
+		t.Fatalf("provider-scope upstream filters should not force a single phase, got: %s", where)
+	}
+	if !strings.Contains(where, "NOT (COALESCE(e.upstream_status_code, e.status_code, 0) = ANY($") {
+		t.Fatalf("where should exclude selected status codes, got: %s", where)
+	}
+	if len(args) != 2 {
+		t.Fatalf("expected owner and excluded status args, got %d: %v", len(args), args)
+	}
+}
+
+// TestBuildOpsErrorLogsWhere_StatusCodesWithExclude locks the placeholder binding
+// order when include and exclude filters are combined. Each clause computes its $N
+// from len(args) at append time, so a future reorder could silently misbind without
+// this guard. Expected ordering: owner=$1, include=$2, exclude=$3.
+func TestBuildOpsErrorLogsWhere_StatusCodesWithExclude(t *testing.T) {
+	where, args := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{
+		Owner:              "provider",
+		StatusCodes:        []int{400, 500},
+		StatusCodesExclude: []int{500},
+	})
+
+	if !strings.Contains(where, "COALESCE(e.upstream_status_code, e.status_code, 0) = ANY($2)") {
+		t.Fatalf("included status codes should bind to $2, got: %s", where)
+	}
+	if !strings.Contains(where, "NOT (COALESCE(e.upstream_status_code, e.status_code, 0) = ANY($3))") {
+		t.Fatalf("excluded status codes should bind to $3, got: %s", where)
+	}
+	if len(args) != 3 {
+		t.Fatalf("expected owner, included and excluded status args, got %d: %v", len(args), args)
+	}
+}
+
 func TestBuildOpsErrorLogsWhere_MatchDeletedKeyOwner(t *testing.T) {
 	uid := int64(42)
 

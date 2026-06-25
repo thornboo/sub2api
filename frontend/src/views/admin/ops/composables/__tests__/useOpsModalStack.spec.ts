@@ -67,4 +67,25 @@ describe('useOpsModalStack', () => {
     expect(modals.showErrorDetails.value).toBe(true)
     expect(modals.activeDetailsLayer.value).toBe('upstream-errors')
   })
+
+  it('keeps error details preset while the parent error layer is open and clears it on close', () => {
+    const modals = useOpsModalStack()
+
+    modals.openErrorDetails('upstream', {
+      title: 'Non-rate upstream',
+      view: 'errors',
+      phase: 'upstream',
+      owner: 'provider',
+      statusCode: 'non_rate_overload'
+    })
+
+    expect(modals.showErrorDetails.value).toBe(true)
+    expect(modals.errorDetailsType.value).toBe('upstream')
+    expect(modals.errorDetailsPreset.value?.statusCode).toBe('non_rate_overload')
+
+    modals.showErrorDetails.value = false
+
+    expect(modals.showErrorDetails.value).toBe(false)
+    expect(modals.errorDetailsPreset.value).toBeNull()
+  })
 })

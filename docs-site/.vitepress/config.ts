@@ -75,7 +75,8 @@ export default defineConfig({
         items: [
           { text: '企业 Key 成员管理', link: '/dev-zz/features/enterprise-key-member-management' },
           { text: '企业用量分析中心', link: '/dev-zz/features/enterprise-usage-analytics' },
-          { text: '用量账本与已删除 Key 证据', link: '/dev-zz/features/usage-ledger-evidence-integrity' }
+          { text: '用量账本与已删除 Key 证据', link: '/dev-zz/features/usage-ledger-evidence-integrity' },
+          { text: '客户可见错误排障', link: '/dev-zz/features/ops-customer-visible-error-triage' }
         ]
       },
       {
