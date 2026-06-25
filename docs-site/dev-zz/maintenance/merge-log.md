@@ -2,7 +2,42 @@
 
 这里记录二开分支吸收上游变更的同步工作。
 
-## 2026-06-22 - 将上游 `main` 合并到 `dev-zz-develop`：缓存 Token 明细、调度重置偏好与 Claude Code 兼容修复
+## 2026-06-26 - 将上游 `main` 合并到 `dev-zz-develop`：GPT-5.5 codex、codex spark 502 修复与 OpenAI 周限重置确认
+
+分支：
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`85a3b122`
+- 合并前目标：`b6791ba2`
+- 上游 head：`ce6af413`
+- 结果提交：本次合并提交
+
+上游要点：
+- 新增 GPT-5.5 codex instructions（`instructions_gpt5_5.txt`），并作为 codex 最新 instructions 的 fallback。
+- 修复 codex spark 路径：剥离 `image_generation` 工具，修复上游 502。
+- 管理端账号「重置 OpenAI 周限」操作增加二次确认（`OpenAIQuotaResetCell.vue`）。
+- 更新 sponsor 资料与合作方 logo（byteplus / huoshan），新增 `README_CN.md`，README 多语言更新。
+
+合并策略：
+- 合并前阅读 `branch-policy.md`、`maintenance/merge-main.md`、`maintenance/merge-log.md`、`patches.md`、`changelog.md`、`reference/change-map.md`、`testing/verification-matrix.md`。
+- `git fetch origin` 后以 `origin/main`（`ce6af413`）为合并目标。
+- `git merge-tree --write-tree HEAD origin/main` 只读预检：未预测到冲突。
+- `git merge --no-commit --no-ff origin/main` 自动合并成功，无冲突文件。
+- 上游本批为 OpenAI codex/gpt-5.5、ws forwarder、管理端确认弹窗、i18n 与 README/资源更新，均不触及 dev-zz 已记录策略（视觉、认证入口、数据保留、用量字段边界、部署线），全部按上游接受。
+
+冲突文件：
+- 无（自动合并干净）。
+
+验证：
+- `grep -rnE '^(<<<<<<<|=======|>>>>>>>)$'`（无标记）
+- `git diff --check`（仅上游新增 `README_CN.md` 的 markdown 行尾空格告警，属上游内容，未改写）
+- `pnpm --dir frontend typecheck`、`pnpm --dir frontend lint:check`
+- `mise x -C backend -- go build ./...`、`go test ./internal/server ./internal/handler ./internal/config ./internal/service ./internal/pkg/openai`
+
+未验证：
+- 未运行 `pnpm --dir docs-site docs:build` 与完整前后端测试套件（镜像/构建由维护者本地执行）。
+
+
 
 分支：
 - 目标：`dev-zz-develop`
