@@ -1,5 +1,40 @@
 # 补丁记录
 
+## 2026-06-25 - 模型级限流：单模型手动解除与失败阈值配置
+
+范围：
+- `backend/internal/service/model_fail_counter.go`（新增）
+- `backend/internal/repository/model_fail_counter_cache.go`（新增）
+- `backend/internal/service/{ratelimit_service.go,settings_view.go,domain_constants.go,setting_service.go,account_service.go,wire.go}`
+- `backend/internal/repository/{account_repo.go,wire.go}`
+- `backend/cmd/server/wire_gen.go`
+- `backend/internal/handler/admin/{account_handler.go,setting_handler.go}`
+- `backend/internal/handler/dto/settings.go`
+- `backend/internal/server/routes/admin.go`
+- `backend/internal/service/*_test.go`（新增 `model_rate_limit_threshold_test.go`、各 mock 补 stub）
+- `frontend/src/api/admin/{accounts.ts,settings.ts}`
+- `frontend/src/components/account/AccountStatusIndicator.vue`
+- `frontend/src/views/admin/{AccountsView.vue,SettingsView.vue}`
+- `frontend/src/i18n/locales/{zh,en}.ts`
+
+改动：
+- 单模型手动解除：新增 `accountRepository.ClearModelRateLimit(id, scope)`，用 jsonb `#-` 仅删除 `extra.model_rate_limits[scope]`，并同步调度器 outbox/快照；服务层 `RateLimitService.ClearModelRateLimit` 同时重置该 scope 的失败计数器；新增路由 `POST /admin/accounts/:id/clear-model-rate-limit`。
+- 前端账号列表的「普通模型限流」徽标新增「×」解除按钮，复用现有 `patchAccountInList` 局部刷新；积分耗尽/走积分（AICredits）徽标不显示该按钮。
+- 失败阈值策略：新增 `ModelFailCounterCache`（Redis 滑动窗口，key 为 `model_fail_count:account:<id>:<scope>`，镜像 OpenAI 403 计数器）。`HandleOpenAIModelRateLimit` 和 `handleProviderModelUpstreamFailure` 在打限流标记前先经过 `shouldTripModelRateLimit` 闸门：未达阈值时仅返回 handled（仍触发账号切换）而不打标记。
+- 冷却注入：`openAIModelRateLimitResetAt` / `modelUpstreamFailureResetAt` 重构出带 override 版本，配置冷却仅作为最末回退，上游 header retry-after / body reset 仍优先。
+- 新增管理员设置 `model_rate_limit_settings`（Enabled / FailureThreshold / WindowMinutes / CooldownSeconds），读时 clamp、写时校验；新增 `GET/PUT /admin/settings/model-rate-limit` 及前端设置卡片。
+- 默认 `Enabled=false`，闸门、nil 计数器、设置读取失败均降级为「首次失败即限流」，完全保持历史行为（有回归测试守护）。
+
+验证：
+- `mise x -C backend -- go build ./...`
+- `mise x -C backend -- go test -tags unit ./internal/service ./internal/repository ./internal/handler/admin ./internal/server/...`（全部 ok）
+- 新增测试 `mise x -C backend -- go test -tags unit -race -run 'ModelRateLimit|ClearModelRateLimit|HandleOpenAIModelRateLimit'`（通过）
+- `pnpm --dir frontend typecheck`、`pnpm --dir frontend exec eslint`（改动文件）、`pnpm --dir frontend test:run AccountStatusIndicator.spec`
+
+未验证：
+- 浏览器人工 smoke（解除按钮交互、设置页阈值生效），由管理员本地验证。
+- 完整 `go test ./...` 与完整前端测试套件；注意仓库已存在与本改动无关的 `-race` flake（`TestIsNonRetryableGeminiOAuthError`、`TestUpdateProviderInstance...`，去掉 `-race` 即通过）。
+
 ## 2026-06-25 - 运维监控客户可见失败排障入口
 
 范围：

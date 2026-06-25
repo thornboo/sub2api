@@ -370,6 +370,20 @@ export async function clearRateLimit(id: number): Promise<Account> {
 }
 
 /**
+ * Clear the rate limit of a single model (scope) on an account
+ * @param id - Account ID
+ * @param scope - Model rate-limit scope key (the key under extra.model_rate_limits)
+ * @returns Updated account
+ */
+export async function clearModelRateLimit(id: number, scope: string): Promise<Account> {
+  const { data } = await apiClient.post<Account>(
+    `/admin/accounts/${id}/clear-model-rate-limit`,
+    { scope }
+  )
+  return data
+}
+
+/**
  * Recover account runtime state in one call
  * @param id - Account ID
  * @returns Updated account
@@ -904,6 +918,7 @@ export const accountsAPI = {
   getTodayStats,
   getBatchTodayStats,
   clearRateLimit,
+  clearModelRateLimit,
   recoverState,
   resetAccountQuota,
   getTempUnschedulableStatus,

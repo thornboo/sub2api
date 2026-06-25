@@ -22,10 +22,13 @@ type rateLimitClearRepoStub struct {
 	clearAntigravityCalls     int
 	clearModelRateLimitCalls  int
 	clearTempUnschedCalls     int
+	clearSingleModelCalls     int
+	clearSingleModelScope     string
 	clearErrorErr             error
 	clearRateLimitErr         error
 	clearAntigravityErr       error
 	clearModelRateLimitErr    error
+	clearSingleModelErr       error
 	clearTempUnschedulableErr error
 }
 
@@ -55,6 +58,12 @@ func (r *rateLimitClearRepoStub) ClearAntigravityQuotaScopes(ctx context.Context
 func (r *rateLimitClearRepoStub) ClearModelRateLimits(ctx context.Context, id int64) error {
 	r.clearModelRateLimitCalls++
 	return r.clearModelRateLimitErr
+}
+
+func (r *rateLimitClearRepoStub) ClearModelRateLimit(ctx context.Context, id int64, scope string) error {
+	r.clearSingleModelCalls++
+	r.clearSingleModelScope = scope
+	return r.clearSingleModelErr
 }
 
 func (r *rateLimitClearRepoStub) ClearTempUnschedulable(ctx context.Context, id int64) error {

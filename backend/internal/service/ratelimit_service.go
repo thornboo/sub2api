@@ -27,6 +27,7 @@ type RateLimitService struct {
 	tempUnschedCache      TempUnschedCache
 	timeoutCounterCache   TimeoutCounterCache
 	openAI403CounterCache OpenAI403CounterCache
+	modelFailCounterCache ModelFailCounterCache
 	settingService        *SettingService
 	tokenCacheInvalidator TokenCacheInvalidator
 	runtimeBlocker        AccountRuntimeBlocker
@@ -87,6 +88,13 @@ const (
 	openAI403CounterWindowMinutes   = 180
 )
 
+const (
+	modelRateLimitDefaultThreshold       = 1
+	modelRateLimitDefaultWindowMinutes   = 5
+	modelRateLimitDefaultCooldownSeconds = 60
+	modelRateLimitMaxCooldownSeconds     = 7200
+)
+
 // NewRateLimitService 创建RateLimitService实例
 func NewRateLimitService(accountRepo AccountRepository, usageRepo UsageLogRepository, cfg *config.Config, geminiQuotaService *GeminiQuotaService, tempUnschedCache TempUnschedCache) *RateLimitService {
 	return &RateLimitService{
@@ -107,6 +115,11 @@ func (s *RateLimitService) SetTimeoutCounterCache(cache TimeoutCounterCache) {
 // SetOpenAI403CounterCache 设置 OpenAI 403 连续失败计数器（可选依赖）
 func (s *RateLimitService) SetOpenAI403CounterCache(cache OpenAI403CounterCache) {
 	s.openAI403CounterCache = cache
+}
+
+// SetModelFailCounterCache 设置模型级连续失败计数器（可选依赖）
+func (s *RateLimitService) SetModelFailCounterCache(cache ModelFailCounterCache) {
+	s.modelFailCounterCache = cache
 }
 
 // SetSettingService 设置系统设置服务（可选依赖）
@@ -1047,6 +1060,49 @@ func clampRateLimit429CooldownSeconds(seconds int) int {
 	return seconds
 }
 
+// getModelRateLimitPolicy 读取模型级限流策略配置。
+// 读取失败或未配置时返回 (false, 1, 5, 60s)，等价于历史行为（首次失败即限流）。
+func (s *RateLimitService) getModelRateLimitPolicy(ctx context.Context) (enabled bool, threshold, windowMinutes int, cooldown time.Duration) {
+	defCooldown := time.Duration(modelRateLimitDefaultCooldownSeconds) * time.Second
+	if s.settingService != nil {
+		settings, err := s.settingService.GetModelRateLimitSettings(ctx)
+		if err == nil && settings != nil {
+			cd := settings.CooldownSeconds
+			if cd < 1 {
+				cd = modelRateLimitDefaultCooldownSeconds
+			} else if cd > modelRateLimitMaxCooldownSeconds {
+				cd = modelRateLimitMaxCooldownSeconds
+			}
+			return settings.Enabled, settings.FailureThreshold, settings.WindowMinutes, time.Duration(cd) * time.Second
+		}
+		slog.Warn("model_rate_limit_settings_read_failed", "error", err)
+	}
+	return false, modelRateLimitDefaultThreshold, modelRateLimitDefaultWindowMinutes, defCooldown
+}
+
+// shouldTripModelRateLimit 在「连续 N 次失败才限流」策略下，决定本次失败是否真正打限流标记。
+// 返回 trip=true 时同时给出冷却覆盖值（>0 表示用配置冷却覆盖硬编码回退）。
+// 任意降级路径（未启用 / 无计数器 / 计数器出错）均返回 (true, 0)，保持历史「首次即限流」行为。
+func (s *RateLimitService) shouldTripModelRateLimit(ctx context.Context, accountID int64, scope string) (trip bool, cooldownOverride time.Duration) {
+	enabled, threshold, windowMinutes, cooldown := s.getModelRateLimitPolicy(ctx)
+	if !enabled {
+		return true, 0
+	}
+	if s.modelFailCounterCache == nil {
+		return true, 0
+	}
+	count, err := s.modelFailCounterCache.IncrementModelFailCount(ctx, accountID, scope, windowMinutes)
+	if err != nil {
+		slog.Warn("model_fail_counter_increment_failed", "account_id", accountID, "scope", scope, "error", err)
+		return true, 0
+	}
+	if count >= int64(threshold) {
+		return true, cooldown
+	}
+	slog.Info("model_rate_limit_threshold_not_met", "account_id", accountID, "scope", scope, "count", count, "threshold", threshold)
+	return false, 0
+}
+
 // calculateOpenAI429ResetTime 从 OpenAI 429 响应头计算正确的重置时间
 // 返回 nil 表示无法从响应头中确定重置时间
 func calculateOpenAI429ResetTime(headers http.Header) *time.Time {
@@ -1600,6 +1656,24 @@ func (s *RateLimitService) ClearRateLimit(ctx context.Context, accountID int64) 
 	return nil
 }
 
+// ClearModelRateLimit 清除指定账号下单个模型 (scope) 的限流标记，并重置该 scope 的失败计数器。
+func (s *RateLimitService) ClearModelRateLimit(ctx context.Context, accountID int64, scope string) error {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		return fmt.Errorf("scope is required")
+	}
+	if err := s.accountRepo.ClearModelRateLimit(ctx, accountID, scope); err != nil {
+		return err
+	}
+	if s.modelFailCounterCache != nil {
+		if err := s.modelFailCounterCache.ResetModelFailCount(ctx, accountID, scope); err != nil {
+			slog.Warn("model_fail_counter_reset_failed", "account_id", accountID, "scope", scope, "error", err)
+		}
+	}
+	s.notifyAccountSchedulingBlockCleared(accountID)
+	return nil
+}
+
 func (s *RateLimitService) ResetOpenAI403Counter(ctx context.Context, accountID int64) {
 	if s == nil || s.openAI403CounterCache == nil || accountID <= 0 {
 		return
@@ -1804,7 +1878,13 @@ func (s *RateLimitService) HandleOpenAIModelRateLimit(ctx context.Context, accou
 		return false
 	}
 
-	resetAt := openAIModelRateLimitResetAt(headers, responseBody)
+	trip, cooldownOverride := s.shouldTripModelRateLimit(ctx, account.ID, scope)
+	if !trip {
+		// 未达失败阈值：本次不限流，但仍视为已处理以触发账号切换。
+		return true
+	}
+
+	resetAt := openAIModelRateLimitResetAtWithOverride(headers, responseBody, cooldownOverride)
 	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, scope, resetAt, openAIModelRateLimitReason); err != nil {
 		slog.Warn("openai_model_rate_limit_set_model_rate_limit_failed", "account_id", account.ID, "scope", scope, "error", err)
 		return true
@@ -1855,7 +1935,13 @@ func (s *RateLimitService) handleProviderModelUpstreamFailure(ctx context.Contex
 		return false
 	}
 
-	resetAt := modelUpstreamFailureResetAt(account, statusCode, headers, responseBody)
+	trip, cooldownOverride := s.shouldTripModelRateLimit(ctx, account.ID, scope)
+	if !trip {
+		// 未达失败阈值：本次不限流，但仍视为已处理以触发账号切换。
+		return true
+	}
+
+	resetAt := modelUpstreamFailureResetAtWithOverride(account, statusCode, headers, responseBody, cooldownOverride)
 	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, scope, resetAt, modelUpstreamFailureReason); err != nil {
 		slog.Warn("provider_model_upstream_failure_set_model_rate_limit_failed", "account_id", account.ID, "platform", account.Platform, "scope", scope, "status_code", statusCode, "error", err)
 		return true
@@ -2103,6 +2189,12 @@ func extractOpenAIModelRateLimitModel(body []byte) string {
 }
 
 func openAIModelRateLimitResetAt(headers http.Header, body []byte) time.Time {
+	return openAIModelRateLimitResetAtWithOverride(headers, body, 0)
+}
+
+// openAIModelRateLimitResetAtWithOverride 与 openAIModelRateLimitResetAt 一致，
+// 但当无法从上游 header/body 解析重置时间时，用 override（>0）覆盖硬编码回退冷却。
+func openAIModelRateLimitResetAtWithOverride(headers http.Header, body []byte, override time.Duration) time.Time {
 	now := time.Now()
 	if resetAt := parseRetryAfterResetTime(headers, now); resetAt != nil && resetAt.After(now) {
 		return *resetAt
@@ -2115,10 +2207,20 @@ func openAIModelRateLimitResetAt(headers http.Header, body []byte) time.Time {
 	if cooldown := parseOpenAIImageTryAgainCooldown(body); cooldown > 0 {
 		return now.Add(cooldown)
 	}
-	return now.Add(openAIModelRateLimitDefaultCooldown)
+	fallback := openAIModelRateLimitDefaultCooldown
+	if override > 0 {
+		fallback = override
+	}
+	return now.Add(fallback)
 }
 
 func modelUpstreamFailureResetAt(account *Account, statusCode int, headers http.Header, body []byte) time.Time {
+	return modelUpstreamFailureResetAtWithOverride(account, statusCode, headers, body, 0)
+}
+
+// modelUpstreamFailureResetAtWithOverride 与 modelUpstreamFailureResetAt 一致，
+// 但当无法从上游 header/body 解析重置时间时，用 override（>0）覆盖硬编码回退冷却。
+func modelUpstreamFailureResetAtWithOverride(account *Account, statusCode int, headers http.Header, body []byte, override time.Duration) time.Time {
 	now := time.Now()
 	if resetAt := parseRetryAfterResetTime(headers, now); resetAt != nil && resetAt.After(now) {
 		return *resetAt
@@ -2147,7 +2249,11 @@ func modelUpstreamFailureResetAt(account *Account, statusCode int, headers http.
 	if cooldown := parseOpenAIImageTryAgainCooldown(body); cooldown > 0 {
 		return now.Add(cooldown)
 	}
-	return now.Add(modelUpstreamFailureCooldown)
+	fallback := modelUpstreamFailureCooldown
+	if override > 0 {
+		fallback = override
+	}
+	return now.Add(fallback)
 }
 
 func openAIModelNamesEqual(a, b string) bool {

@@ -411,6 +411,139 @@
             </div>
           </div>
 
+          <!-- Model Rate Limit Settings -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.modelRateLimit.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.modelRateLimit.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div
+                v-if="modelRateLimitLoading"
+                class="flex items-center gap-2 text-gray-500"
+              >
+                <div
+                  class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
+                ></div>
+                {{ t("common.loading") }}
+              </div>
+
+              <template v-else>
+                <div class="flex items-center justify-between">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">{{
+                      t("admin.settings.modelRateLimit.enabled")
+                    }}</label>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.modelRateLimit.enabledHint") }}
+                    </p>
+                  </div>
+                  <Toggle v-model="modelRateLimitForm.enabled" />
+                </div>
+
+                <div
+                  v-if="modelRateLimitForm.enabled"
+                  class="space-y-4 border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.modelRateLimit.failureThreshold") }}
+                    </label>
+                    <input
+                      v-model.number="modelRateLimitForm.failure_threshold"
+                      type="number"
+                      min="1"
+                      max="100"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.modelRateLimit.failureThresholdHint") }}
+                    </p>
+                  </div>
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.modelRateLimit.windowMinutes") }}
+                    </label>
+                    <input
+                      v-model.number="modelRateLimitForm.window_minutes"
+                      type="number"
+                      min="1"
+                      max="1440"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.modelRateLimit.windowMinutesHint") }}
+                    </p>
+                  </div>
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.modelRateLimit.cooldownSeconds") }}
+                    </label>
+                    <input
+                      v-model.number="modelRateLimitForm.cooldown_seconds"
+                      type="number"
+                      min="1"
+                      max="7200"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.modelRateLimit.cooldownSecondsHint") }}
+                    </p>
+                  </div>
+                </div>
+
+                <div
+                  class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <button
+                    type="button"
+                    @click="saveModelRateLimitSettings"
+                    :disabled="modelRateLimitSaving"
+                    class="btn btn-primary btn-sm"
+                  >
+                    <svg
+                      v-if="modelRateLimitSaving"
+                      class="mr-1 h-4 w-4 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        class="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        stroke-width="4"
+                      ></circle>
+                      <path
+                        class="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    {{
+                      modelRateLimitSaving
+                        ? t("common.saving")
+                        : t("common.save")
+                    }}
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+
           <!-- Stream Timeout Settings -->
           <div class="card">
             <div
@@ -7139,6 +7272,16 @@ const rateLimit429CooldownForm = reactive({
   cooldown_seconds: 5,
 });
 
+// Model Rate Limit 状态
+const modelRateLimitLoading = ref(true);
+const modelRateLimitSaving = ref(false);
+const modelRateLimitForm = reactive({
+  enabled: false,
+  failure_threshold: 1,
+  window_minutes: 5,
+  cooldown_seconds: 60,
+});
+
 // Stream Timeout 状态
 const streamTimeoutLoading = ref(true);
 const streamTimeoutSaving = ref(false);
@@ -9326,6 +9469,42 @@ async function saveRateLimit429CooldownSettings() {
   }
 }
 
+// Model Rate Limit 方法
+async function loadModelRateLimitSettings() {
+  modelRateLimitLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getModelRateLimitSettings();
+    Object.assign(modelRateLimitForm, settings);
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    modelRateLimitLoading.value = false;
+  }
+}
+
+async function saveModelRateLimitSettings() {
+  modelRateLimitSaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updateModelRateLimitSettings({
+      enabled: modelRateLimitForm.enabled,
+      failure_threshold: modelRateLimitForm.failure_threshold,
+      window_minutes: modelRateLimitForm.window_minutes,
+      cooldown_seconds: modelRateLimitForm.cooldown_seconds,
+    });
+    Object.assign(modelRateLimitForm, updated);
+    appStore.showSuccess(t("admin.settings.modelRateLimit.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.modelRateLimit.saveFailed"),
+      ),
+    );
+  } finally {
+    modelRateLimitSaving.value = false;
+  }
+}
+
 // Stream Timeout 方法
 async function loadStreamTimeoutSettings() {
   streamTimeoutLoading.value = true;
@@ -9940,6 +10119,7 @@ onMounted(() => {
   loadAdminApiKey();
   loadOverloadCooldownSettings();
   loadRateLimit429CooldownSettings();
+  loadModelRateLimitSettings();
   loadStreamTimeoutSettings();
   loadRectifierSettings();
   loadBetaPolicySettings();

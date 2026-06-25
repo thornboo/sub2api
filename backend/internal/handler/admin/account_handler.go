@@ -1822,6 +1822,40 @@ func (h *AccountHandler) ClearRateLimit(c *gin.Context) {
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
 }
 
+// ClearModelRateLimitRequest 清除单个模型限流请求体
+type ClearModelRateLimitRequest struct {
+	Scope string `json:"scope" binding:"required"`
+}
+
+// ClearModelRateLimit handles clearing the rate limit of a single model (scope)
+// POST /api/v1/admin/accounts/:id/clear-model-rate-limit
+func (h *AccountHandler) ClearModelRateLimit(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	var req ClearModelRateLimitRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "scope is required")
+		return
+	}
+
+	if err := h.rateLimitService.ClearModelRateLimit(c.Request.Context(), accountID, req.Scope); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
 // ResetQuota handles resetting account quota usage
 // POST /api/v1/admin/accounts/:id/reset-quota
 func (h *AccountHandler) ResetQuota(c *gin.Context) {

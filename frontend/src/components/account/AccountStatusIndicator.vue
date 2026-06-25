@@ -114,6 +114,14 @@
           <Icon name="exclamationTriangle" size="xs" :stroke-width="2" />
           {{ formatScopeName(item.model) }}
           <span class="text-[10px] opacity-70">{{ formatModelResetTime(item.reset_at) }}</span>
+          <button
+            type="button"
+            class="ml-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-purple-500 hover:bg-purple-200 hover:text-purple-800 dark:text-purple-300 dark:hover:bg-purple-800/50 dark:hover:text-purple-100"
+            :title="t('admin.accounts.clearRateLimit')"
+            @click.stop="emit('clear-model-rate-limit', { account: props.account, model: item.model })"
+          >
+            <Icon name="x" size="xs" :stroke-width="2" />
+          </button>
         </span>
         <!-- Tooltip -->
         <div
@@ -169,6 +177,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'show-temp-unsched', account: Account): void
+  (e: 'clear-model-rate-limit', payload: { account: Account; model: string }): void
 }>()
 
 // Computed: is rate limited (429)

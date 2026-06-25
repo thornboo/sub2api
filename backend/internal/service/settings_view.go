@@ -482,6 +482,30 @@ func DefaultRateLimit429CooldownSettings() *RateLimit429CooldownSettings {
 	}
 }
 
+// ModelRateLimitSettings 模型级限流策略配置
+type ModelRateLimitSettings struct {
+	// Enabled 是否启用「连续 N 次失败才限流」策略。
+	// 关闭时（默认）保持历史行为：首次失败即对该模型限流。
+	Enabled bool `json:"enabled"`
+	// FailureThreshold 触发限流前允许的连续失败次数（窗口内）。
+	FailureThreshold int `json:"failure_threshold"`
+	// WindowMinutes 失败计数的滑动窗口时长（分钟）。
+	WindowMinutes int `json:"window_minutes"`
+	// CooldownSeconds 触发限流后的回退冷却时长（秒）。仅在无法从上游解析重置时间时生效。
+	CooldownSeconds int `json:"cooldown_seconds"`
+}
+
+// DefaultModelRateLimitSettings 返回默认模型级限流配置。
+// 默认 Enabled=false，等价于历史行为：首次失败即限流、回退冷却 60 秒。
+func DefaultModelRateLimitSettings() *ModelRateLimitSettings {
+	return &ModelRateLimitSettings{
+		Enabled:          false,
+		FailureThreshold: 1,
+		WindowMinutes:    5,
+		CooldownSeconds:  60,
+	}
+}
+
 // DefaultBetaPolicySettings 返回默认的 Beta 策略配置
 func DefaultBetaPolicySettings() *BetaPolicySettings {
 	return &BetaPolicySettings{

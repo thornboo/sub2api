@@ -4268,6 +4268,77 @@ func (s *SettingService) SetRateLimit429CooldownSettings(ctx context.Context, se
 	return s.settingRepo.Set(ctx, SettingKeyRateLimit429CooldownSettings, string(data))
 }
 
+// GetModelRateLimitSettings 获取模型级限流策略配置（读时 clamp）
+func (s *SettingService) GetModelRateLimitSettings(ctx context.Context) (*ModelRateLimitSettings, error) {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyModelRateLimitSettings)
+	if err != nil {
+		if errors.Is(err, ErrSettingNotFound) {
+			return DefaultModelRateLimitSettings(), nil
+		}
+		return nil, fmt.Errorf("get model rate limit settings: %w", err)
+	}
+	if value == "" {
+		return DefaultModelRateLimitSettings(), nil
+	}
+
+	var settings ModelRateLimitSettings
+	if err := json.Unmarshal([]byte(value), &settings); err != nil {
+		return DefaultModelRateLimitSettings(), nil
+	}
+
+	clampModelRateLimitSettings(&settings)
+	return &settings, nil
+}
+
+// SetModelRateLimitSettings 设置模型级限流策略配置（写时校验/归一化）
+func (s *SettingService) SetModelRateLimitSettings(ctx context.Context, settings *ModelRateLimitSettings) error {
+	if settings == nil {
+		return fmt.Errorf("settings cannot be nil")
+	}
+
+	if settings.Enabled {
+		if settings.FailureThreshold < 1 || settings.FailureThreshold > 100 {
+			return fmt.Errorf("failure_threshold must be between 1-100")
+		}
+		if settings.WindowMinutes < 1 || settings.WindowMinutes > 1440 {
+			return fmt.Errorf("window_minutes must be between 1-1440")
+		}
+		if settings.CooldownSeconds < 1 || settings.CooldownSeconds > 7200 {
+			return fmt.Errorf("cooldown_seconds must be between 1-7200")
+		}
+	} else {
+		// 关闭时归一化为默认值，避免存入越界数据。
+		clampModelRateLimitSettings(settings)
+	}
+
+	data, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("marshal model rate limit settings: %w", err)
+	}
+
+	return s.settingRepo.Set(ctx, SettingKeyModelRateLimitSettings, string(data))
+}
+
+// clampModelRateLimitSettings 将各字段收敛到合法区间，缺省值回退到默认配置。
+func clampModelRateLimitSettings(settings *ModelRateLimitSettings) {
+	def := DefaultModelRateLimitSettings()
+	if settings.FailureThreshold < 1 {
+		settings.FailureThreshold = def.FailureThreshold
+	} else if settings.FailureThreshold > 100 {
+		settings.FailureThreshold = 100
+	}
+	if settings.WindowMinutes < 1 {
+		settings.WindowMinutes = def.WindowMinutes
+	} else if settings.WindowMinutes > 1440 {
+		settings.WindowMinutes = 1440
+	}
+	if settings.CooldownSeconds < 1 {
+		settings.CooldownSeconds = def.CooldownSeconds
+	} else if settings.CooldownSeconds > 7200 {
+		settings.CooldownSeconds = 7200
+	}
+}
+
 // GetOIDCConnectOAuthConfig 返回用于登录的“最终生效” OIDC 配置。
 //
 // 优先级：

@@ -3814,6 +3814,8 @@ export default {
         }
       },
       clearRateLimit: 'Clear Rate Limit',
+      clearModelRateLimitSuccess: 'Model rate limit cleared',
+      clearModelRateLimitFailed: 'Failed to clear model rate limit',
       resetQuota: 'Reset Quota',
       quotaLimit: 'Quota Limit',
       quotaLimitPlaceholder: '0 means unlimited',
@@ -6927,6 +6929,20 @@ export default {
         cooldownSecondsHint: 'Default cooldown duration (1-7200 seconds); explicit upstream reset times still take precedence',
         saved: '429 default cooldown settings saved',
         saveFailed: 'Failed to save 429 default cooldown settings'
+      },
+      modelRateLimit: {
+        title: 'Model Rate Limit Policy',
+        description: 'Configure how many consecutive failures trip a model-level rate limit, and the fallback cooldown applied when it does',
+        enabled: 'Enable Failure Threshold',
+        enabledHint: 'When off (default), keeps the legacy behavior: a model is rate-limited on its first failure. When on, trips only after consecutive failures within the window',
+        failureThreshold: 'Failure Threshold',
+        failureThresholdHint: 'Trip the model rate limit only after this many consecutive failures within the window (1-100)',
+        windowMinutes: 'Window (minutes)',
+        windowMinutesHint: 'Sliding window for the failure count (1-1440 minutes); decays automatically when no new failures occur',
+        cooldownSeconds: 'Fallback Cooldown (seconds)',
+        cooldownSecondsHint: 'Default cooldown after tripping (1-7200 seconds); explicit upstream reset times still take precedence',
+        saved: 'Model rate limit settings saved',
+        saveFailed: 'Failed to save model rate limit settings'
       },
       streamTimeout: {
         title: 'Stream Timeout Handling',

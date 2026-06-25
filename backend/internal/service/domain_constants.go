@@ -374,6 +374,10 @@ const (
 	// SettingKeyRateLimit429CooldownSettings stores JSON config for 429 fallback cooldown handling.
 	SettingKeyRateLimit429CooldownSettings = "rate_limit_429_cooldown_settings"
 
+	// SettingKeyModelRateLimitSettings stores JSON config for model-level rate limiting
+	// (consecutive-failure threshold + fallback cooldown).
+	SettingKeyModelRateLimitSettings = "model_rate_limit_settings"
+
 	// =========================
 	// Stream Timeout Handling
 	// =========================

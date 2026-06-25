@@ -303,7 +303,7 @@
           </template>
           <template #cell-status="{ row }">
             <div class="flex items-center gap-1.5">
-              <AccountStatusIndicator :account="row" @show-temp-unsched="handleShowTempUnsched" />
+              <AccountStatusIndicator :account="row" @show-temp-unsched="handleShowTempUnsched" @clear-model-rate-limit="handleClearModelRateLimit" />
             </div>
           </template>
           <template #cell-schedulable="{ row }">
@@ -1895,6 +1895,17 @@ const handleRecoverState = async (a: Account) => {
   } catch (error: any) {
     console.error('Failed to recover account state:', error)
     appStore.showError(error?.message || t('admin.accounts.recoverStateFailed'))
+  }
+}
+const handleClearModelRateLimit = async ({ account, model }: { account: Account; model: string }) => {
+  try {
+    const updated = await adminAPI.accounts.clearModelRateLimit(account.id, model)
+    patchAccountInList(updated)
+    enterAutoRefreshSilentWindow()
+    appStore.showSuccess(t('admin.accounts.clearModelRateLimitSuccess'))
+  } catch (error: any) {
+    console.error('Failed to clear model rate limit:', error)
+    appStore.showError(error?.message || t('admin.accounts.clearModelRateLimitFailed'))
   }
 }
 const handleResetQuota = async (a: Account) => {

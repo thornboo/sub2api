@@ -3804,6 +3804,8 @@ export default {
         },
       },
       clearRateLimit: '清除速率限制',
+      clearModelRateLimitSuccess: '已解除该模型的限流',
+      clearModelRateLimitFailed: '解除模型限流失败',
       resetQuota: '重置配额',
       quotaLimit: '配额限制',
       quotaLimitPlaceholder: '0 表示不限制',
@@ -7077,6 +7079,20 @@ export default {
         cooldownSecondsHint: '默认回避持续时间（1-7200 秒）；上游返回明确 reset 时仍优先使用上游时间',
         saved: '429 默认回避设置保存成功',
         saveFailed: '保存 429 默认回避设置失败'
+      },
+      modelRateLimit: {
+        title: '模型级限流策略',
+        description: '配置某个模型连续失败多少次后才触发模型级限流，以及触发后的回退冷却时长',
+        enabled: '启用失败阈值',
+        enabledHint: '关闭时（默认）保持历史行为：模型首次失败即限流。启用后按窗口内连续失败次数判定',
+        failureThreshold: '失败阈值（次）',
+        failureThresholdHint: '窗口内连续失败达到该次数才对模型限流（1-100）',
+        windowMinutes: '统计窗口（分钟）',
+        windowMinutesHint: '失败计数的滑动窗口时长（1-1440 分钟），窗口内无新失败则自动衰减',
+        cooldownSeconds: '回退冷却（秒）',
+        cooldownSecondsHint: '触发限流后的默认冷却时长（1-7200 秒）；上游返回明确 reset 时仍优先使用上游时间',
+        saved: '模型级限流设置保存成功',
+        saveFailed: '保存模型级限流设置失败'
       },
       streamTimeout: {
         title: '流超时处理',

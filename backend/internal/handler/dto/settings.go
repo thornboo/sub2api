@@ -348,6 +348,14 @@ type RateLimit429CooldownSettings struct {
 	CooldownSeconds int  `json:"cooldown_seconds"`
 }
 
+// ModelRateLimitSettings 模型级限流策略配置 DTO
+type ModelRateLimitSettings struct {
+	Enabled          bool `json:"enabled"`
+	FailureThreshold int  `json:"failure_threshold"`
+	WindowMinutes    int  `json:"window_minutes"`
+	CooldownSeconds  int  `json:"cooldown_seconds"`
+}
+
 // StreamTimeoutSettings 流超时处理配置 DTO
 type StreamTimeoutSettings struct {
 	Enabled                bool   `json:"enabled"`

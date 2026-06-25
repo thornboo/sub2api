@@ -1137,6 +1137,32 @@ export async function updateRateLimit429CooldownSettings(
   return data;
 }
 
+// ==================== Model Rate Limit Settings ====================
+
+export interface ModelRateLimitSettings {
+  enabled: boolean;
+  failure_threshold: number;
+  window_minutes: number;
+  cooldown_seconds: number;
+}
+
+export async function getModelRateLimitSettings(): Promise<ModelRateLimitSettings> {
+  const { data } = await apiClient.get<ModelRateLimitSettings>(
+    "/admin/settings/model-rate-limit",
+  );
+  return data;
+}
+
+export async function updateModelRateLimitSettings(
+  settings: ModelRateLimitSettings,
+): Promise<ModelRateLimitSettings> {
+  const { data } = await apiClient.put<ModelRateLimitSettings>(
+    "/admin/settings/model-rate-limit",
+    settings,
+  );
+  return data;
+}
+
 // ==================== Stream Timeout Settings ====================
 
 /**
@@ -1363,6 +1389,8 @@ export const settingsAPI = {
   updateOverloadCooldownSettings,
   getRateLimit429CooldownSettings,
   updateRateLimit429CooldownSettings,
+  getModelRateLimitSettings,
+  updateModelRateLimitSettings,
   getStreamTimeoutSettings,
   updateStreamTimeoutSettings,
   getRectifierSettings,
