@@ -255,8 +255,12 @@ const props = withDefaults(defineProps<{
   apiKeyId?: number | null
   startDate: string
   endDate: string
+  startTime?: string
+  endTime?: string
   apiKeys?: ApiKey[]
 }>(), {
+  startTime: '',
+  endTime: '',
   apiKeys: () => []
 })
 
@@ -278,6 +282,14 @@ const selectedAnalyticsTag = ref<string | null>(null)
 const selectedAnalyticsStatus = ref<AnalyticsStatus | null>(null)
 const analyticsSearch = ref('')
 const analyticsLimit = ref(20)
+// --- Precise time (to the second) bounds, supplied by the parent via DateRangePicker ---
+// Empty string = that bound has no time → backend falls back to date-only behavior.
+const preciseTimeParams = computed<{ start_time?: string; end_time?: string }>(() => {
+  const p: { start_time?: string; end_time?: string } = {}
+  if (props.startTime) p.start_time = props.startTime
+  if (props.endTime) p.end_time = props.endTime
+  return p
+})
 let abortController: AbortController | null = null
 let latestRequestID = 0
 let reloadTimer: ReturnType<typeof setTimeout> | null = null
@@ -592,7 +604,9 @@ const requestSignature = computed(() => JSON.stringify({
   search: analyticsSearch.value.trim(),
   limit: analyticsLimit.value,
   start: props.startDate,
-  end: props.endDate
+  end: props.endDate,
+  preciseStart: props.startTime || '',
+  preciseEnd: props.endTime || ''
 }))
 
 function timezoneName() {
@@ -604,6 +618,7 @@ function buildParams(): OwnerApiKeyAnalyticsParams {
     granularity: granularity.value,
     start_date: props.startDate,
     end_date: props.endDate,
+    ...preciseTimeParams.value,
     timezone: timezoneName(),
     limit: analyticsLimit.value
   }

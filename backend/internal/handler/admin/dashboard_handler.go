@@ -36,13 +36,21 @@ func NewDashboardHandler(dashboardService *service.DashboardService, aggregation
 func parseTimeRange(c *gin.Context) (time.Time, time.Time) {
 	userTZ := c.Query("timezone") // Get user's timezone from request
 	now := timezone.NowInUserLocation(userTZ)
-	startDate := c.Query("start_date")
-	endDate := c.Query("end_date")
+
+	// 精确时间优先：start_time/end_time（datetime）覆盖 start_date/end_date（日期）口径。
+	startStr := c.Query("start_time")
+	if startStr == "" {
+		startStr = c.Query("start_date")
+	}
+	endStr := c.Query("end_time")
+	if endStr == "" {
+		endStr = c.Query("end_date")
+	}
 
 	var startTime, endTime time.Time
 
-	if startDate != "" {
-		if t, err := timezone.ParseInUserLocation("2006-01-02", startDate, userTZ); err == nil {
+	if startStr != "" {
+		if t, _, err := timezone.ParseUserDateOrDateTime(startStr, userTZ); err == nil {
 			startTime = t
 		} else {
 			startTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -7), userTZ)
@@ -51,9 +59,13 @@ func parseTimeRange(c *gin.Context) (time.Time, time.Time) {
 		startTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -7), userTZ)
 	}
 
-	if endDate != "" {
-		if t, err := timezone.ParseInUserLocation("2006-01-02", endDate, userTZ); err == nil {
-			endTime = t.Add(24 * time.Hour) // Include the end date
+	if endStr != "" {
+		if t, hasTime, err := timezone.ParseUserDateOrDateTime(endStr, userTZ); err == nil {
+			if hasTime {
+				endTime = t // 显式时间口径：不做整天补偿
+			} else {
+				endTime = t.Add(24 * time.Hour) // 纯日期：包含结束日整天
+			}
 		} else {
 			endTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, 1), userTZ)
 		}

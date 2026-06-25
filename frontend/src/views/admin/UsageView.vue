@@ -19,6 +19,8 @@
             <DateRangePicker
               v-model:start-date="startDate"
               v-model:end-date="endDate"
+              v-model:start-time="startTime"
+              v-model:end-time="endTime"
               @change="onDateRangeChange"
             />
           </div>
@@ -591,6 +593,17 @@ const getGranularityForRange = (start: string, end: string): DashboardTrendGranu
 const defaultRange = getLast24HoursRangeDates()
 const startDate = ref(defaultRange.start); const endDate = ref(defaultRange.end)
 const filters = ref<AdminUsageQueryParams>({ user_id: undefined, model: undefined, group_id: undefined, request_type: undefined, billing_type: null, start_date: startDate.value, end_date: endDate.value })
+
+// --- Precise time (to the second) bounds, driven by DateRangePicker's optional time inputs ---
+// Empty string = that bound has no time → falls back to date-only behavior on the backend.
+const startTime = ref('')
+const endTime = ref('')
+const preciseTimeParams = computed<{ start_time?: string; end_time?: string }>(() => {
+  const p: { start_time?: string; end_time?: string } = {}
+  if (startTime.value) p.start_time = startTime.value
+  if (endTime.value) p.end_time = endTime.value
+  return p
+})
 const pagination = reactive({ page: 1, page_size: getPersistedPageSize(), total: 0 })
 const sortState = reactive({
   sort_by: 'created_at',
@@ -637,6 +650,7 @@ const buildUsageListParams = (
     page_size: pageSize,
     exact_total: exactTotal,
     ...filters.value,
+    ...preciseTimeParams.value,
     stream: legacyStream === null ? undefined : legacyStream,
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order
@@ -665,6 +679,7 @@ const loadStats = async (force = false) => {
     const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
     const s = await adminAPI.usage.getStats({
       ...filters.value,
+      ...preciseTimeParams.value,
       stream: legacyStream === null ? undefined : legacyStream,
       ...(force ? { nocache: 1 } : {}),
     })
@@ -704,6 +719,7 @@ const loadModelStats = async (source: ModelDistributionSource, force = false) =>
     const baseParams = {
       start_date: filters.value.start_date || startDate.value,
       end_date: filters.value.end_date || endDate.value,
+      ...preciseTimeParams.value,
       user_id: filters.value.user_id,
       model: filters.value.model,
       api_key_id: filters.value.api_key_id,
@@ -752,6 +768,7 @@ const loadChartData = async () => {
     const snapshot = await adminAPI.dashboard.getSnapshotV2({
       start_date: filters.value.start_date || startDate.value,
       end_date: filters.value.end_date || endDate.value,
+      ...preciseTimeParams.value,
       granularity: granularity.value,
       user_id: filters.value.user_id,
       model: filters.value.model,

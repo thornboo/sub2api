@@ -228,6 +228,8 @@
                 <DateRangePicker
                   v-model:start-date="startDate"
                   v-model:end-date="endDate"
+                  v-model:start-time="startTime"
+                  v-model:end-time="endTime"
                   @change="onDateRangeChange"
                 />
               </div>
@@ -379,6 +381,15 @@ const granularity = ref<'day' | 'hour'>('hour')
 const defaultRange = getLast24HoursRangeDates()
 const startDate = ref(defaultRange.start)
 const endDate = ref(defaultRange.end)
+// Optional precise time bounds from DateRangePicker (ISO; empty = date-only).
+const startTime = ref('')
+const endTime = ref('')
+const timeParams = computed<{ start_time?: string; end_time?: string }>(() => {
+  const p: { start_time?: string; end_time?: string } = {}
+  if (startTime.value) p.start_time = startTime.value
+  if (endTime.value) p.end_time = endTime.value
+  return p
+})
 
 // Granularity options for Select component
 const granularityOptions = computed(() => [
@@ -599,6 +610,7 @@ const loadDashboardSnapshot = async (includeStats: boolean) => {
     const response = await adminAPI.dashboard.getSnapshotV2({
       start_date: startDate.value,
       end_date: endDate.value,
+      ...timeParams.value,
       granularity: granularity.value,
       include_stats: includeStats,
       include_trend: true,
@@ -631,6 +643,7 @@ const loadUsersTrend = async () => {
     const response = await adminAPI.dashboard.getUserUsageTrend({
       start_date: startDate.value,
       end_date: endDate.value,
+      ...timeParams.value,
       granularity: granularity.value,
       limit: 12
     })
@@ -655,6 +668,7 @@ const loadUserSpendingRanking = async () => {
     const response = await adminAPI.dashboard.getUserSpendingRanking({
       start_date: startDate.value,
       end_date: endDate.value,
+      ...timeParams.value,
       limit: rankingLimit
     })
     if (currentSeq !== rankingLoadSeq) return

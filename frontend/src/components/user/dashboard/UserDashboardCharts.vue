@@ -5,7 +5,7 @@
       <div class="flex flex-wrap items-center gap-4">
         <div class="flex items-center gap-2">
           <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('dashboard.timeRange') }}:</span>
-          <DateRangePicker :start-date="startDate" :end-date="endDate" @update:startDate="$emit('update:startDate', $event)" @update:endDate="$emit('update:endDate', $event)" @change="$emit('dateRangeChange', $event)" />
+          <DateRangePicker :start-date="startDate" :end-date="endDate" :start-time="startTime" :end-time="endTime" @update:startDate="$emit('update:startDate', $event)" @update:endDate="$emit('update:endDate', $event)" @update:startTime="$emit('update:startTime', $event)" @update:endTime="$emit('update:endTime', $event)" @change="$emit('dateRangeChange', $event)" />
         </div>
         <button @click="$emit('refresh')" :disabled="loading" class="btn btn-secondary">
           {{ t('common.refresh') }}
@@ -75,8 +75,8 @@ import { formatCostFixed as formatCost, formatNumberLocaleString as formatNumber
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Title, Tooltip, Legend, Filler } from 'chart.js'
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Title, Tooltip, Legend, Filler)
 
-const props = defineProps<{ loading: boolean, startDate: string, endDate: string, granularity: string, trend: TrendDataPoint[], models: UserModelStat[] }>()
-defineEmits(['update:startDate', 'update:endDate', 'update:granularity', 'dateRangeChange', 'granularityChange', 'refresh'])
+const props = defineProps<{ loading: boolean, startDate: string, endDate: string, startTime?: string, endTime?: string, granularity: string, trend: TrendDataPoint[], models: UserModelStat[] }>()
+defineEmits(['update:startDate', 'update:endDate', 'update:startTime', 'update:endTime', 'update:granularity', 'dateRangeChange', 'granularityChange', 'refresh'])
 const { t } = useI18n()
 
 const modelData = computed(() => !props.models?.length ? null : {

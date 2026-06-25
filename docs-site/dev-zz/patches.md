@@ -1,5 +1,34 @@
 # 补丁记录
 
+## 2026-06-25 - 时间范围选择器支持可选「精确到秒」（DateRangePicker）
+
+范围：
+- `backend/internal/pkg/timezone/timezone.go`（新增 `ParseUserDateOrDateTime`）+ `timezone_test.go`
+- `backend/internal/handler/admin/dashboard_handler.go`（`parseTimeRange`）
+- `backend/internal/handler/admin/usage_handler.go`（`List`/`Stats`）
+- `backend/internal/handler/usage_handler.go`（`parseOwnerAPIKeyAnalyticsRange` 及其调用、user `List`/`Stats`、`parseUserTimeRange`（user 仪表盘 trend/models）、user `ListErrors`）
+- `frontend/src/components/common/DateRangePicker.vue`（开始/结束日期旁加可选 `<input type="time" step="1">`；emit `update:startTime/endTime` + `change` 负载加 startTime/endTime；预设清空时间=整天）
+- `frontend/src/views/admin/{UsageView.vue,DashboardView.vue}`、`frontend/src/views/user/{UsageView.vue,DashboardView.vue}`、`frontend/src/components/user/{UsageAnalyticsPanel.vue,dashboard/UserDashboardCharts.vue}`（接 `v-model:start-time/end-time`，非空时注入各接口 `start_time/end_time`）
+- `frontend/src/types/index.ts`、`frontend/src/api/admin/{usage.ts,dashboard.ts}`、`frontend/src/api/usage.ts`（参数类型加 `start_time?/end_time?`；`getStatsByDateRange` 加可选 opts）
+- `frontend/src/i18n/locales/{zh,en}.ts`（`dates.startTime/endTime`）
+
+改动：
+- 新增 `timezone.ParseUserDateOrDateTime(value, userTZ) (t, hasTime, err)`：依次按 RFC3339 / `2006-01-02 15:04:05` / `2006-01-02` 解析，`hasTime` 标记是否带时分秒。
+- 后端各解析点（admin `parseTimeRange`/`List`/`Stats`、user owner-analytics range/`List`/`Stats`/`parseUserTimeRange`/`ListErrors`）统一为：`start_time/end_time` 优先于 `start_date/end_date`；**仅在纯日期口径下保留 `+1 天` 整天补偿，带时间口径跳过**。服务层与仓储 SQL（`created_at` timestamptz 半开区间）无需改动。
+- 前端把时分秒做进共享 `DateRangePicker`（每个边界一个 `time` 输入，默认开始 00:00:00 / 结束 23:59:59），4 个消费页接住并注入 `start_time/end_time`。**结束按「含当秒」语义**：发出 ISO 时 +1 秒转为半开排他上界，故默认 23:59:59 等价于次日 00:00（与原按整天零回归）；预设重置为整天默认时间。时间被清空时该端回退纯日期口径。**未引入页面级外挂控件**（上一轮的 datetime-local 外挂方案已撤销）。
+- 修复 `DateRangePicker` 时间 v-model 的 round-trip 缺陷：`startTime/endTime` 改为单向 emit（ISO），不再把 ISO 回灌进 `type=time` 输入框（此前会导致 apply 后重新打开时间框显示异常）。
+
+已知限制：
+- 趋势图预聚合快路径在 `day` 粒度按 `::date`、`hour` 粒度按整点桶化，故精确时间对趋势图在小时粒度下聚合到整点；统计卡片/模型分布/日志列表为秒级精度。
+
+验证：
+- `mise x -C backend -- go build ./...`；`go test -tags unit ./internal/handler/... ./internal/pkg/timezone/...`（全部 ok，含新增 `TestParseUserDateOrDateTime`）。
+- `pnpm --dir frontend typecheck`、`eslint`（改动文件）、`DateRangePicker.spec`（已更新 `change` 负载断言，通过）。
+
+未验证：
+- 浏览器人工 smoke（在选择器里选时分秒后各图表/列表的秒级过滤效果），由管理员本地验证。
+- 完整 `go test ./...` 与完整前端测试套件。
+
 ## 2026-06-25 - 模型级限流：单模型手动解除与失败阈值配置
 
 范围：

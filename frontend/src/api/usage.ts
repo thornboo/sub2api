@@ -55,6 +55,8 @@ export interface UserDashboardStats {
 export interface TrendParams {
   start_date?: string
   end_date?: string
+  start_time?: string
+  end_time?: string
   granularity?: 'day' | 'hour'
 }
 
@@ -134,6 +136,8 @@ export interface ApiKeyModelStatsResponse {
 export interface OwnerApiKeyAnalyticsParams {
   start_date?: string
   end_date?: string
+  start_time?: string
+  end_time?: string
   api_key_id?: number
   granularity?: ApiKeyUsageTrendGranularity
   timezone?: string
@@ -308,7 +312,8 @@ export async function getStats(
 export async function getStatsByDateRange(
   startDate: string,
   endDate: string,
-  apiKeyId?: number
+  apiKeyId?: number,
+  opts?: { start_time?: string; end_time?: string }
 ): Promise<UsageStatsResponse> {
   const params: Record<string, unknown> = {
     start_date: startDate,
@@ -317,6 +322,12 @@ export async function getStatsByDateRange(
 
   if (apiKeyId !== undefined) {
     params.api_key_id = apiKeyId
+  }
+  if (opts?.start_time) {
+    params.start_time = opts.start_time
+  }
+  if (opts?.end_time) {
+    params.end_time = opts.end_time
   }
 
   const { data } = await apiClient.get<UsageStatsResponse>('/usage/stats', {
@@ -393,6 +404,8 @@ export async function getDashboardTrend(params?: TrendParams): Promise<TrendResp
 export async function getDashboardModels(params?: {
   start_date?: string
   end_date?: string
+  start_time?: string
+  end_time?: string
 }): Promise<ModelStatsResponse> {
   const { data } = await apiClient.get<ModelStatsResponse>('/usage/dashboard/models', { params })
   return data

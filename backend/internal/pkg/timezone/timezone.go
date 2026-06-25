@@ -6,6 +6,7 @@ package timezone
 import (
 	"fmt"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -133,6 +134,34 @@ func ParseInUserLocation(layout, value, userTZ string) (time.Time, error) {
 		}
 	}
 	return time.ParseInLocation(layout, value, loc)
+}
+
+// ParseUserDateOrDateTime parses a date or datetime string in the user's timezone.
+// It tries RFC3339, then "2006-01-02 15:04:05" (datetime), then "2006-01-02" (date-only).
+// hasTime reports whether the value carried a time component (hour/minute/second);
+// callers use this to decide whether to apply the whole-day end compensation that a
+// date-only bound needs. If userTZ is empty or invalid, falls back to the server timezone.
+func ParseUserDateOrDateTime(value, userTZ string) (t time.Time, hasTime bool, err error) {
+	loc := Location()
+	// Trim for parity with other timezone resolvers (e.g. apiKeyUsageTrendLocation),
+	// so a value like " Asia/Shanghai" resolves to the same location everywhere.
+	if userTZ = strings.TrimSpace(userTZ); userTZ != "" {
+		if userLoc, lerr := time.LoadLocation(userTZ); lerr == nil {
+			loc = userLoc
+		}
+	}
+
+	// RFC3339 carries its own offset; parse then normalize into the user's location.
+	if parsed, perr := time.Parse(time.RFC3339, value); perr == nil {
+		return parsed.In(loc), true, nil
+	}
+	if parsed, perr := time.ParseInLocation("2006-01-02 15:04:05", value, loc); perr == nil {
+		return parsed, true, nil
+	}
+	if parsed, perr := time.ParseInLocation("2006-01-02", value, loc); perr == nil {
+		return parsed, false, nil
+	}
+	return time.Time{}, false, fmt.Errorf("invalid date/datetime: %q", value)
 }
 
 // NowInUserLocation returns the current time in the user's timezone.

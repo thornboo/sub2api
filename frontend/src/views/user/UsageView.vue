@@ -122,6 +122,8 @@
               <DateRangePicker
                 v-model:start-date="startDate"
                 v-model:end-date="endDate"
+                v-model:start-time="startTime"
+                v-model:end-time="endTime"
                 @change="onDateRangeChange"
               />
             </div>
@@ -381,6 +383,8 @@
             :api-keys="apiKeys"
             :start-date="filters.start_date || startDate"
             :end-date="filters.end_date || endDate"
+            :start-time="startTime"
+            :end-time="endTime"
           />
         </div>
 
@@ -735,6 +739,15 @@ weekAgo.setDate(weekAgo.getDate() - 6)
 // Date range state
 const startDate = ref(formatLocalDate(weekAgo))
 const endDate = ref(formatLocalDate(now))
+// Optional precise time bounds from DateRangePicker (ISO; empty = date-only).
+const startTime = ref('')
+const endTime = ref('')
+const timeParams = computed<{ start_time?: string; end_time?: string }>(() => {
+  const p: { start_time?: string; end_time?: string } = {}
+  if (startTime.value) p.start_time = startTime.value
+  if (endTime.value) p.end_time = endTime.value
+  return p
+})
 
 const filters = ref<UsageQueryParams>({
   api_key_id: undefined,
@@ -845,6 +858,7 @@ const buildUsageQueryParams = (page: number, pageSize: number): UsageTableQueryP
   page,
   page_size: pageSize,
   ...filters.value,
+  ...timeParams.value,
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order
 })
@@ -899,7 +913,8 @@ const loadUsageStats = async () => {
     const stats = await usageAPI.getStatsByDateRange(
       filters.value.start_date || startDate.value,
       filters.value.end_date || endDate.value,
-      apiKeyId
+      apiKeyId,
+      timeParams.value
     )
     usageStats.value = stats
   } catch (error) {
@@ -1109,6 +1124,7 @@ const loadErrors = async () => {
       page_size: errorPageSize.value,
       start_date: startDate.value,
       end_date: endDate.value,
+      ...timeParams.value,
       model: errorFilter.value.model || undefined,
       category: errorFilter.value.category || undefined,
       api_key_id: errorFilter.value.api_key_id ?? undefined,

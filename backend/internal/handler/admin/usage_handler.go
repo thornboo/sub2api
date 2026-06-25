@@ -143,26 +143,37 @@ func (h *UsageHandler) List(c *gin.Context) {
 		billingType = &bt
 	}
 
-	// Parse date range
+	// Parse date range. start_time/end_time (datetime) take precedence over
+	// start_date/end_date (date-only); a datetime bound skips the whole-day end bump.
 	var startTime, endTime *time.Time
 	userTZ := c.Query("timezone") // Get user's timezone from request
-	if startDateStr := c.Query("start_date"); startDateStr != "" {
-		t, err := timezone.ParseInUserLocation("2006-01-02", startDateStr, userTZ)
+	startStr := c.Query("start_time")
+	if startStr == "" {
+		startStr = c.Query("start_date")
+	}
+	if startStr != "" {
+		t, _, err := timezone.ParseUserDateOrDateTime(startStr, userTZ)
 		if err != nil {
-			response.BadRequest(c, "Invalid start_date format, use YYYY-MM-DD")
+			response.BadRequest(c, "Invalid start_date/start_time format")
 			return
 		}
 		startTime = &t
 	}
 
-	if endDateStr := c.Query("end_date"); endDateStr != "" {
-		t, err := timezone.ParseInUserLocation("2006-01-02", endDateStr, userTZ)
+	endStr := c.Query("end_time")
+	if endStr == "" {
+		endStr = c.Query("end_date")
+	}
+	if endStr != "" {
+		t, hasTime, err := timezone.ParseUserDateOrDateTime(endStr, userTZ)
 		if err != nil {
-			response.BadRequest(c, "Invalid end_date format, use YYYY-MM-DD")
+			response.BadRequest(c, "Invalid end_date/end_time format")
 			return
 		}
-		// Use half-open range [start, end), move to next calendar day start (DST-safe).
-		t = t.AddDate(0, 0, 1)
+		if !hasTime {
+			// Date-only: half-open range [start, end+1d) to include the whole end date.
+			t = t.AddDate(0, 0, 1)
+		}
 		endTime = &t
 	}
 
@@ -280,23 +291,33 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 	now := timezone.NowInUserLocation(userTZ)
 	var startTime, endTime time.Time
 
-	startDateStr := c.Query("start_date")
-	endDateStr := c.Query("end_date")
+	// start_time/end_time（datetime）优先于 start_date/end_date（日期）。
+	startStr := c.Query("start_time")
+	if startStr == "" {
+		startStr = c.Query("start_date")
+	}
+	endStr := c.Query("end_time")
+	if endStr == "" {
+		endStr = c.Query("end_date")
+	}
 
-	if startDateStr != "" && endDateStr != "" {
+	if startStr != "" && endStr != "" {
 		var err error
-		startTime, err = timezone.ParseInUserLocation("2006-01-02", startDateStr, userTZ)
+		startTime, _, err = timezone.ParseUserDateOrDateTime(startStr, userTZ)
 		if err != nil {
-			response.BadRequest(c, "Invalid start_date format, use YYYY-MM-DD")
+			response.BadRequest(c, "Invalid start_date/start_time format")
 			return
 		}
-		endTime, err = timezone.ParseInUserLocation("2006-01-02", endDateStr, userTZ)
+		var endHasTime bool
+		endTime, endHasTime, err = timezone.ParseUserDateOrDateTime(endStr, userTZ)
 		if err != nil {
-			response.BadRequest(c, "Invalid end_date format, use YYYY-MM-DD")
+			response.BadRequest(c, "Invalid end_date/end_time format")
 			return
 		}
-		// 与 SQL 条件 created_at < end 对齐，使用次日 00:00 作为上边界（DST-safe）。
-		endTime = endTime.AddDate(0, 0, 1)
+		if !endHasTime {
+			// 纯日期：与 SQL 条件 created_at < end 对齐，使用次日 00:00 作为上边界（DST-safe）。
+			endTime = endTime.AddDate(0, 0, 1)
+		}
 	} else {
 		period := c.DefaultQuery("period", "today")
 		switch period {

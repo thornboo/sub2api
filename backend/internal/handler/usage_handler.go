@@ -106,26 +106,37 @@ func (h *UsageHandler) List(c *gin.Context) {
 		billingType = &bt
 	}
 
-	// Parse date range
+	// Parse date range. start_time/end_time (datetime) take precedence over
+	// start_date/end_date (date-only); a datetime bound skips the whole-day end bump.
 	var startTime, endTime *time.Time
 	userTZ := c.Query("timezone") // Get user's timezone from request
-	if startDateStr := c.Query("start_date"); startDateStr != "" {
-		t, err := timezone.ParseInUserLocation("2006-01-02", startDateStr, userTZ)
+	startStr := c.Query("start_time")
+	if startStr == "" {
+		startStr = c.Query("start_date")
+	}
+	if startStr != "" {
+		t, _, err := timezone.ParseUserDateOrDateTime(startStr, userTZ)
 		if err != nil {
-			response.BadRequest(c, "Invalid start_date format, use YYYY-MM-DD")
+			response.BadRequest(c, "Invalid start_date/start_time format")
 			return
 		}
 		startTime = &t
 	}
 
-	if endDateStr := c.Query("end_date"); endDateStr != "" {
-		t, err := timezone.ParseInUserLocation("2006-01-02", endDateStr, userTZ)
+	endStr := c.Query("end_time")
+	if endStr == "" {
+		endStr = c.Query("end_date")
+	}
+	if endStr != "" {
+		t, hasTime, err := timezone.ParseUserDateOrDateTime(endStr, userTZ)
 		if err != nil {
-			response.BadRequest(c, "Invalid end_date format, use YYYY-MM-DD")
+			response.BadRequest(c, "Invalid end_date/end_time format")
 			return
 		}
-		// Use half-open range [start, end), move to next calendar day start (DST-safe).
-		t = t.AddDate(0, 0, 1)
+		if !hasTime {
+			// Date-only: half-open range [start, end+1d) to include the whole end date.
+			t = t.AddDate(0, 0, 1)
+		}
 		endTime = &t
 	}
 
@@ -185,23 +196,34 @@ func (h *UsageHandler) ListErrors(c *gin.Context) {
 
 	filter := &service.OpsErrorLogFilter{Page: page, PageSize: pageSize}
 
-	// Date range (half-open [start, end)), reuse usage-list semantics.
+	// Date range (half-open [start, end)). start_time/end_time (datetime) take precedence
+	// over start_date/end_date; a datetime bound skips the whole-day end bump.
 	userTZ := c.Query("timezone")
-	if startDateStr := c.Query("start_date"); startDateStr != "" {
-		t, err := timezone.ParseInUserLocation("2006-01-02", startDateStr, userTZ)
+	startStr := c.Query("start_time")
+	if startStr == "" {
+		startStr = c.Query("start_date")
+	}
+	if startStr != "" {
+		t, _, err := timezone.ParseUserDateOrDateTime(startStr, userTZ)
 		if err != nil {
-			response.BadRequest(c, "Invalid start_date format, use YYYY-MM-DD")
+			response.BadRequest(c, "Invalid start_date/start_time format")
 			return
 		}
 		filter.StartTime = &t
 	}
-	if endDateStr := c.Query("end_date"); endDateStr != "" {
-		t, err := timezone.ParseInUserLocation("2006-01-02", endDateStr, userTZ)
+	endStr := c.Query("end_time")
+	if endStr == "" {
+		endStr = c.Query("end_date")
+	}
+	if endStr != "" {
+		t, hasTime, err := timezone.ParseUserDateOrDateTime(endStr, userTZ)
 		if err != nil {
-			response.BadRequest(c, "Invalid end_date format, use YYYY-MM-DD")
+			response.BadRequest(c, "Invalid end_date/end_time format")
 			return
 		}
-		t = t.AddDate(0, 0, 1)
+		if !hasTime {
+			t = t.AddDate(0, 0, 1)
+		}
 		filter.EndTime = &t
 	}
 
@@ -336,25 +358,34 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 	now := timezone.NowInUserLocation(userTZ)
 	var startTime, endTime time.Time
 
-	// 优先使用 start_date 和 end_date 参数
-	startDateStr := c.Query("start_date")
-	endDateStr := c.Query("end_date")
+	// start_time/end_time（datetime）优先于 start_date/end_date（日期）。
+	startStr := c.Query("start_time")
+	if startStr == "" {
+		startStr = c.Query("start_date")
+	}
+	endStr := c.Query("end_time")
+	if endStr == "" {
+		endStr = c.Query("end_date")
+	}
 
-	if startDateStr != "" && endDateStr != "" {
-		// 使用自定义日期范围
+	if startStr != "" && endStr != "" {
+		// 使用自定义范围
 		var err error
-		startTime, err = timezone.ParseInUserLocation("2006-01-02", startDateStr, userTZ)
+		startTime, _, err = timezone.ParseUserDateOrDateTime(startStr, userTZ)
 		if err != nil {
-			response.BadRequest(c, "Invalid start_date format, use YYYY-MM-DD")
+			response.BadRequest(c, "Invalid start_date/start_time format")
 			return
 		}
-		endTime, err = timezone.ParseInUserLocation("2006-01-02", endDateStr, userTZ)
+		var endHasTime bool
+		endTime, endHasTime, err = timezone.ParseUserDateOrDateTime(endStr, userTZ)
 		if err != nil {
-			response.BadRequest(c, "Invalid end_date format, use YYYY-MM-DD")
+			response.BadRequest(c, "Invalid end_date/end_time format")
 			return
 		}
-		// 与 SQL 条件 created_at < end 对齐，使用次日 00:00 作为上边界（DST-safe）。
-		endTime = endTime.AddDate(0, 0, 1)
+		if !endHasTime {
+			// 纯日期：与 SQL 条件 created_at < end 对齐，使用次日 00:00 作为上边界（DST-safe）。
+			endTime = endTime.AddDate(0, 0, 1)
+		}
 	} else {
 		// 使用 period 参数
 		period := c.DefaultQuery("period", "today")
@@ -391,13 +422,21 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 func parseUserTimeRange(c *gin.Context) (time.Time, time.Time) {
 	userTZ := c.Query("timezone") // Get user's timezone from request
 	now := timezone.NowInUserLocation(userTZ)
-	startDate := c.Query("start_date")
-	endDate := c.Query("end_date")
+
+	// start_time/end_time（datetime）优先于 start_date/end_date（日期）。
+	startStr := c.Query("start_time")
+	if startStr == "" {
+		startStr = c.Query("start_date")
+	}
+	endStr := c.Query("end_time")
+	if endStr == "" {
+		endStr = c.Query("end_date")
+	}
 
 	var startTime, endTime time.Time
 
-	if startDate != "" {
-		if t, err := timezone.ParseInUserLocation("2006-01-02", startDate, userTZ); err == nil {
+	if startStr != "" {
+		if t, _, err := timezone.ParseUserDateOrDateTime(startStr, userTZ); err == nil {
 			startTime = t
 		} else {
 			startTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -7), userTZ)
@@ -406,9 +445,13 @@ func parseUserTimeRange(c *gin.Context) (time.Time, time.Time) {
 		startTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -7), userTZ)
 	}
 
-	if endDate != "" {
-		if t, err := timezone.ParseInUserLocation("2006-01-02", endDate, userTZ); err == nil {
-			endTime = t.Add(24 * time.Hour) // Include the end date
+	if endStr != "" {
+		if t, hasTime, err := timezone.ParseUserDateOrDateTime(endStr, userTZ); err == nil {
+			if hasTime {
+				endTime = t // 显式时间口径：不做整天补偿
+			} else {
+				endTime = t.Add(24 * time.Hour) // 纯日期：包含结束日整天
+			}
 		} else {
 			endTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, 1), userTZ)
 		}
@@ -580,22 +623,38 @@ func ownerAPIKeyAnalyticsRangeAllowed(startTime, endTime time.Time, granularity 
 	return !endTime.After(startTime.AddDate(0, 0, maxDays))
 }
 
-func parseOwnerAPIKeyAnalyticsRange(startDate, endDate, granularity string, loc *time.Location) (time.Time, time.Time, string) {
+func parseOwnerAPIKeyAnalyticsRange(startDate, endDate, startTimeStr, endTimeStr, granularity, userTZ string, loc *time.Location) (time.Time, time.Time, string) {
 	startTime, endTime := defaultAPIKeyUsageTrendRange(granularity, loc)
-	if strings.TrimSpace(startDate) != "" {
-		parsed, err := time.ParseInLocation(apiKeyUsageTrendDateLayout, startDate, loc)
+
+	// start_time/end_time（datetime）优先于 start_date/end_date（日期）；datetime 口径不做 +1 天补偿。
+	startStr := strings.TrimSpace(startTimeStr)
+	if startStr == "" {
+		startStr = strings.TrimSpace(startDate)
+	}
+	if startStr != "" {
+		parsed, _, err := timezone.ParseUserDateOrDateTime(startStr, userTZ)
 		if err != nil {
-			return time.Time{}, time.Time{}, "Invalid start_date format, use YYYY-MM-DD"
+			return time.Time{}, time.Time{}, "Invalid start_date/start_time format"
 		}
 		startTime = parsed
 	}
-	if strings.TrimSpace(endDate) != "" {
-		parsed, err := time.ParseInLocation(apiKeyUsageTrendDateLayout, endDate, loc)
-		if err != nil {
-			return time.Time{}, time.Time{}, "Invalid end_date format, use YYYY-MM-DD"
-		}
-		endTime = parsed.AddDate(0, 0, 1)
+
+	endStr := strings.TrimSpace(endTimeStr)
+	if endStr == "" {
+		endStr = strings.TrimSpace(endDate)
 	}
+	if endStr != "" {
+		parsed, hasTime, err := timezone.ParseUserDateOrDateTime(endStr, userTZ)
+		if err != nil {
+			return time.Time{}, time.Time{}, "Invalid end_date/end_time format"
+		}
+		if hasTime {
+			endTime = parsed
+		} else {
+			endTime = parsed.AddDate(0, 0, 1)
+		}
+	}
+
 	if !startTime.Before(endTime) {
 		return time.Time{}, time.Time{}, "Invalid date range"
 	}
@@ -660,7 +719,7 @@ func parseOwnerAPIKeyAnalyticsFilters(c *gin.Context, userID int64) (service.Own
 	userTZ := c.Query("timezone")
 	loc := apiKeyUsageTrendLocation(userTZ)
 	timezoneName := apiKeyUsageTrendTimezoneName(userTZ)
-	startTime, endTime, errMessage := parseOwnerAPIKeyAnalyticsRange(c.Query("start_date"), c.Query("end_date"), granularity, loc)
+	startTime, endTime, errMessage := parseOwnerAPIKeyAnalyticsRange(c.Query("start_date"), c.Query("end_date"), c.Query("start_time"), c.Query("end_time"), granularity, userTZ, loc)
 	if errMessage != "" {
 		return service.OwnerAPIKeyAnalyticsFilters{}, nil, errMessage
 	}

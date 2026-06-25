@@ -55,6 +55,13 @@
               class="date-picker-input"
               @change="onDateChange"
             />
+            <input
+              type="time"
+              step="1"
+              v-model="localStartTime"
+              class="date-picker-input date-picker-time"
+              :placeholder="t('dates.startTime')"
+            />
           </div>
           <div class="date-picker-separator">
             <Icon name="arrowRight" size="sm" class="text-stone-400 dark:text-stone-500" />
@@ -68,6 +75,13 @@
               :max="tomorrow"
               class="date-picker-input"
               @change="onDateChange"
+            />
+            <input
+              type="time"
+              step="1"
+              v-model="localEndTime"
+              class="date-picker-input date-picker-time"
+              :placeholder="t('dates.endTime')"
             />
           </div>
         </div>
@@ -97,15 +111,24 @@ interface DatePreset {
 interface Props {
   startDate: string
   endDate: string
+  // Optional time-of-day (HH:MM:SS) per bound; empty = no time → date-only behavior downstream.
+  startTime?: string
+  endTime?: string
 }
 
 interface Emits {
   (e: 'update:startDate', value: string): void
   (e: 'update:endDate', value: string): void
-  (e: 'change', range: { startDate: string; endDate: string; preset: string | null }): void
+  // ISO datetime (RFC3339) for the bound when a time was set, otherwise empty string.
+  (e: 'update:startTime', value: string): void
+  (e: 'update:endTime', value: string): void
+  (e: 'change', range: { startDate: string; endDate: string; startTime: string; endTime: string; preset: string | null }): void
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  startTime: '',
+  endTime: ''
+})
 const emit = defineEmits<Emits>()
 
 const { t, locale } = useI18n()
@@ -116,7 +139,26 @@ const dropdownRef = ref<HTMLElement | null>(null)
 const dropdownPosition = reactive({ top: 0, left: 0 })
 const localStartDate = ref(props.startDate)
 const localEndDate = ref(props.endDate)
+// Default whole-day bounds shown in the time inputs: start inclusive at 00:00:00,
+// end inclusive at 23:59:59 (the end is converted to an exclusive bound on emit, see toIsoOrEmpty).
+const DEFAULT_START_TIME = '00:00:00'
+const DEFAULT_END_TIME = '23:59:59'
+const localStartTime = ref(DEFAULT_START_TIME)
+const localEndTime = ref(DEFAULT_END_TIME)
 const activePreset = ref<string | null>('last24Hours')
+
+// Combine a YYYY-MM-DD date and an optional HH:MM[:SS] time into an ISO string (local tz).
+// Returns '' when no time is set so the bound falls back to date-only downstream.
+// inclusiveEnd=true adds one second so the selected end second is included under the
+// backend's half-open `created_at < end` filter (e.g. 23:59:59 → next day 00:00:00 = whole day).
+const toIsoOrEmpty = (date: string, time: string, inclusiveEnd = false): string => {
+  if (!date || !time) return ''
+  const normalized = time.length === 5 ? `${time}:00` : time
+  const d = new Date(`${date}T${normalized}`)
+  if (Number.isNaN(d.getTime())) return ''
+  if (inclusiveEnd) d.setSeconds(d.getSeconds() + 1)
+  return d.toISOString()
+}
 
 const today = computed(() => {
   // Use local timezone to avoid UTC timezone issues
@@ -258,6 +300,9 @@ const selectPreset = (preset: DatePreset) => {
   const range = preset.getRange()
   localStartDate.value = range.start
   localEndDate.value = range.end
+  // Presets cover whole days: clear any time-of-day so the bound stays date-only.
+  localStartTime.value = DEFAULT_START_TIME
+  localEndTime.value = DEFAULT_END_TIME
   activePreset.value = preset.value
 }
 
@@ -319,11 +364,17 @@ const toggle = async () => {
 }
 
 const apply = () => {
+  const startTimeISO = toIsoOrEmpty(localStartDate.value, localStartTime.value)
+  const endTimeISO = toIsoOrEmpty(localEndDate.value, localEndTime.value, true)
   emit('update:startDate', localStartDate.value)
   emit('update:endDate', localEndDate.value)
+  emit('update:startTime', startTimeISO)
+  emit('update:endTime', endTimeISO)
   emit('change', {
     startDate: localStartDate.value,
     endDate: localEndDate.value,
+    startTime: startTimeISO,
+    endTime: endTimeISO,
     preset: activePreset.value
   })
   isOpen.value = false
@@ -460,6 +511,10 @@ onUnmounted(() => {
   @apply border border-stone-200/80 dark:border-white/10;
   @apply text-stone-900 dark:text-neutral-100;
   @apply focus:border-emerald-500/60 focus:outline-none focus:ring-2 focus:ring-emerald-500/25;
+}
+
+.date-picker-time {
+  @apply mt-1.5;
 }
 
 .date-picker-input::-webkit-calendar-picker-indicator {

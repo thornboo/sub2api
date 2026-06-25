@@ -5,6 +5,58 @@ import (
 	"time"
 )
 
+func TestParseUserDateOrDateTime(t *testing.T) {
+	const tz = "Asia/Shanghai"
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+
+	// Date-only → midnight in user TZ, hasTime=false (caller applies +1 day).
+	got, hasTime, err := ParseUserDateOrDateTime("2026-06-05", tz)
+	if err != nil {
+		t.Fatalf("date-only parse failed: %v", err)
+	}
+	if hasTime {
+		t.Errorf("date-only should report hasTime=false")
+	}
+	want := time.Date(2026, 6, 5, 0, 0, 0, 0, loc)
+	if !got.Equal(want) {
+		t.Errorf("date-only = %v, want %v", got, want)
+	}
+
+	// "YYYY-MM-DD HH:MM:SS" → exact wall-clock in user TZ, hasTime=true.
+	got, hasTime, err = ParseUserDateOrDateTime("2026-06-05 09:30:45", tz)
+	if err != nil {
+		t.Fatalf("datetime parse failed: %v", err)
+	}
+	if !hasTime {
+		t.Errorf("datetime should report hasTime=true")
+	}
+	want = time.Date(2026, 6, 5, 9, 30, 45, 0, loc)
+	if !got.Equal(want) {
+		t.Errorf("datetime = %v, want %v", got, want)
+	}
+
+	// RFC3339 (carries offset) → normalized into user TZ, hasTime=true.
+	got, hasTime, err = ParseUserDateOrDateTime("2026-06-05T09:30:45Z", tz)
+	if err != nil {
+		t.Fatalf("rfc3339 parse failed: %v", err)
+	}
+	if !hasTime {
+		t.Errorf("rfc3339 should report hasTime=true")
+	}
+	// 09:30:45 UTC == 17:30:45 in Asia/Shanghai (+08:00).
+	if got.Hour() != 17 || got.Minute() != 30 || got.Second() != 45 {
+		t.Errorf("rfc3339 in user TZ = %v, want 17:30:45 local", got)
+	}
+
+	// Invalid input → error.
+	if _, _, err := ParseUserDateOrDateTime("not-a-date", tz); err == nil {
+		t.Errorf("invalid input should return error")
+	}
+}
+
 func TestInit(t *testing.T) {
 	// Test with valid timezone
 	err := Init("Asia/Shanghai")

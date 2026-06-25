@@ -1138,7 +1138,7 @@ export default {
         day: '按天',
         week: '按周',
         month: '按月'
-      }
+      },
     },
     status: {
       active: '活跃',
@@ -1838,6 +1838,8 @@ export default {
     custom: '自定义',
     startDate: '开始日期',
     endDate: '结束日期',
+    startTime: '开始时间',
+    endTime: '结束时间',
     apply: '应用',
     selectDateRange: '选择日期范围'
   },

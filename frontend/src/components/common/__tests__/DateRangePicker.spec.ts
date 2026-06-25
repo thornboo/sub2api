@@ -94,13 +94,23 @@ describe('DateRangePicker', () => {
 
       expect(wrapper.emitted('update:startDate')?.[0]).toEqual([expectedStart])
       expect(wrapper.emitted('update:endDate')?.[0]).toEqual([expectedEnd])
-      expect(wrapper.emitted('change')?.[0]).toEqual([
-        {
-          startDate: expectedStart,
-          endDate: expectedEnd,
-          preset: 'last24Hours'
-        }
-      ])
+      const changePayload = wrapper.emitted('change')?.[0]?.[0] as {
+        startDate: string
+        endDate: string
+        startTime: string
+        endTime: string
+        preset: string | null
+      }
+      expect(changePayload.startDate).toBe(expectedStart)
+      expect(changePayload.endDate).toBe(expectedEnd)
+      expect(changePayload.preset).toBe('last24Hours')
+      // Default whole-day bounds emit ISO times (start 00:00:00, end inclusive → next-second).
+      const isoPattern = /^\d{4}-\d{2}-\d{2}T.*Z$/
+      expect(changePayload.startTime).toMatch(isoPattern)
+      expect(changePayload.endTime).toMatch(isoPattern)
+      expect(new Date(changePayload.endTime).getTime()).toBeGreaterThan(
+        new Date(changePayload.startTime).getTime()
+      )
     } finally {
       wrapper.unmount()
       host.remove()
