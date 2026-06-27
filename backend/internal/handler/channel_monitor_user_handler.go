@@ -1,176 +1,168 @@
 package handler
 
 import (
+	"strconv"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
-	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
-// ChannelMonitorUserHandler 渠道监控用户只读 handler。
+// ChannelMonitorUserHandler 模型服务状态用户只读 handler。
 type ChannelMonitorUserHandler struct {
-	monitorService *service.ChannelMonitorService
-	settingService *service.SettingService
+	modelStatusService *service.ModelSelfCheckService
+	settingService     *service.SettingService
 }
 
 // NewChannelMonitorUserHandler 创建 handler。
 // settingService 用于每次请求前读取功能开关；关闭时 List/GetStatus 直接返回空/404。
 func NewChannelMonitorUserHandler(
-	monitorService *service.ChannelMonitorService,
+	modelStatusService *service.ModelSelfCheckService,
 	settingService *service.SettingService,
 ) *ChannelMonitorUserHandler {
 	return &ChannelMonitorUserHandler{
-		monitorService: monitorService,
-		settingService: settingService,
+		modelStatusService: modelStatusService,
+		settingService:     settingService,
 	}
 }
 
-// featureEnabled 返回当前渠道监控功能是否开启。
+// featureEnabled 返回当前模型自检功能是否开启。
 // settingService 为 nil（测试场景）视为启用。
 func (h *ChannelMonitorUserHandler) featureEnabled(c *gin.Context) bool {
 	if h.settingService == nil {
 		return true
 	}
-	return h.settingService.GetChannelMonitorRuntime(c.Request.Context()).Enabled
+	return h.settingService.GetModelSelfCheckRuntime(c.Request.Context()).Enabled
 }
 
 // --- Response ---
 
-type channelMonitorUserListItem struct {
-	ID                   int64                                `json:"id"`
-	Name                 string                               `json:"name"`
-	Provider             string                               `json:"provider"`
-	GroupName            string                               `json:"group_name"`
-	PrimaryModel         string                               `json:"primary_model"`
-	PrimaryStatus        string                               `json:"primary_status"`
-	PrimaryLatencyMs     *int                                 `json:"primary_latency_ms"`
-	PrimaryPingLatencyMs *int                                 `json:"primary_ping_latency_ms"`
-	Availability7d       float64                              `json:"availability_7d"`
-	ExtraModels          []dto.ChannelMonitorExtraModelStatus `json:"extra_models"`
-	Timeline             []channelMonitorUserTimelinePoint    `json:"timeline"`
+type userModelStatusListItem struct {
+	GroupID          int64                          `json:"group_id"`
+	GroupName        string                         `json:"group_name"`
+	Model            string                         `json:"model"`
+	DisplayName      string                         `json:"display_name"`
+	Status           string                         `json:"status"`
+	MessageCode      string                         `json:"message_code"`
+	LatestLatencyMs  *int                           `json:"latest_latency_ms"`
+	AvgLatency24hMs  *int                           `json:"avg_latency_24h_ms"`
+	AvgLatency7dMs   *int                           `json:"avg_latency_7d_ms"`
+	Availability24h  *float64                       `json:"availability_24h"`
+	Availability7d   *float64                       `json:"availability_7d"`
+	Availability30d  *float64                       `json:"availability_30d"`
+	DegradedRatio24h *float64                       `json:"degraded_ratio_24h"`
+	LastCheckedAt    *string                        `json:"last_checked_at"`
+	Timeline         []userModelStatusTimelinePoint `json:"timeline,omitempty"`
 }
 
-// channelMonitorUserTimelinePoint 主模型最近一次检测的 timeline 点。
-// 仅用于用户视图 list 响应，admin 视图不使用。
-type channelMonitorUserTimelinePoint struct {
-	Status        string `json:"status"`
-	LatencyMs     *int   `json:"latency_ms"`
-	PingLatencyMs *int   `json:"ping_latency_ms"`
-	CheckedAt     string `json:"checked_at"`
+type userModelStatusTimelinePoint struct {
+	Status    string `json:"status"`
+	LatencyMs *int   `json:"latency_ms"`
+	CheckedAt string `json:"checked_at"`
 }
 
-type channelMonitorUserDetailResponse struct {
-	ID        int64                         `json:"id"`
-	Name      string                        `json:"name"`
-	Provider  string                        `json:"provider"`
-	GroupName string                        `json:"group_name"`
-	Models    []channelMonitorUserModelStat `json:"models"`
+func userModelStatusViewToItem(v *service.UserModelStatusView) userModelStatusListItem {
+	return userModelStatusListItem{
+		GroupID:          v.GroupID,
+		GroupName:        v.GroupName,
+		Model:            v.Model,
+		DisplayName:      v.DisplayName,
+		Status:           v.Status,
+		MessageCode:      v.MessageCode,
+		LatestLatencyMs:  v.LatestLatencyMs,
+		AvgLatency24hMs:  v.AvgLatency24hMs,
+		AvgLatency7dMs:   v.AvgLatency7dMs,
+		Availability24h:  v.Availability24h,
+		Availability7d:   v.Availability7d,
+		Availability30d:  v.Availability30d,
+		DegradedRatio24h: v.DegradedRatio24h,
+		LastCheckedAt:    formatOptionalTime(v.LastCheckedAt),
+		Timeline:         userModelTimelineToResponse(v.Timeline),
+	}
 }
 
-type channelMonitorUserModelStat struct {
-	Model           string  `json:"model"`
-	LatestStatus    string  `json:"latest_status"`
-	LatestLatencyMs *int    `json:"latest_latency_ms"`
-	Availability7d  float64 `json:"availability_7d"`
-	Availability15d float64 `json:"availability_15d"`
-	Availability30d float64 `json:"availability_30d"`
-	AvgLatency7dMs  *int    `json:"avg_latency_7d_ms"`
-}
-
-func userMonitorViewToItem(v *service.UserMonitorView) channelMonitorUserListItem {
-	extras := make([]dto.ChannelMonitorExtraModelStatus, 0, len(v.ExtraModels))
-	for _, e := range v.ExtraModels {
-		extras = append(extras, dto.ChannelMonitorExtraModelStatus{
-			Model:     e.Model,
-			Status:    e.Status,
-			LatencyMs: e.LatencyMs,
+func userModelTimelineToResponse(points []service.UserModelTimelinePoint) []userModelStatusTimelinePoint {
+	out := make([]userModelStatusTimelinePoint, 0, len(points))
+	for _, p := range points {
+		out = append(out, userModelStatusTimelinePoint{
+			Status:    p.Status,
+			LatencyMs: p.LatencyMs,
+			CheckedAt: p.CheckedAt.UTC().Format(time.RFC3339),
 		})
 	}
-	timeline := make([]channelMonitorUserTimelinePoint, 0, len(v.Timeline))
-	for _, p := range v.Timeline {
-		timeline = append(timeline, channelMonitorUserTimelinePoint{
-			Status:        p.Status,
-			LatencyMs:     p.LatencyMs,
-			PingLatencyMs: p.PingLatencyMs,
-			CheckedAt:     p.CheckedAt.UTC().Format(time.RFC3339),
-		})
-	}
-	return channelMonitorUserListItem{
-		ID:                   v.ID,
-		Name:                 v.Name,
-		Provider:             v.Provider,
-		GroupName:            v.GroupName,
-		PrimaryModel:         v.PrimaryModel,
-		PrimaryStatus:        v.PrimaryStatus,
-		PrimaryLatencyMs:     v.PrimaryLatencyMs,
-		PrimaryPingLatencyMs: v.PrimaryPingLatencyMs,
-		Availability7d:       v.Availability7d,
-		ExtraModels:          extras,
-		Timeline:             timeline,
-	}
+	return out
 }
 
-func userMonitorDetailToResponse(d *service.UserMonitorDetail) *channelMonitorUserDetailResponse {
-	models := make([]channelMonitorUserModelStat, 0, len(d.Models))
-	for _, m := range d.Models {
-		models = append(models, channelMonitorUserModelStat{
-			Model:           m.Model,
-			LatestStatus:    m.LatestStatus,
-			LatestLatencyMs: m.LatestLatencyMs,
-			Availability7d:  m.Availability7d,
-			Availability15d: m.Availability15d,
-			Availability30d: m.Availability30d,
-			AvgLatency7dMs:  m.AvgLatency7dMs,
-		})
+func formatOptionalTime(t *time.Time) *string {
+	if t == nil {
+		return nil
 	}
-	return &channelMonitorUserDetailResponse{
-		ID:        d.ID,
-		Name:      d.Name,
-		Provider:  d.Provider,
-		GroupName: d.GroupName,
-		Models:    models,
-	}
+	v := t.UTC().Format(time.RFC3339)
+	return &v
 }
 
 // --- Handlers ---
 
-// List GET /api/v1/channel-monitors
-func (h *ChannelMonitorUserHandler) List(c *gin.Context) {
+// ListModelStatus GET /api/v1/model-status
+func (h *ChannelMonitorUserHandler) ListModelStatus(c *gin.Context) {
 	if !h.featureEnabled(c) {
-		response.Success(c, gin.H{"items": []channelMonitorUserListItem{}})
+		response.Success(c, gin.H{
+			"items":      []userModelStatusListItem{},
+			"updated_at": time.Now().UTC().Format(time.RFC3339),
+		})
 		return
 	}
-	views, err := h.monitorService.ListUserView(c.Request.Context())
+	if h.modelStatusService == nil {
+		response.Success(c, gin.H{
+			"items":      []userModelStatusListItem{},
+			"updated_at": time.Now().UTC().Format(time.RFC3339),
+		})
+		return
+	}
+	views, err := h.modelStatusService.ListUserModelStatus(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	items := make([]channelMonitorUserListItem, 0, len(views))
+	items := make([]userModelStatusListItem, 0, len(views))
 	for _, v := range views {
-		items = append(items, userMonitorViewToItem(v))
+		items = append(items, userModelStatusViewToItem(v))
 	}
-	response.Success(c, gin.H{"items": items})
+	response.Success(c, gin.H{
+		"items":      items,
+		"updated_at": time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
-// GetStatus GET /api/v1/channel-monitors/:id/status
-func (h *ChannelMonitorUserHandler) GetStatus(c *gin.Context) {
+// GetModelStatus GET /api/v1/model-status/detail?group_id=...&model=...
+func (h *ChannelMonitorUserHandler) GetModelStatus(c *gin.Context) {
 	if !h.featureEnabled(c) {
 		response.ErrorFrom(c, service.ErrChannelMonitorNotFound)
 		return
 	}
-	// 复用 admin.ParseChannelMonitorID 保持错误码与日志一致。
-	id, ok := admin.ParseChannelMonitorID(c)
-	if !ok {
+	if h.modelStatusService == nil {
+		response.ErrorFrom(c, service.ErrChannelMonitorNotFound)
 		return
 	}
-	detail, err := h.monitorService.GetUserDetail(c.Request.Context(), id)
+	model := c.Query("model")
+	groupID, err := parseOptionalGroupID(c.Query("group_id"))
+	if err != nil {
+		response.BadRequest(c, "invalid group_id")
+		return
+	}
+	detail, err := h.modelStatusService.GetUserModelStatus(c.Request.Context(), groupID, model)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, userMonitorDetailToResponse(detail))
+	response.Success(c, userModelStatusViewToItem(&detail.UserModelStatusView))
+}
+
+func parseOptionalGroupID(raw string) (int64, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	return strconv.ParseInt(raw, 10, 64)
 }

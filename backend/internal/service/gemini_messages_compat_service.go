@@ -790,7 +790,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				Kind:               "request_error",
 				Message:            safeErr,
 			})
-			if attempt < geminiMaxRetries {
+			if !isModelSelfCheckProbeContext(ctx) && attempt < geminiMaxRetries {
 				logger.LegacyPrintf("service.gemini_messages_compat", "Gemini account %d: upstream request failed, retry %d/%d: %v", account.ID, attempt, geminiMaxRetries, err)
 				sleepGeminiBackoff(attempt)
 				continue
@@ -875,7 +875,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			resp = rebuilt
 		}
 
-		if resp.StatusCode >= 400 && s.shouldRetryGeminiUpstreamError(account, resp.StatusCode) {
+		if resp.StatusCode >= 400 && s.shouldRetryGeminiUpstreamError(ctx, account, resp.StatusCode) {
 			respBody := s.readUpstreamErrorBody(resp)
 			_ = resp.Body.Close()
 			// Don't treat insufficient-scope as transient.
@@ -1323,7 +1323,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				Kind:               "request_error",
 				Message:            safeErr,
 			})
-			if attempt < geminiMaxRetries {
+			if !isModelSelfCheckProbeContext(ctx) && attempt < geminiMaxRetries {
 				logger.LegacyPrintf("service.gemini_messages_compat", "Gemini account %d: upstream request failed, retry %d/%d: %v", account.ID, attempt, geminiMaxRetries, err)
 				sleepGeminiBackoff(attempt)
 				continue
@@ -1353,7 +1353,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			resp = rebuilt
 		}
 
-		if resp.StatusCode >= 400 && s.shouldRetryGeminiUpstreamError(account, resp.StatusCode) {
+		if resp.StatusCode >= 400 && s.shouldRetryGeminiUpstreamError(ctx, account, resp.StatusCode) {
 			respBody := s.readUpstreamErrorBody(resp)
 			_ = resp.Body.Close()
 			// Don't treat insufficient-scope as transient.
@@ -1666,7 +1666,10 @@ func (s *GeminiMessagesCompatService) checkErrorPolicyInLoop(
 	return policy != ErrorPolicyNone, rebuilt
 }
 
-func (s *GeminiMessagesCompatService) shouldRetryGeminiUpstreamError(account *Account, statusCode int) bool {
+func (s *GeminiMessagesCompatService) shouldRetryGeminiUpstreamError(ctx context.Context, account *Account, statusCode int) bool {
+	if isModelSelfCheckProbeContext(ctx) {
+		return false
+	}
 	switch statusCode {
 	case 429, 500, 502, 503, 504, 529:
 		return true
@@ -2848,6 +2851,9 @@ func asInt(v any) (int, bool) {
 }
 
 func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, body []byte, requestedModel ...string) (handled bool, shouldFailover bool) {
+	if isModelSelfCheckProbeContext(ctx) {
+		return false, false
+	}
 	// 遵守自定义错误码策略：未命中则跳过所有限流处理
 	if !account.ShouldHandleErrorCode(statusCode) {
 		return false, false

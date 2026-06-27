@@ -207,10 +207,9 @@
             <!-- Model Restriction -->
             <div>
               <label class="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
+                <BaseCheckbox
                   v-model="form.restrict_models"
-                  class="h-4 w-4 rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
+                  :aria-label="t('admin.channels.form.restrictModels', 'Restrict Models')"
                 />
                 <span class="input-label mb-0">{{ t('admin.channels.form.restrictModels', 'Restrict Models') }}</span>
               </label>
@@ -240,11 +239,10 @@
                     ? 'bg-emerald-50 border-emerald-300 dark:bg-emerald-900/20 dark:border-emerald-700'
                     : 'border-stone-200/70 hover:bg-stone-50/80 dark:border-white/10 dark:hover:bg-white/[0.06]'"
                 >
-                  <input
-                    type="checkbox"
-                    :checked="activePlatforms.includes(p)"
-                    class="h-3.5 w-3.5 rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
-                    @change="togglePlatform(p)"
+                  <BaseCheckbox
+                    :model-value="activePlatforms.includes(p)"
+                    :aria-label="t('admin.groups.platforms.' + p, p)"
+                    @update:modelValue="togglePlatform(p)"
                   />
                   <PlatformIcon :platform="p" size="xs" :class="platformTextClass(p)" />
                   <span :class="platformTextClass(p)">{{ t('admin.groups.platforms.' + p, p) }}</span>
@@ -303,12 +301,12 @@
                       isGroupInOtherChannel(group.id, section.platform) ? 'opacity-40' : ''
                     ]"
                   >
-                    <input
-                      type="checkbox"
-                      :checked="section.group_ids.includes(group.id)"
+                    <BaseCheckbox
+                      size="sm"
+                      :model-value="section.group_ids.includes(group.id)"
                       :disabled="isGroupInOtherChannel(group.id, section.platform)"
-                      class="h-3 w-3 rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
-                      @change="toggleGroupInSection(sIdx, group.id)"
+                      :aria-label="group.name"
+                      @update:modelValue="toggleGroupInSection(sIdx, group.id)"
                     />
                     <span :class="['font-medium', platformTextClass(group.platform)]">{{ group.name }}</span>
                     <span
@@ -503,7 +501,12 @@
                         ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-900/20'
                         : 'border-stone-200/70 hover:bg-stone-50/80 dark:border-white/10 dark:hover:bg-white/[0.06]'"
                     >
-                      <input type="checkbox" :checked="rule.group_ids.includes(gid)" class="h-3 w-3 rounded border-stone-300 text-emerald-600 focus:ring-emerald-500" @change="rule.group_ids.includes(gid) ? rule.group_ids.splice(rule.group_ids.indexOf(gid), 1) : rule.group_ids.push(gid)" />
+                      <BaseCheckbox
+                        size="sm"
+                        :model-value="rule.group_ids.includes(gid)"
+                        :aria-label="getGroupNameById(gid)"
+                        @update:modelValue="toggleRuleGroup(rule, gid)"
+                      />
                       <span :class="['font-medium', platformTextClass(section.platform)]">{{ getGroupNameById(gid) }}</span>
                     </label>
                   </div>
@@ -644,6 +647,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Select from '@/components/common/Select.vue'
+import BaseCheckbox from '@/components/common/BaseCheckbox.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Toggle from '@/components/common/Toggle.vue'
@@ -846,6 +850,15 @@ function toggleGroupInSection(sectionIdx: number, groupId: number) {
   }
 }
 
+function toggleRuleGroup(rule: FormPricingRule, groupId: number) {
+  const idx = rule.group_ids.indexOf(groupId)
+  if (idx >= 0) {
+    rule.group_ids.splice(idx, 1)
+  } else {
+    rule.group_ids.push(groupId)
+  }
+}
+
 // ── Pricing helpers ──
 function addPricingEntry(sectionIdx: number) {
   form.platforms[sectionIdx].model_pricing.push({
@@ -857,7 +870,8 @@ function addPricingEntry(sectionIdx: number) {
     cache_read_price: null,
     image_output_price: null,
     per_request_price: null,
-    intervals: []
+    intervals: [],
+    self_check_enabled_models: []
   })
 }
 
@@ -889,7 +903,8 @@ async function syncLatestModels(sectionIdx: number) {
       cache_read_price: null,
       image_output_price: null,
       per_request_price: null,
-      intervals: []
+      intervals: [],
+      self_check_enabled_models: []
     })
     appStore.showSuccess(t('admin.channels.form.syncModelsSuccess', { count: newModels.length }))
   } catch (error) {
@@ -953,7 +968,8 @@ function addRulePricingEntry(sectionIdx: number, ruleIndex: number) {
     cache_read_price: null,
     image_output_price: null,
     per_request_price: null,
-    intervals: []
+    intervals: [],
+    self_check_enabled_models: []
   })
 }
 
@@ -1068,7 +1084,8 @@ function accountStatsRulesToAPI(): AccountStatsPricingRule[] {
             cache_read_price: mTokToPerToken(p.cache_read_price),
             image_output_price: mTokToPerToken(p.image_output_price),
             per_request_price: p.per_request_price != null && p.per_request_price !== '' ? Number(p.per_request_price) : null,
-            intervals: formIntervalsToAPI(p.intervals || [])
+            intervals: formIntervalsToAPI(p.intervals || []),
+            self_check_enabled_models: []
           }))
       })
     }
@@ -1077,6 +1094,20 @@ function accountStatsRulesToAPI(): AccountStatsPricingRule[] {
 }
 
 // ── Form ↔ API conversion ──
+function sanitizeSelfCheckModels(entry: Pick<PricingFormEntry, 'models' | 'self_check_enabled_models'>): string[] {
+  const allowed = new Map(entry.models.map(model => [model.trim().toLowerCase(), model.trim()]))
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const model of entry.self_check_enabled_models || []) {
+    const key = model.trim().toLowerCase()
+    const canonical = allowed.get(key)
+    if (!canonical || seen.has(key)) continue
+    seen.add(key)
+    out.push(canonical)
+  }
+  return out
+}
+
 function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[], model_mapping: Record<string, Record<string, string>>, features_config: Record<string, unknown> } {
   const group_ids: number[] = []
   const model_pricing: ChannelModelPricing[] = []
@@ -1108,7 +1139,8 @@ function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[
         cache_read_price: mTokToPerToken(entry.cache_read_price),
         image_output_price: mTokToPerToken(entry.image_output_price),
         per_request_price: entry.per_request_price != null && entry.per_request_price !== '' ? Number(entry.per_request_price) : null,
-        intervals: formIntervalsToAPI(entry.intervals || [])
+        intervals: formIntervalsToAPI(entry.intervals || []),
+        self_check_enabled_models: sanitizeSelfCheckModels(entry)
       })
     }
   }
@@ -1196,7 +1228,11 @@ function apiToForm(channel: Channel): PlatformSection[] {
         cache_read_price: perTokenToMTok(p.cache_read_price),
         image_output_price: perTokenToMTok(p.image_output_price),
         per_request_price: p.per_request_price,
-        intervals: apiIntervalsToForm(p.intervals || [])
+        intervals: apiIntervalsToForm(p.intervals || []),
+        self_check_enabled_models: sanitizeSelfCheckModels({
+          models: p.models || [],
+          self_check_enabled_models: p.self_check_enabled_models || []
+        })
       } as PricingFormEntry))
 
     // Read web_search_emulation from features_config
@@ -1384,7 +1420,8 @@ function distributeRulesToPlatforms(apiRules: AccountStatsPricingRule[]) {
         cache_read_price: perTokenToMTok(p.cache_read_price),
         image_output_price: perTokenToMTok(p.image_output_price),
         per_request_price: p.per_request_price,
-        intervals: apiIntervalsToForm(p.intervals || [])
+        intervals: apiIntervalsToForm(p.intervals || []),
+        self_check_enabled_models: []
       } as PricingFormEntry))
     }
     section.account_stats_pricing_rules.push(formRule)

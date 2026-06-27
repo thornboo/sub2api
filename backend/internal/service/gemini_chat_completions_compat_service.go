@@ -135,7 +135,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 				Kind:               "request_error",
 				Message:            safeErr,
 			})
-			if attempt < geminiMaxRetries {
+			if !isModelSelfCheckProbeContext(ctx) && attempt < geminiMaxRetries {
 				logger.LegacyPrintf("service.gemini_chat_completions", "Gemini account %d: upstream request failed, retry %d/%d: %v", account.ID, attempt, geminiMaxRetries, err)
 				sleepGeminiBackoff(attempt)
 				continue
@@ -151,7 +151,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 			resp = rebuilt
 		}
 
-		if resp.StatusCode >= 400 && s.shouldRetryGeminiUpstreamError(account, resp.StatusCode) {
+		if resp.StatusCode >= 400 && s.shouldRetryGeminiUpstreamError(ctx, account, resp.StatusCode) {
 			respBody := s.readUpstreamErrorBody(resp)
 			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusForbidden && isGeminiInsufficientScope(resp.Header, respBody) {

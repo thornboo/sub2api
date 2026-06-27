@@ -163,6 +163,9 @@ const (
 // CheckErrorPolicy 检查自定义错误码和临时不可调度规则。
 // 自定义错误码开启时覆盖后续所有逻辑（包括临时不可调度）。
 func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Account, statusCode int, responseBody []byte) ErrorPolicyResult {
+	if isModelSelfCheckProbeContext(ctx) {
+		return ErrorPolicyNone
+	}
 	if account.IsCustomErrorCodesEnabled() {
 		if account.ShouldHandleErrorCode(statusCode) {
 			return ErrorPolicyMatched
@@ -183,6 +186,9 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 // 返回 true 表示调用方应让本次请求 failover/停止继续使用当前账号；
 // 具体状态变更可能是账号级，也可能只是 account+model 的模型级冷却。
 func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldFailover bool) {
+	if isModelSelfCheckProbeContext(ctx) {
+		return false
+	}
 	customErrorCodesEnabled := account.IsCustomErrorCodesEnabled()
 
 	// 池模式默认不标记本地账号状态；仅当用户显式配置自定义错误码时按本地策略处理。
@@ -1832,6 +1838,9 @@ func (s *RateLimitService) HandleTempUnschedulable(ctx context.Context, account 
 }
 
 func (s *RateLimitService) HandleOpenAIImageRateLimit(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte) bool {
+	if isModelSelfCheckProbeContext(ctx) {
+		return false
+	}
 	if s == nil || account == nil || s.accountRepo == nil {
 		return false
 	}
@@ -1856,6 +1865,9 @@ func (s *RateLimitService) HandleOpenAIImageRateLimit(ctx context.Context, accou
 }
 
 func (s *RateLimitService) HandleOpenAIModelRateLimit(ctx context.Context, account *Account, requestedModel string, statusCode int, headers http.Header, responseBody []byte) bool {
+	if isModelSelfCheckProbeContext(ctx) {
+		return false
+	}
 	if s == nil || account == nil || s.accountRepo == nil {
 		return false
 	}
@@ -1894,6 +1906,9 @@ func (s *RateLimitService) HandleOpenAIModelRateLimit(ctx context.Context, accou
 }
 
 func (s *RateLimitService) HandleModelScopedFailure(ctx context.Context, account *Account, requestedModel string, statusCode int, headers http.Header, responseBody []byte) (handled bool, shouldFailover bool) {
+	if isModelSelfCheckProbeContext(ctx) {
+		return false, false
+	}
 	if s.HandleOpenAIModelRateLimit(ctx, account, requestedModel, statusCode, headers, responseBody) {
 		return true, true
 	}
@@ -2345,6 +2360,9 @@ const tempUnschedBodyMaxBytes = 64 << 10
 const tempUnschedMessageMaxBytes = 2048
 
 func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, account *Account, requestedModel string, statusCode int, responseBody []byte) bool {
+	if isModelSelfCheckProbeContext(ctx) {
+		return false
+	}
 	if s == nil || account == nil || s.accountRepo == nil {
 		return false
 	}

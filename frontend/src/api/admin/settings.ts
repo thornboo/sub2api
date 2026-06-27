@@ -612,6 +612,12 @@ export interface SystemSettings {
   channel_monitor_enabled: boolean;
   channel_monitor_default_interval_seconds: number;
 
+  // Model self-check feature switch
+  model_self_check_enabled: boolean;
+  self_check_default_interval_seconds: number;
+  self_check_max_concurrency: number;
+  self_check_max_tasks_per_round: number;
+
   // Available Channels feature switch
   available_channels_enabled: boolean;
 
@@ -852,6 +858,12 @@ export interface UpdateSettingsRequest {
   // Channel Monitor feature switch
   channel_monitor_enabled?: boolean;
   channel_monitor_default_interval_seconds?: number;
+
+  // Model self-check feature switch
+  model_self_check_enabled?: boolean;
+  self_check_default_interval_seconds?: number;
+  self_check_max_concurrency?: number;
+  self_check_max_tasks_per_round?: number;
 
   // Available Channels feature switch
   available_channels_enabled?: boolean;

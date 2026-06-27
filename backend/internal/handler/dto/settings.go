@@ -241,6 +241,12 @@ type SystemSettings struct {
 	ChannelMonitorEnabled                bool `json:"channel_monitor_enabled"`
 	ChannelMonitorDefaultIntervalSeconds int  `json:"channel_monitor_default_interval_seconds"`
 
+	// Model self-check feature switch
+	ModelSelfCheckEnabled                bool `json:"model_self_check_enabled"`
+	ModelSelfCheckDefaultIntervalSeconds int  `json:"self_check_default_interval_seconds"`
+	ModelSelfCheckMaxConcurrency         int  `json:"self_check_max_concurrency"`
+	ModelSelfCheckMaxTasksPerRound       int  `json:"self_check_max_tasks_per_round"`
+
 	// Available Channels feature switch (user-facing aggregate view)
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
 
@@ -320,6 +326,11 @@ type PublicSettings struct {
 
 	ChannelMonitorEnabled                bool `json:"channel_monitor_enabled"`
 	ChannelMonitorDefaultIntervalSeconds int  `json:"channel_monitor_default_interval_seconds"`
+
+	ModelSelfCheckEnabled                bool `json:"model_self_check_enabled"`
+	ModelSelfCheckDefaultIntervalSeconds int  `json:"self_check_default_interval_seconds"`
+	ModelSelfCheckMaxConcurrency         int  `json:"self_check_max_concurrency"`
+	ModelSelfCheckMaxTasksPerRound       int  `json:"self_check_max_tasks_per_round"`
 
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
 

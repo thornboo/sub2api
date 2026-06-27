@@ -556,7 +556,7 @@ export default {
     channelManagement: '渠道管理',
     channelPricing: '渠道定价',
     channelMonitor: '渠道监控',
-    channelStatus: '渠道状态',
+    channelStatus: '模型状态',
     riskControl: '风控中心',
   },
 
@@ -1321,7 +1321,7 @@ export default {
       degraded: '降级',
       failed: '失败',
       error: '错误',
-      unknown: '-'
+      unknown: '未知'
     },
     providers: {
       openai: 'OpenAI',
@@ -1348,25 +1348,46 @@ export default {
     relativeDaysAgo: '{n} 天前'
   },
 
-  // Channel Status (user-facing read-only view)
+  // Model Status (user-facing read-only view)
   channelStatus: {
-    title: '渠道状态',
-    description: '查看渠道可用性、延迟和近期状态',
-    searchPlaceholder: '搜索渠道...',
+    title: '模型服务状态',
+    description: '查看站点对外模型的当前健康状态、可用率和近期延迟。',
+    searchPlaceholder: '搜索模型...',
     allProviders: '全部供应商',
-    loadError: '加载渠道状态失败',
-    detailLoadError: '加载渠道详情失败',
-    detailTitle: '渠道详情',
+    loadError: '加载模型状态失败',
+    detailLoadError: '加载模型详情失败',
+    detailTitle: '模型详情',
     closeDetail: '关闭',
+    unknownGroup: '未命名分组',
+    groupPrefix: '分组：',
     windowTab: {
+      '24h': '24 小时',
       '7d': '7 天',
       '15d': '15 天',
       '30d': '30 天'
     },
     overall: {
-      operational: 'OPERATIONAL',
-      degraded: 'DEGRADED',
-      unavailable: 'UNAVAILABLE'
+      operational: '全部正常',
+      degraded: '部分波动',
+      unavailable: '存在异常',
+      unknown: '暂无数据'
+    },
+    summary: {
+      overall: '总体状态',
+      models: '监控模型',
+      affected: '受影响模型',
+      updated: '最后更新'
+    },
+    metrics: {
+      latency: '平均延迟',
+      avgLatency7d: '7 天平均延迟',
+      lastChecked: '最后检测'
+    },
+    message: {
+      normal: '服务正常',
+      partial: '部分请求可能受影响',
+      unavailable: '当前模型可能不可用',
+      no_data: '暂无检测数据'
     },
     columns: {
       name: '名称',
@@ -1386,8 +1407,8 @@ export default {
       avgLatency7d: '7 天平均延迟 (ms)'
     },
     empty: {
-      title: '暂无可显示的渠道',
-      description: '管理员尚未配置可监控的渠道。'
+      title: '暂无模型状态',
+      description: '管理员尚未配置公开模型健康监控。'
     }
   },
 
@@ -6235,6 +6256,19 @@ export default {
           enabledHint: '关闭后后台不再执行定时检测，已有数据保留。',
           defaultInterval: '默认检测间隔（秒）',
           defaultIntervalHint: '新建渠道监控时表单的默认值，可被单个渠道覆盖。范围 15 – 3600 秒。',
+        },
+        modelSelfCheck: {
+          title: '模型自检',
+          description: '按渠道定价中启用的模型定时发起极小探针，向用户展示站点模型健康状态，不暴露上游账号或渠道。',
+          configureLink: '前往 渠道管理 > 渠道定价 选择要公开自检的模型',
+          enabled: '启用模型自检',
+          enabledHint: '关闭后停止后台探针，用户端模型状态页返回空列表。',
+          defaultInterval: '默认自检间隔（秒）',
+          defaultIntervalHint: '每个去重后的模型与账号探针使用该间隔。范围 60 – 86400 秒。',
+          maxConcurrency: '全局并发上限',
+          maxConcurrencyHint: '同一时刻允许提交的自检探针数量。范围 1 – 64。',
+          maxTasksPerRound: '单轮任务上限',
+          maxTasksPerRoundHint: '每次刷新最多调度的去重探针数量，防止误开大量模型时刷爆上游。范围 1 – 10000。',
         },
         availableChannels: {
           title: '可用渠道',

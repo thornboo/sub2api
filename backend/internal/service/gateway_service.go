@@ -4059,7 +4059,10 @@ const (
 	maxRetryElapsed = 10 * time.Second
 )
 
-func (s *GatewayService) shouldRetryUpstreamError(account *Account, statusCode int) bool {
+func (s *GatewayService) shouldRetryUpstreamError(ctx context.Context, account *Account, statusCode int) bool {
+	if isModelSelfCheckProbeContext(ctx) {
+		return false
+	}
 	// OAuth/Setup Token 账号：仅 403 重试
 	if account.IsOAuth() {
 		return statusCode == 403
@@ -5271,7 +5274,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		}
 
 		// 检查是否需要通用重试（排除400，因为400已经在上面特殊处理过了）
-		if resp.StatusCode >= 400 && resp.StatusCode != 400 && s.shouldRetryUpstreamError(account, resp.StatusCode) {
+		if resp.StatusCode >= 400 && resp.StatusCode != 400 && s.shouldRetryUpstreamError(ctx, account, resp.StatusCode) {
 			if attempt < maxRetryAttempts {
 				elapsed := time.Since(retryStart)
 				if elapsed >= maxRetryElapsed {
@@ -5332,7 +5335,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	defer func() { _ = resp.Body.Close() }()
 
 	// 处理重试耗尽的情况
-	if resp.StatusCode >= 400 && s.shouldRetryUpstreamError(account, resp.StatusCode) {
+	if resp.StatusCode >= 400 && s.shouldRetryUpstreamError(ctx, account, resp.StatusCode) {
 		if s.shouldFailoverUpstreamError(resp.StatusCode) {
 			respBody, _ := s.readUpstreamErrorBody(resp)
 			_ = resp.Body.Close()
@@ -5640,7 +5643,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		}
 
 		// 透传分支禁止 400 请求体降级重试（该重试会改写请求体）
-		if resp.StatusCode >= 400 && resp.StatusCode != 400 && s.shouldRetryUpstreamError(account, resp.StatusCode) {
+		if resp.StatusCode >= 400 && resp.StatusCode != 400 && s.shouldRetryUpstreamError(ctx, account, resp.StatusCode) {
 			if attempt < maxRetryAttempts {
 				elapsed := time.Since(retryStart)
 				if elapsed >= maxRetryElapsed {
@@ -5692,7 +5695,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode >= 400 && s.shouldRetryUpstreamError(account, resp.StatusCode) {
+	if resp.StatusCode >= 400 && s.shouldRetryUpstreamError(ctx, account, resp.StatusCode) {
 		if s.shouldFailoverUpstreamError(resp.StatusCode) {
 			respBody, _ := s.readUpstreamErrorBody(resp)
 			_ = resp.Body.Close()
@@ -6491,7 +6494,7 @@ func (s *GatewayService) executeBedrockUpstream(
 			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 		}
 
-		if resp.StatusCode >= 400 && resp.StatusCode != 400 && s.shouldRetryUpstreamError(account, resp.StatusCode) {
+		if resp.StatusCode >= 400 && resp.StatusCode != 400 && s.shouldRetryUpstreamError(ctx, account, resp.StatusCode) {
 			if attempt < maxRetryAttempts {
 				elapsed := time.Since(retryStart)
 				if elapsed >= maxRetryElapsed {
@@ -6550,7 +6553,7 @@ func (s *GatewayService) handleBedrockUpstreamErrors(
 	account *Account,
 ) (*ForwardResult, error) {
 	// retry exhausted + failover
-	if s.shouldRetryUpstreamError(account, resp.StatusCode) {
+	if s.shouldRetryUpstreamError(ctx, account, resp.StatusCode) {
 		if s.shouldFailoverUpstreamError(resp.StatusCode) {
 			respBody, _ := s.readUpstreamErrorBody(resp)
 			_ = resp.Body.Close()

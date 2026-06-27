@@ -17,11 +17,23 @@
       <div
         v-for="(bar, idx) in displayBars"
         :key="idx"
-        class="flex-1 min-w-[3px] rounded-sm"
-        :class="bar.colorClass"
-        :style="{ height: bar.heightPct + '%' }"
-        :title="bar.title"
-      ></div>
+        class="group relative flex h-full min-w-[3px] flex-1 items-end"
+      >
+        <div
+          class="w-full rounded-sm"
+          :class="bar.colorClass"
+          :style="{ height: bar.heightPct + '%' }"
+          :aria-label="bar.title || undefined"
+        ></div>
+        <div
+          v-if="bar.title"
+          role="tooltip"
+          class="pointer-events-none absolute bottom-full z-30 mb-2 max-w-[min(72vw,280px)] whitespace-nowrap rounded-sm border border-stone-700 bg-stone-900 px-2 py-1 text-[11px] font-semibold leading-tight text-stone-50 opacity-0 shadow-lg transition-opacity duration-75 group-hover:opacity-100 dark:border-stone-600 dark:bg-stone-800"
+          :class="bar.tooltipClass"
+        >
+          {{ bar.title }}
+        </div>
+      </div>
     </div>
 
     <div
@@ -57,6 +69,7 @@ interface Bar {
   colorClass: string
   heightPct: number
   title: string
+  tooltipClass: string
 }
 
 // 4 级高度 + 颜色双重编码：高=好+绿，短=坏+红，灰=未测试。
@@ -93,10 +106,11 @@ const displayBars = computed<Bar[]>(() => {
       colorClass: STATUS_COLOR.empty,
       heightPct: STATUS_HEIGHT.empty,
       title: '',
+      tooltipClass: '',
     })
   }
 
-  for (const point of real) {
+  for (const [idx, point] of real.entries()) {
     const status = point.status as keyof typeof STATUS_HEIGHT
     const colorClass = STATUS_COLOR[status] ?? STATUS_COLOR.empty
     const heightPct = STATUS_HEIGHT[status] ?? STATUS_HEIGHT.empty
@@ -107,9 +121,16 @@ const displayBars = computed<Bar[]>(() => {
       colorClass,
       heightPct,
       title: `${relative} · ${label} · ${latency}ms`,
+      tooltipClass: tooltipAlignClass(padCount + idx, props.length),
     })
   }
 
   return bars
 })
+
+function tooltipAlignClass(index: number, total: number): string {
+  if (index <= 1) return 'left-0'
+  if (index >= total - 2) return 'right-0'
+  return 'left-1/2 -translate-x-1/2'
+}
 </script>

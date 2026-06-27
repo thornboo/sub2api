@@ -299,6 +299,11 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		ChannelMonitorEnabled:                settings.ChannelMonitorEnabled,
 		ChannelMonitorDefaultIntervalSeconds: settings.ChannelMonitorDefaultIntervalSeconds,
 
+		ModelSelfCheckEnabled:                settings.ModelSelfCheckEnabled,
+		ModelSelfCheckDefaultIntervalSeconds: settings.ModelSelfCheckDefaultIntervalSeconds,
+		ModelSelfCheckMaxConcurrency:         settings.ModelSelfCheckMaxConcurrency,
+		ModelSelfCheckMaxTasksPerRound:       settings.ModelSelfCheckMaxTasksPerRound,
+
 		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
 
 		AffiliateEnabled: settings.AffiliateEnabled,
@@ -644,6 +649,12 @@ type UpdateSettingsRequest struct {
 	// Channel Monitor feature switch
 	ChannelMonitorEnabled                *bool `json:"channel_monitor_enabled"`
 	ChannelMonitorDefaultIntervalSeconds *int  `json:"channel_monitor_default_interval_seconds"`
+
+	// Model self-check feature switch
+	ModelSelfCheckEnabled                *bool `json:"model_self_check_enabled"`
+	ModelSelfCheckDefaultIntervalSeconds *int  `json:"self_check_default_interval_seconds"`
+	ModelSelfCheckMaxConcurrency         *int  `json:"self_check_max_concurrency"`
+	ModelSelfCheckMaxTasksPerRound       *int  `json:"self_check_max_tasks_per_round"`
 
 	// Available Channels feature switch (user-facing)
 	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
@@ -1787,6 +1798,30 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.ChannelMonitorDefaultIntervalSeconds
 		}(),
+		ModelSelfCheckEnabled: func() bool {
+			if req.ModelSelfCheckEnabled != nil {
+				return *req.ModelSelfCheckEnabled
+			}
+			return previousSettings.ModelSelfCheckEnabled
+		}(),
+		ModelSelfCheckDefaultIntervalSeconds: func() int {
+			if req.ModelSelfCheckDefaultIntervalSeconds != nil {
+				return *req.ModelSelfCheckDefaultIntervalSeconds
+			}
+			return previousSettings.ModelSelfCheckDefaultIntervalSeconds
+		}(),
+		ModelSelfCheckMaxConcurrency: func() int {
+			if req.ModelSelfCheckMaxConcurrency != nil {
+				return *req.ModelSelfCheckMaxConcurrency
+			}
+			return previousSettings.ModelSelfCheckMaxConcurrency
+		}(),
+		ModelSelfCheckMaxTasksPerRound: func() int {
+			if req.ModelSelfCheckMaxTasksPerRound != nil {
+				return *req.ModelSelfCheckMaxTasksPerRound
+			}
+			return previousSettings.ModelSelfCheckMaxTasksPerRound
+		}(),
 		AvailableChannelsEnabled: func() bool {
 			if req.AvailableChannelsEnabled != nil {
 				return *req.AvailableChannelsEnabled
@@ -2136,6 +2171,11 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 
 		ChannelMonitorEnabled:                updatedSettings.ChannelMonitorEnabled,
 		ChannelMonitorDefaultIntervalSeconds: updatedSettings.ChannelMonitorDefaultIntervalSeconds,
+
+		ModelSelfCheckEnabled:                updatedSettings.ModelSelfCheckEnabled,
+		ModelSelfCheckDefaultIntervalSeconds: updatedSettings.ModelSelfCheckDefaultIntervalSeconds,
+		ModelSelfCheckMaxConcurrency:         updatedSettings.ModelSelfCheckMaxConcurrency,
+		ModelSelfCheckMaxTasksPerRound:       updatedSettings.ModelSelfCheckMaxTasksPerRound,
 
 		AvailableChannelsEnabled: updatedSettings.AvailableChannelsEnabled,
 
@@ -2624,6 +2664,18 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.ChannelMonitorDefaultIntervalSeconds != after.ChannelMonitorDefaultIntervalSeconds {
 		changed = append(changed, "channel_monitor_default_interval_seconds")
+	}
+	if before.ModelSelfCheckEnabled != after.ModelSelfCheckEnabled {
+		changed = append(changed, "model_self_check_enabled")
+	}
+	if before.ModelSelfCheckDefaultIntervalSeconds != after.ModelSelfCheckDefaultIntervalSeconds {
+		changed = append(changed, "self_check_default_interval_seconds")
+	}
+	if before.ModelSelfCheckMaxConcurrency != after.ModelSelfCheckMaxConcurrency {
+		changed = append(changed, "self_check_max_concurrency")
+	}
+	if before.ModelSelfCheckMaxTasksPerRound != after.ModelSelfCheckMaxTasksPerRound {
+		changed = append(changed, "self_check_max_tasks_per_round")
 	}
 	if before.AvailableChannelsEnabled != after.AvailableChannelsEnabled {
 		changed = append(changed, "available_channels_enabled")

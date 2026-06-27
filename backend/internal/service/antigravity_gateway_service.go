@@ -636,7 +636,7 @@ urlFallbackLoop:
 					logger.LegacyPrintf("service.antigravity_gateway", "%s URL fallback (connection error): %s -> %s", p.prefix, baseURL, availableURLs[urlIdx+1])
 					continue urlFallbackLoop
 				}
-				if attempt < antigravityMaxRetries {
+				if !isModelSelfCheckProbeContext(p.ctx) && attempt < antigravityMaxRetries {
 					logger.LegacyPrintf("service.antigravity_gateway", "%s status=request_failed retry=%d/%d error=%v", p.prefix, attempt, antigravityMaxRetries, err)
 					if !sleepAntigravityBackoffWithContext(p.ctx, attempt) {
 						logger.LegacyPrintf("service.antigravity_gateway", "%s status=context_canceled_during_backoff", p.prefix)
@@ -678,6 +678,14 @@ urlFallbackLoop:
 
 				// 429/503 限流处理：区分 URL 级别限流、智能重试和账户配额限流
 				if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
+					if isModelSelfCheckProbeContext(p.ctx) {
+						resp = &http.Response{
+							StatusCode: resp.StatusCode,
+							Header:     resp.Header.Clone(),
+							Body:       io.NopCloser(bytes.NewReader(respBody)),
+						}
+						break urlFallbackLoop
+					}
 					// 尝试智能重试处理（OAuth 账号专用）
 					smartResult := s.handleSmartRetry(p, resp, respBody, baseURL, urlIdx, availableURLs)
 					switch smartResult.action {
@@ -731,7 +739,7 @@ urlFallbackLoop:
 				}
 
 				// 其他可重试错误（500/502/504/529，不包括 429 和 503）
-				if shouldRetryAntigravityError(resp.StatusCode) {
+				if !isModelSelfCheckProbeContext(p.ctx) && shouldRetryAntigravityError(resp.StatusCode) {
 					if attempt < antigravityMaxRetries {
 						upstreamMsg := strings.TrimSpace(extractAntigravityErrorMessage(respBody))
 						upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
@@ -963,6 +971,9 @@ func (s *AntigravityGatewayService) applyErrorPolicy(p antigravityRetryLoopParam
 }
 
 func (s *AntigravityGatewayService) handleAntigravityModelRateLimitBeforePolicy(p antigravityRetryLoopParams, statusCode int, headers http.Header, respBody []byte) bool {
+	if isModelSelfCheckProbeContext(p.ctx) {
+		return false
+	}
 	if statusCode != http.StatusTooManyRequests && statusCode != http.StatusServiceUnavailable {
 		return false
 	}
@@ -2930,6 +2941,9 @@ func (s *AntigravityGatewayService) handleUpstreamError(
 	requestedModel string,
 	groupID int64, sessionHash string, isStickySession bool,
 ) *handleModelRateLimitResult {
+	if isModelSelfCheckProbeContext(ctx) {
+		return nil
+	}
 	// 遵守自定义错误码策略：未命中则跳过所有限流处理
 	if !account.ShouldHandleErrorCode(statusCode) {
 		return nil

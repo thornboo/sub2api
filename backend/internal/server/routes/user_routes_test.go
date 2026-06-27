@@ -64,3 +64,16 @@ func TestUserRoutesAPIKeyTagOptionsPathIsRegisteredBeforeIDRoute(t *testing.T) {
 
 	require.NotEqual(t, http.StatusNotFound, w.Code)
 }
+
+func TestUserRoutesDoNotExposeLegacyChannelMonitorProbeEndpoints(t *testing.T) {
+	router := newUserRoutesTestRouter()
+
+	for _, path := range []string{"/api/v1/channel-monitors", "/api/v1/channel-monitors/1/status"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusNotFound, w.Code, path)
+	}
+}

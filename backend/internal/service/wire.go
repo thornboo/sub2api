@@ -608,7 +608,9 @@ var ProviderSet = wire.NewSet(
 	ProvidePaymentOrderExpiryService,
 	ProvideBalanceNotifyService,
 	ProvideChannelMonitorService,
+	ProvideModelSelfCheckService,
 	ProvideChannelMonitorRunner,
+	ProvideModelSelfCheckRunner,
 	NewChannelMonitorRequestTemplateService,
 	ProvideUserPlatformQuotaUsageFlusher,
 )
@@ -664,6 +666,30 @@ func ProvideChannelMonitorService(
 func ProvideChannelMonitorRunner(svc *ChannelMonitorService, settingService *SettingService) *ChannelMonitorRunner {
 	r := NewChannelMonitorRunner(svc, settingService)
 	svc.SetScheduler(r)
+	r.Start()
+	return r
+}
+
+func ProvideModelSelfCheckService(
+	repo ModelSelfCheckRepository,
+	accountRepo AccountRepository,
+	gatewayService *GatewayService,
+	openAIGatewayService *OpenAIGatewayService,
+	geminiCompatService *GeminiMessagesCompatService,
+	antigravityGatewayService *AntigravityGatewayService,
+) *ModelSelfCheckService {
+	svc := NewModelSelfCheckService(repo)
+	svc.SetProbeDependencies(accountRepo, NewGatewayModelSelfCheckProbeExecutor(
+		gatewayService,
+		openAIGatewayService,
+		geminiCompatService,
+		antigravityGatewayService,
+	))
+	return svc
+}
+
+func ProvideModelSelfCheckRunner(svc *ModelSelfCheckService, settingService *SettingService) *ModelSelfCheckRunner {
+	r := NewModelSelfCheckRunner(svc, settingService)
 	r.Start()
 	return r
 }

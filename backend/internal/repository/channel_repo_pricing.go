@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -37,6 +38,13 @@ func (r *channelRepository) ListModelPricing(ctx context.Context, channelID int6
 		for i := range result {
 			result[i].Intervals = intervalMap[result[i].ID]
 		}
+	}
+	if len(result) > 0 {
+		configs, err := r.batchLoadModelSelfCheckConfig(ctx, []int64{channelID})
+		if err != nil {
+			return nil, err
+		}
+		attachModelSelfCheckConfig(result, configs)
 	}
 
 	return result, nil
@@ -123,8 +131,82 @@ func (r *channelRepository) batchLoadModelPricing(ctx context.Context, channelID
 			}
 		}
 	}
+	if len(allPricing) > 0 {
+		configs, err := r.batchLoadModelSelfCheckConfig(ctx, channelIDs)
+		if err != nil {
+			return nil, err
+		}
+		for chID := range pricingMap {
+			attachModelSelfCheckConfig(pricingMap[chID], configs)
+		}
+	}
 
 	return pricingMap, nil
+}
+
+func (r *channelRepository) batchLoadModelSelfCheckConfig(ctx context.Context, channelIDs []int64) (map[int64]map[string]bool, error) {
+	if len(channelIDs) == 0 {
+		return map[int64]map[string]bool{}, nil
+	}
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT channel_id, model, enabled
+		 FROM model_self_check_config
+		 WHERE channel_id = ANY($1)`,
+		pq.Array(channelIDs),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("batch load model self check config: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make(map[int64]map[string]bool, len(channelIDs))
+	for rows.Next() {
+		var channelID int64
+		var model string
+		var enabled bool
+		if err := rows.Scan(&channelID, &model, &enabled); err != nil {
+			return nil, fmt.Errorf("scan model self check config: %w", err)
+		}
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
+		if out[channelID] == nil {
+			out[channelID] = map[string]bool{}
+		}
+		out[channelID][strings.ToLower(model)] = enabled
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate model self check config: %w", err)
+	}
+	return out, nil
+}
+
+func attachModelSelfCheckConfig(pricing []service.ChannelModelPricing, configs map[int64]map[string]bool) {
+	for i := range pricing {
+		enabled := configs[pricing[i].ChannelID]
+		if len(enabled) == 0 {
+			pricing[i].SelfCheckEnabledModels = []string{}
+			continue
+		}
+		models := make([]string, 0, len(pricing[i].Models))
+		seen := map[string]struct{}{}
+		for _, model := range pricing[i].Models {
+			trimmed := strings.TrimSpace(model)
+			if trimmed == "" {
+				continue
+			}
+			key := strings.ToLower(trimmed)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			if enabled[key] {
+				models = append(models, trimmed)
+				seen[key] = struct{}{}
+			}
+		}
+		pricing[i].SelfCheckEnabledModels = models
+	}
 }
 
 // batchLoadIntervals 批量加载多个定价条目的区间
@@ -264,10 +346,61 @@ func replaceModelPricingTx(ctx context.Context, exec dbExec, channelID int64, pr
 	if _, err := exec.ExecContext(ctx, `DELETE FROM channel_model_pricing WHERE channel_id = $1`, channelID); err != nil {
 		return fmt.Errorf("delete old model pricing: %w", err)
 	}
+	if _, err := exec.ExecContext(ctx, `DELETE FROM model_self_check_config WHERE channel_id = $1`, channelID); err != nil {
+		return fmt.Errorf("delete old model self check config: %w", err)
+	}
 	for i := range pricingList {
 		pricingList[i].ChannelID = channelID
 		if err := createModelPricingExec(ctx, exec, &pricingList[i]); err != nil {
 			return fmt.Errorf("insert model pricing: %w", err)
+		}
+	}
+	if err := replaceModelSelfCheckConfigTx(ctx, exec, channelID, pricingList); err != nil {
+		return err
+	}
+	return nil
+}
+
+func replaceModelSelfCheckConfigTx(ctx context.Context, exec dbExec, channelID int64, pricingList []service.ChannelModelPricing) error {
+	enabledModels := make(map[string]string)
+	for _, pricing := range pricingList {
+		allowed := make(map[string]string, len(pricing.Models))
+		for _, model := range pricing.Models {
+			trimmed := strings.TrimSpace(model)
+			if trimmed == "" {
+				continue
+			}
+			allowed[strings.ToLower(trimmed)] = trimmed
+		}
+		for _, model := range pricing.SelfCheckEnabledModels {
+			trimmed := strings.TrimSpace(model)
+			if trimmed == "" {
+				continue
+			}
+			key := strings.ToLower(trimmed)
+			canonical, ok := allowed[key]
+			if !ok {
+				continue
+			}
+			enabledModels[key] = canonical
+		}
+	}
+	if len(enabledModels) == 0 {
+		return nil
+	}
+
+	models := make([]string, 0, len(enabledModels))
+	for _, model := range enabledModels {
+		models = append(models, model)
+	}
+	sort.Strings(models)
+	for _, model := range models {
+		if _, err := exec.ExecContext(ctx,
+			`INSERT INTO model_self_check_config (channel_id, model, enabled)
+			 VALUES ($1, $2, TRUE)`,
+			channelID, model,
+		); err != nil {
+			return fmt.Errorf("insert model self check config: %w", err)
 		}
 	}
 	return nil

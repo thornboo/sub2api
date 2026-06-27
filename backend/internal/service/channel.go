@@ -85,8 +85,11 @@ type ChannelModelPricing struct {
 	ImageOutputPrice *float64          // 图片输出价格（向后兼容）
 	PerRequestPrice  *float64          // 默认按次计费价格（USD）
 	Intervals        []PricingInterval // 区间定价列表
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	// SelfCheckEnabledModels 是渠道定价页的模型自检开关。
+	// 实际持久化按 (channel_id, model) 写入 model_self_check_config。
+	SelfCheckEnabledModels []string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 // PricingInterval 定价区间（token 区间 / 按次分层 / 图片分辨率分层）
@@ -179,6 +182,10 @@ func (p ChannelModelPricing) Clone() ChannelModelPricing {
 	if p.Intervals != nil {
 		cp.Intervals = make([]PricingInterval, len(p.Intervals))
 		copy(cp.Intervals, p.Intervals)
+	}
+	if p.SelfCheckEnabledModels != nil {
+		cp.SelfCheckEnabledModels = make([]string, len(p.SelfCheckEnabledModels))
+		copy(cp.SelfCheckEnabledModels, p.SelfCheckEnabledModels)
 	}
 	return cp
 }

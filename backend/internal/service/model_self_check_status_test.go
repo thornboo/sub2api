@@ -1,0 +1,446 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"math"
+	"sort"
+	"testing"
+	"time"
+)
+
+type modelSelfCheckRepoStub struct {
+	targets  []ModelSelfCheckTarget
+	accounts []ModelSelfCheckTargetAccount
+	latest   []ModelSelfCheckHistory
+	history  []ModelSelfCheckHistory
+	timeline []ModelSelfCheckHistory
+	created  []ModelSelfCheckHistory
+}
+
+func (s *modelSelfCheckRepoStub) ListStatusTargets(ctx context.Context) ([]ModelSelfCheckTarget, error) {
+	return append([]ModelSelfCheckTarget(nil), s.targets...), nil
+}
+
+func (s *modelSelfCheckRepoStub) ListTargetAccounts(ctx context.Context, groupIDs []int64) ([]ModelSelfCheckTargetAccount, error) {
+	allowed := map[int64]struct{}{}
+	for _, id := range groupIDs {
+		allowed[id] = struct{}{}
+	}
+	out := []ModelSelfCheckTargetAccount{}
+	for _, account := range s.accounts {
+		if _, ok := allowed[account.GroupID]; ok {
+			out = append(out, account)
+		}
+	}
+	return out, nil
+}
+
+func (s *modelSelfCheckRepoStub) ListLatestByModels(ctx context.Context, models []string) ([]ModelSelfCheckHistory, error) {
+	allowed := map[string]struct{}{}
+	for _, model := range models {
+		allowed[model] = struct{}{}
+	}
+	out := []ModelSelfCheckHistory{}
+	for _, row := range s.latest {
+		if _, ok := allowed[row.Model]; ok {
+			out = append(out, row)
+		}
+	}
+	return out, nil
+}
+
+func (s *modelSelfCheckRepoStub) ListHistoriesSince(ctx context.Context, models []string, since time.Time) ([]ModelSelfCheckHistory, error) {
+	allowed := map[string]struct{}{}
+	for _, model := range models {
+		allowed[model] = struct{}{}
+	}
+	out := []ModelSelfCheckHistory{}
+	for _, row := range s.history {
+		if _, ok := allowed[row.Model]; ok && !row.CheckedAt.Before(since) {
+			out = append(out, row)
+		}
+	}
+	return out, nil
+}
+
+func (s *modelSelfCheckRepoStub) ListRecentHistories(ctx context.Context, model string, accountIDs []int64, limit int) ([]ModelSelfCheckHistory, error) {
+	allowed := map[int64]struct{}{}
+	for _, id := range accountIDs {
+		allowed[id] = struct{}{}
+	}
+	out := []ModelSelfCheckHistory{}
+	for _, row := range s.timeline {
+		if row.Model != model {
+			continue
+		}
+		if _, ok := allowed[row.AccountID]; !ok {
+			continue
+		}
+		out = append(out, row)
+		if len(out) == limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (s *modelSelfCheckRepoStub) CreateHistory(ctx context.Context, history *ModelSelfCheckHistory) error {
+	if history != nil {
+		s.created = append(s.created, *history)
+	}
+	return nil
+}
+
+type modelSelfCheckAccountRepoStub struct {
+	accounts map[int64]*Account
+}
+
+func (s *modelSelfCheckAccountRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
+	account := s.accounts[id]
+	if account == nil {
+		return nil, errors.New("account not found")
+	}
+	cp := *account
+	return &cp, nil
+}
+
+func (s *modelSelfCheckAccountRepoStub) GetByIDs(ctx context.Context, ids []int64) ([]*Account, error) {
+	out := make([]*Account, 0, len(ids))
+	for _, id := range ids {
+		account := s.accounts[id]
+		if account == nil {
+			continue
+		}
+		cp := *account
+		out = append(out, &cp)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+type modelSelfCheckProbeExecutorStub struct {
+	calls  []ModelSelfCheckProbeTask
+	result ModelSelfCheckProbeResult
+}
+
+func (s *modelSelfCheckProbeExecutorStub) Probe(ctx context.Context, account *Account, model string) ModelSelfCheckProbeResult {
+	s.calls = append(s.calls, ModelSelfCheckProbeTask{
+		Key:       modelSelfCheckTaskKey(model, account.ID),
+		Model:     model,
+		AccountID: account.ID,
+		Platform:  account.Platform,
+	})
+	return s.result
+}
+
+func TestListUserModelStatusAggregatesSelfCheckByGroupModel(t *testing.T) {
+	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
+	repo := &modelSelfCheckRepoStub{
+		targets: []ModelSelfCheckTarget{{
+			GroupID:       10,
+			GroupName:     "Pro",
+			GroupPlatform: "openai",
+			Model:         "gpt-4o",
+		}},
+		accounts: []ModelSelfCheckTargetAccount{
+			{GroupID: 10, AccountID: 1, Platform: "openai"},
+			{GroupID: 10, AccountID: 2, Platform: "openai"},
+			{GroupID: 10, AccountID: 3, Platform: "anthropic"},
+		},
+		latest: []ModelSelfCheckHistory{
+			{Model: "gpt-4o", AccountID: 1, Platform: "openai", Status: MonitorStatusOperational, LatencyMs: modelStatusIntPtr(800), CheckedAt: now.Add(-2 * time.Minute)},
+			{Model: "gpt-4o", AccountID: 2, Platform: "openai", Status: MonitorStatusFailed, CheckedAt: now.Add(-1 * time.Minute)},
+			{Model: "gpt-4o", AccountID: 3, Platform: "anthropic", Status: MonitorStatusFailed, CheckedAt: now.Add(-1 * time.Minute)},
+		},
+		history: []ModelSelfCheckHistory{
+			{Model: "gpt-4o", AccountID: 1, Status: MonitorStatusOperational, LatencyMs: modelStatusIntPtr(800), CheckedAt: now.Add(-1 * time.Hour)},
+			{Model: "gpt-4o", AccountID: 1, Status: MonitorStatusDegraded, LatencyMs: modelStatusIntPtr(1200), CheckedAt: now.Add(-2 * time.Hour)},
+			{Model: "gpt-4o", AccountID: 2, Status: MonitorStatusFailed, CheckedAt: now.Add(-3 * time.Hour)},
+			{Model: "gpt-4o", AccountID: 3, Status: MonitorStatusOperational, LatencyMs: modelStatusIntPtr(50), CheckedAt: now.Add(-1 * time.Hour)},
+		},
+	}
+	svc := NewModelSelfCheckService(repo)
+	svc.now = func() time.Time { return now }
+
+	rows, err := svc.ListUserModelStatus(context.Background())
+	if err != nil {
+		t.Fatalf("ListUserModelStatus() error = %v", err)
+	}
+
+	row := findModelStatusRow(t, rows, 10, "gpt-4o")
+	if row.Status != MonitorStatusDegraded {
+		t.Fatalf("status = %q, want %q", row.Status, MonitorStatusDegraded)
+	}
+	if row.MessageCode != userModelMessagePartial {
+		t.Fatalf("message = %q, want %q", row.MessageCode, userModelMessagePartial)
+	}
+	if row.LatestLatencyMs == nil || *row.LatestLatencyMs != 800 {
+		t.Fatalf("latest latency = %v, want 800", row.LatestLatencyMs)
+	}
+	if row.AvgLatency24hMs == nil || *row.AvgLatency24hMs != 1000 {
+		t.Fatalf("24h avg latency = %v, want 1000", row.AvgLatency24hMs)
+	}
+	assertFloatNear(t, row.Availability24h, 66.6666667)
+	assertFloatNear(t, row.DegradedRatio24h, 33.3333333)
+}
+
+func TestListUserModelStatusMarksUnknownWhenLatestIsStale(t *testing.T) {
+	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
+	repo := &modelSelfCheckRepoStub{
+		targets: []ModelSelfCheckTarget{{GroupID: 10, GroupName: "Pro", GroupPlatform: "openai", Model: "new-model"}},
+		accounts: []ModelSelfCheckTargetAccount{
+			{GroupID: 10, AccountID: 1, Platform: "openai"},
+		},
+		latest: []ModelSelfCheckHistory{
+			{Model: "new-model", AccountID: 1, Status: MonitorStatusOperational, LatencyMs: modelStatusIntPtr(400), CheckedAt: now.Add(-30 * time.Minute)},
+		},
+	}
+	svc := NewModelSelfCheckService(repo)
+	svc.now = func() time.Time { return now }
+
+	rows, err := svc.ListUserModelStatus(context.Background())
+	if err != nil {
+		t.Fatalf("ListUserModelStatus() error = %v", err)
+	}
+	row := findModelStatusRow(t, rows, 10, "new-model")
+	if row.Status != UserModelStatusUnknown {
+		t.Fatalf("status = %q, want %q", row.Status, UserModelStatusUnknown)
+	}
+	if row.MessageCode != userModelMessageNoData {
+		t.Fatalf("message = %q, want %q", row.MessageCode, userModelMessageNoData)
+	}
+	if row.LastCheckedAt != nil {
+		t.Fatalf("last checked = %v, want nil for stale latest", row.LastCheckedAt)
+	}
+}
+
+func TestListUserModelStatusMarksFailedWhenNoAccountCanServeGroup(t *testing.T) {
+	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
+	repo := &modelSelfCheckRepoStub{
+		targets: []ModelSelfCheckTarget{{GroupID: 10, GroupName: "Pro", GroupPlatform: "openai", Model: "gpt-4o"}},
+	}
+	svc := NewModelSelfCheckService(repo)
+	svc.now = func() time.Time { return now }
+
+	rows, err := svc.ListUserModelStatus(context.Background())
+	if err != nil {
+		t.Fatalf("ListUserModelStatus() error = %v", err)
+	}
+	row := findModelStatusRow(t, rows, 10, "gpt-4o")
+	if row.Status != MonitorStatusFailed {
+		t.Fatalf("status = %q, want %q", row.Status, MonitorStatusFailed)
+	}
+	if row.MessageCode != userModelMessageUnavailable {
+		t.Fatalf("message = %q, want %q", row.MessageCode, userModelMessageUnavailable)
+	}
+}
+
+func TestGetUserModelStatusKeepsSameModelSeparatedByGroup(t *testing.T) {
+	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
+	repo := &modelSelfCheckRepoStub{
+		targets: []ModelSelfCheckTarget{
+			{GroupID: 10, GroupName: "Pro", GroupPlatform: "openai", Model: "gpt-4o"},
+			{GroupID: 20, GroupName: "Team", GroupPlatform: "openai", Model: "gpt-4o"},
+		},
+		accounts: []ModelSelfCheckTargetAccount{
+			{GroupID: 10, AccountID: 1, Platform: "openai"},
+			{GroupID: 20, AccountID: 2, Platform: "openai"},
+		},
+		latest: []ModelSelfCheckHistory{
+			{Model: "gpt-4o", AccountID: 1, Status: MonitorStatusOperational, LatencyMs: modelStatusIntPtr(700), CheckedAt: now.Add(-1 * time.Minute)},
+			{Model: "gpt-4o", AccountID: 2, Status: MonitorStatusFailed, CheckedAt: now.Add(-1 * time.Minute)},
+		},
+		timeline: []ModelSelfCheckHistory{
+			{Model: "gpt-4o", AccountID: 2, Status: MonitorStatusFailed, CheckedAt: now.Add(-1 * time.Minute)},
+			{Model: "gpt-4o", AccountID: 1, Status: MonitorStatusOperational, CheckedAt: now.Add(-1 * time.Minute)},
+		},
+	}
+	svc := NewModelSelfCheckService(repo)
+	svc.now = func() time.Time { return now }
+
+	detail, err := svc.GetUserModelStatus(context.Background(), 20, "gpt-4o")
+	if err != nil {
+		t.Fatalf("GetUserModelStatus() error = %v", err)
+	}
+	if detail.GroupID != 20 {
+		t.Fatalf("group_id = %d, want 20", detail.GroupID)
+	}
+	if detail.Status != MonitorStatusFailed {
+		t.Fatalf("status = %q, want %q", detail.Status, MonitorStatusFailed)
+	}
+	if len(detail.Timeline) != 1 || detail.Timeline[0].Status != MonitorStatusFailed {
+		t.Fatalf("timeline = %#v, want only group 20 account result", detail.Timeline)
+	}
+}
+
+func TestListProbeTasksDedupesSharedAccountAndFiltersUnsupportedModels(t *testing.T) {
+	repo := &modelSelfCheckRepoStub{
+		targets: []ModelSelfCheckTarget{
+			{GroupID: 10, GroupName: "Pro", GroupPlatform: PlatformOpenAI, Model: "gpt-4o"},
+			{GroupID: 20, GroupName: "Team", GroupPlatform: PlatformOpenAI, Model: "gpt-4o"},
+		},
+		accounts: []ModelSelfCheckTargetAccount{
+			{GroupID: 10, AccountID: 1, Platform: PlatformOpenAI},
+			{GroupID: 20, AccountID: 1, Platform: PlatformOpenAI},
+			{GroupID: 20, AccountID: 2, Platform: PlatformOpenAI},
+			{GroupID: 20, AccountID: 3, Platform: PlatformAnthropic},
+		},
+	}
+	accountRepo := &modelSelfCheckAccountRepoStub{accounts: map[int64]*Account{
+		1: activeSelfCheckAccount(1, PlatformOpenAI, map[string]any{"gpt-4o": "gpt-4o"}),
+		2: activeSelfCheckAccount(2, PlatformOpenAI, map[string]any{"other-model": "other-model"}),
+		3: activeSelfCheckAccount(3, PlatformAnthropic, map[string]any{"gpt-4o": "gpt-4o"}),
+	}}
+	svc := NewModelSelfCheckService(repo)
+	svc.SetProbeDependencies(accountRepo, &modelSelfCheckProbeExecutorStub{})
+
+	tasks, err := svc.ListProbeTasks(context.Background())
+	if err != nil {
+		t.Fatalf("ListProbeTasks() error = %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("tasks = %#v, want one deduped OpenAI account", tasks)
+	}
+	if tasks[0].Model != "gpt-4o" || tasks[0].AccountID != 1 || tasks[0].Platform != PlatformOpenAI {
+		t.Fatalf("task = %#v, want gpt-4o account 1", tasks[0])
+	}
+}
+
+func TestListProbeTasksFiltersChannelRestrictedModel(t *testing.T) {
+	repo := &modelSelfCheckRepoStub{
+		targets: []ModelSelfCheckTarget{{
+			GroupID:       10,
+			GroupName:     "Pro",
+			GroupPlatform: PlatformOpenAI,
+			Model:         "gpt-4o",
+		}},
+		accounts: []ModelSelfCheckTargetAccount{
+			{GroupID: 10, AccountID: 1, Platform: PlatformOpenAI},
+		},
+	}
+	accountRepo := &modelSelfCheckAccountRepoStub{accounts: map[int64]*Account{
+		1: activeSelfCheckAccount(1, PlatformOpenAI, nil),
+	}}
+	svc := NewModelSelfCheckService(repo)
+	svc.SetProbeDependencies(accountRepo, &gatewayModelSelfCheckProbeExecutor{
+		gatewayService: &GatewayService{
+			channelService: modelSelfCheckChannelServiceWithRestrictedModel(10, PlatformOpenAI, "allowed-model"),
+		},
+	})
+
+	tasks, err := svc.ListProbeTasks(context.Background())
+	if err != nil {
+		t.Fatalf("ListProbeTasks() error = %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("tasks = %#v, want none when channel pricing restricts target model", tasks)
+	}
+}
+
+func TestRunProbeCallsExecutorAndRecordsHistory(t *testing.T) {
+	repo := &modelSelfCheckRepoStub{}
+	accountRepo := &modelSelfCheckAccountRepoStub{accounts: map[int64]*Account{
+		7: activeSelfCheckAccount(7, PlatformOpenAI, map[string]any{"gpt-4o": "gpt-4o"}),
+	}}
+	latency := 123
+	httpStatus := 200
+	executor := &modelSelfCheckProbeExecutorStub{
+		result: ModelSelfCheckProbeResult{
+			Status:     MonitorStatusOperational,
+			LatencyMs:  &latency,
+			HTTPStatus: &httpStatus,
+		},
+	}
+	svc := NewModelSelfCheckService(repo)
+	svc.now = func() time.Time { return time.Date(2026, 6, 27, 12, 30, 0, 0, time.UTC) }
+	svc.SetProbeDependencies(accountRepo, executor)
+
+	err := svc.RunProbe(context.Background(), ModelSelfCheckProbeTask{
+		Key:       modelSelfCheckTaskKey("gpt-4o", 7),
+		Model:     "gpt-4o",
+		AccountID: 7,
+		Platform:  PlatformOpenAI,
+	})
+	if err != nil {
+		t.Fatalf("RunProbe() error = %v", err)
+	}
+	if len(executor.calls) != 1 {
+		t.Fatalf("executor calls = %#v, want one", executor.calls)
+	}
+	if len(repo.created) != 1 {
+		t.Fatalf("created histories = %#v, want one", repo.created)
+	}
+	got := repo.created[0]
+	if got.Model != "gpt-4o" || got.AccountID != 7 || got.Platform != PlatformOpenAI {
+		t.Fatalf("history target = %#v, want gpt-4o account 7 openai", got)
+	}
+	if got.Status != MonitorStatusOperational || got.LatencyMs == nil || *got.LatencyMs != latency {
+		t.Fatalf("history result = %#v, want operational latency %d", got, latency)
+	}
+	if got.HTTPStatus == nil || *got.HTTPStatus != httpStatus {
+		t.Fatalf("history http status = %v, want %d", got.HTTPStatus, httpStatus)
+	}
+}
+
+func findModelStatusRow(t *testing.T, rows []*UserModelStatusView, groupID int64, model string) *UserModelStatusView {
+	t.Helper()
+	for _, row := range rows {
+		if row.GroupID == groupID && row.Model == model {
+			return row
+		}
+	}
+	t.Fatalf("group=%d model %q not found", groupID, model)
+	return nil
+}
+
+func assertFloatNear(t *testing.T, got *float64, want float64) {
+	t.Helper()
+	if got == nil {
+		t.Fatalf("float = nil, want %.4f", want)
+	}
+	if math.Abs(*got-want) > 0.0001 {
+		t.Fatalf("float = %.8f, want %.8f", *got, want)
+	}
+}
+
+func modelStatusIntPtr(v int) *int {
+	return &v
+}
+
+func activeSelfCheckAccount(id int64, platform string, modelMapping map[string]any) *Account {
+	return &Account{
+		ID:          id,
+		Platform:    platform,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"model_mapping": modelMapping,
+		},
+	}
+}
+
+func modelSelfCheckChannelServiceWithRestrictedModel(groupID int64, platform, allowedModel string) *ChannelService {
+	channel := &Channel{
+		ID:                 99,
+		Status:             StatusActive,
+		GroupIDs:           []int64{groupID},
+		RestrictModels:     true,
+		BillingModelSource: BillingModelSourceRequested,
+	}
+	pricing := &ChannelModelPricing{ChannelID: channel.ID, Platform: platform, Models: []string{allowedModel}}
+	svc := &ChannelService{}
+	svc.cache.Store(&channelCache{
+		pricingByGroupModel: map[channelModelKey]*ChannelModelPricing{
+			{groupID: groupID, platform: platform, model: allowedModel}: pricing,
+		},
+		wildcardByGroupPlatform: map[channelGroupPlatformKey][]*wildcardPricingEntry{},
+		mappingByGroupModel:     map[channelModelKey]string{},
+		wildcardMappingByGP:     map[channelGroupPlatformKey][]*wildcardMappingEntry{},
+		channelByGroupID:        map[int64]*Channel{groupID: channel},
+		groupPlatform:           map[int64]string{groupID: platform},
+		byID:                    map[int64]*Channel{channel.ID: channel},
+		loadedAt:                time.Now(),
+	})
+	return svc
+}

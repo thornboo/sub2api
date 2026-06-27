@@ -556,7 +556,7 @@ export default {
     channelManagement: 'Channels',
     channelPricing: 'Channel Pricing',
     channelMonitor: 'Channel Monitor',
-    channelStatus: 'Channel Status',
+    channelStatus: 'Model Status',
     riskControl: 'Risk Control',
   },
 
@@ -1322,7 +1322,7 @@ export default {
       degraded: 'Degraded',
       failed: 'Failed',
       error: 'Error',
-      unknown: '-'
+      unknown: 'Unknown'
     },
     providers: {
       openai: 'OpenAI',
@@ -1349,25 +1349,46 @@ export default {
     relativeDaysAgo: '{n}d ago'
   },
 
-  // Channel Status (user-facing read-only view)
+  // Model Status (user-facing read-only view)
   channelStatus: {
-    title: 'Channel Status',
-    description: 'Inspect channel availability, latency and recent status',
-    searchPlaceholder: 'Search channels...',
+    title: 'Model Service Status',
+    description: 'Inspect public model health, availability, and recent latency for this site.',
+    searchPlaceholder: 'Search models...',
     allProviders: 'All Providers',
-    loadError: 'Failed to load channel status',
-    detailLoadError: 'Failed to load channel detail',
-    detailTitle: 'Channel Detail',
+    loadError: 'Failed to load model status',
+    detailLoadError: 'Failed to load model detail',
+    detailTitle: 'Model Detail',
     closeDetail: 'Close',
+    unknownGroup: 'Unnamed group',
+    groupPrefix: 'Group: ',
     windowTab: {
+      '24h': '24 hours',
       '7d': '7 days',
       '15d': '15 days',
       '30d': '30 days'
     },
     overall: {
-      operational: 'OPERATIONAL',
-      degraded: 'DEGRADED',
-      unavailable: 'UNAVAILABLE'
+      operational: 'All Operational',
+      degraded: 'Partial Degradation',
+      unavailable: 'Incidents Active',
+      unknown: 'No Data'
+    },
+    summary: {
+      overall: 'Overall',
+      models: 'Models',
+      affected: 'Affected',
+      updated: 'Updated'
+    },
+    metrics: {
+      latency: 'Avg Latency',
+      avgLatency7d: '7d Avg Latency',
+      lastChecked: 'Last Checked'
+    },
+    message: {
+      normal: 'Service is operating normally',
+      partial: 'Some requests may be affected',
+      unavailable: 'This model may be unavailable',
+      no_data: 'No check data yet'
     },
     columns: {
       name: 'Name',
@@ -1387,8 +1408,8 @@ export default {
       avgLatency7d: '7d Avg Latency (ms)'
     },
     empty: {
-      title: 'No channels available',
-      description: 'No monitored channels have been configured yet.'
+      title: 'No model status available',
+      description: 'No public model health checks have been configured yet.'
     }
   },
 
@@ -6080,6 +6101,19 @@ export default {
           enabledHint: 'Disabling stops background checks; existing history is preserved.',
           defaultInterval: 'Default check interval (seconds)',
           defaultIntervalHint: 'Pre-fills the interval when creating a new monitor; each monitor can override it. Range 15 – 3600.',
+        },
+        modelSelfCheck: {
+          title: 'Model Self-Check',
+          description: 'Runs tiny probes for models enabled from channel pricing and shows users model health without exposing upstream accounts or channels.',
+          configureLink: 'Choose public self-check models in Channel Management > Channel Pricing',
+          enabled: 'Enable Model Self-Check',
+          enabledHint: 'When off, background probes stop and the user model status page returns an empty list.',
+          defaultInterval: 'Default self-check interval (seconds)',
+          defaultIntervalHint: 'Applies to each deduped model/account probe. Range 60 – 86400 seconds.',
+          maxConcurrency: 'Global concurrency limit',
+          maxConcurrencyHint: 'Maximum self-check probes submitted at the same time. Range 1 – 64.',
+          maxTasksPerRound: 'Tasks per refresh limit',
+          maxTasksPerRoundHint: 'Maximum deduped probes scheduled per refresh to protect upstream accounts when many models are enabled. Range 1 – 10000.',
         },
         availableChannels: {
           title: 'Available Channels',

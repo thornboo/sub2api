@@ -359,6 +359,22 @@ const (
 	// pre-filled when creating a new channel monitor from the admin UI. Range: [15, 3600].
 	SettingKeyChannelMonitorDefaultIntervalSeconds = "channel_monitor_default_interval_seconds"
 
+	// SettingKeyModelSelfCheckEnabled is a DB-backed soft switch for the user-facing
+	// model self-check runtime.
+	SettingKeyModelSelfCheckEnabled = "model_self_check_enabled"
+
+	// SettingKeyModelSelfCheckDefaultIntervalSeconds controls the default probe
+	// interval (seconds) for pricing-driven model self-check tasks.
+	SettingKeyModelSelfCheckDefaultIntervalSeconds = "self_check_default_interval_seconds"
+
+	// SettingKeyModelSelfCheckMaxConcurrency controls the global max concurrency
+	// for model self-check probes.
+	SettingKeyModelSelfCheckMaxConcurrency = "self_check_max_concurrency"
+
+	// SettingKeyModelSelfCheckMaxTasksPerRound limits the number of deduped
+	// (model, account) probes scheduled in one refresh cycle.
+	SettingKeyModelSelfCheckMaxTasksPerRound = "self_check_max_tasks_per_round"
+
 	// SettingKeyAvailableChannelsEnabled is a DB-backed soft switch for the "Available Channels"
 	// user-facing aggregate view. When false: user endpoint returns an empty list and the
 	// sidebar entry is hidden. Defaults to false (opt-in feature).

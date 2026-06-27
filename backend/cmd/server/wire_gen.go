@@ -164,7 +164,9 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	announcementHandler := handler.NewAnnouncementHandler(announcementService)
 	channelMonitorRepository := repository.NewChannelMonitorRepository(client, db)
 	channelMonitorService := service.ProvideChannelMonitorService(channelMonitorRepository, secretEncryptor)
-	channelMonitorUserHandler := handler.NewChannelMonitorUserHandler(channelMonitorService, settingService)
+	modelSelfCheckRepository := repository.NewModelSelfCheckRepository(db)
+	modelSelfCheckService := service.ProvideModelSelfCheckService(modelSelfCheckRepository, accountRepository, gatewayService, openAIGatewayService, geminiMessagesCompatService, antigravityGatewayService)
+	channelMonitorUserHandler := handler.NewChannelMonitorUserHandler(modelSelfCheckService, settingService)
 	dashboardAggregationRepository := repository.NewDashboardAggregationRepository(db)
 	dashboardStatsCache := repository.NewDashboardCache(redisClient, configConfig)
 	dashboardService := service.NewDashboardService(usageLogRepository, dashboardAggregationRepository, dashboardStatsCache, configConfig)
@@ -274,8 +276,9 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	scheduledTestRunnerService := service.ProvideScheduledTestRunnerService(scheduledTestPlanRepository, scheduledTestService, accountTestService, rateLimitService, configConfig)
 	paymentOrderExpiryService := service.ProvidePaymentOrderExpiryService(paymentService, leaderLockCache, db)
 	channelMonitorRunner := service.ProvideChannelMonitorRunner(channelMonitorService, settingService)
+	modelSelfCheckRunner := service.ProvideModelSelfCheckRunner(modelSelfCheckService, settingService)
 	userPlatformQuotaUsageFlusher := service.ProvideUserPlatformQuotaUsageFlusher(configConfig, billingCache, serviceUserPlatformQuotaRepository, timingWheelService)
-	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, schedulerSnapshotService, tokenRefreshService, accountExpiryService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, userPlatformQuotaUsageFlusher)
+	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, schedulerSnapshotService, tokenRefreshService, accountExpiryService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, modelSelfCheckRunner, userPlatformQuotaUsageFlusher)
 	application := &Application{
 		Server:  httpServer,
 		Cleanup: v,
@@ -331,6 +334,7 @@ func provideCleanup(
 	backupSvc *service.BackupService,
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	channelMonitorRunner *service.ChannelMonitorRunner,
+	modelSelfCheckRunner *service.ModelSelfCheckRunner,
 	quotaFlusher *service.UserPlatformQuotaUsageFlusher,
 ) func() {
 	return func() {
@@ -480,6 +484,12 @@ func provideCleanup(
 			{"ChannelMonitorRunner", func() error {
 				if channelMonitorRunner != nil {
 					channelMonitorRunner.Stop()
+				}
+				return nil
+			}},
+			{"ModelSelfCheckRunner", func() error {
+				if modelSelfCheckRunner != nil {
+					modelSelfCheckRunner.Stop()
 				}
 				return nil
 			}},

@@ -232,6 +232,10 @@ export interface PublicSettings {
   balance_low_notify_threshold: number
   channel_monitor_enabled: boolean
   channel_monitor_default_interval_seconds: number
+  model_self_check_enabled: boolean
+  self_check_default_interval_seconds: number
+  self_check_max_concurrency: number
+  self_check_max_tasks_per_round: number
   available_channels_enabled: boolean
   service_quota_enabled: boolean
   affiliate_enabled: boolean

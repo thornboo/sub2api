@@ -23,6 +23,7 @@ import {
 } from '@/constants/channelMonitor'
 
 const NEUTRAL_BADGE = 'bg-gray-100 text-gray-800 dark:bg-dark-700 dark:text-gray-300'
+type MonitorStatusLike = MonitorStatus | 'unknown' | ''
 
 /** Availability HSL hue multiplier: 0%=red(0) / 50%=yellow(60) / 100%=green(120). */
 const HSL_HUE_PER_PERCENT = 1.2
@@ -37,12 +38,12 @@ export interface AvailabilityRow {
 export function useChannelMonitorFormat() {
   const { t } = useI18n()
 
-  function statusLabel(s: MonitorStatus | ''): string {
+  function statusLabel(s: MonitorStatusLike): string {
     if (!s) return t('monitorCommon.status.unknown')
     return t(`monitorCommon.status.${s}`)
   }
 
-  function statusBadgeClass(s: MonitorStatus | ''): string {
+  function statusBadgeClass(s: MonitorStatusLike): string {
     switch (s) {
       case STATUS_OPERATIONAL:
         return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'

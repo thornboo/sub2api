@@ -22,6 +22,7 @@ export interface PricingFormEntry {
   image_output_price: number | string | null
   per_request_price: number | string | null
   intervals: IntervalFormEntry[]
+  self_check_enabled_models: string[]
 }
 
 // 价格转换：后端存 per-token，前端显示 per-MTok ($/1M tokens)

@@ -128,11 +128,11 @@ func RegisterUserRoutes(
 			subscriptions.GET("/summary", h.Subscription.GetSummary)
 		}
 
-		// 渠道监控（用户只读）
-		monitors := authenticated.Group("/channel-monitors")
+		// 模型服务状态（用户只读，隐藏上游渠道与探针细节）
+		modelStatus := authenticated.Group("/model-status")
 		{
-			monitors.GET("", h.ChannelMonitor.List)
-			monitors.GET("/:id/status", h.ChannelMonitor.GetStatus)
+			modelStatus.GET("", h.ChannelMonitor.ListModelStatus)
+			modelStatus.GET("/detail", h.ChannelMonitor.GetModelStatus)
 		}
 	}
 }

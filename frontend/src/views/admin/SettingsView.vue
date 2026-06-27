@@ -5601,6 +5601,92 @@
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.features.modelSelfCheck.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.features.modelSelfCheck.description') }}
+            </p>
+            <p class="mt-1.5 text-xs">
+              <router-link
+                to="/admin/channels/pricing"
+                class="inline-flex items-center gap-1 text-primary-600 hover:underline dark:text-primary-400"
+              >
+                {{ t('admin.settings.features.modelSelfCheck.configureLink') }}
+                <span aria-hidden="true">→</span>
+              </router-link>
+            </p>
+          </div>
+          <div class="space-y-5 p-6">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.modelSelfCheck.enabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.modelSelfCheck.enabledHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.model_self_check_enabled" />
+            </div>
+
+            <div v-if="form.model_self_check_enabled" class="grid gap-4 md:grid-cols-3">
+              <div>
+                <label class="input-label">
+                  {{ t('admin.settings.features.modelSelfCheck.defaultInterval') }}
+                  <span class="text-red-500">*</span>
+                </label>
+                <input
+                  v-model.number="form.self_check_default_interval_seconds"
+                  type="number"
+                  min="60"
+                  max="86400"
+                  class="input"
+                />
+                <p class="mt-1 text-xs text-gray-400">
+                  {{ t('admin.settings.features.modelSelfCheck.defaultIntervalHint') }}
+                </p>
+              </div>
+
+              <div>
+                <label class="input-label">
+                  {{ t('admin.settings.features.modelSelfCheck.maxConcurrency') }}
+                  <span class="text-red-500">*</span>
+                </label>
+                <input
+                  v-model.number="form.self_check_max_concurrency"
+                  type="number"
+                  min="1"
+                  max="64"
+                  class="input"
+                />
+                <p class="mt-1 text-xs text-gray-400">
+                  {{ t('admin.settings.features.modelSelfCheck.maxConcurrencyHint') }}
+                </p>
+              </div>
+
+              <div>
+                <label class="input-label">
+                  {{ t('admin.settings.features.modelSelfCheck.maxTasksPerRound') }}
+                  <span class="text-red-500">*</span>
+                </label>
+                <input
+                  v-model.number="form.self_check_max_tasks_per_round"
+                  type="number"
+                  min="1"
+                  max="10000"
+                  class="input"
+                />
+                <p class="mt-1 text-xs text-gray-400">
+                  {{ t('admin.settings.features.modelSelfCheck.maxTasksPerRoundHint') }}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
               {{ t('admin.settings.features.availableChannels.title') }}
             </h2>
             <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -7991,6 +8077,11 @@ const form = reactive<SettingsForm>({
   // Channel Monitor feature switch
   channel_monitor_enabled: true,
   channel_monitor_default_interval_seconds: 60,
+  // Model self-check feature switch
+  model_self_check_enabled: true,
+  self_check_default_interval_seconds: 300,
+  self_check_max_concurrency: 4,
+  self_check_max_tasks_per_round: 500,
   // Available Channels feature switch
   available_channels_enabled: false,
   // Affiliate (邀请返利) feature switch
@@ -9162,6 +9253,13 @@ async function saveSettings() {
       channel_monitor_enabled: form.channel_monitor_enabled,
       channel_monitor_default_interval_seconds:
         Number(form.channel_monitor_default_interval_seconds) || 60,
+      // Model self-check feature switch
+      model_self_check_enabled: form.model_self_check_enabled,
+      self_check_default_interval_seconds:
+        Number(form.self_check_default_interval_seconds) || 300,
+      self_check_max_concurrency: Number(form.self_check_max_concurrency) || 4,
+      self_check_max_tasks_per_round:
+        Number(form.self_check_max_tasks_per_round) || 500,
       // Available Channels feature switch
       available_channels_enabled: form.available_channels_enabled,
       // Affiliate (邀请返利) feature switch
