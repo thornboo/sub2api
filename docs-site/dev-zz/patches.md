@@ -1,5 +1,71 @@
 # 补丁记录
 
+## 2026-06-28 - 定价驱动的站点自检模型监控（取代 2026-06-26 方案）
+
+> 本条取代下方 2026-06-26 的实现：用户侧模型状态的数据来源由「上游渠道探针聚合」改为「站点自检」。旧的 `channel_monitor_model_status.go` 已删除，旧设计文档 `features/model-service-status-page.md` 已删除并由 `features/pricing-driven-self-check-monitoring-design.md` 取代。
+
+范围：
+- `backend/migrations/161_model_self_check.sql`（`model_self_check_config` + `model_self_check_histories`）
+- `backend/internal/service/model_self_check_{status,probe,runner}.go` + 测试
+- `backend/internal/repository/model_self_check_repo.go`
+- `backend/internal/handler/channel_monitor_user_handler.go`（改接自检 service）+ `_test.go`
+- `backend/internal/pkg/ctxkey/ctxkey.go`（新增 `ModelSelfCheckProbe` 标记）
+- 热路径探针守卫：`gateway_service.go`、`ratelimit_service.go`、`openai_account_runtime_block_fastpath.go`、`antigravity_gateway_service.go`、`gemini_messages_compat_service.go`、`gemini_chat_completions_compat_service.go`
+- 设置：`domain_constants.go`、`setting_service.go`、`settings_view.go`、`handler/admin/setting_handler.go`、`handler/dto/settings.go`
+- 定价开关：`handler/admin/channel_handler.go`、`repository/channel_repo_pricing.go`、`service/channel.go`
+- 前端：`views/admin/SettingsView.vue`、`views/admin/ChannelsView.vue`、`components/admin/channel/PricingEntryCard.vue`、`views/user/ChannelStatusView.vue`、`components/user/monitor/MonitorTimeline.vue`、`api/admin/{channels,settings}.ts`、`api/modelStatus.ts`、`i18n/locales/{zh,en}.ts`
+- `docs-site/dev-zz/{changelog.md,patches.md,index.md,reference/api-surface.md}` + `features/pricing-driven-self-check-monitoring-design.md` + `.vitepress/config.ts`
+
+改动：
+- 在渠道定价里按模型开启「自检」开关（`model_self_check_config(channel_id, model, enabled)`）。
+- 自检 runner 对开启的模型解析「可服务的上游账号」（跨分组去重），用合成 `gin.Context` 走真实网关 `Forward`，`max_tokens=1`，结果写 `model_self_check_histories`。
+- 探针请求带 `ctxkey.ModelSelfCheckProbe` 标记；限流封禁、runtime-block、重试、failover 在该标记下全部跳过（默认安全：无标记时原逻辑不变），且不调 `RecordUsage`——**不写用量、不计费、不影响生产账号调度**。
+- 用户侧 `/monitor` 改为按 **分组 / 模型** 展示，`/api/v1/model-status` 新增 `group_id` / `group_name` / `degraded_ratio_24h`；状态按 (分组,模型) 对覆盖账号 OR 聚合，含陈旧检测（超新鲜窗口→`unknown`）。
+- 新增管理员设置：`model_self_check_enabled`、`self_check_default_interval_seconds`、`self_check_max_concurrency`、`self_check_max_tasks_per_round`。
+
+验证：
+- `cd backend && go test ./internal/service ./internal/handler ./internal/server/routes`（含 4 平台真实 Forward 集成测试、禁止字段断言、去重/聚合/陈旧检测、429 不封账号）
+- `cd backend && go build ./...`
+- `pnpm --dir frontend run typecheck && pnpm --dir frontend run lint:check`
+
+未验证：
+- 全量 `go test ./...` 与各平台 staging 实测（合成 context 探针真实跑通、用户页视觉）由仓库所有者本地确认。
+
+## 2026-06-26 - 用户侧模型服务状态页（已被 2026-06-28 取代）
+
+范围：
+- `backend/internal/service/channel_monitor_model_status.go` + `_test.go`
+- `backend/internal/handler/channel_monitor_user_handler.go`
+- `backend/internal/server/routes/user.go` + `user_routes_test.go`
+- `frontend/src/api/modelStatus.ts`
+- `frontend/src/views/user/ChannelStatusView.vue`
+- `frontend/src/composables/useChannelMonitorFormat.ts`
+- `frontend/src/api/index.ts`
+- `frontend/src/i18n/locales/{zh,en}.ts`
+- `docs-site/dev-zz/{changelog.md,patches.md,index.md,reference/api-surface.md,features/model-service-status-page.md}`
+- `docs-site/.vitepress/config.ts`
+
+改动：
+- 用户侧 `/monitor` 从旧的 monitor / provider / group 视图切换为模型服务状态视图，只展示公开模型名、聚合状态、24h / 7d / 30d 可用率、延迟、最后检测时间和脱敏时间线。
+- 新增用户接口 `GET /api/v1/model-status` 与 `GET /api/v1/model-status/detail?model=...`，响应 DTO 不包含 monitor ID、monitor 名称、provider、endpoint、group、API mode、原始错误、账号、渠道 ID 或成本字段。
+- 新增 `ChannelMonitorService.ListUserModelStatus` / `GetUserModelStatus`：复用 enabled channel monitor、latest history、`ComputeAvailabilityForMonitors` 和最近历史查询，按公开模型名跨多个隐藏探针聚合状态；24h / 7d / 30d 当前全部直接读取 `channel_monitor_histories`。
+- 聚合口径：所有探针无历史为 `unknown`；至少一个成功但存在失败、降级或缺失探针为 `degraded`；无可用探针且有失败历史为 `failed`；全部可用为 `operational`。
+- 撤下旧用户侧 `/api/v1/channel-monitors` 探针路由，避免普通登录用户继续通过 API 看到上游 monitor / provider / group 等内部字段；管理员 `/api/v1/admin/channel-monitors` 不变。
+- 前端新增模型状态 API wrapper，`/monitor` 支持窗口切换、搜索、自动刷新、详情弹窗和无数据总体状态；导航文案从“渠道状态”调整为“模型状态”。
+- dev-zz 文档补齐模型状态页实现状态、接口边界、验证记录和侧边栏入口。
+
+验证：
+- `cd backend && go test ./internal/service -run 'TestListUserModelStatus|TestChannelMonitor'`
+- `cd backend && go test ./internal/handler ./internal/server/routes ./internal/service`
+- `pnpm --dir frontend run typecheck`
+- `pnpm --dir frontend run lint:check`
+- `pnpm --dir frontend run build`
+- `pnpm --dir docs-site build`
+
+未验证：
+- 浏览器人工 smoke（模型状态页实际视觉、详情弹窗和刷新交互），由管理员本地验证。
+- 完整仓库级 `go test ./...` 与完整前端测试套件。
+
 ## 2026-06-25 - 时间范围选择器支持可选「精确到秒」（DateRangePicker）
 
 范围：

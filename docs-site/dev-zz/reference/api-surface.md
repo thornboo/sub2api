@@ -191,6 +191,25 @@ owner analytics 已落地在用户认证域 `/api/v1/usage/analytics/*`。接口
 
 dev-zz 前端基于该接口构建模型级表格和导出视图。具体展示口径见 [可用渠道模型广场与报价导出](../features/available-channels-model-marketplace.md)。
 
+## 模型服务状态（定价驱动站点自检）
+
+用户侧模型服务状态要求登录用户身份，按 **分组 / 模型** 维度展示公开模型健康状态。数据来源是**站点自检探针**：对在渠道定价中开启「自检」的模型，系统用合成请求走本站网关真实链路（标记为探针，**不写用量、不计费、不触发生产账号封禁/重试/failover**），结果写入 `model_self_check_histories`，按 (分组, 模型) 对覆盖账号做 OR 聚合（任一账号成功即视为该分组下模型可用）。与管理员侧「渠道监控」（上游探针，写 `channel_monitor_histories`）完全分离。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/v1/model-status` | 模型状态列表，按分组分区，含当前状态、24h / 7d / 30d 可用率、降级比例、最近延迟和最后检测时间 |
+| `GET` | `/api/v1/model-status/detail?model=...` | 单个模型详情，含同口径指标和最近时间线 |
+
+字段边界：
+
+- 允许返回 `group_id`、`group_name`、`model`、`display_name`、`status`、公开 `message_code`、`availability_24h/7d/30d`、`degraded_ratio_24h`、平均延迟、最近延迟、`last_checked_at` 和脱敏 `timeline`。（分组名对用户本就可见，故允许返回。）
+- 禁止返回 `account_id`、`provider`、`endpoint`、API mode、上游模型映射、原始错误、`channel_id`、成本或其它内部路由字段。
+- 旧用户侧 `/api/v1/channel-monitors` 探针路由已撤下；管理员仍通过 `/api/v1/admin/channel-monitors` 管理和排查上游探针。
+
+配置入口：在**渠道定价**编辑界面按模型开启「自检」开关；自检节流由管理员设置控制——软开关 `model_self_check_enabled`、`self_check_default_interval_seconds`、`self_check_max_concurrency`、`self_check_max_tasks_per_round`。
+
+具体设计见 [定价驱动的站点自检模型监控](../features/pricing-driven-self-check-monitoring-design.md)。
+
 ## 管理端模型探测
 
 | 方法 | 路径 | 说明 |

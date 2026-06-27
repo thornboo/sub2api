@@ -1,7 +1,14 @@
 # 变更记录
 
+## 2026-06-28
+
+- 用户侧模型服务状态改为**定价驱动的站点自检**：在渠道定价里按模型开启「自检」开关后，系统对该模型解析出可服务的上游账号（跨分组去重），用合成请求走本站网关真实链路探测，结果写入 `model_self_check_histories`。探针请求带专用上下文标记，**不写 `usage_logs`、不计费，且不触发生产账号的限流封禁 / runtime-block / 重试 / failover**；用户侧 `/monitor` 由此按 **分组 / 模型** 维度展示健康状态、24h/7d/30d 可用率和降级比例。
+- 新增管理员设置：`model_self_check_enabled`（软开关）、`self_check_default_interval_seconds`（默认探测间隔）、`self_check_max_concurrency`（全局并发上限）、`self_check_max_tasks_per_round`（单轮去重任务上限，成本护栏）。
+- 用户 `/api/v1/model-status` 响应改为按分组返回，新增 `group_id` / `group_name` / `degraded_ratio_24h` 字段；仍不返回 `account_id`、`provider`、`endpoint`、`channel_id`、成本等内部字段。上游「渠道监控」子系统（`channel_monitor_*`）保持现状，仅管理员用于排查上游。
+
 ## 2026-06-26
 
+- 用户侧 `/monitor` 从“渠道监控”切换为“模型服务状态”：按公开模型名展示当前状态、24h / 7d / 30d 可用率、平均延迟和最近时间线；新增 `/api/v1/model-status` 与 `/api/v1/model-status/detail?model=...`，并撤下旧用户侧 `/api/v1/channel-monitors` 探针路由，避免普通用户看到上游 monitor、provider、group、endpoint 等内部字段。管理员渠道监控配置与排障入口保持不变。
 - 同步上游 `main`（`ce6af413`）到 `dev-zz-develop`：新增 GPT-5.5 codex instructions 并作为 codex 最新指令 fallback；修复 codex spark 路径剥离 `image_generation` 工具导致的上游 502；管理端账号「重置 OpenAI 周限」增加二次确认；sponsor / 合作方 logo 与多语言 README 更新。本次为干净合并，无冲突，未触及 dev-zz 视觉、认证入口、数据保留与用量字段边界等已记录策略。
 
 ## 2026-06-25
