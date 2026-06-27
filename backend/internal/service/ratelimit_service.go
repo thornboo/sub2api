@@ -2203,12 +2203,8 @@ func extractOpenAIModelRateLimitModel(body []byte) string {
 	return strings.Trim(strings.TrimSpace(match[1]), `"'`)
 }
 
-func openAIModelRateLimitResetAt(headers http.Header, body []byte) time.Time {
-	return openAIModelRateLimitResetAtWithOverride(headers, body, 0)
-}
-
-// openAIModelRateLimitResetAtWithOverride 与 openAIModelRateLimitResetAt 一致，
-// 但当无法从上游 header/body 解析重置时间时，用 override（>0）覆盖硬编码回退冷却。
+// openAIModelRateLimitResetAtWithOverride derives the reset time from upstream
+// hints, falling back to override when no usable reset time is present.
 func openAIModelRateLimitResetAtWithOverride(headers http.Header, body []byte, override time.Duration) time.Time {
 	now := time.Now()
 	if resetAt := parseRetryAfterResetTime(headers, now); resetAt != nil && resetAt.After(now) {
@@ -2229,12 +2225,8 @@ func openAIModelRateLimitResetAtWithOverride(headers http.Header, body []byte, o
 	return now.Add(fallback)
 }
 
-func modelUpstreamFailureResetAt(account *Account, statusCode int, headers http.Header, body []byte) time.Time {
-	return modelUpstreamFailureResetAtWithOverride(account, statusCode, headers, body, 0)
-}
-
-// modelUpstreamFailureResetAtWithOverride 与 modelUpstreamFailureResetAt 一致，
-// 但当无法从上游 header/body 解析重置时间时，用 override（>0）覆盖硬编码回退冷却。
+// modelUpstreamFailureResetAtWithOverride derives the reset time from upstream
+// hints, falling back to override when no usable reset time is present.
 func modelUpstreamFailureResetAtWithOverride(account *Account, statusCode int, headers http.Header, body []byte, override time.Duration) time.Time {
 	now := time.Now()
 	if resetAt := parseRetryAfterResetTime(headers, now); resetAt != nil && resetAt.After(now) {
