@@ -43,23 +43,55 @@
 
       <template #actions>
         <div class="flex justify-end gap-3">
-        <button
-          @click="loadApiKeys"
-          :disabled="loading"
-          class="btn btn-secondary"
-          :title="t('common.refresh')"
-        >
-          <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
-        </button>
-        <button @click="showBatchCreateModal = true" class="btn btn-secondary">
-          <Icon name="copy" size="md" class="mr-2" />
-          {{ t('keys.batchCreate.title') }}
-        </button>
-        <button @click="showCreateModal = true" class="btn btn-primary" data-tour="keys-create-btn">
-          <Icon name="plus" size="md" class="mr-2" />
-          {{ t('keys.createKey') }}
-        </button>
-      </div>
+          <button
+            @click="loadApiKeys"
+            :disabled="loading"
+            class="btn btn-secondary"
+            :title="t('common.refresh')"
+          >
+            <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
+          </button>
+          <div class="relative" ref="columnDropdownRef">
+            <button
+              @click="showColumnDropdown = !showColumnDropdown"
+              class="btn btn-secondary px-2 md:px-3"
+              :title="t('keys.columnSettings')"
+            >
+              <svg class="h-4 w-4 md:mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125z" />
+              </svg>
+              <span class="hidden md:inline">{{ t('keys.columnSettings') }}</span>
+            </button>
+            <div
+              v-if="showColumnDropdown"
+              class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-stone-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-neutral-900"
+            >
+              <button
+                v-for="col in toggleableColumns"
+                :key="col.key"
+                @click="toggleColumn(col.key)"
+                class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-stone-700 hover:bg-stone-100 dark:text-neutral-300 dark:hover:bg-white/[0.06]"
+              >
+                <span>{{ col.label }}</span>
+                <Icon
+                  v-if="isColumnVisible(col.key)"
+                  name="check"
+                  size="sm"
+                  class="text-primary-500"
+                  :stroke-width="2"
+                />
+              </button>
+            </div>
+          </div>
+          <button @click="showBatchCreateModal = true" class="btn btn-secondary">
+            <Icon name="copy" size="md" class="mr-2" />
+            {{ t('keys.batchCreate.title') }}
+          </button>
+          <button @click="showCreateModal = true" class="btn btn-primary" data-tour="keys-create-btn">
+            <Icon name="plus" size="md" class="mr-2" />
+            {{ t('keys.createKey') }}
+          </button>
+        </div>
       </template>
 
       <template #table>
@@ -1796,7 +1828,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useOnboardingStore } from '@/stores/onboarding'
@@ -1873,7 +1905,7 @@ const appStore = useAppStore()
 const onboardingStore = useOnboardingStore()
 const { copyToClipboard: clipboardCopy } = useClipboard()
 
-const columns = computed<Column[]>(() => [
+const allColumns = computed<Column[]>(() => [
   { key: 'select', label: '', sortable: false, class: 'w-12' },
   { key: 'name', label: t('common.name'), sortable: true },
   { key: 'tags', label: t('keys.tags'), sortable: false },
@@ -1887,6 +1919,67 @@ const columns = computed<Column[]>(() => [
   { key: 'created_at', label: t('keys.created'), sortable: true },
   { key: 'actions', label: t('common.actions'), sortable: false }
 ])
+
+const ALWAYS_VISIBLE_COLUMNS = new Set(['select', 'name', 'actions'])
+const DEFAULT_HIDDEN_COLUMNS = ['rate_limit', 'last_used_at']
+const HIDDEN_COLUMNS_KEY = 'api-key-hidden-columns'
+const COLUMN_SETTINGS_VERSION_KEY = 'api-key-column-settings-version'
+const COLUMN_SETTINGS_VERSION = 1
+
+const toggleableColumns = computed(() =>
+  allColumns.value.filter((col) => !ALWAYS_VISIBLE_COLUMNS.has(col.key))
+)
+
+const hiddenColumns = reactive<Set<string>>(new Set())
+
+const saveColumnsToStorage = () => {
+  try {
+    localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+    localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, String(COLUMN_SETTINGS_VERSION))
+  } catch (error) {
+    console.error('Failed to save API key table columns:', error)
+  }
+}
+
+const loadSavedColumns = () => {
+  hiddenColumns.clear()
+  try {
+    const saved = localStorage.getItem(HIDDEN_COLUMNS_KEY)
+    if (saved) {
+      const parsed = JSON.parse(saved) as string[]
+      const validColumnKeys = new Set(allColumns.value.map((col) => col.key))
+      parsed
+        .filter((key) =>
+          typeof key === 'string' &&
+          validColumnKeys.has(key) &&
+          !ALWAYS_VISIBLE_COLUMNS.has(key)
+        )
+        .forEach((key) => hiddenColumns.add(key))
+    } else {
+      DEFAULT_HIDDEN_COLUMNS.forEach((key) => hiddenColumns.add(key))
+    }
+    localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, String(COLUMN_SETTINGS_VERSION))
+  } catch (error) {
+    console.error('Failed to load API key table columns:', error)
+    DEFAULT_HIDDEN_COLUMNS.forEach((key) => hiddenColumns.add(key))
+  }
+}
+
+const toggleColumn = (key: string) => {
+  if (ALWAYS_VISIBLE_COLUMNS.has(key)) return
+  if (hiddenColumns.has(key)) {
+    hiddenColumns.delete(key)
+  } else {
+    hiddenColumns.add(key)
+  }
+  saveColumnsToStorage()
+}
+
+const isColumnVisible = (key: string) => !hiddenColumns.has(key)
+
+const columns = computed<Column[]>(() =>
+  allColumns.value.filter((col) => ALWAYS_VISIBLE_COLUMNS.has(col.key) || !hiddenColumns.has(col.key))
+)
 
 const apiKeys = ref<ApiKey[]>([])
 const groups = ref<Group[]>([])
@@ -1926,6 +2019,7 @@ const showResetRateLimitDialog = ref(false)
 const showUseKeyModal = ref(false)
 const showUsageModal = ref(false)
 const showCcsClientSelect = ref(false)
+const showColumnDropdown = ref(false)
 const pendingCcsRow = ref<ApiKey | null>(null)
 const selectedKey = ref<ApiKey | null>(null)
 const selectedUsageKey = ref<ApiKey | null>(null)
@@ -1940,6 +2034,7 @@ const copiedKeyId = ref<number | null>(null)
 const groupSelectorKeyId = ref<number | null>(null)
 const publicSettings = ref<PublicSettings | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
+const columnDropdownRef = ref<HTMLElement | null>(null)
 const dropdownPosition = ref<{ top?: number; bottom?: number; left: number } | null>(null)
 const groupButtonRefs = ref<Map<number, HTMLElement>>(new Map())
 let abortController: AbortController | null = null
@@ -2611,6 +2706,9 @@ const closeGroupSelector = (event: MouseEvent) => {
     groupSelectorKeyId.value = null
     dropdownPosition.value = null
   }
+  if (columnDropdownRef.value && !columnDropdownRef.value.contains(target)) {
+    showColumnDropdown.value = false
+  }
 }
 
 const confirmDelete = (key: ApiKey) => {
@@ -3229,6 +3327,7 @@ function formatResetTime(resetAt: string | null): string {
 
 onMounted(() => {
   loadApiKeyTagOptions()
+  loadSavedColumns()
   loadApiKeys()
   loadGroups()
   loadUserGroupRates()

@@ -1,5 +1,40 @@
 # 补丁记录
 
+## 2026-06-29 - 上游 main 同步到 dev-zz-develop：Grok、Codex 检测、系统日志 Key 筛选与支付修复
+
+范围：
+- 上游同步：`origin/main` `c99112a9` 合并到 `dev-zz-develop`
+- 后端：Grok / xAI OAuth、quota probe、网关转发、OpenAI/Codex PAT 与 app-server 检测、quota platform 后扣、no-account 错误、Responses / Chat Completions 兼容、支付和系统日志
+- 前端：账号创建/编辑弹窗、设置页、用户 Key 列设置、系统日志表、支付页面、平台图标/i18n
+- 迁移：`backend/migrations/162_add_ops_system_logs_api_key_id.sql`、`163_add_ops_system_logs_api_key_id_index_notx.sql`
+- 文档：`docs-site/dev-zz/{changelog.md,patches.md,maintenance/merge-log.md}`
+
+改动：
+- 吸收上游 Grok / xAI OAuth 和订阅配额探测链路，管理端账号配置、OAuth 授权、token refresh、quota probe 和 OpenAI-compatible Grok 网关转发均纳入本分支。
+- 吸收 Codex / ChatGPT 账号检测加固：PAT auth mode、app-server client、engine fingerprint 信号、Codex 白名单设置与相关测试。
+- 吸收 OpenAI / Responses / Chat Completions 兼容修复，包括 tool schema 规范化、passthrough function args 去重、图片 bridge `tool_choice=auto`、overloaded 错误识别、no-account `model_not_found` 和 token refresh 非重试错误。
+- 吸收支付显示与订单金额修复，保留订阅 CNY 换算和支付二维码弹窗修复。
+- 运维系统日志新增 `api_key_id` 字段、索引、查询筛选和清理筛选；在 dev-zz 中顺延迁移编号为 `162/163`，避免与既有 `154/155` 撞号。
+- 用户 API Key 页面吸收上游列设置，同时保留 dev-zz 的标签筛选、批量创建/批量操作、单 Key 用量下钻、`disabled` 状态语义和系统状态保护。
+- 账号创建/编辑弹窗吸收 Grok OAuth 模型映射与 Antigravity project ID，同时保留 dev-zz 的模型目录、上游成本设置、模型自检相关策略和 stone / emerald 视觉。
+- OpenAI usage 记录同时保留 dev-zz `ScheduleMeta` 与上游 `QuotaPlatform`，并继续优先使用真实转发结果里的上游 endpoint。
+
+验证：
+- `gofmt -w backend/cmd/server/wire_gen.go backend/internal/handler/openai_gateway_handler.go backend/internal/service/account.go backend/internal/service/openai_gateway_service.go`
+- `git diff --check`
+- `git diff --cached --check`
+- `rg -n "^(<<<<<<<|>>>>>>>|=======$)" .`
+- `mise x -C backend -- go test ./migrations`
+- `mise x -C backend -- go test ./internal/server ./internal/handler ./internal/handler/admin ./internal/config ./internal/repository ./internal/service ./internal/pkg/openai ./internal/pkg/apicompat ./internal/pkg/xai`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/views/user/__tests__/KeysView.spec.ts src/components/account/__tests__/EditAccountModal.spec.ts src/components/account/__tests__/BulkEditAccountModal.spec.ts src/views/admin/__tests__/SettingsView.spec.ts src/views/user/__tests__/PaymentView.spec.ts src/components/payment/__tests__/PaymentQRDialog.spec.ts src/components/admin/payment/__tests__/orderCurrencyDisplay.spec.ts`
+- `pnpm --dir docs-site docs:build`
+
+未验证：
+- 浏览器人工 smoke。
+- 完整前端测试套件和完整仓库级 `go test ./...`。
+
 ## 2026-06-28 - 定价驱动的站点自检模型监控（取代 2026-06-26 方案）
 
 > 本条取代下方 2026-06-26 的实现：用户侧模型状态的数据来源由「上游渠道探针聚合」改为「站点自检」。旧的 `channel_monitor_model_status.go` 已删除，旧设计文档 `features/model-service-status-page.md` 已删除并由 `features/pricing-driven-self-check-monitoring-design.md` 取代。

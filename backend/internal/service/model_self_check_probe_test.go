@@ -501,6 +501,7 @@ func modelSelfCheckAntigravityTestAccount() *Account {
 		Concurrency: 1,
 		Credentials: map[string]any{
 			"access_token": "ag-self-check",
+			"project_id":   "ag-project-self-check",
 			"model_mapping": map[string]any{
 				"claude-sonnet-4-5": "gemini-3-pro-high",
 			},

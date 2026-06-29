@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-06-29
+
+- 同步上游 `main`（`c99112a9`）到 `dev-zz-develop`：吸收 Grok / xAI OAuth 与订阅配额探测、Codex / ChatGPT 账号检测加固、OpenAI PAT auth mode、Responses / Chat Completions 兼容修复、OpenAI 图片 bridge 与 overloaded 错误识别修复、支付金额/币种显示修复、用户 API Key 列设置、运维系统日志 API Key 筛选和 sponsor / README 更新。
+- 运维系统日志新增按 API Key ID 查询和清理的后端字段与索引；上游迁移在 dev-zz 中顺延为 `162_add_ops_system_logs_api_key_id.sql` 与 `163_add_ops_system_logs_api_key_id_index_notx.sql`，避免与既有 dev-zz 迁移编号冲突。
+- 本次合并保留 dev-zz 的 `1.4.0` 发布线版本号、docs-site 文档中心、stone / emerald 控制台视觉方向、企业 Key 标签/批量/用量下钻语义、模型自检 runner、OpenAI usage 真实上游端点记录和系统状态保护。
+- 用户 API Key 页面在保留标签、批量创建/批量操作和单 Key 用量下钻的基础上，吸收上游列设置能力；管理员系统日志表在保留二次确认清理弹窗的基础上，吸收 `api_key_id` 筛选。
+
 ## 2026-06-28
 
 - 用户侧模型服务状态改为**定价驱动的站点自检**：在渠道定价里按模型开启「自检」开关后，系统对该模型解析出可服务的上游账号（跨分组去重），用合成请求走本站网关真实链路探测，结果写入 `model_self_check_histories`。探针请求带专用上下文标记，**不写 `usage_logs`、不计费，且不触发生产账号的限流封禁 / runtime-block / 重试 / failover**；用户侧 `/monitor` 由此按 **分组 / 模型** 维度展示健康状态、24h/7d/30d 可用率和降级比例。

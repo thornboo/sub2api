@@ -2,6 +2,76 @@
 
 这里记录二开分支吸收上游变更的同步工作。
 
+## 2026-06-29 - 将上游 `main` 合并到 `dev-zz-develop`：Grok 订阅、Codex 检测加固、系统日志 Key 筛选与支付修复
+
+分支：
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`ce6af413`
+- 合并前目标：`76c78835`
+- 上游 head：`c99112a9`
+- 结果提交：本次合并提交
+
+上游要点：
+- 新增 Grok / xAI OAuth、订阅配额探测、账号刷新、网关转发与管理端授权入口。
+- 加固 OpenAI Codex / ChatGPT 账号检测：新增 PAT auth mode、app-server client 识别、engine fingerprint 统一信号和 Codex 白名单设置。
+- 运维系统日志新增 `api_key_id` 持久列、筛选条件和索引，便于按 Key 排查生产日志。
+- 用户 API Key 页面新增列设置；管理员账号表、设置页、Grok 配额探测、支付订单金额和二维码弹窗获得多处修复。
+- OpenAI 用量后扣保留请求期解析出的 quota platform，避免 worker 池背景上下文丢失 ForcePlatform；无可用账号时返回更精确的 `model_not_found`。
+- 修复 Responses / Chat Completions 兼容路径中的工具 schema、passthrough function args、图片 bridge `tool_choice`、overloaded 错误识别和 token refresh 非重试错误。
+- 更新 sponsor 资料、合作方 logo、README 多语言内容和 `sub2api-admin` 技能说明。
+
+合并策略：
+- 合并前阅读 `docs-site/dev-zz/branch-policy.md`、`maintenance/merge-main.md`、`patches.md`、`maintenance/merge-log.md`、`changelog.md`、`reference/change-map.md` 和 `testing/verification-matrix.md`。
+- 用 `git fetch origin` 刷新远程引用，以上游 `origin/main` 的 `c99112a9` 作为合并目标。
+- 用 `git merge-tree --write-tree --merge-base ce6af413577a6d012e334baad5069a02a80d48b6 HEAD origin/main` 只读预检，预测到 12 个内容冲突。
+- 用 `git merge --no-commit origin/main` 执行真实合并，冲突文件与预检一致。
+- 接受上游后端正确性、Grok 支持、支付修复、Codex 检测加固、系统日志 Key 筛选和用户 Key 列设置；保留 dev-zz 的发布版本号、docs-site 文档中心、stone / emerald 视觉方向、企业 Key 标签/批量/用量下钻语义、模型自检 runner 和 OpenAI usage 真实 result endpoint 口径。
+
+冲突文件：
+- `backend/cmd/server/VERSION`
+- `backend/cmd/server/wire_gen.go`
+- `backend/internal/handler/openai_gateway_handler.go`
+- `backend/internal/service/account.go`
+- `backend/internal/service/openai_gateway_service.go`
+- `frontend/src/components/account/CreateAccountModal.vue`
+- `frontend/src/components/account/EditAccountModal.vue`
+- `frontend/src/utils/billingMode.ts`
+- `frontend/src/views/admin/DashboardView.vue`
+- `frontend/src/views/admin/ops/components/OpsSystemLogTable.vue`
+- `frontend/src/views/user/KeysView.vue`
+- `frontend/src/views/user/UsageView.vue`
+
+解决说明：
+- `backend/cmd/server/VERSION` 的 base 为 `0.1.138`，dev-zz-develop 为 `1.4.0`，上游为 `0.1.139`；按 dev-zz 发布线保留 `1.4.0`。
+- `wire_gen.go` 和 `provideCleanup` 同时保留上游 `grokOAuthService` 与 dev-zz `modelSelfCheckRunner`。
+- `openai_gateway_handler.go` 继续使用 `openAIUsageUpstreamEndpoint(c, account, result)`，保留真实转发结果中的上游端点；同时提前解析并传入 `QuotaPlatform`，保证异步后扣平台口径。
+- `service/account.go` 同时保留 dev-zz cache token usage mode 与上游 OpenAI PAT auth mode。
+- `OpenAIRecordUsageInput` 同时保留 dev-zz `ScheduleMeta` 与上游 `QuotaPlatform`。
+- 账号创建/编辑弹窗保留 dev-zz 边框和暗色视觉，同时接入上游 Grok OAuth 模型映射和 Antigravity project ID 写入逻辑。
+- `billingMode.ts` 保留 dev-zz 的 `isImageUsage()` 图片用量识别口径，避免只凭空 `billing_mode` 判断导致图片记录被误归类。
+- `DashboardView.vue` 接受上游数值归零保护，避免旧统计快照缺字段时显示 `NaN`。
+- `OpsSystemLogTable.vue` 保留 dev-zz 二次确认清理弹窗，并把上游 `api_key_id` 筛选接入查询、清理 payload 和确认摘要。
+- `KeysView.vue` 同时保留 dev-zz 标签、批量创建/批量操作、单 Key 用量下钻和系统状态保护，并接入上游列设置下拉。
+- `UsageView.vue` 保留 dev-zz stone 文案样式和图片优先展示结构，避免重复插入上游灰色 token 单价区块。
+- 上游新增 `154/155` 系统日志 Key 迁移与 dev-zz 既有 `154/155` 撞号，已顺延为 `162_add_ops_system_logs_api_key_id.sql` 和 `163_add_ops_system_logs_api_key_id_index_notx.sql`。
+
+验证：
+- `gofmt -w backend/cmd/server/wire_gen.go backend/internal/handler/openai_gateway_handler.go backend/internal/service/account.go backend/internal/service/openai_gateway_service.go`
+- `git diff --check`
+- `git diff --cached --check`
+- `rg -n "^(<<<<<<<|>>>>>>>|=======$)" .`
+- `mise x -C backend -- go test ./migrations`
+- `mise x -C backend -- go test ./internal/server ./internal/handler ./internal/handler/admin ./internal/config ./internal/repository ./internal/service ./internal/pkg/openai ./internal/pkg/apicompat ./internal/pkg/xai`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/views/user/__tests__/KeysView.spec.ts src/components/account/__tests__/EditAccountModal.spec.ts src/components/account/__tests__/BulkEditAccountModal.spec.ts src/views/admin/__tests__/SettingsView.spec.ts src/views/user/__tests__/PaymentView.spec.ts src/components/payment/__tests__/PaymentQRDialog.spec.ts src/components/admin/payment/__tests__/orderCurrencyDisplay.spec.ts`
+- `pnpm --dir docs-site docs:build`
+
+未验证：
+- 浏览器人工 smoke。
+- 完整前端测试套件和完整仓库级 `go test ./...`。
+
 ## 2026-06-26 - 将上游 `main` 合并到 `dev-zz-develop`：GPT-5.5 codex、codex spark 502 修复与 OpenAI 周限重置确认
 
 分支：
