@@ -128,6 +128,7 @@ describe('GroupDistributionChart', () => {
       },
       global: {
         stubs: {
+          Doughnut: true,
           LoadingSpinner: true,
         },
       },
@@ -136,5 +137,23 @@ describe('GroupDistributionChart', () => {
     await wrapper.find('button[aria-label="Expand"]').trigger('click')
 
     expect(wrapper.emitted('expand')).toHaveLength(1)
+  })
+
+  it('can hide account cost for user usage stats without account_cost', () => {
+    const wrapper = mount(GroupDistributionChart, {
+      props: {
+        groupStats,
+        showAccountCost: false,
+      },
+      global: {
+        stubs: {
+          LoadingSpinner: true,
+        },
+      },
+    })
+
+    expect(wrapper.text()).not.toContain('Account Cost')
+    expect(wrapper.findAll('thead th')).toHaveLength(6)
+    expect(wrapper.findAll('tbody tr')[0].findAll('td')).toHaveLength(6)
   })
 })

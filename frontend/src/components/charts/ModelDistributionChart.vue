@@ -121,26 +121,28 @@
               <th class="pb-2 text-right">{{ t('admin.dashboard.requests') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.tokens') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.actual') }}</th>
-              <th class="pb-2 text-right">{{ t('admin.dashboard.accountCost') }}</th>
-              <th class="pb-2 text-right">{{ t('admin.dashboard.standard') }}</th>
+              <th v-if="showAccountCost" class="pb-2 text-right">{{ t('admin.dashboard.accountCost') }}</th>
+              <th v-if="showStandardCost" class="pb-2 text-right">{{ t('admin.dashboard.standard') }}</th>
             </tr>
           </thead>
           <tbody>
             <template v-for="(model, index) in displayModelStats" :key="model.model">
               <tr
                 class="cursor-pointer border-t border-stone-100 transition-colors hover:bg-stone-50/80 dark:border-white/10 dark:hover:bg-white/[0.04]"
-                @click="toggleBreakdown('model', model.model)"
+                :class="enableBreakdown ? 'cursor-pointer hover:bg-stone-50/80 dark:hover:bg-white/[0.04]' : ''"
+                @click="enableBreakdown && toggleBreakdown('model', model.model)"
               >
                 <td class="w-10 py-1.5 text-left text-[11px] font-semibold text-gray-400 dark:text-gray-500">
                   #{{ index + 1 }}
                 </td>
                 <td
-                  class="max-w-[100px] truncate py-1.5 font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
+                  class="max-w-[100px] truncate py-1.5 font-medium"
+                  :class="enableBreakdown ? 'text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300' : 'text-gray-900 dark:text-white'"
                   :title="model.model"
                 >
                   <span class="inline-flex items-center gap-1">
-                    <svg v-if="expandedKey === `model-${model.model}`" class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-                    <svg v-else class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    <svg v-if="enableBreakdown && expandedKey === `model-${model.model}`" class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    <svg v-else-if="enableBreakdown" class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                     {{ model.model }}
                   </span>
                 </td>
@@ -153,18 +155,19 @@
                 <td class="py-1.5 text-right text-green-600 dark:text-green-400">
                   ${{ formatCost(model.actual_cost) }}
                 </td>
-                <td class="py-1.5 text-right text-orange-500 dark:text-orange-400">
+                <td v-if="showAccountCost" class="py-1.5 text-right text-orange-500 dark:text-orange-400">
                   ${{ formatCost(model.account_cost) }}
                 </td>
-                <td class="py-1.5 text-right text-gray-400 dark:text-gray-500">
+                <td v-if="showStandardCost" class="py-1.5 text-right text-gray-400 dark:text-gray-500">
                   ${{ formatCost(model.cost) }}
                 </td>
               </tr>
-              <tr v-if="expandedKey === `model-${model.model}`">
-                <td colspan="7" class="p-0">
+              <tr v-if="enableBreakdown && expandedKey === `model-${model.model}`">
+                <td :colspan="distributionColspan" class="p-0">
                   <UserBreakdownSubTable
                     :items="breakdownItems"
                     :loading="breakdownLoading"
+                    :show-account-cost="showAccountCost"
                   />
                 </td>
               </tr>
@@ -267,10 +270,14 @@ const { t } = useI18n()
 type DistributionMetric = 'tokens' | 'actual_cost'
 type ModelSource = 'requested' | 'upstream' | 'mapping'
 type RankingDisplayItem = UserSpendingRankingItem & { isOther?: boolean }
+type ModelDistributionStat = Pick<ModelStat, 'model' | 'requests' | 'total_tokens' | 'actual_cost'> & {
+  cost?: number | null
+  account_cost?: number | null
+}
 const props = withDefaults(defineProps<{
-  modelStats: ModelStat[]
-  upstreamModelStats?: ModelStat[]
-  mappingModelStats?: ModelStat[]
+  modelStats: ModelDistributionStat[]
+  upstreamModelStats?: ModelDistributionStat[]
+  mappingModelStats?: ModelDistributionStat[]
   source?: ModelSource
   enableRankingView?: boolean
   rankingItems?: UserSpendingRankingItem[]
@@ -281,6 +288,9 @@ const props = withDefaults(defineProps<{
   metric?: DistributionMetric
   showSourceToggle?: boolean
   showMetricToggle?: boolean
+  enableBreakdown?: boolean
+  showAccountCost?: boolean
+  showStandardCost?: boolean
   rankingLoading?: boolean
   rankingError?: boolean
   showExpandButton?: boolean
@@ -300,6 +310,9 @@ const props = withDefaults(defineProps<{
   metric: 'tokens',
   showSourceToggle: false,
   showMetricToggle: false,
+  enableBreakdown: true,
+  showAccountCost: true,
+  showStandardCost: true,
   rankingLoading: false,
   rankingError: false,
   showExpandButton: false
@@ -342,6 +355,9 @@ const emit = defineEmits<{
 }>()
 
 const enableRankingView = computed(() => props.enableRankingView)
+const showAccountCost = computed(() => props.showAccountCost)
+const showStandardCost = computed(() => props.showStandardCost)
+const distributionColspan = computed(() => 5 + (showAccountCost.value ? 1 : 0) + (showStandardCost.value ? 1 : 0))
 const activeView = ref<'model_distribution' | 'spending_ranking'>('model_distribution')
 
 const chartColors = [

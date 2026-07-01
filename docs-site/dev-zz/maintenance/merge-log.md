@@ -2,6 +2,90 @@
 
 这里记录二开分支吸收上游变更的同步工作。
 
+## 2026-07-02 - 将上游 `main` 合并到 `dev-zz-develop`：Spark shadow、Grok media、用量快照与支付/认证修复
+
+分支：
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`c99112a9`
+- 合并前目标：`925a5db3`
+- 上游 head：`7dc7cfce`
+- 结果提交：本次合并提交
+
+上游要点：
+- 新增 Spark shadow 账号体系：账号 schema、父子账号展示、调度跳过 shadow 凭据、Spark 窗口配额、账号测试与前端账号操作入口。
+- 新增 Grok media / xAI media 路由、OpenAI-compatible Grok 请求处理、`/count_tokens` 兼容路径和相关网关测试。
+- 用户用量页吸收 dashboard snapshot-v2、`billing_mode`、`request_type`、reasoning intensity、用户用量图表与导出修复。
+- 修复支付 refund pending / resume、OAuth 邮箱补全、隐私 toast、risk-control matched keyword、订阅撤销缓存、dateline fingerprint 归一化和 GPT-5.5 / Codex 相关逻辑。
+- 更新 README、多语言资料、合作方 logo、Docker/deploy 脚本和 fork/upstream 版本同步工具。
+- 新增迁移 `154_account_spark_shadow.sql`、`154a_account_spark_shadow_indexes_notx.sql`、`156_content_moderation_matched_keyword.sql`、`157_user_platform_quotas_add_grok.sql`；本分支迁移目录已有同号并存惯例，本次按文件名直接吸收，未顺延。
+
+合并策略：
+- 合并前阅读 `docs-site/dev-zz/branch-policy.md`、`maintenance/merge-main.md`、`reference/change-map.md`、`changelog.md`、`patches.md`、`maintenance/merge-log.md` 和 `testing/verification-matrix.md`。
+- 用 `git fetch origin` 刷新远程引用，以上游 `origin/main` 的 `7dc7cfce` 作为合并目标。
+- 用 `git merge-tree --write-tree --merge-base "$(git merge-base HEAD origin/main)" HEAD origin/main` 只读预检，预测到内容冲突。
+- 用 `git merge --no-commit origin/main` 执行真实合并。
+- 接受上游后端正确性、Spark shadow、Grok media、payment/refund、OAuth、risk-control、dateline、count_tokens、dashboard snapshot-v2 与前端用量增强；保留 dev-zz 的 `1.4.1` 发布线、docs-site 文档中心、stone / emerald 二开主题、账号归档语义、模型自检状态快照、用户/admin 用量字段边界和 fork release 链接策略。
+
+冲突文件：
+- `backend/cmd/server/VERSION`
+- `backend/internal/handler/admin/account_handler.go`
+- `backend/internal/handler/dto/mappers_usage_test.go`
+- `backend/internal/handler/usage_handler.go`
+- `backend/internal/repository/account_repo.go`
+- `backend/internal/repository/usage_log_repo.go`
+- `backend/internal/service/openai_gateway_messages.go`
+- `backend/internal/service/ratelimit_service.go`
+- `backend/internal/service/usage_service.go`
+- `frontend/src/api/usage.ts`
+- `frontend/src/components/account/EditAccountModal.vue`
+- `frontend/src/components/account/__tests__/EditAccountModal.spec.ts`
+- `frontend/src/components/admin/channel/IntervalRow.vue`
+- `frontend/src/components/admin/channel/PricingEntryCard.vue`
+- `frontend/src/components/admin/usage/UsageStatsCards.vue`
+- `frontend/src/components/admin/usage/UsageTable.vue`
+- `frontend/src/components/charts/EndpointDistributionChart.vue`
+- `frontend/src/components/charts/GroupDistributionChart.vue`
+- `frontend/src/components/charts/ModelDistributionChart.vue`
+- `frontend/src/components/charts/__tests__/GroupDistributionChart.spec.ts`
+- `frontend/src/components/common/DataTable.vue`
+- `frontend/src/types/index.ts`
+- `frontend/src/views/admin/AccountsView.vue`
+- `frontend/src/views/admin/ChannelsView.vue`
+- `frontend/src/views/admin/GroupsView.vue`
+- `frontend/src/views/admin/ops/components/OpsSystemLogTable.vue`
+- `frontend/src/views/user/UsageView.vue`
+
+解决说明：
+- `backend/cmd/server/VERSION` 保留 dev-zz 发布线 `1.4.1`，不采用上游 `0.1.142`。
+- `account_handler.go` 同时保留 dev-zz ETag / 归档列表过滤和上游 Spark shadow parent enrichment。
+- `account_repo.go` 吸收上游 `Count` 使用 `Clone()` 的修复，避免列表计数污染主查询。
+- `usage_handler.go` 同时吸收上游 `billing_mode`、dashboard snapshot-v2、request type 和模型来源过滤，并保留 dev-zz 用户域安全边界：用户 `/usage/dashboard/models` 与 snapshot-v2 模型列表继续返回脱敏 DTO，不返回 `cost` / `account_cost`。
+- `usage_log_repo.go` 同时保留 dev-zz owner analytics 与上游 `billing_mode` 聚合快路径判断。
+- `ratelimit_service.go` 的 401 分支吸收上游 `authAccount` 处理，同时保留 dev-zz 可故障转移语义。
+- `openai_gateway_messages.go` 同时保留 `openai_compat` 与 xAI/Grok media 依赖。
+- 前端账号编辑弹窗保留 dev-zz 模型映射模式与上游 Spark shadow credentials 语义；Spark shadow 提交时只发送模型映射凭据。
+- 管理端账号页保留归档/恢复语义和 disabled 前置，同时吸收 Spark shadow 创建/更新/删除入口。
+- 用量图表保留 dev-zz 排名列、stone / emerald 主题和用户安全展示，同时吸收上游 breakdown、`showAccountCost`、snapshot-v2 和 `billing_mode` 支持；用户模型分布关闭 Standard / Account Cost 列，避免显示未返回的管理员字段。
+- 运维系统日志表保留 dev-zz 确认弹窗和主题，同时吸收上游新增筛选字段与 i18n。
+
+验证：
+- `gofmt -w backend/internal/handler/admin/account_handler.go backend/internal/handler/dto/mappers_usage_test.go backend/internal/handler/usage_handler.go backend/internal/handler/usage_handler_request_type_test.go backend/internal/repository/account_repo.go backend/internal/repository/usage_log_repo.go backend/internal/service/openai_gateway_messages.go backend/internal/service/ratelimit_service.go backend/internal/service/usage_service.go`
+- `rg -n "^(<<<<<<<|>>>>>>>|=======$)" .`
+- `git diff --check`
+- `git diff --cached --check`
+- `mise x -C backend -- go build ./...`
+- `mise x -C backend -- go test -tags unit ./migrations`
+- `mise x -C backend -- go test -tags unit ./internal/server ./internal/handler ./internal/handler/admin ./internal/config ./internal/repository ./internal/service ./internal/pkg/openai ./internal/pkg/apicompat ./internal/pkg/xai`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/components/common/__tests__/DataTable.spec.ts src/components/charts/__tests__/GroupDistributionChart.spec.ts src/components/charts/__tests__/ModelDistributionChart.spec.ts src/views/user/__tests__/UsageView.spec.ts src/components/account/__tests__/EditAccountModal.spec.ts src/views/admin/__tests__/AccountsView.sparkShadow.spec.ts src/views/admin/ops/components/__tests__/OpsSystemLogTable.spec.ts`
+- `pnpm --dir docs-site docs:build`
+
+未验证：
+- 浏览器人工 smoke。
+- 完整前端测试套件和完整仓库级 `go test ./...`。
+
 ## 2026-06-29 - 将上游 `main` 合并到 `dev-zz-develop`：Grok 订阅、Codex 检测加固、系统日志 Key 筛选与支付修复
 
 分支：

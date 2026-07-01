@@ -1,5 +1,13 @@
 # 变更记录
 
+## 2026-07-02
+
+- 同步上游 `main`（`7dc7cfce`）到 `dev-zz-develop`：吸收 Spark shadow 账号体系、Grok media / xAI media 路由、OpenAI-compatible Grok 转发、`/count_tokens` 兼容、用量 dashboard snapshot-v2、`billing_mode` / `request_type` 过滤、支付 refund pending/resume 修复、OAuth 邮箱补全、risk-control matched keyword、订阅撤销缓存、dateline fingerprint 归一化、GPT-5.5 / Codex 相关逻辑以及 README / Docker / deploy 更新。
+- 本次合并保留 dev-zz 的 `1.4.1` 发布线版本号、docs-site 文档中心、stone / emerald 控制台主题、账号归档语义、模型自检状态快照、fork release 链接策略，以及用户/admin 用量数据边界。
+- 用户 `/usage/dashboard/models` 与 snapshot-v2 模型列表继续返回用户安全字段，不返回 `cost` / `account_cost`；用户模型分布表同步隐藏 Standard / Account Cost 列，避免把管理员计费字段暴露到用户页。
+- 管理端账号页在保留“停用 -> 归档 -> 恢复为停用”的二开语义基础上，吸收 Spark shadow parent 展示和 shadow 账号操作；账号编辑弹窗保留模型映射模式，同时兼容 Spark shadow credentials。
+- 管理端渠道定价、自检、用量图表、系统日志和账号列表继续沿用 stone / emerald 二开主题，并吸收上游新增字段、breakdown、排序辅助和 i18n 修复。
+
 ## 2026-06-29
 
 - 同步上游 `main`（`c99112a9`）到 `dev-zz-develop`：吸收 Grok / xAI OAuth 与订阅配额探测、Codex / ChatGPT 账号检测加固、OpenAI PAT auth mode、Responses / Chat Completions 兼容修复、OpenAI 图片 bridge 与 overloaded 错误识别修复、支付金额/币种显示修复、用户 API Key 列设置、运维系统日志 API Key 筛选和 sponsor / README 更新。

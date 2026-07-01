@@ -97,15 +97,20 @@
             <template v-for="(item, index) in displayEndpointStats" :key="item.endpoint">
               <tr
                 class="cursor-pointer border-t border-stone-100 transition-colors hover:bg-stone-50/80 dark:border-white/10 dark:hover:bg-white/[0.04]"
-                @click="toggleBreakdown(item.endpoint)"
+                :class="enableBreakdown ? 'cursor-pointer hover:bg-stone-50/80 dark:hover:bg-white/[0.04]' : ''"
+                @click="enableBreakdown && toggleBreakdown(item.endpoint)"
               >
                 <td class="w-10 py-1.5 text-left text-[11px] font-semibold text-gray-400 dark:text-gray-500">
                   #{{ index + 1 }}
                 </td>
-                <td class="max-w-[180px] truncate py-1.5 font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300" :title="item.endpoint">
+                <td
+                  class="max-w-[180px] truncate py-1.5 font-medium"
+                  :class="enableBreakdown ? 'text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300' : 'text-gray-900 dark:text-white'"
+                  :title="item.endpoint"
+                >
                   <span class="inline-flex items-center gap-1">
-                    <svg v-if="expandedKey === item.endpoint" class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-                    <svg v-else class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    <svg v-if="enableBreakdown && expandedKey === item.endpoint" class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    <svg v-else-if="enableBreakdown" class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                     {{ item.endpoint }}
                   </span>
                 </td>
@@ -122,7 +127,7 @@
                   ${{ formatCost(item.cost) }}
                 </td>
               </tr>
-              <tr v-if="expandedKey === item.endpoint">
+              <tr v-if="enableBreakdown && expandedKey === item.endpoint">
                 <td colspan="6" class="p-0">
                   <UserBreakdownSubTable
                     :items="breakdownItems"
@@ -171,6 +176,7 @@ const props = withDefaults(
     showMetricToggle?: boolean
     showSourceToggle?: boolean
     showExpandButton?: boolean
+    enableBreakdown?: boolean
     startDate?: string
     endDate?: string
     filters?: Record<string, any>
@@ -184,7 +190,8 @@ const props = withDefaults(
     source: 'inbound',
     showMetricToggle: false,
     showSourceToggle: false,
-    showExpandButton: false
+    showExpandButton: false,
+    enableBreakdown: true
   }
 )
 

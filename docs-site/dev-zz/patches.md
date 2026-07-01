@@ -1,5 +1,42 @@
 # 补丁记录
 
+## 2026-07-02 - 上游 main 同步到 dev-zz-develop：Spark shadow、Grok media、用量快照与支付修复
+
+范围：
+- 上游同步：`origin/main` `7dc7cfce` 合并到 `dev-zz-develop`
+- 后端：Spark shadow 账号、Grok media / xAI media、OpenAI-compatible Grok、`/count_tokens`、dashboard snapshot-v2、支付 refund pending/resume、OAuth 邮箱补全、risk-control matched keyword、订阅撤销缓存、dateline fingerprint 归一化、GPT-5.5 / Codex
+- 前端：账号管理、账号编辑、渠道定价、自检配置、用量图表、用户用量页、运维系统日志、支付/订单、设置页、i18n、主题类名
+- 迁移：`154_account_spark_shadow.sql`、`154a_account_spark_shadow_indexes_notx.sql`、`156_content_moderation_matched_keyword.sql`、`157_user_platform_quotas_add_grok.sql`
+- 文档：`docs-site/dev-zz/{changelog.md,patches.md,maintenance/merge-log.md}`
+
+改动：
+- 吸收 Spark shadow 账号体系：schema 字段、父子账号展示、shadow 凭据跳过、Spark 窗口配额、调度路由、账号测试、管理端账号操作与测试覆盖。
+- 吸收 Grok media / xAI media 和 OpenAI-compatible Grok 网关路径，新增 media 处理、模型路由、账号测试和 `/count_tokens` 兼容。
+- 吸收上游用户用量 dashboard snapshot-v2、`billing_mode`、`request_type`、reasoning intensity、图表 breakdown 与导出修复。
+- 保留 dev-zz 用户/admin 用量边界：用户 `/usage/dashboard/models` 和 snapshot-v2 模型列表只返回用户安全字段，不返回 `cost` / `account_cost`；用户模型分布图同步关闭 Standard / Account Cost 列。
+- 管理端账号页保留 dev-zz 账号归档语义（仅 disabled 可归档、恢复为 disabled），同时接入 Spark shadow 账号操作和 parent 展示。
+- 账号编辑弹窗保留 dev-zz 模型映射模式、模型探测和二开主题，同时兼容 Spark shadow credentials 的最小提交。
+- 管理端渠道、用量图表、DataTable、系统日志和设置页继续沿用 stone / emerald 二开主题，并吸收上游新增字段、i18n 和排序/可访问性修复。
+- 后端使用量仓储保留 owner analytics 和用户安全 DTO，吸收上游 billing mode 快路径、模型来源过滤和 group stats 聚合。
+- `backend/cmd/server/VERSION` 保留 dev-zz 发布线 `1.4.1`，不采用上游 `0.1.142`。
+
+验证：
+- `gofmt -w backend/internal/handler/admin/account_handler.go backend/internal/handler/dto/mappers_usage_test.go backend/internal/handler/usage_handler.go backend/internal/handler/usage_handler_request_type_test.go backend/internal/repository/account_repo.go backend/internal/repository/usage_log_repo.go backend/internal/service/openai_gateway_messages.go backend/internal/service/ratelimit_service.go backend/internal/service/usage_service.go`
+- `rg -n "^(<<<<<<<|>>>>>>>|=======$)" .`
+- `git diff --check`
+- `git diff --cached --check`
+- `mise x -C backend -- go build ./...`
+- `mise x -C backend -- go test -tags unit ./migrations`
+- `mise x -C backend -- go test -tags unit ./internal/server ./internal/handler ./internal/handler/admin ./internal/config ./internal/repository ./internal/service ./internal/pkg/openai ./internal/pkg/apicompat ./internal/pkg/xai`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/components/common/__tests__/DataTable.spec.ts src/components/charts/__tests__/GroupDistributionChart.spec.ts src/components/charts/__tests__/ModelDistributionChart.spec.ts src/views/user/__tests__/UsageView.spec.ts src/components/account/__tests__/EditAccountModal.spec.ts src/views/admin/__tests__/AccountsView.sparkShadow.spec.ts src/views/admin/ops/components/__tests__/OpsSystemLogTable.spec.ts`
+- `pnpm --dir docs-site docs:build`
+
+未验证：
+- 浏览器人工 smoke。
+- 完整前端测试套件和完整仓库级 `go test ./...`。
+
 ## 2026-06-29 - 上游 main 同步到 dev-zz-develop：Grok、Codex 检测、系统日志 Key 筛选与支付修复
 
 范围：
