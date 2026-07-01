@@ -51,8 +51,13 @@ import { useI18n } from 'vue-i18n'
 import type { MonitorTimelinePoint } from '@/api/channelMonitor'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 
+type TimelineStatus = MonitorTimelinePoint['status'] | 'unknown'
+interface TimelinePoint extends Omit<MonitorTimelinePoint, 'status'> {
+  status: TimelineStatus
+}
+
 const props = withDefaults(defineProps<{
-  buckets?: MonitorTimelinePoint[]
+  buckets?: TimelinePoint[]
   countdownSeconds: number
   length?: number
   maintenance?: boolean
@@ -72,13 +77,14 @@ interface Bar {
   tooltipClass: string
 }
 
-// 4 级高度 + 颜色双重编码：高=好+绿，短=坏+红，灰=未测试。
-// 长绿(正常) > 中黄(降级) > 短红(失败/系统错误) > 很短灰(未测试)。
+// 5 级高度 + 颜色双重编码：高=好+绿，短=坏+红，灰=未知/未测试。
+// 长绿(正常) > 中黄(降级) > 短红(失败/系统错误) > 灰(未知) > 很短灰(未测试)。
 const STATUS_HEIGHT: Record<string, number> = {
   operational: 100,
   degraded: 65,
   failed: 35,
   error: 35,
+  unknown: 25,
   empty: 15,
 }
 
@@ -87,6 +93,7 @@ const STATUS_COLOR: Record<string, string> = {
   degraded: 'bg-amber-500',
   failed: 'bg-red-500',
   error: 'bg-red-500',
+  unknown: 'bg-stone-400 dark:bg-stone-500',
   empty: 'bg-stone-300 dark:bg-white/15',
 }
 

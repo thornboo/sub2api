@@ -11,10 +11,13 @@ import (
 const (
 	modelSelfCheckScheduleRefreshInterval = time.Minute
 	modelSelfCheckRunOneTimeout           = 90 * time.Second
+	modelSelfCheckSnapshotCleanupInterval = 24 * time.Hour
 )
 
 type modelSelfCheckRunnerSvc interface {
 	ListProbeTasks(ctx context.Context) ([]ModelSelfCheckProbeTask, error)
+	RefreshStatusSnapshots(ctx context.Context) error
+	CleanupStatusSnapshots(ctx context.Context) (int64, error)
 	RunProbe(ctx context.Context, task ModelSelfCheckProbeTask) error
 }
 
@@ -34,7 +37,8 @@ type ModelSelfCheckRunner struct {
 	inFlight   map[string]struct{}
 	inFlightMu sync.Mutex
 
-	workerSem chan struct{}
+	workerSem           chan struct{}
+	lastSnapshotCleanup time.Time
 }
 
 type scheduledModelSelfCheck struct {
@@ -129,6 +133,10 @@ func (r *ModelSelfCheckRunner) reloadSchedule(ctx context.Context) {
 		slog.Warn("model_self_check: load probe tasks failed", "error", err)
 		return
 	}
+	if err := r.svc.RefreshStatusSnapshots(loadCtx); err != nil {
+		slog.Warn("model_self_check: refresh status snapshots failed", "error", err)
+	}
+	r.cleanupStatusSnapshotsIfDue(loadCtx)
 	var limited bool
 	tasks, limited = limitModelSelfCheckProbeTasks(tasks, runtime.MaxTasksPerRound)
 	if limited {
@@ -189,6 +197,28 @@ func (r *ModelSelfCheckRunner) reloadSchedule(ctx context.Context) {
 
 	if len(toStart) > 0 {
 		slog.Info("model_self_check: schedule refreshed", "new_tasks", len(toStart), "total_tasks", len(desired))
+	}
+}
+
+func (r *ModelSelfCheckRunner) cleanupStatusSnapshotsIfDue(ctx context.Context) {
+	now := time.Now().UTC()
+	r.mu.Lock()
+	if !r.lastSnapshotCleanup.IsZero() && now.Sub(r.lastSnapshotCleanup) < modelSelfCheckSnapshotCleanupInterval {
+		r.mu.Unlock()
+		return
+	}
+	r.mu.Unlock()
+
+	deleted, err := r.svc.CleanupStatusSnapshots(ctx)
+	if err != nil {
+		slog.Warn("model_self_check: cleanup status snapshots failed", "error", err)
+		return
+	}
+	r.mu.Lock()
+	r.lastSnapshotCleanup = now
+	r.mu.Unlock()
+	if deleted > 0 {
+		slog.Info("model_self_check: cleaned old status snapshots", "deleted", deleted)
 	}
 }
 

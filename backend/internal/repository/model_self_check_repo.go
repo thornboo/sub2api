@@ -148,6 +148,68 @@ func (r *modelSelfCheckRepository) ListRecentHistories(ctx context.Context, mode
 	return scanModelSelfCheckHistoryRows(rows)
 }
 
+func (r *modelSelfCheckRepository) ListRecentStatusSnapshots(
+	ctx context.Context,
+	groupID int64,
+	model string,
+	limit int,
+) ([]service.ModelSelfCheckStatusSnapshot, error) {
+	if groupID <= 0 || model == "" {
+		return []service.ModelSelfCheckStatusSnapshot{}, nil
+	}
+	if limit <= 0 {
+		limit = service.MonitorHistoryDefaultLimit
+	}
+	if limit > service.MonitorHistoryMaxLimit {
+		limit = service.MonitorHistoryMaxLimit
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, group_id, model, status, reason_code,
+		       eligible_account_count, checked_account_count,
+		       operational_account_count, degraded_account_count, failed_account_count,
+		       latency_ms, checked_at, created_at
+		FROM model_self_check_status_snapshots
+		WHERE group_id = $1
+		  AND model = $2
+		ORDER BY checked_at DESC, id DESC
+		LIMIT $3`,
+		groupID, model, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list recent model self check status snapshots: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	return scanModelSelfCheckStatusSnapshotRows(rows)
+}
+
+func (r *modelSelfCheckRepository) ListStatusSnapshotsSince(
+	ctx context.Context,
+	groupID int64,
+	model string,
+	since time.Time,
+) ([]service.ModelSelfCheckStatusSnapshot, error) {
+	if groupID <= 0 || model == "" {
+		return []service.ModelSelfCheckStatusSnapshot{}, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, group_id, model, status, reason_code,
+		       eligible_account_count, checked_account_count,
+		       operational_account_count, degraded_account_count, failed_account_count,
+		       latency_ms, checked_at, created_at
+		FROM model_self_check_status_snapshots
+		WHERE group_id = $1
+		  AND model = $2
+		  AND checked_at >= $3
+		ORDER BY checked_at DESC, id DESC`,
+		groupID, model, since,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list model self check status snapshots since: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	return scanModelSelfCheckStatusSnapshotRows(rows)
+}
+
 func (r *modelSelfCheckRepository) CreateHistory(ctx context.Context, history *service.ModelSelfCheckHistory) error {
 	if history == nil {
 		return fmt.Errorf("insert model self check history: nil history")
@@ -170,6 +232,52 @@ func (r *modelSelfCheckRepository) CreateHistory(ctx context.Context, history *s
 		return fmt.Errorf("insert model self check history: %w", err)
 	}
 	return nil
+}
+
+func (r *modelSelfCheckRepository) CreateStatusSnapshot(ctx context.Context, snapshot *service.ModelSelfCheckStatusSnapshot) error {
+	if snapshot == nil {
+		return fmt.Errorf("insert model self check status snapshot: nil snapshot")
+	}
+	err := r.db.QueryRowContext(ctx, `
+		INSERT INTO model_self_check_status_snapshots
+		    (group_id, model, status, reason_code,
+		     eligible_account_count, checked_account_count,
+		     operational_account_count, degraded_account_count, failed_account_count,
+		     latency_ms, checked_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING id`,
+		snapshot.GroupID,
+		snapshot.Model,
+		snapshot.Status,
+		snapshot.ReasonCode,
+		snapshot.EligibleAccountCount,
+		snapshot.CheckedAccountCount,
+		snapshot.OperationalAccountCount,
+		snapshot.DegradedAccountCount,
+		snapshot.FailedAccountCount,
+		snapshot.LatencyMs,
+		snapshot.CheckedAt,
+	).Scan(&snapshot.ID)
+	if err != nil {
+		return fmt.Errorf("insert model self check status snapshot: %w", err)
+	}
+	return nil
+}
+
+func (r *modelSelfCheckRepository) DeleteStatusSnapshotsBefore(ctx context.Context, before time.Time) (int64, error) {
+	result, err := r.db.ExecContext(ctx, `
+		DELETE FROM model_self_check_status_snapshots
+		WHERE checked_at < $1`,
+		before,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("delete old model self check status snapshots: %w", err)
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("read deleted model self check status snapshot count: %w", err)
+	}
+	return deleted, nil
 }
 
 func nullableStringValue(value string) any {
@@ -203,6 +311,40 @@ func scanModelSelfCheckHistoryRows(rows *sql.Rows) ([]service.ModelSelfCheckHist
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate model self check histories: %w", err)
+	}
+	return out, nil
+}
+
+func scanModelSelfCheckStatusSnapshotRows(rows *sql.Rows) ([]service.ModelSelfCheckStatusSnapshot, error) {
+	out := []service.ModelSelfCheckStatusSnapshot{}
+	for rows.Next() {
+		var row service.ModelSelfCheckStatusSnapshot
+		var latency sql.NullInt64
+		if err := rows.Scan(
+			&row.ID,
+			&row.GroupID,
+			&row.Model,
+			&row.Status,
+			&row.ReasonCode,
+			&row.EligibleAccountCount,
+			&row.CheckedAccountCount,
+			&row.OperationalAccountCount,
+			&row.DegradedAccountCount,
+			&row.FailedAccountCount,
+			&latency,
+			&row.CheckedAt,
+			&row.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan model self check status snapshot: %w", err)
+		}
+		if latency.Valid {
+			v := int(latency.Int64)
+			row.LatencyMs = &v
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate model self check status snapshots: %w", err)
 	}
 	return out, nil
 }

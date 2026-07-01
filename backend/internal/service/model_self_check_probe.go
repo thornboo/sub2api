@@ -70,7 +70,7 @@ func NewGatewayModelSelfCheckProbeExecutor(
 }
 
 func (s *ModelSelfCheckService) ListProbeTasks(ctx context.Context) ([]ModelSelfCheckProbeTask, error) {
-	data, err := s.loadStatusData(ctx)
+	data, err := s.loadStatusSnapshotData(ctx)
 	if err != nil {
 		return nil, err
 	}

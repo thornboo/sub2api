@@ -41,6 +41,7 @@
 | 方案稿 | [上游供应商成本感知与模型级调度](./features/upstream-provider-cost-aware-scheduling.md) | 尚未实现，只记录调度、成本配置、综合折扣和余额查询的设计方向。 |
 | 部分落地 | [运维监控客户可见错误排障](./features/ops-customer-visible-error-triage.md) | 第一版已拆分客户可见失败、SLA 错误、客户侧限制和上游 429/529 明细入口；流式 200 后失败仍是后续阶段。 |
 | 已落地 | [定价驱动的站点自检模型监控](./features/pricing-driven-self-check-monitoring-design.md) | 用户侧 `/monitor` 按分组/模型展示健康状态，由渠道定价的「自检」开关驱动站点自检探针（走真实网关链路但不计费、不影响生产调度），并撤下旧用户侧探针接口；上游渠道监控保持现状、仅管理员排障。 |
+| 部分落地 | [模型状态时间线与无可用账号证据保留](./features/model-status-timeline-evidence-retention.md) | 阶段 1 已实现：为 (分组, 模型) 持久化脱敏状态快照，详情时间线和详情指标优先读快照；列表状态切快照和时间桶化仍是后续阶段。 |
 
 ## 设计取舍
 

@@ -8,13 +8,15 @@
 
 import { apiClient } from './client'
 import type { MonitorStatus } from './admin/channelMonitor'
-import type { MonitorTimelinePoint } from './channelMonitor'
 
 export type ModelStatus = MonitorStatus | 'unknown'
 export type ModelStatusMessageCode = 'normal' | 'partial' | 'unavailable' | 'no_data'
 
-export interface ModelStatusTimelinePoint extends MonitorTimelinePoint {
-  status: MonitorStatus
+export interface ModelStatusTimelinePoint {
+  status: ModelStatus
+  latency_ms: number | null
+  ping_latency_ms: number | null
+  checked_at: string
 }
 
 export interface UserModelStatus {

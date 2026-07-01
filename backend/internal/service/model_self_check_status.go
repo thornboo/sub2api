@@ -16,8 +16,16 @@ const (
 	userModelMessageUnavailable = "unavailable"
 	userModelMessageNoData      = "no_data"
 
-	modelStatusWindow24h      = 1
-	modelSelfCheckFreshWindow = 10 * time.Minute
+	modelSelfCheckSnapshotReasonOK                 = "ok"
+	modelSelfCheckSnapshotReasonNoAvailableAccount = "no_available_account"
+	modelSelfCheckSnapshotReasonNoFreshProbe       = "no_fresh_probe"
+	modelSelfCheckSnapshotReasonPartialDegraded    = "partial_degraded"
+	modelSelfCheckSnapshotReasonAllDegraded        = "all_degraded"
+	modelSelfCheckSnapshotReasonAllProbeFailed     = "all_probe_failed"
+
+	modelStatusWindow24h                = 1
+	modelSelfCheckFreshWindow           = 10 * time.Minute
+	modelSelfCheckSnapshotRetentionDays = 90
 )
 
 // ModelSelfCheckRepository is the read model behind the public model status
@@ -28,7 +36,11 @@ type ModelSelfCheckRepository interface {
 	ListLatestByModels(ctx context.Context, models []string) ([]ModelSelfCheckHistory, error)
 	ListHistoriesSince(ctx context.Context, models []string, since time.Time) ([]ModelSelfCheckHistory, error)
 	ListRecentHistories(ctx context.Context, model string, accountIDs []int64, limit int) ([]ModelSelfCheckHistory, error)
+	ListRecentStatusSnapshots(ctx context.Context, groupID int64, model string, limit int) ([]ModelSelfCheckStatusSnapshot, error)
+	ListStatusSnapshotsSince(ctx context.Context, groupID int64, model string, since time.Time) ([]ModelSelfCheckStatusSnapshot, error)
 	CreateHistory(ctx context.Context, history *ModelSelfCheckHistory) error
+	CreateStatusSnapshot(ctx context.Context, snapshot *ModelSelfCheckStatusSnapshot) error
+	DeleteStatusSnapshotsBefore(ctx context.Context, before time.Time) (int64, error)
 }
 
 type ModelSelfCheckAccountRepository interface {
@@ -59,6 +71,25 @@ type ModelSelfCheckHistory struct {
 	HTTPStatus *int
 	ErrorCode  string
 	CheckedAt  time.Time
+}
+
+// ModelSelfCheckStatusSnapshot is a user-safe aggregate for one (group, model)
+// at one refresh instant. It intentionally stores only counts and public model
+// status evidence, never account/channel/provider/upstream details.
+type ModelSelfCheckStatusSnapshot struct {
+	ID                      int64
+	GroupID                 int64
+	Model                   string
+	Status                  string
+	ReasonCode              string
+	EligibleAccountCount    int
+	CheckedAccountCount     int
+	OperationalAccountCount int
+	DegradedAccountCount    int
+	FailedAccountCount      int
+	LatencyMs               *int
+	CheckedAt               time.Time
+	CreatedAt               time.Time
 }
 
 // UserModelStatusView is the user-facing model health row. It deliberately
@@ -143,6 +174,33 @@ func (s *ModelSelfCheckService) RecordHistory(ctx context.Context, history *Mode
 	return nil
 }
 
+// RefreshStatusSnapshots records one user-safe status snapshot for every
+// currently enabled (group, model) self-check target. It also records failure
+// evidence when no account can currently serve the target, which account-level
+// probe histories cannot represent because account_id is required there.
+func (s *ModelSelfCheckService) RefreshStatusSnapshots(ctx context.Context) error {
+	data, err := s.loadStatusSnapshotData(ctx)
+	if err != nil {
+		return err
+	}
+	for _, target := range data.targets {
+		snapshot := s.buildStatusSnapshot(ctx, target, data)
+		if err := s.repo.CreateStatusSnapshot(ctx, snapshot); err != nil {
+			return fmt.Errorf("create model self check status snapshot: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *ModelSelfCheckService) CleanupStatusSnapshots(ctx context.Context) (int64, error) {
+	before := s.now().UTC().AddDate(0, 0, -modelSelfCheckSnapshotRetentionDays)
+	deleted, err := s.repo.DeleteStatusSnapshotsBefore(ctx, before)
+	if err != nil {
+		return 0, fmt.Errorf("cleanup model self check status snapshots: %w", err)
+	}
+	return deleted, nil
+}
+
 type modelSelfCheckStatusData struct {
 	now             time.Time
 	targets         []ModelSelfCheckTarget
@@ -188,17 +246,31 @@ func (s *ModelSelfCheckService) GetUserModelStatus(ctx context.Context, groupID 
 	if !ok {
 		return nil, ErrChannelMonitorNotFound
 	}
-	accountIDs := s.accountIDsForTarget(ctx, target, data)
-	timeline, err := s.loadTimeline(ctx, target.Model, accountIDs)
+	view := s.buildStatusView(ctx, target, data, nil)
+	snapshotApplied, err := s.applySnapshotDetail(ctx, view, target, data.now)
 	if err != nil {
 		return nil, err
 	}
-	return &UserModelStatusDetail{
-		UserModelStatusView: *s.buildStatusView(ctx, target, data, timeline),
-	}, nil
+	if !snapshotApplied {
+		accountIDs := s.accountIDsForTarget(ctx, target, data)
+		timeline, err := s.loadTimeline(ctx, target.Model, accountIDs)
+		if err != nil {
+			return nil, err
+		}
+		view.Timeline = timeline
+	}
+	return &UserModelStatusDetail{UserModelStatusView: *view}, nil
 }
 
 func (s *ModelSelfCheckService) loadStatusData(ctx context.Context) (*modelSelfCheckStatusData, error) {
+	return s.loadStatusDataWithHistory(ctx, true)
+}
+
+func (s *ModelSelfCheckService) loadStatusSnapshotData(ctx context.Context) (*modelSelfCheckStatusData, error) {
+	return s.loadStatusDataWithHistory(ctx, false)
+}
+
+func (s *ModelSelfCheckService) loadStatusDataWithHistory(ctx context.Context, includeHistory bool) (*modelSelfCheckStatusData, error) {
 	now := s.now().UTC()
 	targets, err := s.repo.ListStatusTargets(ctx)
 	if err != nil {
@@ -252,6 +324,9 @@ func (s *ModelSelfCheckService) loadStatusData(ctx context.Context) (*modelSelfC
 		data.latestByModel[row.Model][row.AccountID] = &row
 	}
 
+	if !includeHistory {
+		return data, nil
+	}
 	historyRows, err := s.repo.ListHistoriesSince(ctx, models, now.AddDate(0, 0, -monitorAvailability30Days))
 	if err != nil {
 		return nil, fmt.Errorf("list model self check histories: %w", err)
@@ -296,6 +371,107 @@ func (s *ModelSelfCheckService) buildStatusView(
 		LastCheckedAt:    latestSelfCheckCheckedAt(freshLatest),
 		Timeline:         timeline,
 	}
+}
+
+func (s *ModelSelfCheckService) buildStatusSnapshot(
+	ctx context.Context,
+	target ModelSelfCheckTarget,
+	data *modelSelfCheckStatusData,
+) *ModelSelfCheckStatusSnapshot {
+	accountIDs := s.accountIDsForTarget(ctx, target, data)
+	snapshot := &ModelSelfCheckStatusSnapshot{
+		GroupID:              target.GroupID,
+		Model:                target.Model,
+		Status:               UserModelStatusUnknown,
+		ReasonCode:           modelSelfCheckSnapshotReasonNoFreshProbe,
+		EligibleAccountCount: len(accountIDs),
+		CheckedAt:            data.now,
+	}
+	if len(accountIDs) == 0 {
+		snapshot.Status = MonitorStatusFailed
+		snapshot.ReasonCode = modelSelfCheckSnapshotReasonNoAvailableAccount
+		return snapshot
+	}
+
+	latestRows := collectSelfCheckLatest(target.Model, accountIDs, data.latestByModel)
+	freshLatest := filterFreshSelfCheckLatest(latestRows, data.now)
+	snapshot.CheckedAccountCount = len(freshLatest)
+	snapshot.LatencyMs = bestSelfCheckLatency(freshLatest)
+	if len(freshLatest) == 0 {
+		return snapshot
+	}
+
+	for _, row := range freshLatest {
+		switch row.Status {
+		case MonitorStatusOperational:
+			snapshot.OperationalAccountCount++
+		case MonitorStatusDegraded:
+			snapshot.DegradedAccountCount++
+		default:
+			snapshot.FailedAccountCount++
+		}
+	}
+	snapshot.Status = aggregateSelfCheckStatus(freshLatest, len(accountIDs))
+	snapshot.ReasonCode = reasonCodeForModelStatusSnapshot(snapshot)
+	return snapshot
+}
+
+func reasonCodeForModelStatusSnapshot(snapshot *ModelSelfCheckStatusSnapshot) string {
+	if snapshot == nil {
+		return modelSelfCheckSnapshotReasonNoFreshProbe
+	}
+	switch snapshot.Status {
+	case MonitorStatusOperational:
+		return modelSelfCheckSnapshotReasonOK
+	case MonitorStatusDegraded:
+		if snapshot.OperationalAccountCount == 0 &&
+			snapshot.DegradedAccountCount > 0 &&
+			snapshot.FailedAccountCount == 0 &&
+			snapshot.CheckedAccountCount == snapshot.EligibleAccountCount {
+			return modelSelfCheckSnapshotReasonAllDegraded
+		}
+		return modelSelfCheckSnapshotReasonPartialDegraded
+	case MonitorStatusFailed, MonitorStatusError:
+		return modelSelfCheckSnapshotReasonAllProbeFailed
+	default:
+		return modelSelfCheckSnapshotReasonNoFreshProbe
+	}
+}
+
+func (s *ModelSelfCheckService) applySnapshotDetail(
+	ctx context.Context,
+	view *UserModelStatusView,
+	target ModelSelfCheckTarget,
+	now time.Time,
+) (bool, error) {
+	recent, err := s.repo.ListRecentStatusSnapshots(ctx, target.GroupID, target.Model, monitorTimelineMaxPoints)
+	if err != nil {
+		return false, fmt.Errorf("list model self check status snapshot timeline: %w", err)
+	}
+	if len(recent) == 0 {
+		return false, nil
+	}
+	sortStatusSnapshotsDesc(recent)
+	view.Timeline = timelineFromStatusSnapshots(recent)
+	latest := recent[0]
+	view.LatestLatencyMs = latest.LatencyMs
+	checkedAt := latest.CheckedAt.UTC()
+	view.LastCheckedAt = &checkedAt
+
+	windowRows, err := s.repo.ListStatusSnapshotsSince(ctx, target.GroupID, target.Model, now.AddDate(0, 0, -monitorAvailability30Days))
+	if err != nil {
+		return false, fmt.Errorf("list model self check status snapshots: %w", err)
+	}
+	availability24h := aggregateSnapshotAvailability(windowRows, now, modelStatusWindow24h)
+	availability7d := aggregateSnapshotAvailability(windowRows, now, monitorAvailability7Days)
+	availability30d := aggregateSnapshotAvailability(windowRows, now, monitorAvailability30Days)
+	view.AvgLatency24hMs = availability24h.AvgLatencyMs
+	view.AvgLatency7dMs = availability7d.AvgLatencyMs
+	view.Availability24h = availability24h.Availability
+	view.Availability7d = availability7d.Availability
+	view.Availability30d = availability30d.Availability
+	view.DegradedRatio24h = availability24h.DegradedRatio
+	return true, nil
 }
 
 func findSelfCheckTarget(targets []ModelSelfCheckTarget, groupID int64, model string) (ModelSelfCheckTarget, bool) {
@@ -529,6 +705,87 @@ func aggregateSelfCheckAvailability(
 		AvgLatencyMs:  avgLatency,
 		DegradedRatio: degradedRatio,
 	}
+}
+
+func aggregateSnapshotAvailability(
+	rows []ModelSelfCheckStatusSnapshot,
+	now time.Time,
+	windowDays int,
+) modelSelfCheckAvailabilityAggregate {
+	since := now.AddDate(0, 0, -windowDays)
+	var totalChecks int
+	var usableChecks int
+	var degradedChecks int
+	var latencyChecks int
+	var latencySum int
+	for _, row := range rows {
+		if row.CheckedAt.Before(since) {
+			continue
+		}
+		totalChecks++
+		switch row.Status {
+		case MonitorStatusOperational:
+			usableChecks++
+			if row.LatencyMs != nil {
+				latencyChecks++
+				latencySum += *row.LatencyMs
+			}
+		case MonitorStatusDegraded:
+			usableChecks++
+			degradedChecks++
+			if row.LatencyMs != nil {
+				latencyChecks++
+				latencySum += *row.LatencyMs
+			}
+		}
+	}
+	var availability *float64
+	if totalChecks > 0 {
+		v := float64(usableChecks) * 100 / float64(totalChecks)
+		availability = &v
+	}
+	var degradedRatio *float64
+	if totalChecks > 0 {
+		v := float64(degradedChecks) * 100 / float64(totalChecks)
+		degradedRatio = &v
+	}
+	var avgLatency *int
+	if latencyChecks > 0 {
+		v := latencySum / latencyChecks
+		avgLatency = &v
+	}
+	return modelSelfCheckAvailabilityAggregate{
+		Availability:  availability,
+		AvgLatencyMs:  avgLatency,
+		DegradedRatio: degradedRatio,
+	}
+}
+
+func timelineFromStatusSnapshots(rows []ModelSelfCheckStatusSnapshot) []UserModelTimelinePoint {
+	points := make([]UserModelTimelinePoint, 0, len(rows))
+	for _, row := range rows {
+		points = append(points, UserModelTimelinePoint{
+			Status:    row.Status,
+			LatencyMs: row.LatencyMs,
+			CheckedAt: row.CheckedAt,
+		})
+	}
+	sort.Slice(points, func(i, j int) bool {
+		return points[i].CheckedAt.After(points[j].CheckedAt)
+	})
+	if len(points) > monitorTimelineMaxPoints {
+		points = points[:monitorTimelineMaxPoints]
+	}
+	return points
+}
+
+func sortStatusSnapshotsDesc(rows []ModelSelfCheckStatusSnapshot) {
+	sort.SliceStable(rows, func(i, j int) bool {
+		if !rows[i].CheckedAt.Equal(rows[j].CheckedAt) {
+			return rows[i].CheckedAt.After(rows[j].CheckedAt)
+		}
+		return rows[i].ID > rows[j].ID
+	})
 }
 
 func (s *ModelSelfCheckService) loadTimeline(ctx context.Context, model string, accountIDs []int64) ([]UserModelTimelinePoint, error) {

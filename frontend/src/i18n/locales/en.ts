@@ -1337,7 +1337,7 @@ export default {
     availabilityPrefix: 'Availability',
     dialogLatency: 'Dialog Latency',
     endpointPing: 'Endpoint PING',
-    history60pts: 'HISTORY ({n} PTS)',
+    history60pts: 'LAST {n} CHECKS',
     nextUpdateIn: 'NEXT UPDATE IN {n}s',
     past: 'PAST',
     now: 'NOW',

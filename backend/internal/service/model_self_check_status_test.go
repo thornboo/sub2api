@@ -10,12 +10,14 @@ import (
 )
 
 type modelSelfCheckRepoStub struct {
-	targets  []ModelSelfCheckTarget
-	accounts []ModelSelfCheckTargetAccount
-	latest   []ModelSelfCheckHistory
-	history  []ModelSelfCheckHistory
-	timeline []ModelSelfCheckHistory
-	created  []ModelSelfCheckHistory
+	targets          []ModelSelfCheckTarget
+	accounts         []ModelSelfCheckTargetAccount
+	latest           []ModelSelfCheckHistory
+	history          []ModelSelfCheckHistory
+	timeline         []ModelSelfCheckHistory
+	snapshots        []ModelSelfCheckStatusSnapshot
+	created          []ModelSelfCheckHistory
+	createdSnapshots []ModelSelfCheckStatusSnapshot
 }
 
 func (s *modelSelfCheckRepoStub) ListStatusTargets(ctx context.Context) ([]ModelSelfCheckTarget, error) {
@@ -85,11 +87,60 @@ func (s *modelSelfCheckRepoStub) ListRecentHistories(ctx context.Context, model 
 	return out, nil
 }
 
+func (s *modelSelfCheckRepoStub) ListRecentStatusSnapshots(ctx context.Context, groupID int64, model string, limit int) ([]ModelSelfCheckStatusSnapshot, error) {
+	out := []ModelSelfCheckStatusSnapshot{}
+	for _, row := range s.snapshots {
+		if row.GroupID != groupID || row.Model != model {
+			continue
+		}
+		out = append(out, row)
+		if len(out) == limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (s *modelSelfCheckRepoStub) ListStatusSnapshotsSince(ctx context.Context, groupID int64, model string, since time.Time) ([]ModelSelfCheckStatusSnapshot, error) {
+	out := []ModelSelfCheckStatusSnapshot{}
+	for _, row := range s.snapshots {
+		if row.GroupID != groupID || row.Model != model {
+			continue
+		}
+		if row.CheckedAt.Before(since) {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out, nil
+}
+
 func (s *modelSelfCheckRepoStub) CreateHistory(ctx context.Context, history *ModelSelfCheckHistory) error {
 	if history != nil {
 		s.created = append(s.created, *history)
 	}
 	return nil
+}
+
+func (s *modelSelfCheckRepoStub) CreateStatusSnapshot(ctx context.Context, snapshot *ModelSelfCheckStatusSnapshot) error {
+	if snapshot != nil {
+		s.createdSnapshots = append(s.createdSnapshots, *snapshot)
+	}
+	return nil
+}
+
+func (s *modelSelfCheckRepoStub) DeleteStatusSnapshotsBefore(ctx context.Context, before time.Time) (int64, error) {
+	var kept []ModelSelfCheckStatusSnapshot
+	var deleted int64
+	for _, row := range s.snapshots {
+		if row.CheckedAt.Before(before) {
+			deleted++
+			continue
+		}
+		kept = append(kept, row)
+	}
+	s.snapshots = kept
+	return deleted, nil
 }
 
 type modelSelfCheckAccountRepoStub struct {
@@ -271,6 +322,106 @@ func TestGetUserModelStatusKeepsSameModelSeparatedByGroup(t *testing.T) {
 	}
 	if len(detail.Timeline) != 1 || detail.Timeline[0].Status != MonitorStatusFailed {
 		t.Fatalf("timeline = %#v, want only group 20 account result", detail.Timeline)
+	}
+}
+
+func TestRefreshStatusSnapshotsRecordsNoAvailableAccount(t *testing.T) {
+	now := time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC)
+	repo := &modelSelfCheckRepoStub{
+		targets: []ModelSelfCheckTarget{{
+			GroupID:       10,
+			GroupName:     "Pro",
+			GroupPlatform: PlatformOpenAI,
+			Model:         "gpt-4o",
+		}},
+	}
+	svc := NewModelSelfCheckService(repo)
+	svc.now = func() time.Time { return now }
+
+	if err := svc.RefreshStatusSnapshots(context.Background()); err != nil {
+		t.Fatalf("RefreshStatusSnapshots() error = %v", err)
+	}
+	if len(repo.createdSnapshots) != 1 {
+		t.Fatalf("created snapshots = %#v, want one", repo.createdSnapshots)
+	}
+	got := repo.createdSnapshots[0]
+	if got.GroupID != 10 || got.Model != "gpt-4o" {
+		t.Fatalf("snapshot target = %#v, want group 10 gpt-4o", got)
+	}
+	if got.Status != MonitorStatusFailed || got.ReasonCode != modelSelfCheckSnapshotReasonNoAvailableAccount {
+		t.Fatalf("snapshot status/reason = %q/%q, want failed/no_available_account", got.Status, got.ReasonCode)
+	}
+	if got.EligibleAccountCount != 0 || got.CheckedAccountCount != 0 {
+		t.Fatalf("snapshot counts = eligible %d checked %d, want 0/0", got.EligibleAccountCount, got.CheckedAccountCount)
+	}
+	if !got.CheckedAt.Equal(now) {
+		t.Fatalf("checked_at = %s, want %s", got.CheckedAt, now)
+	}
+}
+
+func TestGetUserModelStatusUsesSnapshotsForTimelineAndDetailMetrics(t *testing.T) {
+	now := time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC)
+	repo := &modelSelfCheckRepoStub{
+		targets: []ModelSelfCheckTarget{{
+			GroupID:       10,
+			GroupName:     "Pro",
+			GroupPlatform: PlatformOpenAI,
+			Model:         "gpt-4o",
+		}},
+		snapshots: []ModelSelfCheckStatusSnapshot{
+			{ID: 3, GroupID: 10, Model: "gpt-4o", Status: MonitorStatusOperational, ReasonCode: modelSelfCheckSnapshotReasonOK, LatencyMs: modelStatusIntPtr(500), CheckedAt: now.Add(-1 * time.Minute)},
+			{ID: 2, GroupID: 10, Model: "gpt-4o", Status: MonitorStatusFailed, ReasonCode: modelSelfCheckSnapshotReasonNoAvailableAccount, CheckedAt: now.Add(-30 * time.Minute)},
+			{ID: 1, GroupID: 10, Model: "gpt-4o", Status: MonitorStatusOperational, ReasonCode: modelSelfCheckSnapshotReasonOK, LatencyMs: modelStatusIntPtr(700), CheckedAt: now.Add(-2 * time.Hour)},
+		},
+	}
+	svc := NewModelSelfCheckService(repo)
+	svc.now = func() time.Time { return now }
+
+	detail, err := svc.GetUserModelStatus(context.Background(), 10, "gpt-4o")
+	if err != nil {
+		t.Fatalf("GetUserModelStatus() error = %v", err)
+	}
+	if detail.Status != MonitorStatusFailed {
+		t.Fatalf("current status = %q, want failed from no current account", detail.Status)
+	}
+	if len(detail.Timeline) != 3 {
+		t.Fatalf("timeline = %#v, want three snapshot points", detail.Timeline)
+	}
+	if detail.Timeline[0].Status != MonitorStatusOperational || detail.Timeline[1].Status != MonitorStatusFailed {
+		t.Fatalf("timeline statuses = %#v, want newest snapshot order", detail.Timeline)
+	}
+	assertFloatNear(t, detail.Availability24h, 66.6666667)
+	if detail.AvgLatency24hMs == nil || *detail.AvgLatency24hMs != 600 {
+		t.Fatalf("24h avg latency = %v, want 600", detail.AvgLatency24hMs)
+	}
+	if detail.LatestLatencyMs == nil || *detail.LatestLatencyMs != 500 {
+		t.Fatalf("latest latency = %v, want latest snapshot latency 500", detail.LatestLatencyMs)
+	}
+	if detail.LastCheckedAt == nil || !detail.LastCheckedAt.Equal(now.Add(-1*time.Minute)) {
+		t.Fatalf("last checked = %v, want latest snapshot time", detail.LastCheckedAt)
+	}
+}
+
+func TestCleanupStatusSnapshotsDeletesRowsPastRetention(t *testing.T) {
+	now := time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC)
+	repo := &modelSelfCheckRepoStub{
+		snapshots: []ModelSelfCheckStatusSnapshot{
+			{ID: 1, GroupID: 10, Model: "gpt-4o", CheckedAt: now.AddDate(0, 0, -modelSelfCheckSnapshotRetentionDays).Add(-time.Minute)},
+			{ID: 2, GroupID: 10, Model: "gpt-4o", CheckedAt: now.AddDate(0, 0, -modelSelfCheckSnapshotRetentionDays).Add(time.Minute)},
+		},
+	}
+	svc := NewModelSelfCheckService(repo)
+	svc.now = func() time.Time { return now }
+
+	deleted, err := svc.CleanupStatusSnapshots(context.Background())
+	if err != nil {
+		t.Fatalf("CleanupStatusSnapshots() error = %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted = %d, want 1", deleted)
+	}
+	if len(repo.snapshots) != 1 || repo.snapshots[0].ID != 2 {
+		t.Fatalf("remaining snapshots = %#v, want only fresh row", repo.snapshots)
 	}
 }
 
