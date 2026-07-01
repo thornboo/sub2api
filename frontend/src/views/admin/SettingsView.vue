@@ -10947,10 +10947,10 @@ watch(
 
 /* ============ 系统设置 Tab 导航 ============ */
 .settings-tabs-shell {
-  @apply sticky z-20 -mx-1 rounded-2xl border border-white/80 bg-white/90 p-1.5 backdrop-blur-xl;
+  @apply sticky z-20 -mx-1 rounded-lg border border-stone-200/80 bg-stone-50/85 p-1 shadow-sm backdrop-blur-xl;
   top: 4.75rem;
   box-shadow:
-    0 12px 28px rgb(15 23 42 / 0.07),
+    0 8px 22px rgb(15 23 42 / 0.05),
     0 1px 0 rgb(255 255 255 / 0.9) inset;
 }
 
@@ -10965,11 +10965,11 @@ watch(
 }
 
 .settings-tabs {
-  @apply flex min-w-max items-center gap-1;
+  @apply flex min-w-max items-center gap-0.5;
 }
 
 .settings-tab {
-  @apply relative isolate flex h-10 min-w-[6.75rem] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-transparent px-3 text-sm font-medium text-gray-600 outline-none transition-colors duration-200 ease-out dark:text-gray-300;
+  @apply relative isolate flex h-9 min-w-[6.25rem] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-transparent px-2.5 text-sm font-medium text-stone-500 outline-none transition-colors duration-150 ease-out dark:text-stone-400;
 }
 
 @media (min-width: 768px) {
@@ -10982,14 +10982,13 @@ watch(
   }
 
   .settings-tab-icon {
-    @apply h-6 w-6;
+    @apply h-5 w-5;
   }
 }
 
 .settings-tab::before {
-  @apply absolute inset-0 -z-10 rounded-xl opacity-0 transition-opacity duration-200;
+  @apply absolute inset-0 -z-10 rounded-md bg-white/75 opacity-0 transition-opacity duration-150;
   content: "";
-  background: linear-gradient(135deg, rgb(248 250 252 / 0.95), rgb(241 245 249 / 0.8));
 }
 
 .settings-tab:hover::before,
@@ -10998,13 +10997,13 @@ watch(
 }
 
 .settings-tab:focus-visible {
-  @apply ring-2 ring-primary-500/40 ring-offset-2 ring-offset-white dark:ring-offset-dark-900;
+  @apply ring-2 ring-emerald-500/40 ring-offset-2 ring-offset-white dark:ring-offset-neutral-950;
 }
 
 .settings-tab-active {
-  @apply border-primary-200/80 bg-white text-primary-700 shadow-sm dark:border-primary-400/30 dark:bg-dark-700/95 dark:text-primary-200;
+  @apply border-emerald-200/80 bg-white text-emerald-700 shadow-sm dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-200;
   box-shadow:
-    0 8px 18px rgb(15 23 42 / 0.08),
+    0 6px 16px rgb(15 23 42 / 0.06),
     0 1px 0 rgb(255 255 255 / 0.92) inset;
 }
 
@@ -11020,20 +11019,20 @@ watch(
   height: 2px;
   border-radius: 9999px;
   content: "";
-  background: linear-gradient(90deg, #14b8a6, #0ea5e9);
+  background: linear-gradient(90deg, #10b981, #14b8a6);
 }
 
 .settings-tab-icon {
-  @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors duration-200 dark:text-gray-400;
+  @apply flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-stone-400 transition-colors duration-150 dark:text-stone-500;
 }
 
 .settings-tab:hover .settings-tab-icon,
 .settings-tab:focus-visible .settings-tab-icon {
-  @apply text-gray-700 dark:text-gray-200;
+  @apply text-stone-700 dark:text-stone-200;
 }
 
 .settings-tab-active .settings-tab-icon {
-  @apply bg-primary-50 text-primary-600 dark:bg-primary-400/10 dark:text-primary-300;
+  @apply bg-emerald-50 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300;
 }
 
 .settings-tab-label {
@@ -11046,20 +11045,22 @@ watch(
    because Vue's scoped-CSS compiler was dropping the `:global(.dark) ...`
    rules in the production build, leaving inactive tabs unreadable on dark. */
 .dark .settings-tabs-shell {
-  border-color: rgb(51 65 85 / 0.65);
-  background: rgb(15 23 42 / 0.86);
+  border-color: rgb(255 255 255 / 0.1);
+  background: rgb(10 10 10 / 0.78);
   box-shadow:
-    0 16px 36px rgb(0 0 0 / 0.28),
+    0 10px 28px rgb(0 0 0 / 0.22),
     0 1px 0 rgb(255 255 255 / 0.06) inset;
 }
 
 .dark .settings-tab::before {
-  background: linear-gradient(135deg, rgb(30 41 59 / 0.9), rgb(51 65 85 / 0.62));
+  background: rgb(255 255 255 / 0.055);
 }
 
 .dark .settings-tab-active {
+  border-color: rgb(52 211 153 / 0.28);
+  background: rgb(16 185 129 / 0.1);
   box-shadow:
-    0 12px 26px rgb(0 0 0 / 0.22),
+    0 6px 18px rgb(0 0 0 / 0.18),
     0 1px 0 rgb(255 255 255 / 0.08) inset;
 }
 </style>

@@ -29,9 +29,9 @@
     </template>
 
     <!-- Error Info Indicator -->
-    <div v-if="hasError && account.error_message" class="group/error relative">
+    <div v-if="hasError && account.error_message" class="group/error relative inline-flex">
       <svg
-        class="h-4 w-4 cursor-help text-red-500 transition-colors hover:text-red-600 dark:text-red-400 dark:hover:text-red-300"
+        class="h-4 w-4 cursor-help text-rose-500 transition-colors hover:text-rose-600 dark:text-rose-400 dark:hover:text-rose-300"
         fill="none"
         viewBox="0 0 24 24"
         stroke="currentColor"
@@ -43,16 +43,14 @@
           d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z"
         />
       </svg>
-      <!-- Tooltip - 向下显示 -->
       <div
-        class="invisible absolute left-0 top-full z-[100] mt-1.5 min-w-[200px] max-w-[300px] rounded-lg bg-gray-800 px-3 py-2 text-xs text-white opacity-0 shadow-xl transition-all duration-200 group-hover/error:visible group-hover/error:opacity-100 dark:bg-gray-900"
+        class="pointer-events-none invisible absolute left-1/2 top-full z-[80] mt-2 w-72 max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg border border-rose-200/80 bg-white/95 px-3 py-2 text-xs leading-5 text-stone-700 opacity-0 shadow-lg shadow-rose-950/5 ring-1 ring-black/5 backdrop-blur-sm transition-all duration-150 group-hover/error:pointer-events-auto group-hover/error:visible group-hover/error:translate-y-0.5 group-hover/error:opacity-100 dark:border-rose-500/25 dark:bg-stone-950/95 dark:text-stone-200 dark:shadow-black/30 dark:ring-white/10 sm:w-80"
       >
-        <div class="whitespace-pre-wrap break-words leading-relaxed text-gray-300">
+        <div class="max-h-40 overflow-auto whitespace-pre-wrap break-all">
           {{ account.error_message }}
         </div>
-        <!-- 上方小三角 -->
         <div
-          class="absolute bottom-full left-3 border-[6px] border-transparent border-b-gray-800 dark:border-b-gray-900"
+          class="absolute bottom-full left-1/2 h-2 w-2 -translate-x-1/2 translate-y-1 rotate-45 border-l border-t border-rose-200/80 bg-white/95 dark:border-rose-500/25 dark:bg-stone-950/95"
         ></div>
       </div>
     </div>

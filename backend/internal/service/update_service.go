@@ -28,7 +28,8 @@ var (
 const (
 	updateCacheKey = "update_check_cache"
 	updateCacheTTL = 1200 // 20 minutes
-	githubRepo     = "Wei-Shaw/sub2api"
+	githubRepo     = "thornboo/sub2api"
+	upstreamRepo   = "Wei-Shaw/sub2api"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -304,12 +305,27 @@ func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, er
 			Name:        release.Name,
 			Body:        release.Body,
 			PublishedAt: release.PublishedAt,
-			HTMLURL:     release.HTMLURL,
+			HTMLURL:     normalizeGitHubReleaseURL(release.HTMLURL),
 			Assets:      assets,
 		},
 		Cached:    false,
 		BuildType: s.buildType,
 	}, nil
+}
+
+func normalizeGitHubReleaseURL(rawURL string) string {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" || trimmed == "#" {
+		return trimmed
+	}
+
+	upstreamRepoURL := "https://github.com/" + upstreamRepo
+	targetRepoURL := "https://github.com/" + githubRepo
+	if strings.HasPrefix(trimmed, upstreamRepoURL+"/releases/") {
+		return targetRepoURL + strings.TrimPrefix(trimmed, upstreamRepoURL)
+	}
+
+	return trimmed
 }
 
 func (s *UpdateService) downloadFile(ctx context.Context, downloadURL, dest string) error {
@@ -481,6 +497,7 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 
 	var cached struct {
 		Latest      string       `json:"latest"`
+		Repo        string       `json:"repo"`
 		ReleaseInfo *ReleaseInfo `json:"release_info"`
 		Timestamp   int64        `json:"timestamp"`
 	}
@@ -490,6 +507,9 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 
 	if time.Now().Unix()-cached.Timestamp > updateCacheTTL {
 		return nil, fmt.Errorf("cache expired")
+	}
+	if cached.Repo != githubRepo {
+		return nil, fmt.Errorf("cache repository mismatch")
 	}
 
 	return &UpdateInfo{
@@ -505,10 +525,12 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
 	cacheData := struct {
 		Latest      string       `json:"latest"`
+		Repo        string       `json:"repo"`
 		ReleaseInfo *ReleaseInfo `json:"release_info"`
 		Timestamp   int64        `json:"timestamp"`
 	}{
 		Latest:      info.LatestVersion,
+		Repo:        githubRepo,
 		ReleaseInfo: info.ReleaseInfo,
 		Timestamp:   time.Now().Unix(),
 	}
