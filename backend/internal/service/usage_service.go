@@ -17,6 +17,7 @@ var (
 )
 
 type usageLogDeletedAPIKeyResolutionContextKey struct{}
+type usageLogDeletedAccountResolutionContextKey struct{}
 
 // WithUsageLogDeletedAPIKeyResolution enables admin evidence views to resolve
 // soft-deleted API key labels from immutable usage logs.
@@ -28,6 +29,19 @@ func WithUsageLogDeletedAPIKeyResolution(ctx context.Context) context.Context {
 // cross API key soft-deletion boundaries. User-facing usage views should not set this.
 func ShouldResolveDeletedAPIKeysForUsageLogs(ctx context.Context) bool {
 	v, ok := ctx.Value(usageLogDeletedAPIKeyResolutionContextKey{}).(bool)
+	return ok && v
+}
+
+// WithUsageLogDeletedAccountResolution enables admin evidence views to resolve
+// soft-deleted account labels from immutable usage logs.
+func WithUsageLogDeletedAccountResolution(ctx context.Context) context.Context {
+	return context.WithValue(ctx, usageLogDeletedAccountResolutionContextKey{}, true)
+}
+
+// ShouldResolveDeletedAccountsForUsageLogs reports whether usage log hydration may
+// cross account soft-deletion boundaries. User-facing usage views should not set this.
+func ShouldResolveDeletedAccountsForUsageLogs(ctx context.Context) bool {
+	v, ok := ctx.Value(usageLogDeletedAccountResolutionContextKey{}).(bool)
 	return ok && v
 }
 

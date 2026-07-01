@@ -295,6 +295,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	accounts := admin.Group("/accounts")
 	{
 		accounts.GET("", h.Admin.Account.List)
+		accounts.GET("/archived", h.Admin.Account.ListArchived)
 		accounts.GET("/:id/recharge-records", h.Admin.Account.ListUpstreamRechargeRecords)
 		accounts.GET("/:id", h.Admin.Account.GetByID)
 		accounts.POST("", h.Admin.Account.Create)
@@ -305,6 +306,8 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		accounts.POST("/sync/crs/preview", h.Admin.Account.PreviewFromCRS)
 		accounts.POST("/:id/recharge-records", h.Admin.Account.CreateUpstreamRechargeRecord)
 		accounts.POST("/:id/upstream-balance/refresh", h.Admin.Account.RefreshUpstreamBalance)
+		accounts.POST("/:id/archive", h.Admin.Account.Archive)
+		accounts.POST("/:id/restore", h.Admin.Account.Restore)
 		accounts.PUT("/:id/recharge-records/:record_id", h.Admin.Account.UpdateUpstreamRechargeRecord)
 		accounts.PUT("/:id", h.Admin.Account.Update)
 		accounts.PATCH("/:id/upstream-cost-profile", h.Admin.Account.UpdateUpstreamCostProfile)

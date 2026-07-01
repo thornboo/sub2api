@@ -179,6 +179,8 @@ type Account struct {
 	AutoPauseOnExpired      bool            `json:"auto_pause_on_expired"`
 	CreatedAt               time.Time       `json:"created_at"`
 	UpdatedAt               time.Time       `json:"updated_at"`
+	Deleted                 bool            `json:"deleted,omitempty"`
+	DeletedAt               *time.Time      `json:"deleted_at,omitempty"`
 
 	Schedulable bool `json:"schedulable"`
 
@@ -570,8 +572,10 @@ type UsageCleanupTask struct {
 // AccountSummary is a minimal account info for usage log display.
 // It intentionally excludes sensitive fields like Credentials, Proxy, etc.
 type AccountSummary struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
+	ID        int64      `json:"id"`
+	Name      string     `json:"name"`
+	Deleted   bool       `json:"deleted,omitempty"`
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 }
 
 type Setting struct {

@@ -3009,6 +3009,64 @@ func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
 	return nil
 }
 
+type accountArchiveRepository interface {
+	ListArchivedWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, *pagination.PaginationResult, error)
+	Archive(ctx context.Context, id int64) error
+	Restore(ctx context.Context, id int64) error
+}
+
+func (s *adminServiceImpl) accountArchiveRepository() (accountArchiveRepository, error) {
+	repo, ok := s.accountRepo.(accountArchiveRepository)
+	if !ok {
+		return nil, infraerrors.InternalServer("ACCOUNT_ARCHIVE_UNSUPPORTED", "account archive is unavailable")
+	}
+	return repo, nil
+}
+
+func (s *adminServiceImpl) ListArchivedAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string) ([]Account, int64, error) {
+	repo, err := s.accountArchiveRepository()
+	if err != nil {
+		return nil, 0, err
+	}
+	params := pagination.PaginationParams{
+		Page:      page,
+		PageSize:  pageSize,
+		SortBy:    sortBy,
+		SortOrder: sortOrder,
+	}
+	accounts, result, err := repo.ListArchivedWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode)
+	if err != nil {
+		return nil, 0, err
+	}
+	return accounts, result.Total, nil
+}
+
+func (s *adminServiceImpl) ArchiveAccount(ctx context.Context, id int64) error {
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if account.Status != StatusDisabled {
+		return infraerrors.BadRequest("ACCOUNT_ARCHIVE_REQUIRES_DISABLED", "account must be disabled before archive")
+	}
+	repo, err := s.accountArchiveRepository()
+	if err != nil {
+		return err
+	}
+	return repo.Archive(ctx, id)
+}
+
+func (s *adminServiceImpl) RestoreAccount(ctx context.Context, id int64) (*Account, error) {
+	repo, err := s.accountArchiveRepository()
+	if err != nil {
+		return nil, err
+	}
+	if err := repo.Restore(ctx, id); err != nil {
+		return nil, err
+	}
+	return s.accountRepo.GetByID(ctx, id)
+}
+
 func (s *adminServiceImpl) RefreshAccountCredentials(ctx context.Context, id int64) (*Account, error) {
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {

@@ -146,7 +146,7 @@ type UpdateAccountRequest struct {
 	Priority                *int           `json:"priority"`
 	RateMultiplier          *float64       `json:"rate_multiplier"`
 	LoadFactor              *int           `json:"load_factor"`
-	Status                  string         `json:"status" binding:"omitempty,oneof=active inactive error"`
+	Status                  string         `json:"status" binding:"omitempty,oneof=active inactive disabled error"`
 	GroupIDs                *[]int64       `json:"group_ids"`
 	ExpiresAt               *int64         `json:"expires_at"`
 	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
@@ -163,7 +163,7 @@ type BulkUpdateAccountsRequest struct {
 	Priority                *int                      `json:"priority"`
 	RateMultiplier          *float64                  `json:"rate_multiplier"`
 	LoadFactor              *int                      `json:"load_factor"`
-	Status                  string                    `json:"status" binding:"omitempty,oneof=active inactive error"`
+	Status                  string                    `json:"status" binding:"omitempty,oneof=active inactive disabled error"`
 	Schedulable             *bool                     `json:"schedulable"`
 	GroupIDs                *[]int64                  `json:"group_ids"`
 	Credentials             map[string]any            `json:"credentials"`
@@ -195,6 +195,26 @@ type AccountWithConcurrency struct {
 	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
 	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
 	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
+}
+
+type accountListQuery struct {
+	page        int
+	pageSize    int
+	platform    string
+	accountType string
+	status      string
+	search      string
+	privacyMode string
+	sortBy      string
+	sortOrder   string
+	groupID     int64
+	lite        bool
+}
+
+type accountArchiveAdminService interface {
+	ListArchivedAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string) ([]service.Account, int64, error)
+	ArchiveAccount(ctx context.Context, id int64) error
+	RestoreAccount(ctx context.Context, id int64) (*service.Account, error)
 }
 
 const accountListGroupUngroupedQueryValue = "ungrouped"
@@ -243,45 +263,94 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	return item
 }
 
-// List handles listing all accounts with pagination
-// GET /api/v1/admin/accounts
-func (h *AccountHandler) List(c *gin.Context) {
+func (h *AccountHandler) parseAccountListQuery(c *gin.Context) (accountListQuery, bool) {
 	page, pageSize := response.ParsePagination(c)
-	platform := c.Query("platform")
-	accountType := c.Query("type")
-	status := c.Query("status")
-	search := c.Query("search")
-	privacyMode := strings.TrimSpace(c.Query("privacy_mode"))
-	sortBy := c.DefaultQuery("sort_by", "name")
-	sortOrder := c.DefaultQuery("sort_order", "asc")
-	// 标准化和验证 search 参数
-	search = strings.TrimSpace(search)
-	if len(search) > 100 {
-		search = search[:100]
+	q := accountListQuery{
+		page:        page,
+		pageSize:    pageSize,
+		platform:    c.Query("platform"),
+		accountType: c.Query("type"),
+		status:      c.Query("status"),
+		search:      c.Query("search"),
+		privacyMode: strings.TrimSpace(c.Query("privacy_mode")),
+		sortBy:      c.DefaultQuery("sort_by", "name"),
+		sortOrder:   c.DefaultQuery("sort_order", "asc"),
+		lite:        parseBoolQueryWithDefault(c.Query("lite"), false),
 	}
-	lite := parseBoolQueryWithDefault(c.Query("lite"), false)
+	// 标准化和验证 search 参数
+	q.search = strings.TrimSpace(q.search)
+	if len(q.search) > 100 {
+		q.search = q.search[:100]
+	}
 
-	var groupID int64
 	if groupIDStr := c.Query("group"); groupIDStr != "" {
 		if groupIDStr == accountListGroupUngroupedQueryValue {
-			groupID = service.AccountListGroupUngrouped
+			q.groupID = service.AccountListGroupUngrouped
 		} else {
 			parsedGroupID, parseErr := strconv.ParseInt(groupIDStr, 10, 64)
 			if parseErr != nil {
 				response.ErrorFrom(c, infraerrors.BadRequest("INVALID_GROUP_FILTER", "invalid group filter"))
-				return
+				return accountListQuery{}, false
 			}
 			if parsedGroupID < 0 {
 				response.ErrorFrom(c, infraerrors.BadRequest("INVALID_GROUP_FILTER", "invalid group filter"))
-				return
+				return accountListQuery{}, false
 			}
-			groupID = parsedGroupID
+			q.groupID = parsedGroupID
 		}
 	}
+	return q, true
+}
 
-	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder)
+// List handles listing all accounts with pagination
+// GET /api/v1/admin/accounts
+func (h *AccountHandler) List(c *gin.Context) {
+	q, ok := h.parseAccountListQuery(c)
+	if !ok {
+		return
+	}
+
+	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), q.page, q.pageSize, q.platform, q.accountType, q.status, q.search, q.groupID, q.privacyMode, q.sortBy, q.sortOrder)
 	if err != nil {
 		response.ErrorFrom(c, err)
+		return
+	}
+
+	h.respondAccountList(c, q, accounts, total, true)
+}
+
+// ListArchived handles listing archived accounts with pagination.
+// GET /api/v1/admin/accounts/archived
+func (h *AccountHandler) ListArchived(c *gin.Context) {
+	q, ok := h.parseAccountListQuery(c)
+	if !ok {
+		return
+	}
+
+	archiveService, ok := h.adminService.(accountArchiveAdminService)
+	if !ok {
+		response.ErrorFrom(c, infraerrors.InternalServer("ACCOUNT_ARCHIVE_UNSUPPORTED", "account archive is unavailable"))
+		return
+	}
+
+	accounts, total, err := archiveService.ListArchivedAccounts(c.Request.Context(), q.page, q.pageSize, q.platform, q.accountType, q.status, q.search, q.groupID, q.privacyMode, q.sortBy, q.sortOrder)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	h.respondAccountList(c, q, accounts, total, false)
+}
+
+func (h *AccountHandler) respondAccountList(c *gin.Context, q accountListQuery, accounts []service.Account, total int64, withETag bool) {
+	if !withETag {
+		result := make([]AccountWithConcurrency, len(accounts))
+		for i := range accounts {
+			result[i] = AccountWithConcurrency{
+				Account: dto.AccountFromService(&accounts[i]),
+			}
+		}
+		response.Paginated(c, result, total, q.page, q.pageSize)
 		return
 	}
 
@@ -401,8 +470,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 		result[i] = item
 	}
 
-	etag := buildAccountsListETag(result, total, page, pageSize, platform, accountType, status, search, lite)
-	if etag != "" {
+	etag := ""
+	if withETag {
+		etag = buildAccountsListETag(result, total, q.page, q.pageSize, q.platform, q.accountType, q.status, q.search, q.lite)
+	}
+	if withETag && etag != "" {
 		c.Header("ETag", etag)
 		c.Header("Vary", "If-None-Match")
 		if ifNoneMatchMatched(c.GetHeader("If-None-Match"), etag) {
@@ -411,7 +483,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	response.Paginated(c, result, total, page, pageSize)
+	response.Paginated(c, result, total, q.page, q.pageSize)
 }
 
 func buildAccountsListETag(
@@ -715,6 +787,51 @@ func (h *AccountHandler) Delete(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{"message": "Account deleted successfully"})
+}
+
+// Archive handles archiving an account while preserving historical relations.
+// POST /api/v1/admin/accounts/:id/archive
+func (h *AccountHandler) Archive(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	archiveService, ok := h.adminService.(accountArchiveAdminService)
+	if !ok {
+		response.ErrorFrom(c, infraerrors.InternalServer("ACCOUNT_ARCHIVE_UNSUPPORTED", "account archive is unavailable"))
+		return
+	}
+	if err := archiveService.ArchiveAccount(c.Request.Context(), accountID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{"message": "Account archived successfully"})
+}
+
+// Restore handles restoring an archived account in a disabled, non-schedulable state.
+// POST /api/v1/admin/accounts/:id/restore
+func (h *AccountHandler) Restore(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	archiveService, ok := h.adminService.(accountArchiveAdminService)
+	if !ok {
+		response.ErrorFrom(c, infraerrors.InternalServer("ACCOUNT_ARCHIVE_UNSUPPORTED", "account archive is unavailable"))
+		return
+	}
+	account, err := archiveService.RestoreAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
 }
 
 // TestAccountRequest represents the request body for testing an account

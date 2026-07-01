@@ -199,6 +199,7 @@ func (h *UsageHandler) List(c *gin.Context) {
 	}
 
 	ctx := service.WithUsageLogDeletedAPIKeyResolution(c.Request.Context())
+	ctx = service.WithUsageLogDeletedAccountResolution(ctx)
 	records, result, err := h.usageService.ListWithFilters(ctx, params, filters)
 	if err != nil {
 		response.ErrorFrom(c, err)

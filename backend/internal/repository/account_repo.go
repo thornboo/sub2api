@@ -25,6 +25,7 @@ import (
 	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
 	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
 	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -463,13 +464,122 @@ func (r *accountRepository) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
+func (r *accountRepository) Archive(ctx context.Context, id int64) error {
+	groupIDs, err := r.loadAccountGroupIDs(ctx, id)
+	if err != nil {
+		return err
+	}
+	n, err := r.client.Account.Delete().Where(dbaccount.IDEQ(id)).Exec(ctx)
+	if err != nil {
+		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
+	}
+	if n == 0 {
+		return service.ErrAccountNotFound
+	}
+
+	r.deleteSchedulerAccountSnapshot(ctx, id)
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, buildSchedulerGroupPayload(groupIDs)); err != nil {
+		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue account archive failed: account=%d err=%v", id, err)
+	}
+	return nil
+}
+
+func (r *accountRepository) Restore(ctx context.Context, id int64) error {
+	groupIDs, err := r.loadAccountGroupIDs(mixins.SkipSoftDelete(ctx), id)
+	if err != nil {
+		return err
+	}
+	n, err := r.client.Account.Update().
+		Where(
+			dbaccount.IDEQ(id),
+			dbaccount.DeletedAtNotNil(),
+		).
+		ClearDeletedAt().
+		SetStatus(service.StatusDisabled).
+		SetSchedulable(false).
+		Save(mixins.SkipSoftDelete(ctx))
+	if err != nil {
+		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
+	}
+	if n == 0 {
+		return service.ErrAccountNotFound
+	}
+
+	r.deleteSchedulerAccountSnapshot(ctx, id)
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, buildSchedulerGroupPayload(groupIDs)); err != nil {
+		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue account restore failed: account=%d err=%v", id, err)
+	}
+	return nil
+}
+
 func (r *accountRepository) List(ctx context.Context, params pagination.PaginationParams) ([]service.Account, *pagination.PaginationResult, error) {
 	return r.ListWithFilters(ctx, params, "", "", "", "", 0, "")
 }
 
 func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
-	q := r.client.Account.Query()
+	q := applyAccountListFilters(r.client.Account.Query(), platform, accountType, status, search, groupID, privacyMode)
 
+	total, err := q.Count(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	accountsQuery := q.
+		Offset(params.Offset()).
+		Limit(params.Limit())
+	for _, order := range accountListOrder(params) {
+		accountsQuery = accountsQuery.Order(order)
+	}
+
+	accounts, err := accountsQuery.All(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	outAccounts, err := r.accountsToService(ctx, accounts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return outAccounts, paginationResultFromTotal(int64(total), params), nil
+}
+
+func (r *accountRepository) ListArchivedWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
+	queryCtx := mixins.SkipSoftDelete(ctx)
+	q := applyAccountListFilters(
+		r.client.Account.Query().Where(dbaccount.DeletedAtNotNil()),
+		platform,
+		accountType,
+		status,
+		search,
+		groupID,
+		privacyMode,
+	)
+
+	total, err := q.Count(queryCtx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	accountsQuery := q.
+		Offset(params.Offset()).
+		Limit(params.Limit())
+	for _, order := range accountListOrder(params) {
+		accountsQuery = accountsQuery.Order(order)
+	}
+
+	accounts, err := accountsQuery.All(queryCtx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	outAccounts, err := r.accountsToService(ctx, accounts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return outAccounts, paginationResultFromTotal(int64(total), params), nil
+}
+
+func applyAccountListFilters(q *dbent.AccountQuery, platform, accountType, status, search string, groupID int64, privacyMode string) *dbent.AccountQuery {
 	if platform != "" {
 		q = q.Where(dbaccount.PlatformEQ(platform))
 	}
@@ -560,28 +670,7 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 		}))
 	}
 
-	total, err := q.Count(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	accountsQuery := q.
-		Offset(params.Offset()).
-		Limit(params.Limit())
-	for _, order := range accountListOrder(params) {
-		accountsQuery = accountsQuery.Order(order)
-	}
-
-	accounts, err := accountsQuery.All(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	outAccounts, err := r.accountsToService(ctx, accounts)
-	if err != nil {
-		return nil, nil, err
-	}
-	return outAccounts, paginationResultFromTotal(int64(total), params), nil
+	return q
 }
 
 func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selector) {
@@ -616,6 +705,9 @@ func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selecto
 		defaultOrder = false
 	case "created_at":
 		field = dbaccount.FieldCreatedAt
+		defaultOrder = false
+	case "deleted_at":
+		field = dbaccount.FieldDeletedAt
 		defaultOrder = false
 	}
 
@@ -1951,6 +2043,7 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		AutoPauseOnExpired:      m.AutoPauseOnExpired,
 		CreatedAt:               m.CreatedAt,
 		UpdatedAt:               m.UpdatedAt,
+		DeletedAt:               m.DeletedAt,
 		Schedulable:             m.Schedulable,
 		RateLimitedAt:           m.RateLimitedAt,
 		RateLimitResetAt:        m.RateLimitResetAt,

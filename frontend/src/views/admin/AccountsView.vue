@@ -187,6 +187,18 @@
             type="button"
             :class="[
               'rounded-md px-3 py-1.5 text-sm font-medium transition-all',
+              activeAccountView === 'archived'
+                ? 'bg-white text-gray-900 shadow-sm dark:bg-white/[0.08] dark:text-white'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+            @click="setAccountView('archived')"
+          >
+            {{ t('admin.accounts.views.archived') }}
+          </button>
+          <button
+            type="button"
+            :class="[
+              'rounded-md px-3 py-1.5 text-sm font-medium transition-all',
               activeAccountView === 'cost'
                 ? 'bg-white text-emerald-700 shadow-sm dark:bg-white/[0.08] dark:text-emerald-300'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
@@ -198,8 +210,9 @@
         </div>
       </template>
       <template #table>
-        <template v-if="activeAccountView === 'list'">
+        <template v-if="activeAccountView !== 'cost'">
           <AccountBulkActionsBar
+            v-if="activeAccountView === 'list'"
             :selected-ids="selIds"
             @delete="handleBulkDelete"
             @reset-status="handleBulkResetStatus"
@@ -307,7 +320,7 @@
             </div>
           </template>
           <template #cell-schedulable="{ row }">
-            <button @click="handleToggleSchedulable(row)" :disabled="togglingSchedulable === row.id" class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-black" :class="[row.schedulable ? 'bg-emerald-500 hover:bg-emerald-500' : 'bg-gray-200 hover:bg-gray-300 dark:bg-white/[0.08] dark:hover:bg-white/15']" :title="row.schedulable ? t('admin.accounts.schedulableEnabled') : t('admin.accounts.schedulableDisabled')">
+            <button @click="handleToggleSchedulable(row)" :disabled="activeAccountView === 'archived' || togglingSchedulable === row.id" class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-black" :class="[row.schedulable ? 'bg-emerald-500 hover:bg-emerald-500' : 'bg-gray-200 hover:bg-gray-300 dark:bg-white/[0.08] dark:hover:bg-white/15']" :title="row.schedulable ? t('admin.accounts.schedulableEnabled') : t('admin.accounts.schedulableDisabled')">
               <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out" :class="[row.schedulable ? 'translate-x-4' : 'translate-x-0']" />
             </button>
           </template>
@@ -370,6 +383,9 @@
           <template #cell-created_at="{ value }">
             <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatDateTime(value) }}</span>
           </template>
+          <template #cell-deleted_at="{ value }">
+            <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatDateTime(value) }}</span>
+          </template>
           <template #cell-expires_at="{ row, value }">
             <div class="flex flex-col items-start gap-1">
               <span class="text-sm text-gray-500 dark:text-stone-500">{{ formatExpiresAt(value) }}</span>
@@ -391,15 +407,19 @@
           </template>
           <template #cell-actions="{ row }">
             <div class="flex items-center gap-1">
-              <button @click="handleEdit(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-emerald-600 dark:hover:bg-white/[0.06] dark:hover:text-emerald-300">
+              <button v-if="activeAccountView === 'archived'" @click="handleRestore(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-300">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg>
+                <span class="text-xs">{{ t('admin.accounts.restoreAccount') }}</span>
+              </button>
+              <button v-if="activeAccountView === 'list'" @click="handleEdit(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-emerald-600 dark:hover:bg-white/[0.06] dark:hover:text-emerald-300">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
                 <span class="text-xs">{{ t('common.edit') }}</span>
               </button>
-              <button @click="handleDelete(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400">
+              <button v-if="activeAccountView === 'list'" @click="handleDelete(row)" :disabled="!canArchiveAccount(row)" :title="!canArchiveAccount(row) ? t('admin.accounts.archiveRequiresDisabled') : undefined" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-amber-50 hover:text-amber-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-amber-900/20 dark:hover:text-amber-300">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
-                <span class="text-xs">{{ t('common.delete') }}</span>
+                <span class="text-xs">{{ t('admin.accounts.archiveAccount') }}</span>
               </button>
-              <button @click="openMenu(row, $event)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-white/[0.06] dark:hover:text-white">
+              <button v-if="activeAccountView === 'list'" @click="openMenu(row, $event)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-white/[0.06] dark:hover:text-white">
                 <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM12.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM18.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /></svg>
                 <span class="text-xs">{{ t('common.more') }}</span>
               </button>
@@ -423,7 +443,7 @@
           @refresh-all-balances="handleRefreshVisibleUpstreamBalances"
         />
       </template>
-      <template #pagination><Pagination v-if="activeAccountView === 'list' && pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
+      <template #pagination><Pagination v-if="activeAccountView !== 'cost' && pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
     <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="handleAccountCreated" />
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
@@ -447,7 +467,7 @@
       @updated="handleBulkUpdated"
     />
     <TempUnschedStatusModal :show="showTempUnsched" :account="tempUnschedAcc" @close="showTempUnsched = false" @reset="handleTempUnschedReset" />
-    <ConfirmDialog :show="showDeleteDialog" :title="t('admin.accounts.deleteAccount')" :message="t('admin.accounts.deleteConfirm', { name: deletingAcc?.name })" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
+    <ConfirmDialog :show="showDeleteDialog" :title="t('admin.accounts.archiveAccount')" :message="t('admin.accounts.archiveConfirm', { name: deletingAcc?.name })" :confirm-text="t('admin.accounts.archiveAction')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
     <ConfirmDialog :show="showExportDataDialog" :title="t('admin.accounts.dataExport')" :message="t('admin.accounts.dataExportConfirmMessage')" :confirm-text="t('admin.accounts.dataExportConfirm')" :cancel-text="t('common.cancel')" @confirm="handleExportData" @cancel="showExportDataDialog = false">
       <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
         <input type="checkbox" class="h-4 w-4 rounded border-stone-300 text-emerald-600 focus:ring-emerald-500" v-model="includeProxyOnExport" />
@@ -583,7 +603,7 @@ const scheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
 const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null}>({ show: false, acc: null, pos: null })
 const exportingData = ref(false)
-type AccountViewMode = 'list' | 'cost'
+type AccountViewMode = 'list' | 'archived' | 'cost'
 const activeAccountView = ref<AccountViewMode>('list')
 const costComparisonAccounts = ref<Account[]>([])
 const costComparisonLoading = ref(false)
@@ -618,6 +638,7 @@ const ACCOUNT_SORTABLE_KEYS = new Set([
   'rate_multiplier',
   'last_used_at',
   'created_at',
+  'deleted_at',
   'expires_at'
 ])
 const loadInitialAccountSortState = (): AccountSortState => {
@@ -829,7 +850,12 @@ const {
   handlePageChange: baseHandlePageChange,
   handlePageSizeChange: baseHandlePageSizeChange
 } = useTableLoader<Account, any>({
-  fetchFn: adminAPI.accounts.list,
+  fetchFn: (page, pageSize, filters, options) => {
+    if (activeAccountView.value === 'archived') {
+      return adminAPI.accounts.listArchived(page, pageSize, filters, options)
+    }
+    return adminAPI.accounts.list(page, pageSize, filters, options)
+  },
   initialParams: {
     platform: '',
     type: '',
@@ -1047,6 +1073,7 @@ const mergeAccountsIncrementally = (nextRows: Account[]) => {
 }
 
 const refreshAccountsIncrementally = async () => {
+  if (activeAccountView.value !== 'list') return
   if (autoRefreshFetching.value) return
   autoRefreshFetching.value = true
   try {
@@ -1088,7 +1115,7 @@ const refreshAccountsIncrementally = async () => {
 const handleManualRefresh = async () => {
   await load()
   // Force usage cells to refetch /usage on explicit user refresh.
-  if (activeAccountView.value === 'list') {
+  if (activeAccountView.value !== 'cost') {
     usageManualRefreshToken.value += 1
   }
 }
@@ -1239,16 +1266,21 @@ function getAntigravityTierClass(row: any): string {
 
 // All available columns
 const allColumns = computed(() => {
-  const c = [
-    { key: 'select', label: '', sortable: false, class: 'w-12 text-center' },
+  const isArchived = activeAccountView.value === 'archived'
+  const c: Array<{ key: string; label: string; sortable: boolean; class?: string }> = [
     { key: 'name', label: t('admin.accounts.columns.name'), sortable: true },
     { key: 'id', label: t('admin.accounts.columns.id'), sortable: true },
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
-    { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
-    { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
-    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
+    { key: 'status', label: t('admin.accounts.columns.status'), sortable: true }
   ]
+  if (!isArchived) {
+    c.unshift({ key: 'select', label: '', sortable: false, class: 'w-12 text-center' })
+    c.push(
+      { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
+      { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
+    )
+  }
   if (!authStore.isSimpleMode) {
     c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false })
   }
@@ -1259,6 +1291,7 @@ const allColumns = computed(() => {
     { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true },
     { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true },
     { key: 'created_at', label: t('admin.accounts.columns.createdAt'), sortable: true },
+    ...(isArchived ? [{ key: 'deleted_at', label: t('admin.accounts.columns.archivedAt'), sortable: true }] : []),
     { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true },
     { key: 'notes', label: t('admin.accounts.columns.notes'), sortable: false },
     { key: 'actions', label: t('admin.accounts.columns.actions'), sortable: false }
@@ -1333,7 +1366,41 @@ const openMenu = (a: Account, e: MouseEvent) => {
 const toggleSelectAllVisible = () => {
   toggleVisible(!allVisibleSelected.value)
 }
-const handleBulkDelete = async () => { if(!confirm(t('common.confirm'))) return; try { await Promise.all(selIds.value.map(id => adminAPI.accounts.delete(id))); clearSelection(); reload() } catch (error) { console.error('Failed to bulk delete accounts:', error) } }
+const canArchiveAccount = (account: Account) => account.status === 'disabled'
+const handleBulkDelete = async () => {
+  const ids = [...selIds.value]
+  const selectedSet = new Set(ids)
+  const activeSelected = accounts.value.filter(account => selectedSet.has(account.id) && !canArchiveAccount(account))
+  if (activeSelected.length > 0) {
+    appStore.showWarning(t('admin.accounts.archiveRequiresDisabled'))
+    return
+  }
+  if (!confirm(t('admin.accounts.archiveBulkConfirm'))) return
+  try {
+    const results = await Promise.allSettled(ids.map(id => adminAPI.accounts.archive(id)))
+    const success = results.filter(result => result.status === 'fulfilled').length
+    const failed = results.length - success
+
+    if (success > 0) {
+      clearSelection()
+    }
+
+    if (failed === 0) {
+      appStore.showSuccess(t('admin.accounts.bulkArchiveSuccess', { count: success }))
+    } else if (success > 0) {
+      appStore.showWarning(t('admin.accounts.bulkArchivePartial', { success, failed }))
+    } else {
+      const firstFailure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+      const reason = firstFailure?.reason
+      appStore.showError(reason?.response?.data?.message || reason?.message || t('admin.accounts.failedToArchive'))
+    }
+  } catch (error: any) {
+    console.error('Failed to archive accounts:', error)
+    appStore.showError(error?.response?.data?.message || error?.message || t('admin.accounts.failedToArchive'))
+  } finally {
+    reload()
+  }
+}
 const handleBulkResetStatus = async () => {
   if (!confirm(t('common.confirm'))) return
   try {
@@ -1698,13 +1765,21 @@ const handleRefreshVisibleUpstreamBalances = async () => {
 }
 
 const setAccountView = (view: AccountViewMode) => {
+  if (activeAccountView.value === view) return
   activeAccountView.value = view
+  clearSelection()
+  pagination.page = 1
+  resetAutoRefreshCache()
+  hasPendingListSync.value = false
   if (view === 'cost') {
-    clearSelection()
     loadCostComparisonAccounts().catch((error) => {
       console.error('Failed to load upstream cost comparison:', error)
     })
+    return
   }
+  load().catch((error) => {
+    console.error('Failed to load accounts:', error)
+  })
 }
 const accountMatchesCurrentFilters = (account: Account) => {
   const filters = buildAccountQueryFilters()
@@ -1939,8 +2014,37 @@ const onRevertFallback = async (a: Account) => {
     appStore.showError(error?.response?.data?.message || t('admin.accounts.revertProxyFailed'))
   }
 }
-const handleDelete = (a: Account) => { deletingAcc.value = a; showDeleteDialog.value = true }
-const confirmDelete = async () => { if(!deletingAcc.value) return; try { await adminAPI.accounts.delete(deletingAcc.value.id); showDeleteDialog.value = false; deletingAcc.value = null; reload() } catch (error) { console.error('Failed to delete account:', error) } }
+const handleDelete = (a: Account) => {
+  if (!canArchiveAccount(a)) {
+    appStore.showWarning(t('admin.accounts.archiveRequiresDisabled'))
+    return
+  }
+  deletingAcc.value = a
+  showDeleteDialog.value = true
+}
+const confirmDelete = async () => {
+  if (!deletingAcc.value) return
+  try {
+    await adminAPI.accounts.archive(deletingAcc.value.id)
+    showDeleteDialog.value = false
+    deletingAcc.value = null
+    appStore.showSuccess(t('admin.accounts.accountArchived'))
+    reload()
+  } catch (error: any) {
+    console.error('Failed to archive account:', error)
+    appStore.showError(error?.response?.data?.message || error?.message || t('admin.accounts.failedToArchive'))
+  }
+}
+const handleRestore = async (a: Account) => {
+  try {
+    await adminAPI.accounts.restore(a.id)
+    appStore.showSuccess(t('admin.accounts.accountRestored'))
+    reload()
+  } catch (error: any) {
+    console.error('Failed to restore account:', error)
+    appStore.showError(error?.response?.data?.message || error?.message || t('admin.accounts.failedToRestore'))
+  }
+}
 const handleToggleSchedulable = async (a: Account) => {
   const nextSchedulable = !a.schedulable
   togglingSchedulable.value = a.id

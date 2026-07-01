@@ -229,6 +229,8 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		AutoPauseOnExpired:      a.AutoPauseOnExpired,
 		CreatedAt:               a.CreatedAt,
 		UpdatedAt:               a.UpdatedAt,
+		Deleted:                 a.DeletedAt != nil,
+		DeletedAt:               a.DeletedAt,
 		Schedulable:             a.Schedulable,
 		RateLimitedAt:           a.RateLimitedAt,
 		RateLimitResetAt:        a.RateLimitResetAt,
@@ -572,8 +574,10 @@ func AccountSummaryFromService(a *service.Account) *AccountSummary {
 		return nil
 	}
 	return &AccountSummary{
-		ID:   a.ID,
-		Name: a.Name,
+		ID:        a.ID,
+		Name:      a.Name,
+		Deleted:   a.DeletedAt != nil,
+		DeletedAt: a.DeletedAt,
 	}
 }
 

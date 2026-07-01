@@ -1285,7 +1285,7 @@ const concurrency = ref(1)
 const loadFactor = ref<number | null>(null)
 const priority = ref(1)
 const rateMultiplier = ref(1)
-const status = ref<'active' | 'inactive'>('active')
+const status = ref<'active' | 'inactive' | 'disabled'>('active')
 const groupIds = ref<number[]>([])
 const openaiPassthroughEnabled = ref(false)
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
@@ -1317,8 +1317,9 @@ const commonErrorCodes = [
 ]
 
 const statusOptions = computed(() => [
-  { value: 'active', label: t('common.active') },
-  { value: 'inactive', label: t('common.inactive') }
+  { value: 'active', label: t('admin.accounts.status.active') },
+  { value: 'inactive', label: t('admin.accounts.status.inactive') },
+  { value: 'disabled', label: t('admin.accounts.status.disabled') }
 ])
 const isOpenAIModelRestrictionDisabled = computed(
   () =>

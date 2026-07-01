@@ -117,6 +117,35 @@ export async function listWithEtag(
   }
 }
 
+export async function listArchived(
+  page: number = 1,
+  pageSize: number = 20,
+  filters?: {
+    platform?: string
+    type?: string
+    status?: string
+    group?: string
+    search?: string
+    privacy_mode?: string
+    lite?: string
+    sort_by?: string
+    sort_order?: 'asc' | 'desc'
+  },
+  options?: {
+    signal?: AbortSignal
+  }
+): Promise<PaginatedResponse<Account>> {
+  const { data } = await apiClient.get<PaginatedResponse<Account>>('/admin/accounts/archived', {
+    params: {
+      page,
+      page_size: pageSize,
+      ...filters
+    },
+    signal: options?.signal
+  })
+  return data
+}
+
 /**
  * Get account by ID
  * @param id - Account ID
@@ -258,13 +287,23 @@ export async function deleteAccount(id: number): Promise<{ message: string }> {
   return data
 }
 
+export async function archiveAccount(id: number): Promise<{ message: string }> {
+  const { data } = await apiClient.post<{ message: string }>(`/admin/accounts/${id}/archive`)
+  return data
+}
+
+export async function restoreAccount(id: number): Promise<Account> {
+  const { data } = await apiClient.post<Account>(`/admin/accounts/${id}/restore`)
+  return data
+}
+
 /**
  * Toggle account status
  * @param id - Account ID
  * @param status - New status
  * @returns Updated account
  */
-export async function toggleStatus(id: number, status: 'active' | 'inactive'): Promise<Account> {
+export async function toggleStatus(id: number, status: 'active' | 'inactive' | 'disabled'): Promise<Account> {
   return update(id, { status })
 }
 
@@ -903,6 +942,7 @@ export async function resetOpenAIQuota(id: number): Promise<OpenAIQuotaResetResu
 export const accountsAPI = {
   list,
   listWithEtag,
+  listArchived,
   getById,
   create,
   update,
@@ -914,6 +954,8 @@ export const accountsAPI = {
   deleteUpstreamRechargeRecord,
   checkMixedChannelRisk,
   delete: deleteAccount,
+  archive: archiveAccount,
+  restore: restoreAccount,
   toggleStatus,
   testAccount,
   refreshCredentials,

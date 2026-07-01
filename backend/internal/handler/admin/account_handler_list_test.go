@@ -50,3 +50,22 @@ func TestAccountHandlerListIncludesCreatedAt(t *testing.T) {
 	_, offset := parsed.Zone()
 	require.Equal(t, 0, offset)
 }
+
+func TestAccountHandlerArchivedRouteUsesStaticRoute(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	adminSvc := newStubAdminService()
+	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router.GET("/api/v1/admin/accounts/archived", handler.ListArchived)
+	router.GET("/api/v1/admin/accounts/:id", func(c *gin.Context) {
+		c.JSON(http.StatusTeapot, gin.H{"route": "id"})
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/archived?page=1&page_size=20", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, 1, adminSvc.lastListArchivedAccounts.calls)
+	require.Equal(t, 0, adminSvc.lastListAccounts.calls)
+}

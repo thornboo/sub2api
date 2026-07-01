@@ -14,6 +14,7 @@ type stubAdminService struct {
 	apiKeys              []service.APIKey
 	groups               []service.Group
 	accounts             []service.Account
+	archivedAccounts     []service.Account
 	proxies              []service.Proxy
 	proxyCounts          []service.ProxyWithAccountCount
 	redeems              []service.RedeemCode
@@ -35,6 +36,17 @@ type stubAdminService struct {
 		groupIDs  []int64
 	}
 	lastListAccounts struct {
+		platform    string
+		accountType string
+		status      string
+		search      string
+		groupID     int64
+		privacyMode string
+		sortBy      string
+		sortOrder   string
+		calls       int
+	}
+	lastListArchivedAccounts struct {
 		platform    string
 		accountType string
 		status      string
@@ -331,6 +343,19 @@ func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int,
 	return s.accounts, int64(len(s.accounts)), nil
 }
 
+func (s *stubAdminService) ListArchivedAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string) ([]service.Account, int64, error) {
+	s.lastListArchivedAccounts.platform = platform
+	s.lastListArchivedAccounts.accountType = accountType
+	s.lastListArchivedAccounts.status = status
+	s.lastListArchivedAccounts.search = search
+	s.lastListArchivedAccounts.groupID = groupID
+	s.lastListArchivedAccounts.privacyMode = privacyMode
+	s.lastListArchivedAccounts.sortBy = sortBy
+	s.lastListArchivedAccounts.sortOrder = sortOrder
+	s.lastListArchivedAccounts.calls++
+	return s.archivedAccounts, int64(len(s.archivedAccounts)), nil
+}
+
 func (s *stubAdminService) GetAccount(ctx context.Context, id int64) (*service.Account, error) {
 	account := service.Account{ID: id, Name: "account", Status: service.StatusActive}
 	return &account, nil
@@ -370,6 +395,15 @@ func (s *stubAdminService) UpdateAccountExtra(ctx context.Context, id int64, upd
 
 func (s *stubAdminService) DeleteAccount(ctx context.Context, id int64) error {
 	return nil
+}
+
+func (s *stubAdminService) ArchiveAccount(ctx context.Context, id int64) error {
+	return nil
+}
+
+func (s *stubAdminService) RestoreAccount(ctx context.Context, id int64) (*service.Account, error) {
+	account := service.Account{ID: id, Name: "account", Status: service.StatusDisabled, Schedulable: false}
+	return &account, nil
 }
 
 func (s *stubAdminService) RefreshAccountCredentials(ctx context.Context, id int64) (*service.Account, error) {

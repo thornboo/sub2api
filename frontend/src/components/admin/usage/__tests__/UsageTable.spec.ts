@@ -44,6 +44,7 @@ const messages: Record<string, string> = {
   'admin.usage.billingModePerRequest': 'Per request',
   'admin.usage.billingModeImage': 'Image',
   'admin.usage.apiKeyDeletedBadge': 'Deleted',
+  'admin.usage.accountArchivedBadge': 'Archived',
 }
 
 vi.mock('vue-i18n', async () => {
@@ -76,6 +77,17 @@ const DataTableStubWithAPIKey = {
     <div>
       <div v-for="row in data" :key="row.request_id">
         <slot name="cell-api_key" :row="row" />
+      </div>
+    </div>
+  `,
+}
+
+const DataTableStubWithAccount = {
+  props: ['data'],
+  template: `
+    <div>
+      <div v-for="row in data" :key="row.request_id">
+        <slot name="cell-account" :row="row" />
       </div>
     </div>
   `,
@@ -463,5 +475,47 @@ describe('admin UsageTable deleted-api-key badge', () => {
 
     expect(wrapper.text()).toContain('historical-key')
     expect(wrapper.text()).toContain('Deleted')
+  })
+})
+
+describe('admin UsageTable archived-account badge', () => {
+  it('renders archived badge for a soft-deleted account row', () => {
+    const row = {
+      request_id: 'req-archived-account-1',
+      model: 'claude-3',
+      account_id: 12,
+      account: {
+        id: 12,
+        name: 'historical-account',
+        deleted_at: '2026-07-01T10:00:00Z',
+      },
+      actual_cost: 0,
+      total_cost: 0,
+      input_cost: 0,
+      output_cost: 0,
+      rate_multiplier: 1,
+      account_rate_multiplier: 1,
+      input_tokens: 1,
+      output_tokens: 1,
+    }
+
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [row],
+        loading: false,
+        columns: [{ key: 'account', label: 'Account' }],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStubWithAccount,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('historical-account')
+    expect(wrapper.text()).toContain('Archived')
   })
 })

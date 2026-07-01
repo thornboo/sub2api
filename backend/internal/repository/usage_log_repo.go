@@ -4832,7 +4832,13 @@ func (r *usageLogRepository) loadAccounts(ctx context.Context, ids []int64) (map
 	if len(ids) == 0 {
 		return out, nil
 	}
-	models, err := r.client.Account.Query().Where(dbaccount.IDIn(ids...)).All(ctx)
+	queryCtx := ctx
+	if service.ShouldResolveDeletedAccountsForUsageLogs(ctx) {
+		// usage_logs keeps account_id as an immutable dimension; admin evidence
+		// views may resolve archived accounts to preserve historical labels.
+		queryCtx = mixins.SkipSoftDelete(ctx)
+	}
+	models, err := r.client.Account.Query().Where(dbaccount.IDIn(ids...)).All(queryCtx)
 	if err != nil {
 		return nil, err
 	}

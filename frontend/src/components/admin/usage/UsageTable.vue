@@ -60,7 +60,16 @@
         </template>
 
         <template #cell-account="{ row }">
-          <span class="text-sm text-gray-900 dark:text-white">{{ row.account?.name || '-' }}</span>
+          <div v-if="row.account_id" class="space-y-1">
+            <span class="text-sm text-gray-900 dark:text-white">{{ row.account?.name || `#${row.account_id}` }}</span>
+            <span
+              v-if="row.account?.deleted_at"
+              class="inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-amber-100 text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:ring-amber-500/30"
+            >
+              {{ t('admin.usage.accountArchivedBadge') }}
+            </span>
+          </div>
+          <span v-else class="text-sm text-gray-900 dark:text-white">-</span>
         </template>
 
         <template #cell-model="{ row }">

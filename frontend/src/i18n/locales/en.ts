@@ -3501,6 +3501,7 @@ export default {
       viewColumns: 'Columns',
       views: {
         list: 'Accounts',
+        archived: 'Archived',
         upstreamCost: 'Cost Compare'
       },
       upstreamCost: {
@@ -3677,6 +3678,12 @@ export default {
       crsBack: 'Back',
       editAccount: 'Edit Account',
       deleteAccount: 'Delete Account',
+      archiveAccount: 'Archive Account',
+      archiveAction: 'Archive',
+      restoreAccount: 'Restore Account',
+      archiveConfirm: "Archive account '{name}'? Historical usage and group links will be kept, but the account will not continue scheduling.",
+      archiveBulkConfirm: 'Archive the selected accounts? Historical usage and group links will be kept.',
+      archiveRequiresDisabled: 'Set the account status to Disabled before archiving it.',
       searchAccounts: 'Search accounts...',
       notes: 'Notes',
       notesPlaceholder: 'Enter notes',
@@ -3722,6 +3729,7 @@ export default {
       status: {
         active: 'Active',
         inactive: 'Inactive',
+        disabled: 'Disabled',
         error: 'Error',
         cooldown: 'Cooldown',
         paused: 'Paused',
@@ -3759,6 +3767,7 @@ export default {
         proxy: 'Proxy',
         lastUsed: 'Last Used',
         createdAt: 'Created',
+        archivedAt: 'Archived At',
         expiresAt: 'Expires At',
         actions: 'Actions'
       },
@@ -3891,6 +3900,10 @@ export default {
       createFirstAccount: 'Create your first account to start using AI services.',
       tokenRefreshed: 'Token refreshed successfully',
       accountDeleted: 'Account deleted successfully',
+      accountArchived: 'Account archived successfully',
+      accountRestored: 'Account restored as disabled',
+      bulkArchiveSuccess: 'Archived {count} account(s)',
+      bulkArchivePartial: 'Archived partially: {success} succeeded, {failed} failed',
       rateLimitCleared: 'Rate limit cleared successfully',
       bulkSchedulableEnabled: 'Successfully enabled scheduling for {count} account(s)',
       bulkSchedulableDisabled: 'Successfully disabled scheduling for {count} account(s)',
@@ -3901,7 +3914,7 @@ export default {
         selectCurrentPage: 'Select this page',
         clear: 'Clear selection',
         edit: 'Bulk Edit',
-        delete: 'Bulk Delete',
+        delete: 'Bulk Archive',
         enableScheduling: 'Enable Scheduling',
         disableScheduling: 'Disable Scheduling',
         resetStatus: 'Reset Status',
@@ -3945,6 +3958,8 @@ export default {
       failedToLoad: 'Failed to load accounts',
       failedToRefresh: 'Failed to refresh token',
       failedToDelete: 'Failed to delete account',
+      failedToArchive: 'Failed to archive account',
+      failedToRestore: 'Failed to restore account',
       failedToClearRateLimit: 'Failed to clear rate limit',
       deleteConfirm: "Are you sure you want to delete '{name}'? This action cannot be undone.",
       // Create/Edit Account Modal
@@ -5294,6 +5309,7 @@ export default {
       failedToLoadUser: 'Failed to load user info',
       userDeletedBadge: 'Deleted',
       apiKeyDeletedBadge: 'Deleted',
+      accountArchivedBadge: 'Archived',
       apiKeyActiveBadge: 'Active',
       apiKeyId: 'API Key ID',
       apiKeyStatus: 'API Key Status',
