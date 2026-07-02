@@ -6465,7 +6465,7 @@ export default {
           maxTasksPerRound: '单轮任务上限',
           maxTasksPerRoundHint: '每次刷新最多调度的去重探针数量，防止误开大量模型时刷爆上游。范围 1 – 10000。',
           snapshotRetentionDays: '状态快照保留天数',
-          snapshotRetentionDaysHint: '用于保留无可用账号等用户可见状态证据。0 表示关闭自动清理；建议不低于 30 天。',
+          snapshotRetentionDaysHint: '用于保留无可用账号等用户可见状态证据。0 表示关闭自动清理；正数有效范围 30 – 3650 天，1 – 29 会按 30 天保存。',
         },
         availableChannels: {
           title: '可用渠道',
