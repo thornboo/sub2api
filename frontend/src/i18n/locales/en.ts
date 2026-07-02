@@ -6310,7 +6310,7 @@ export default {
           maxTasksPerRound: 'Tasks per refresh limit',
           maxTasksPerRoundHint: 'Maximum deduped probes scheduled per refresh to protect upstream accounts when many models are enabled. Range 1 – 10000.',
           snapshotRetentionDays: 'Status snapshot retention days',
-          snapshotRetentionDaysHint: 'Keeps user-visible status evidence such as no available account windows. 0 disables automatic cleanup; positive values are clamped to 30 – 3650 days.',
+          snapshotRetentionDaysHint: 'Keeps user-visible status evidence such as no available account windows. 0 disables automatic cleanup; positive values are clamped to 30 – 3650 days, so values from 1 to 29 are saved as 30.',
         },
         availableChannels: {
           title: 'Available Channels',
