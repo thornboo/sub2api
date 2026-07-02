@@ -313,16 +313,20 @@ RunProbe
 
 - `model_self_check_histories` 保留现有策略，内部排障用。
 - `model_self_check_status_snapshots` 至少保留 30 天，满足 24h / 7d / 30d 可用率。
-- 如果数据量可控，可保留 90 天，方便回溯稳定性。
+- 如果数据量可控，默认保留 90 天，方便回溯稳定性。
 
-阶段 1 实现采用 90 天保留，并由现有模型自检 runner 每 24 小时触发一次清理：
+阶段 1 实现默认采用 90 天保留，并由现有模型自检 runner 每 24 小时触发一次清理。保留期由后台设置 `model_self_check_status_snapshot_retention_days` 控制：
+
+- 默认值：`90`。
+- `0`：关闭状态快照自动清理，适合希望长期保留模型状态证据的部署。
+- 正数：小于 `30` 会按 `30` 天执行，大于 `3650` 会按 `3650` 天执行。
+
+默认 90 天时等价清理 SQL 示例：
 
 ```sql
 DELETE FROM model_self_check_status_snapshots
 WHERE checked_at < NOW() - INTERVAL '90 days';
 ```
-
-最终保留周期后续仍可与账号级自检历史策略统一配置化。
 
 ## 幂等与多实例
 
@@ -351,7 +355,7 @@ WHERE checked_at < NOW() - INTERVAL '90 days';
 - 新增快照刷新器，对所有 enabled 的 (group, model) 写状态快照。
 - 无候选账号时写 `failed/no_available_account`。
 - 详情 timeline、详情窗口可用率、降级比例和详情平均延迟优先读取快照；无快照时回退旧账号级历史。
-- Runner 每 24 小时清理一次超过 90 天的状态快照，防止快照表无界增长。
+- Runner 每 24 小时按 `model_self_check_status_snapshot_retention_days` 清理状态快照；默认 90 天，配置为 0 时不自动清理。
 
 ### 阶段 2：列表状态切到快照
 
@@ -395,14 +399,13 @@ WHERE checked_at < NOW() - INTERVAL '90 days';
 
 1. `no_available_account` 在用户侧文案是否显示为「不可用」还是「暂无可用线路」？
 2. 全部账号都是模型级限流时，状态应为 `degraded` 还是 `failed`？
-3. 快照保留周期取 30 天、90 天还是按管理员设置？
-4. 是否要在管理员侧提供快照 drilldown，显示聚合原因和账号数量？
-5. 列表页是否要与详情页同阶段切到快照口径，还是接受一个阶段的列表/详情口径差异？
+3. 是否要在管理员侧提供快照 drilldown，显示聚合原因和账号数量？
+4. 列表页是否要与详情页同阶段切到快照口径，还是接受一个阶段的列表/详情口径差异？
 
 ## 建议默认决策
 
 - 阶段 1 先落地快照表、无账号快照；详情时间线和详情窗口指标同步读取快照。
 - `no_available_account` 用户侧显示为失败状态，tooltip 用「当前无可用账号」。
 - 429 继续沿用现有 degraded 口径，避免改变可用率定义。
-- 快照保留 90 天；如数据量超预期，再降到 30 天。
+- 快照默认保留 90 天；管理员可通过 `model_self_check_status_snapshot_retention_days` 调整，`0` 表示关闭自动清理。
 - 列表当前状态暂不改，等详情时间线稳定后再统一切到快照。

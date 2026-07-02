@@ -309,6 +309,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		ModelSelfCheckDefaultIntervalSeconds: settings.ModelSelfCheckDefaultIntervalSeconds,
 		ModelSelfCheckMaxConcurrency:         settings.ModelSelfCheckMaxConcurrency,
 		ModelSelfCheckMaxTasksPerRound:       settings.ModelSelfCheckMaxTasksPerRound,
+		ModelSelfCheckSnapshotRetentionDays:  settings.ModelSelfCheckSnapshotRetentionDays,
 
 		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
 
@@ -669,6 +670,7 @@ type UpdateSettingsRequest struct {
 	ModelSelfCheckDefaultIntervalSeconds *int  `json:"self_check_default_interval_seconds"`
 	ModelSelfCheckMaxConcurrency         *int  `json:"self_check_max_concurrency"`
 	ModelSelfCheckMaxTasksPerRound       *int  `json:"self_check_max_tasks_per_round"`
+	ModelSelfCheckSnapshotRetentionDays  *int  `json:"model_self_check_status_snapshot_retention_days"`
 
 	// Available Channels feature switch (user-facing)
 	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
@@ -1875,6 +1877,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.ModelSelfCheckMaxTasksPerRound
 		}(),
+		ModelSelfCheckSnapshotRetentionDays: func() int {
+			if req.ModelSelfCheckSnapshotRetentionDays != nil {
+				return *req.ModelSelfCheckSnapshotRetentionDays
+			}
+			return previousSettings.ModelSelfCheckSnapshotRetentionDays
+		}(),
 		AvailableChannelsEnabled: func() bool {
 			if req.AvailableChannelsEnabled != nil {
 				return *req.AvailableChannelsEnabled
@@ -2235,6 +2243,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ModelSelfCheckDefaultIntervalSeconds: updatedSettings.ModelSelfCheckDefaultIntervalSeconds,
 		ModelSelfCheckMaxConcurrency:         updatedSettings.ModelSelfCheckMaxConcurrency,
 		ModelSelfCheckMaxTasksPerRound:       updatedSettings.ModelSelfCheckMaxTasksPerRound,
+		ModelSelfCheckSnapshotRetentionDays:  updatedSettings.ModelSelfCheckSnapshotRetentionDays,
 
 		AvailableChannelsEnabled: updatedSettings.AvailableChannelsEnabled,
 
@@ -2753,6 +2762,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.ModelSelfCheckMaxTasksPerRound != after.ModelSelfCheckMaxTasksPerRound {
 		changed = append(changed, "self_check_max_tasks_per_round")
+	}
+	if before.ModelSelfCheckSnapshotRetentionDays != after.ModelSelfCheckSnapshotRetentionDays {
+		changed = append(changed, "model_self_check_status_snapshot_retention_days")
 	}
 	if before.AvailableChannelsEnabled != after.AvailableChannelsEnabled {
 		changed = append(changed, "available_channels_enabled")

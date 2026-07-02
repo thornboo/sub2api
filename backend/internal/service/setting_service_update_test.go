@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -258,6 +259,48 @@ func TestSettingService_UpdateSettings_TablePreferences(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "1000", repo.updates[SettingKeyTableDefaultPageSize])
 	require.Equal(t, "[20,100]", repo.updates[SettingKeyTablePageSizeOptions])
+}
+
+func TestParseModelSelfCheckSnapshotRetentionDays(t *testing.T) {
+	require.Equal(t, modelSelfCheckSnapshotRetentionFallback, parseModelSelfCheckSnapshotRetentionDays(""))
+	require.Equal(t, modelSelfCheckSnapshotRetentionFallback, parseModelSelfCheckSnapshotRetentionDays("invalid"))
+	require.Equal(t, 0, parseModelSelfCheckSnapshotRetentionDays("0"))
+	require.Equal(t, modelSelfCheckSnapshotRetentionMin, parseModelSelfCheckSnapshotRetentionDays("7"))
+	require.Equal(t, 180, parseModelSelfCheckSnapshotRetentionDays("180"))
+	require.Equal(t, modelSelfCheckSnapshotRetentionMax, parseModelSelfCheckSnapshotRetentionDays("99999"))
+}
+
+func TestSettingService_UpdateSettings_ModelSelfCheckSnapshotRetentionDays(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+		ModelSelfCheckSnapshotRetentionDays: 0,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "0", repo.updates[SettingKeyModelSelfCheckSnapshotRetentionDays])
+
+	err = svc.UpdateSettings(context.Background(), &SystemSettings{
+		ModelSelfCheckSnapshotRetentionDays: 7,
+	})
+	require.NoError(t, err)
+	require.Equal(t, strconv.Itoa(modelSelfCheckSnapshotRetentionMin), repo.updates[SettingKeyModelSelfCheckSnapshotRetentionDays])
+
+	err = svc.UpdateSettings(context.Background(), &SystemSettings{
+		ModelSelfCheckSnapshotRetentionDays: 99999,
+	})
+	require.NoError(t, err)
+	require.Equal(t, strconv.Itoa(modelSelfCheckSnapshotRetentionMax), repo.updates[SettingKeyModelSelfCheckSnapshotRetentionDays])
+}
+
+func TestSettingService_GetModelSelfCheckRuntimeReadsSnapshotRetentionDays(t *testing.T) {
+	svc := NewSettingService(&settingRepoStub{values: map[string]string{
+		SettingKeyModelSelfCheckSnapshotRetentionDays: "180",
+	}}, &config.Config{})
+
+	got := svc.GetModelSelfCheckRuntime(context.Background())
+
+	require.Equal(t, 180, got.SnapshotRetentionDays)
 }
 
 func TestSettingService_UpdateSettings_PaymentVisibleMethodsAndAdvancedScheduler(t *testing.T) {

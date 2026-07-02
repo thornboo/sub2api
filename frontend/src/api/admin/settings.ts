@@ -624,6 +624,7 @@ export interface SystemSettings {
   self_check_default_interval_seconds: number;
   self_check_max_concurrency: number;
   self_check_max_tasks_per_round: number;
+  model_self_check_status_snapshot_retention_days: number;
 
   // Available Channels feature switch
   available_channels_enabled: boolean;
@@ -878,6 +879,7 @@ export interface UpdateSettingsRequest {
   self_check_default_interval_seconds?: number;
   self_check_max_concurrency?: number;
   self_check_max_tasks_per_round?: number;
+  model_self_check_status_snapshot_retention_days?: number;
 
   // Available Channels feature switch
   available_channels_enabled?: boolean;

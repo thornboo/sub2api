@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
 type modelSelfCheckRunnerSvcStub struct {
@@ -13,8 +15,47 @@ type modelSelfCheckRunnerSvcStub struct {
 	runCount             atomic.Int64
 	snapshotRefreshCount atomic.Int64
 	cleanupCount         atomic.Int64
+	lastCleanupRetention atomic.Int64
 	cleanupErr           error
 	runCalled            chan ModelSelfCheckProbeTask
+}
+
+type modelSelfCheckRunnerSettingRepoStub struct {
+	values map[string]string
+}
+
+func (s *modelSelfCheckRunnerSettingRepoStub) Get(ctx context.Context, key string) (*Setting, error) {
+	panic("unexpected Get call")
+}
+
+func (s *modelSelfCheckRunnerSettingRepoStub) GetValue(ctx context.Context, key string) (string, error) {
+	panic("unexpected GetValue call")
+}
+
+func (s *modelSelfCheckRunnerSettingRepoStub) Set(ctx context.Context, key, value string) error {
+	panic("unexpected Set call")
+}
+
+func (s *modelSelfCheckRunnerSettingRepoStub) GetMultiple(ctx context.Context, keys []string) (map[string]string, error) {
+	result := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if value, ok := s.values[key]; ok {
+			result[key] = value
+		}
+	}
+	return result, nil
+}
+
+func (s *modelSelfCheckRunnerSettingRepoStub) SetMultiple(ctx context.Context, settings map[string]string) error {
+	panic("unexpected SetMultiple call")
+}
+
+func (s *modelSelfCheckRunnerSettingRepoStub) GetAll(ctx context.Context) (map[string]string, error) {
+	panic("unexpected GetAll call")
+}
+
+func (s *modelSelfCheckRunnerSettingRepoStub) Delete(ctx context.Context, key string) error {
+	panic("unexpected Delete call")
 }
 
 func (s *modelSelfCheckRunnerSvcStub) ListProbeTasks(ctx context.Context) ([]ModelSelfCheckProbeTask, error) {
@@ -26,8 +67,9 @@ func (s *modelSelfCheckRunnerSvcStub) RefreshStatusSnapshots(ctx context.Context
 	return nil
 }
 
-func (s *modelSelfCheckRunnerSvcStub) CleanupStatusSnapshots(ctx context.Context) (int64, error) {
+func (s *modelSelfCheckRunnerSvcStub) CleanupStatusSnapshotsWithRetention(ctx context.Context, retentionDays int) (int64, error) {
 	s.cleanupCount.Add(1)
+	s.lastCleanupRetention.Store(int64(retentionDays))
 	if s.cleanupErr != nil {
 		return 0, s.cleanupErr
 	}
@@ -137,6 +179,35 @@ func TestModelSelfCheckRunnerSnapshotCleanupRunsOncePerInterval(t *testing.T) {
 	r.reloadSchedule(context.Background())
 	if got := svc.cleanupCount.Load(); got != 2 {
 		t.Fatalf("cleanup count after interval elapsed = %d, want 2", got)
+	}
+}
+
+func TestModelSelfCheckRunnerSnapshotCleanupUsesConfiguredRetention(t *testing.T) {
+	svc := &modelSelfCheckRunnerSvcStub{}
+	settings := NewSettingService(&modelSelfCheckRunnerSettingRepoStub{values: map[string]string{
+		SettingKeyModelSelfCheckSnapshotRetentionDays: "180",
+	}}, &config.Config{})
+	r := newModelSelfCheckRunner(svc, settings)
+
+	r.reloadSchedule(context.Background())
+	if got := svc.cleanupCount.Load(); got != 1 {
+		t.Fatalf("cleanup count = %d, want 1", got)
+	}
+	if got := svc.lastCleanupRetention.Load(); got != 180 {
+		t.Fatalf("cleanup retention = %d, want 180", got)
+	}
+}
+
+func TestModelSelfCheckRunnerSnapshotCleanupDisabledSkipsCleanup(t *testing.T) {
+	svc := &modelSelfCheckRunnerSvcStub{}
+	settings := NewSettingService(&modelSelfCheckRunnerSettingRepoStub{values: map[string]string{
+		SettingKeyModelSelfCheckSnapshotRetentionDays: "0",
+	}}, &config.Config{})
+	r := newModelSelfCheckRunner(svc, settings)
+
+	r.reloadSchedule(context.Background())
+	if got := svc.cleanupCount.Load(); got != 0 {
+		t.Fatalf("cleanup count = %d, want 0 when retention cleanup is disabled", got)
 	}
 }
 

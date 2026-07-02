@@ -379,6 +379,10 @@ const (
 	// (model, account) probes scheduled in one refresh cycle.
 	SettingKeyModelSelfCheckMaxTasksPerRound = "self_check_max_tasks_per_round"
 
+	// SettingKeyModelSelfCheckSnapshotRetentionDays controls automatic cleanup
+	// for user-safe model status snapshots. 0 disables cleanup.
+	SettingKeyModelSelfCheckSnapshotRetentionDays = "model_self_check_status_snapshot_retention_days"
+
 	// SettingKeyAvailableChannelsEnabled is a DB-backed soft switch for the "Available Channels"
 	// user-facing aggregate view. When false: user endpoint returns an empty list and the
 	// sidebar entry is hidden. Defaults to false (opt-in feature).

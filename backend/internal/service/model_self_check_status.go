@@ -23,9 +23,8 @@ const (
 	modelSelfCheckSnapshotReasonAllDegraded        = "all_degraded"
 	modelSelfCheckSnapshotReasonAllProbeFailed     = "all_probe_failed"
 
-	modelStatusWindow24h                = 1
-	modelSelfCheckFreshWindow           = 10 * time.Minute
-	modelSelfCheckSnapshotRetentionDays = 90
+	modelStatusWindow24h      = 1
+	modelSelfCheckFreshWindow = 10 * time.Minute
 )
 
 // ModelSelfCheckRepository is the read model behind the public model status
@@ -194,7 +193,15 @@ func (s *ModelSelfCheckService) RefreshStatusSnapshots(ctx context.Context) erro
 }
 
 func (s *ModelSelfCheckService) CleanupStatusSnapshots(ctx context.Context) (int64, error) {
-	before := s.now().UTC().AddDate(0, 0, -modelSelfCheckSnapshotRetentionDays)
+	return s.CleanupStatusSnapshotsWithRetention(ctx, modelSelfCheckSnapshotRetentionFallback)
+}
+
+func (s *ModelSelfCheckService) CleanupStatusSnapshotsWithRetention(ctx context.Context, retentionDays int) (int64, error) {
+	retentionDays = clampModelSelfCheckSnapshotRetentionDays(retentionDays)
+	if retentionDays == 0 {
+		return 0, nil
+	}
+	before := s.now().UTC().AddDate(0, 0, -retentionDays)
 	deleted, err := s.repo.DeleteStatusSnapshotsBefore(ctx, before)
 	if err != nil {
 		return 0, fmt.Errorf("cleanup model self check status snapshots: %w", err)

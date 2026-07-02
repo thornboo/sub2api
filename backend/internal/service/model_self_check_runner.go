@@ -17,7 +17,7 @@ const (
 type modelSelfCheckRunnerSvc interface {
 	ListProbeTasks(ctx context.Context) ([]ModelSelfCheckProbeTask, error)
 	RefreshStatusSnapshots(ctx context.Context) error
-	CleanupStatusSnapshots(ctx context.Context) (int64, error)
+	CleanupStatusSnapshotsWithRetention(ctx context.Context, retentionDays int) (int64, error)
 	RunProbe(ctx context.Context, task ModelSelfCheckProbeTask) error
 }
 
@@ -136,7 +136,7 @@ func (r *ModelSelfCheckRunner) reloadSchedule(ctx context.Context) {
 	if err := r.svc.RefreshStatusSnapshots(loadCtx); err != nil {
 		slog.Warn("model_self_check: refresh status snapshots failed", "error", err)
 	}
-	r.cleanupStatusSnapshotsIfDue(loadCtx)
+	r.cleanupStatusSnapshotsIfDue(loadCtx, runtime.SnapshotRetentionDays)
 	var limited bool
 	tasks, limited = limitModelSelfCheckProbeTasks(tasks, runtime.MaxTasksPerRound)
 	if limited {
@@ -200,7 +200,10 @@ func (r *ModelSelfCheckRunner) reloadSchedule(ctx context.Context) {
 	}
 }
 
-func (r *ModelSelfCheckRunner) cleanupStatusSnapshotsIfDue(ctx context.Context) {
+func (r *ModelSelfCheckRunner) cleanupStatusSnapshotsIfDue(ctx context.Context, retentionDays int) {
+	if retentionDays == 0 {
+		return
+	}
 	now := time.Now().UTC()
 	r.mu.Lock()
 	if !r.lastSnapshotCleanup.IsZero() && now.Sub(r.lastSnapshotCleanup) < modelSelfCheckSnapshotCleanupInterval {
@@ -209,7 +212,7 @@ func (r *ModelSelfCheckRunner) cleanupStatusSnapshotsIfDue(ctx context.Context) 
 	}
 	r.mu.Unlock()
 
-	deleted, err := r.svc.CleanupStatusSnapshots(ctx)
+	deleted, err := r.svc.CleanupStatusSnapshotsWithRetention(ctx, retentionDays)
 	if err != nil {
 		slog.Warn("model_self_check: cleanup status snapshots failed", "error", err)
 		return
@@ -370,6 +373,7 @@ func (r *ModelSelfCheckRunner) runtime(ctx context.Context) ModelSelfCheckRuntim
 			DefaultIntervalSeconds: modelSelfCheckIntervalFallback,
 			MaxConcurrency:         modelSelfCheckConcurrencyFallback,
 			MaxTasksPerRound:       modelSelfCheckMaxTasksFallback,
+			SnapshotRetentionDays:  modelSelfCheckSnapshotRetentionFallback,
 		}
 	}
 	runtime := r.settingService.GetModelSelfCheckRuntime(ctx)
@@ -381,6 +385,9 @@ func (r *ModelSelfCheckRunner) runtime(ctx context.Context) ModelSelfCheckRuntim
 	}
 	if runtime.MaxTasksPerRound <= 0 {
 		runtime.MaxTasksPerRound = modelSelfCheckMaxTasksFallback
+	}
+	if runtime.SnapshotRetentionDays < 0 {
+		runtime.SnapshotRetentionDays = modelSelfCheckSnapshotRetentionFallback
 	}
 	return runtime
 }

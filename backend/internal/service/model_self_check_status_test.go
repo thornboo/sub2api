@@ -480,8 +480,8 @@ func TestCleanupStatusSnapshotsDeletesRowsPastRetention(t *testing.T) {
 	now := time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC)
 	repo := &modelSelfCheckRepoStub{
 		snapshots: []ModelSelfCheckStatusSnapshot{
-			{ID: 1, GroupID: 10, Model: "gpt-4o", CheckedAt: now.AddDate(0, 0, -modelSelfCheckSnapshotRetentionDays).Add(-time.Minute)},
-			{ID: 2, GroupID: 10, Model: "gpt-4o", CheckedAt: now.AddDate(0, 0, -modelSelfCheckSnapshotRetentionDays).Add(time.Minute)},
+			{ID: 1, GroupID: 10, Model: "gpt-4o", CheckedAt: now.AddDate(0, 0, -modelSelfCheckSnapshotRetentionFallback).Add(-time.Minute)},
+			{ID: 2, GroupID: 10, Model: "gpt-4o", CheckedAt: now.AddDate(0, 0, -modelSelfCheckSnapshotRetentionFallback).Add(time.Minute)},
 		},
 	}
 	svc := NewModelSelfCheckService(repo)
@@ -496,6 +496,28 @@ func TestCleanupStatusSnapshotsDeletesRowsPastRetention(t *testing.T) {
 	}
 	if len(repo.snapshots) != 1 || repo.snapshots[0].ID != 2 {
 		t.Fatalf("remaining snapshots = %#v, want only fresh row", repo.snapshots)
+	}
+}
+
+func TestCleanupStatusSnapshotsWithRetentionDisabledSkipsDelete(t *testing.T) {
+	now := time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC)
+	repo := &modelSelfCheckRepoStub{
+		snapshots: []ModelSelfCheckStatusSnapshot{
+			{ID: 1, GroupID: 10, Model: "gpt-4o", CheckedAt: now.AddDate(-1, 0, 0)},
+		},
+	}
+	svc := NewModelSelfCheckService(repo)
+	svc.now = func() time.Time { return now }
+
+	deleted, err := svc.CleanupStatusSnapshotsWithRetention(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("CleanupStatusSnapshotsWithRetention() error = %v", err)
+	}
+	if deleted != 0 {
+		t.Fatalf("deleted = %d, want 0", deleted)
+	}
+	if len(repo.snapshots) != 1 || repo.snapshots[0].ID != 1 {
+		t.Fatalf("snapshots = %#v, want unchanged", repo.snapshots)
 	}
 }
 

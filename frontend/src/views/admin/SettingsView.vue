@@ -5891,7 +5891,7 @@
               <Toggle v-model="form.model_self_check_enabled" />
             </div>
 
-            <div v-if="form.model_self_check_enabled" class="grid gap-4 md:grid-cols-3">
+            <div v-if="form.model_self_check_enabled" class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
                 <label class="input-label">
                   {{ t('admin.settings.features.modelSelfCheck.defaultInterval') }}
@@ -5940,6 +5940,23 @@
                 />
                 <p class="mt-1 text-xs text-gray-400">
                   {{ t('admin.settings.features.modelSelfCheck.maxTasksPerRoundHint') }}
+                </p>
+              </div>
+
+              <div>
+                <label class="input-label">
+                  {{ t('admin.settings.features.modelSelfCheck.snapshotRetentionDays') }}
+                  <span class="text-red-500">*</span>
+                </label>
+                <input
+                  v-model.number="form.model_self_check_status_snapshot_retention_days"
+                  type="number"
+                  min="0"
+                  max="3650"
+                  class="input"
+                />
+                <p class="mt-1 text-xs text-gray-400">
+                  {{ t('admin.settings.features.modelSelfCheck.snapshotRetentionDaysHint') }}
                 </p>
               </div>
             </div>
@@ -8357,6 +8374,7 @@ const form = reactive<SettingsForm>({
   self_check_default_interval_seconds: 300,
   self_check_max_concurrency: 4,
   self_check_max_tasks_per_round: 500,
+  model_self_check_status_snapshot_retention_days: 90,
   // Available Channels feature switch
   available_channels_enabled: false,
   // Affiliate (邀请返利) feature switch
@@ -9239,6 +9257,20 @@ function findDuplicateDefaultSubscription(
   });
 }
 
+function normalizeNonNegativeIntegerSetting(
+  value: unknown,
+  fallback: number,
+): number {
+  if (value === "" || value === null || value === undefined) {
+    return fallback;
+  }
+  const normalized = Math.floor(Number(value));
+  if (!Number.isFinite(normalized) || normalized < 0) {
+    return fallback;
+  }
+  return normalized;
+}
+
 async function saveSettings() {
   saving.value = true;
   try {
@@ -9620,6 +9652,11 @@ async function saveSettings() {
       self_check_max_concurrency: Number(form.self_check_max_concurrency) || 4,
       self_check_max_tasks_per_round:
         Number(form.self_check_max_tasks_per_round) || 500,
+      model_self_check_status_snapshot_retention_days:
+        normalizeNonNegativeIntegerSetting(
+          form.model_self_check_status_snapshot_retention_days,
+          90,
+        ),
       // Available Channels feature switch
       available_channels_enabled: form.available_channels_enabled,
       // Affiliate (邀请返利) feature switch

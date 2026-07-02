@@ -254,6 +254,7 @@ type SystemSettings struct {
 	ModelSelfCheckDefaultIntervalSeconds int  `json:"self_check_default_interval_seconds"`
 	ModelSelfCheckMaxConcurrency         int  `json:"self_check_max_concurrency"`
 	ModelSelfCheckMaxTasksPerRound       int  `json:"self_check_max_tasks_per_round"`
+	ModelSelfCheckSnapshotRetentionDays  int  `json:"model_self_check_status_snapshot_retention_days"`
 
 	// Available Channels feature switch (user-facing aggregate view)
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`

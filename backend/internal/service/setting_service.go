@@ -970,15 +970,18 @@ const (
 	channelMonitorIntervalMax      = 3600
 	channelMonitorIntervalFallback = 60
 
-	modelSelfCheckIntervalMin         = 60
-	modelSelfCheckIntervalMax         = 86400
-	modelSelfCheckIntervalFallback    = 300
-	modelSelfCheckConcurrencyMin      = 1
-	modelSelfCheckConcurrencyMax      = 64
-	modelSelfCheckConcurrencyFallback = 4
-	modelSelfCheckMaxTasksMin         = 1
-	modelSelfCheckMaxTasksMax         = 10000
-	modelSelfCheckMaxTasksFallback    = 500
+	modelSelfCheckIntervalMin               = 60
+	modelSelfCheckIntervalMax               = 86400
+	modelSelfCheckIntervalFallback          = 300
+	modelSelfCheckConcurrencyMin            = 1
+	modelSelfCheckConcurrencyMax            = 64
+	modelSelfCheckConcurrencyFallback       = 4
+	modelSelfCheckMaxTasksMin               = 1
+	modelSelfCheckMaxTasksMax               = 10000
+	modelSelfCheckMaxTasksFallback          = 500
+	modelSelfCheckSnapshotRetentionMin      = 30
+	modelSelfCheckSnapshotRetentionMax      = 3650
+	modelSelfCheckSnapshotRetentionFallback = 90
 )
 
 // parseChannelMonitorInterval parses the stored string and clamps to [15, 3600].
@@ -1068,6 +1071,30 @@ func clampModelSelfCheckMaxTasksPerRound(v int) int {
 	return v
 }
 
+func parseModelSelfCheckSnapshotRetentionDays(raw string) int {
+	v, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return modelSelfCheckSnapshotRetentionFallback
+	}
+	return clampModelSelfCheckSnapshotRetentionDays(v)
+}
+
+func clampModelSelfCheckSnapshotRetentionDays(v int) int {
+	if v == 0 {
+		return 0
+	}
+	if v < 0 {
+		return modelSelfCheckSnapshotRetentionFallback
+	}
+	if v < modelSelfCheckSnapshotRetentionMin {
+		return modelSelfCheckSnapshotRetentionMin
+	}
+	if v > modelSelfCheckSnapshotRetentionMax {
+		return modelSelfCheckSnapshotRetentionMax
+	}
+	return v
+}
+
 // ChannelMonitorRuntime is the lightweight view of the channel monitor feature
 // consumed by the runner and user-facing handlers.
 type ChannelMonitorRuntime struct {
@@ -1080,6 +1107,7 @@ type ModelSelfCheckRuntime struct {
 	DefaultIntervalSeconds int
 	MaxConcurrency         int
 	MaxTasksPerRound       int
+	SnapshotRetentionDays  int
 }
 
 // GetChannelMonitorRuntime reads the channel monitor feature flags directly from
@@ -1107,6 +1135,7 @@ func (s *SettingService) GetModelSelfCheckRuntime(ctx context.Context) ModelSelf
 		SettingKeyModelSelfCheckDefaultIntervalSeconds,
 		SettingKeyModelSelfCheckMaxConcurrency,
 		SettingKeyModelSelfCheckMaxTasksPerRound,
+		SettingKeyModelSelfCheckSnapshotRetentionDays,
 	})
 	if err != nil {
 		return ModelSelfCheckRuntime{
@@ -1114,6 +1143,7 @@ func (s *SettingService) GetModelSelfCheckRuntime(ctx context.Context) ModelSelf
 			DefaultIntervalSeconds: modelSelfCheckIntervalFallback,
 			MaxConcurrency:         modelSelfCheckConcurrencyFallback,
 			MaxTasksPerRound:       modelSelfCheckMaxTasksFallback,
+			SnapshotRetentionDays:  modelSelfCheckSnapshotRetentionFallback,
 		}
 	}
 	return ModelSelfCheckRuntime{
@@ -1121,6 +1151,7 @@ func (s *SettingService) GetModelSelfCheckRuntime(ctx context.Context) ModelSelf
 		DefaultIntervalSeconds: parseModelSelfCheckInterval(vals[SettingKeyModelSelfCheckDefaultIntervalSeconds]),
 		MaxConcurrency:         parseModelSelfCheckMaxConcurrency(vals[SettingKeyModelSelfCheckMaxConcurrency]),
 		MaxTasksPerRound:       parseModelSelfCheckMaxTasksPerRound(vals[SettingKeyModelSelfCheckMaxTasksPerRound]),
+		SnapshotRetentionDays:  parseModelSelfCheckSnapshotRetentionDays(vals[SettingKeyModelSelfCheckSnapshotRetentionDays]),
 	}
 }
 
@@ -2305,6 +2336,9 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyModelSelfCheckMaxTasksPerRound] = strconv.Itoa(
 		clampModelSelfCheckMaxTasksPerRound(settings.ModelSelfCheckMaxTasksPerRound),
 	)
+	updates[SettingKeyModelSelfCheckSnapshotRetentionDays] = strconv.Itoa(
+		clampModelSelfCheckSnapshotRetentionDays(settings.ModelSelfCheckSnapshotRetentionDays),
+	)
 
 	// Available channels feature switch
 	updates[SettingKeyAvailableChannelsEnabled] = strconv.FormatBool(settings.AvailableChannelsEnabled)
@@ -3323,6 +3357,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyModelSelfCheckDefaultIntervalSeconds: "300",
 		SettingKeyModelSelfCheckMaxConcurrency:         "4",
 		SettingKeyModelSelfCheckMaxTasksPerRound:       "500",
+		SettingKeyModelSelfCheckSnapshotRetentionDays:  "90",
 
 		// Available channels feature (default disabled; opt-in)
 		SettingKeyAvailableChannelsEnabled: "false",
@@ -3856,6 +3891,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	)
 	result.ModelSelfCheckMaxTasksPerRound = parseModelSelfCheckMaxTasksPerRound(
 		settings[SettingKeyModelSelfCheckMaxTasksPerRound],
+	)
+	result.ModelSelfCheckSnapshotRetentionDays = parseModelSelfCheckSnapshotRetentionDays(
+		settings[SettingKeyModelSelfCheckSnapshotRetentionDays],
 	)
 
 	// Available channels feature (default: disabled; strict true)
