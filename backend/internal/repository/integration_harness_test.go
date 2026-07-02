@@ -205,6 +205,34 @@ func testEntClient(t *testing.T) *dbent.Client {
 	return integrationEntClient
 }
 
+func cleanupCommittedUserFixtures(t testing.TB, ctx context.Context, includeGroups bool) {
+	t.Helper()
+
+	stmts := []string{
+		"DELETE FROM usage_logs",
+		"DELETE FROM api_keys",
+		"DELETE FROM auth_identity_channels",
+		"DELETE FROM identity_adoption_decisions",
+		"DELETE FROM pending_auth_sessions",
+		"DELETE FROM auth_identities",
+		"DELETE FROM user_subscriptions",
+		"DELETE FROM user_allowed_groups",
+		"DELETE FROM user_attribute_values",
+		"DELETE FROM user_platform_quotas",
+		"DELETE FROM announcement_reads",
+		"DELETE FROM promo_code_usages",
+		"DELETE FROM users",
+	}
+	if includeGroups {
+		stmts = append(stmts, "DELETE FROM groups")
+	}
+
+	for _, stmt := range stmts {
+		_, err := integrationDB.ExecContext(ctx, stmt)
+		require.NoError(t, err, stmt)
+	}
+}
+
 // testEntTx 返回一个 ent 事务，用于需要事务隔离的测试。
 // 测试结束后会自动回滚，不会影响数据库状态。
 func testEntTx(t *testing.T) *dbent.Tx {
