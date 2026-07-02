@@ -202,3 +202,17 @@ func TestMigration154aAddsSparkShadowIndexesConcurrently(t *testing.T) {
 	require.Contains(t, sql, "quota_dimension = 'spark'")
 	require.Contains(t, sql, "deleted_at IS NULL")
 }
+
+func TestMigration165RestrictsUsageLogDimensionForeignKeys(t *testing.T) {
+	content, err := FS.ReadFile("165_usage_logs_restrict_dimension_fks.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	require.Contains(t, sql, "ON DELETE RESTRICT")
+	require.Contains(t, sql, "NOT VALID")
+	require.Contains(t, sql, "fk_usage_logs_user_id_restrict")
+	require.Contains(t, sql, "fk_usage_logs_api_key_id_restrict")
+	require.Contains(t, sql, "fk_usage_logs_account_id_restrict")
+	require.Contains(t, sql, "REFERENCES public.%I(id) ON DELETE RESTRICT NOT VALID")
+	require.Contains(t, sql, "DROP CONSTRAINT IF EXISTS")
+}

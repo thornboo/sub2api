@@ -1,10 +1,10 @@
 # 用量账本与已删除 Key 证据完整性
 
-> 状态：部分落地。阶段 1 的管理员证据视图已经实现；阶段 2、阶段 3 仍是方案。
+> 状态：部分落地。阶段 1 的管理员证据视图已经实现；阶段 3 的账本外键保护已经落地；阶段 2 仍是方案。
 
 ## 已落地情况
 
-- 阶段 1 已落地（对应提交 `7bd82caf`）；阶段 2、阶段 3 仍是设计草案，待审查。
+- 阶段 1 已落地（对应提交 `7bd82caf`）；阶段 3 已通过 `165_usage_logs_restrict_dimension_fks.sql` 落地；阶段 2 仍是设计草案，待审查。
 - 讨论的是 API Key 删除后，管理员和用户侧用量明细、统计分析、导出和对账证据是否还能说得清。
 - 相关页面：
   - 管理员使用记录：`/admin/usage`
@@ -14,7 +14,7 @@
 
 这页的核心判断是：`usage_logs` 应被视为不可变消费账本，`api_keys`、`users`、`groups`、`accounts` 等表只是可变维度。消费证据不能因为维度对象后续改名、禁用或删除，就变得说不清。
 
-阶段 1 已按这份设计落地：`/admin/usage` 管理员证据视图会穿透软删除，解析已删除 Key 的名称和删除状态；DTO 隐藏明文 key，只向管理员证据上下文暴露删除元数据；导出会补充 Key ID、名称和删除时间。用户侧 `/usage` 和普通 `/keys` 列表仍只解析活跃 Key。阶段 2（快照字段）和阶段 3（外键约束）仍是设计草案，实施前需要按各阶段的前置核验执行。
+阶段 1 已按这份设计落地：`/admin/usage` 管理员证据视图会穿透软删除，解析已删除 Key 的名称和删除状态；DTO 隐藏明文 key，只向管理员证据上下文暴露删除元数据；导出会补充 Key ID、名称和删除时间。用户侧 `/usage` 和普通 `/keys` 列表仍只解析活跃 Key。阶段 3 已将 `usage_logs` 指向用户、Key、账号的外键固定为 `ON DELETE RESTRICT NOT VALID`，用于防止未来硬删除路径级联误删账本。阶段 2（快照字段）仍是设计草案，实施前需要按阶段前置核验执行。
 
 ## 当前情况
 
@@ -38,9 +38,7 @@ API Key 表有 `deleted_at` 字段。当前删除逻辑不会物理删除 `api_k
 
 `backend/migrations/001_init.sql` 中 `usage_logs.user_id`、`usage_logs.api_key_id`、`usage_logs.account_id` 最初都声明为 `ON DELETE CASCADE`。这说明如果某个环境仍沿用该约束，物理删除用户、Key 或账号会级联删除消费记录。
 
-但当前生成的 Ent schema 中，`usage_logs` 指向 `api_keys`、`accounts`、`users` 的外键是 `NO ACTION`，指向 `groups` 和 `user_subscriptions` 的外键是 `SET NULL`。因此阶段 3 不能只引用迁移文件或生成代码中的任一单一来源，必须先核实实际数据库约束。
-
-阶段 3 的前置核验应查询 `pg_constraint.confdeltype`，确认生产、测试和本地库的真实 `ON DELETE` 行为。如果实际库已经是 `NO ACTION` / `RESTRICT`，阶段 3 的重点应从“改约束”调整为“把该约束写进测试和迁移防回归”；如果实际库仍是 `CASCADE`，才执行约束迁移。
+当前 `165_usage_logs_restrict_dimension_fks.sql` 已把这三条外键收敛为 `ON DELETE RESTRICT NOT VALID`，并在迁移 schema 集成测试中断言真实 `ON DELETE` 行为。`NOT VALID` 的选择是为了避免部署时扫描大体量历史账本；它仍会保护后续写入和未来父表物理删除。若某个环境需要确认历史行完全无 orphan，可在低峰期单独执行 `VALIDATE CONSTRAINT` 或只读审计查询。
 
 ### 普通 API Key 查询默认排除已删除 Key
 
@@ -307,7 +305,7 @@ usage log 写入时，从当次请求上下文直接填充快照：
 
 防止未来维护脚本、迁移或硬删除路径误删账本记录。
 
-`001_init.sql` 中 `usage_logs.api_key_id`、`usage_logs.user_id`、`usage_logs.account_id` 最初带有 `ON DELETE CASCADE`；当前 Ent 生成 schema 则把 user / key / account 的删除动作声明为 `NO ACTION`。这两个来源不一致，所以阶段 3 的第一步不是直接迁移，而是确认实际数据库约束。
+`001_init.sql` 中 `usage_logs.api_key_id`、`usage_logs.user_id`、`usage_logs.account_id` 最初带有 `ON DELETE CASCADE`；`165_usage_logs_restrict_dimension_fks.sql` 已把这三条外键替换为 `ON DELETE RESTRICT NOT VALID`，并通过 schema 集成测试防回归。
 
 建议用以下查询核实每个环境：
 
@@ -334,15 +332,15 @@ WHERE ns.nspname = 'public'
 ORDER BY attr.attname;
 ```
 
-如果实际库仍是 `CASCADE`，物理删除维度对象会删除消费记录，这对账本不安全。即使实际库已经是 `NO ACTION` / `RESTRICT`，也应把该行为写入 schema 集成测试，防止未来迁移回退。
+升级后该查询应显示 `user_id`、`api_key_id`、`account_id` 均为 `RESTRICT`。如果某个环境仍显示 `CASCADE`，说明迁移没有成功应用，物理删除维度对象仍会删除消费记录。
 
 ### 推荐方向
 
-长期建议把账本表对维度表的删除策略固定为：
+账本表对维度表的删除策略已经固定为：
 
-- `usage_logs.api_key_id -> api_keys.id`：`ON DELETE RESTRICT` 或 `NO ACTION`
-- `usage_logs.user_id -> users.id`：`ON DELETE RESTRICT` 或 `NO ACTION`
-- `usage_logs.account_id -> accounts.id`：`ON DELETE RESTRICT` 或 `NO ACTION`
+- `usage_logs.api_key_id -> api_keys.id`：`ON DELETE RESTRICT`
+- `usage_logs.user_id -> users.id`：`ON DELETE RESTRICT`
+- `usage_logs.account_id -> accounts.id`：`ON DELETE RESTRICT`
 
 如果必须允许维度对象清理，则应保留 tombstone 行，而不是级联删除 usage log。
 

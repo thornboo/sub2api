@@ -72,6 +72,9 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 		"'4K'",
 		"'mixed'",
 	)
+	requireForeignKeyOnDelete(t, tx, "usage_logs", "user_id", "users", "RESTRICT")
+	requireForeignKeyOnDelete(t, tx, "usage_logs", "api_key_id", "api_keys", "RESTRICT")
+	requireForeignKeyOnDelete(t, tx, "usage_logs", "account_id", "accounts", "RESTRICT")
 
 	// usage_billing_dedup: billing idempotency narrow table
 	var usageBillingDedupRegclass sql.NullString
