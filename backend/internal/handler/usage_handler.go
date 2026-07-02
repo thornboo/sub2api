@@ -23,18 +23,6 @@ type userUsageFilters struct {
 	EndTime   time.Time
 }
 
-type userModelStat struct {
-	Model               string  `json:"model"`
-	Requests            int64   `json:"requests"`
-	InputTokens         int64   `json:"input_tokens"`
-	OutputTokens        int64   `json:"output_tokens"`
-	CacheCreationTokens int64   `json:"cache_creation_tokens"`
-	CacheReadTokens     int64   `json:"cache_read_tokens"`
-	TotalTokens         int64   `json:"total_tokens"`
-	Cost                float64 `json:"cost"`
-	ActualCost          float64 `json:"actual_cost"`
-}
-
 type userGroupStat struct {
 	GroupID     int64   `json:"group_id"`
 	GroupName   string  `json:"group_name"`
@@ -913,24 +901,6 @@ func hasUserDashboardModelFilters(filters usagestats.UsageLogFilters) bool {
 		filters.Stream != nil ||
 		filters.BillingType != nil ||
 		strings.TrimSpace(filters.BillingMode) != ""
-}
-
-func userModelStatsFromUsageStats(stats []usagestats.ModelStat) []userModelStat {
-	out := make([]userModelStat, 0, len(stats))
-	for _, stat := range stats {
-		out = append(out, userModelStat{
-			Model:               stat.Model,
-			Requests:            stat.Requests,
-			InputTokens:         stat.InputTokens,
-			OutputTokens:        stat.OutputTokens,
-			CacheCreationTokens: stat.CacheCreationTokens,
-			CacheReadTokens:     stat.CacheReadTokens,
-			TotalTokens:         stat.TotalTokens,
-			Cost:                stat.Cost,
-			ActualCost:          stat.ActualCost,
-		})
-	}
-	return out
 }
 
 func userGroupStatsFromUsageStats(stats []usagestats.GroupStat) []userGroupStat {
