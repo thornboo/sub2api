@@ -1,5 +1,39 @@
 # 补丁记录
 
+## 2026-07-02 - 上游 main 同步到 dev-zz-develop：分组高峰倍率与订阅计费展示
+
+范围：
+- 上游同步：`origin/main` `a632cb00` 合并到 `dev-zz-develop`
+- 后端：分组 schema / DTO、API Key auth cache、billing/gateway 用量记录、订阅套餐配置、可用渠道响应、相关单测
+- 前端：管理端分组页、用户 Key/订阅/支付页面、可用渠道表格、分组 badge、i18n、类型定义
+- 迁移：`backend/migrations/158_add_group_peak_rate_multiplier.sql`
+- 文档：`docs-site/dev-zz/{changelog.md,patches.md,maintenance/merge-log.md,reference/api-surface.md,reference/configuration-and-migrations.md}`
+
+改动：
+- 订阅分组新增高峰时段倍率字段：`peak_rate_enabled`、`peak_start`、`peak_end`、`peak_rate_multiplier`。
+- 管理端分组创建/编辑支持配置高峰倍率；启用时要求分组为订阅类型、时间为 `HH:MM`、`peak_end > peak_start`，不支持跨天区间。
+- 计费链路在基础倍率上叠加高峰因子；token 计费和 token 模式下的图片 token 受高峰倍率影响，图片按次计费保持原图片倍率。
+- API Key auth cache 和订阅套餐配置会携带高峰倍率字段，避免鉴权缓存或套餐展示使用旧倍率口径。
+- 用户侧可用渠道、订阅和 Key 相关展示增加高峰倍率提示；展示范围仍限公开分组/计费提示，不暴露上游账号、渠道、内部成本或管理员运营字段。
+- 解决 `openai_gateway_record_usage_test.go` 合并冲突时同时保留 dev-zz cache token 口径测试和上游高峰倍率图片 token 计费测试。
+- 上游新增迁移编号 `158` 与 dev-zz 既有 `158_add_usage_log_schedule_meta.sql` 并存，沿用本分支同号迁移按文件名并存的既有口径。
+
+验证：
+- `gofmt -w backend/internal/service/openai_gateway_record_usage_test.go`
+- `rg -n "^(<<<<<<< .+|=======|>>>>>>> .+)$" .`
+- `git diff --check`
+- `mise x -C backend -- go test -tags unit ./internal/service -run 'PeakRate|CacheUsageMode|OpenAIAPIKeyDefaultIncludesCacheRead|OpenAIOAuthIgnoresSeparatedCacheUsageMode' -count=1`
+- `mise x -C backend -- go build ./...`
+- `mise x -C backend -- go test -tags unit ./migrations -count=1`
+- `mise x -C backend -- go test -tags unit ./internal/server ./internal/handler ./internal/handler/admin ./internal/config ./internal/repository ./internal/service ./internal/pkg/openai ./internal/pkg/apicompat ./internal/pkg/xai -count=1`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir docs-site docs:build`
+
+未验证：
+- 浏览器人工 smoke。
+- 完整前端测试套件和完整仓库级 `go test ./...`。
+
 ## 2026-07-02 - 上游 main 同步到 dev-zz-develop：Spark shadow、Grok media、用量快照与支付修复
 
 范围：

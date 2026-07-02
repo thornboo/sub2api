@@ -147,6 +147,34 @@
 
 用户侧模型分布只返回 `actual_cost`，不返回 `cost`、`account_cost` 或上游账号字段。
 
+## 管理端分组与高峰倍率
+
+管理端分组接口沿用上游 `/api/v1/admin/groups` 系列路径。本分支在文档中明确高峰倍率的接口边界，避免和 dev-zz 用户/admin 成本边界混淆。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/v1/admin/groups` | 管理端分组分页列表，返回 `AdminGroup` |
+| `GET` | `/api/v1/admin/groups/all` | 管理端分组候选列表，可带 `include_inactive=true` |
+| `POST` | `/api/v1/admin/groups` | 创建分组，支持高峰倍率字段 |
+| `PUT` | `/api/v1/admin/groups/:id` | 更新分组，支持高峰倍率字段 |
+
+高峰倍率字段：
+
+| 字段 | 说明 |
+| --- | --- |
+| `peak_rate_enabled` | 是否启用高峰时段倍率 |
+| `peak_start` | 高峰开始时间，格式 `HH:MM` |
+| `peak_end` | 高峰结束时间，格式 `HH:MM`，左闭右开区间的结束点 |
+| `peak_rate_multiplier` | 高峰时段叠加倍率；允许 `0`，不能为负 |
+
+语义约束：
+
+- 仅 `subscription_type=subscription` 的分组允许启用高峰倍率。
+- 启用后 `peak_start` / `peak_end` 必填，且 `peak_end > peak_start`；当前不支持跨天区间，例如 `22:00-02:00`。
+- 高峰时间按服务端全局时区判定。
+- 高峰倍率只叠加到 token 计费倍率；token 模式下的图片 token 同样适用，图片按次计费不受高峰倍率影响。
+- 用户侧可用渠道和订阅展示可返回公开分组的高峰倍率提示，但不得因此暴露上游账号、渠道、内部成本或管理员专属计费字段。
+
 ## Owner 用量分析
 
 owner analytics 已落地在用户认证域 `/api/v1/usage/analytics/*`。接口不接受外部 `user_id`，后端始终绑定当前 `subject.UserID`。

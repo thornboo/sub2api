@@ -2,6 +2,55 @@
 
 这里记录二开分支吸收上游变更的同步工作。
 
+## 2026-07-02 - 将上游 `main` 合并到 `dev-zz-develop`：分组高峰倍率、订阅计费透传与可用渠道展示
+
+分支：
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`7dc7cfce`
+- 合并前目标：`24df52c3`
+- 上游 head：`a632cb00`
+- 结果提交：本次合并提交
+
+上游要点：
+- 订阅分组新增高峰时段倍率配置：`peak_rate_enabled`、`peak_start`、`peak_end`、`peak_rate_multiplier`。
+- 高峰倍率全链路透传到 group DTO、API Key auth cache、计费服务、OpenAI / generic gateway 用量记录、订阅套餐和可用渠道展示。
+- 高峰倍率只叠加到 token 计费倍率；token 模式下的图片 token 同样受影响，图片按次倍率不受高峰倍率影响。
+- 管理端分组页新增高峰时段配置和校验；用户侧可用渠道、订阅计划与 Key 相关展示会显示高峰倍率提示。
+- 新增迁移 `158_add_group_peak_rate_multiplier.sql`；本分支迁移目录已有同号并存惯例，本次按文件名直接吸收，未顺延。
+
+合并策略：
+- 合并前阅读 `docs-site/dev-zz/index.md`、`maintenance/merge-log.md`、`branch-policy.md`、`maintenance/merge-main.md`、`testing/verification-matrix.md`、`patches.md` 和 `changelog.md`。
+- 用 `git fetch origin` 刷新远程引用，以上游 `origin/main` 的 `a632cb00` 作为合并目标。
+- 用 `git merge-tree --write-tree --merge-base "$(git merge-base HEAD origin/main)" HEAD origin/main` 只读预检，预测到 1 个内容冲突。
+- 用 `git merge --no-commit origin/main` 执行真实合并。
+- 接受上游分组高峰倍率 schema/API/UI/计费链路；保留 dev-zz 的 docs-site 文档中心、fork release/镜像策略、用户/admin 用量字段边界、账号归档语义和模型自检状态快照。
+
+冲突文件：
+- `backend/internal/service/openai_gateway_record_usage_test.go`
+
+解决说明：
+- `openai_gateway_record_usage_test.go` 同时保留 dev-zz 的 OpenAI API Key cache token 口径测试和上游新增的高峰倍率 token-mode 图片输出 token 计费测试。
+- 高峰倍率字段沿用上游语义：仅订阅分组可启用，时间格式为 `HH:MM`，区间为同日左闭右开 `[peak_start, peak_end)`，不支持跨天，`peak_rate_multiplier=0` 允许作为高峰 token 免费/折扣策略。
+- dev-zz 用户/admin 用量边界不变：用户侧仍只展示自己的实际扣费和公开分组/模型信息，不暴露上游账号、渠道、内部成本或管理员字段。
+- 迁移编号 `158` 与既有 `158_add_usage_log_schedule_meta.sql` 并存；本分支此前已允许上游同号迁移按文件名并存，未做重编号。
+
+验证：
+- `gofmt -w backend/internal/service/openai_gateway_record_usage_test.go`
+- `rg -n "^(<<<<<<< .+|=======|>>>>>>> .+)$" .`
+- `git diff --check`
+- `mise x -C backend -- go test -tags unit ./internal/service -run 'PeakRate|CacheUsageMode|OpenAIAPIKeyDefaultIncludesCacheRead|OpenAIOAuthIgnoresSeparatedCacheUsageMode' -count=1`
+- `mise x -C backend -- go build ./...`
+- `mise x -C backend -- go test -tags unit ./migrations -count=1`
+- `mise x -C backend -- go test -tags unit ./internal/server ./internal/handler ./internal/handler/admin ./internal/config ./internal/repository ./internal/service ./internal/pkg/openai ./internal/pkg/apicompat ./internal/pkg/xai -count=1`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir docs-site docs:build`
+
+未验证：
+- 浏览器人工 smoke。
+- 完整前端测试套件和完整仓库级 `go test ./...`。
+
 ## 2026-07-02 - 将上游 `main` 合并到 `dev-zz-develop`：Spark shadow、Grok media、用量快照与支付/认证修复
 
 分支：

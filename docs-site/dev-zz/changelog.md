@@ -2,6 +2,10 @@
 
 ## 2026-07-02
 
+- 同步上游 `main`（`a632cb00`）到 `dev-zz-develop`：吸收订阅分组高峰时段倍率全链路支持，包括 group schema / DTO、管理端分组配置、API Key auth cache、gateway 计费记录、订阅套餐和可用渠道展示。
+- 新增分组字段 `peak_rate_enabled`、`peak_start`、`peak_end`、`peak_rate_multiplier`。高峰倍率仅订阅分组可启用，时间格式为 `HH:MM`，区间为同日左闭右开，不支持跨天；高峰因子只叠加 token 计费倍率，图片按次计费不受影响。
+- 本次合并保留 dev-zz 的 docs-site 文档中心、fork release / 镜像策略、账号归档语义、模型自检状态快照，以及用户/admin 用量字段边界。用户侧可看到公开分组的高峰倍率提示，但仍不暴露上游账号、渠道、内部成本或管理员字段。
+- 上游新增迁移 `backend/migrations/158_add_group_peak_rate_multiplier.sql`；与本分支既有 `158_add_usage_log_schedule_meta.sql` 按文件名并存，沿用此前同号迁移并存口径。
 - 同步上游 `main`（`7dc7cfce`）到 `dev-zz-develop`：吸收 Spark shadow 账号体系、Grok media / xAI media 路由、OpenAI-compatible Grok 转发、`/count_tokens` 兼容、用量 dashboard snapshot-v2、`billing_mode` / `request_type` 过滤、支付 refund pending/resume 修复、OAuth 邮箱补全、risk-control matched keyword、订阅撤销缓存、dateline fingerprint 归一化、GPT-5.5 / Codex 相关逻辑以及 README / Docker / deploy 更新。
 - 本次合并保留 dev-zz 的 `1.4.1` 发布线版本号、docs-site 文档中心、stone / emerald 控制台主题、账号归档语义、模型自检状态快照、fork release 链接策略，以及用户/admin 用量数据边界。
 - 用户 `/usage/dashboard/models` 与 snapshot-v2 模型列表继续返回用户安全字段，不返回 `cost` / `account_cost`；用户模型分布表同步隐藏 Standard / Account Cost 列，避免把管理员计费字段暴露到用户页。
