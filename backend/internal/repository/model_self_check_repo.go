@@ -148,6 +148,39 @@ func (r *modelSelfCheckRepository) ListRecentHistories(ctx context.Context, mode
 	return scanModelSelfCheckHistoryRows(rows)
 }
 
+func (r *modelSelfCheckRepository) ListRecentHistoriesBefore(
+	ctx context.Context,
+	model string,
+	accountIDs []int64,
+	before time.Time,
+	limit int,
+) ([]service.ModelSelfCheckHistory, error) {
+	if len(accountIDs) == 0 {
+		return []service.ModelSelfCheckHistory{}, nil
+	}
+	if limit <= 0 {
+		limit = service.MonitorHistoryDefaultLimit
+	}
+	if limit > service.MonitorHistoryMaxLimit {
+		limit = service.MonitorHistoryMaxLimit
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, model, account_id, platform, status, latency_ms, checked_at
+		FROM model_self_check_histories
+		WHERE model = $1
+		  AND account_id = ANY($2)
+		  AND checked_at < $3
+		ORDER BY checked_at DESC, id DESC
+		LIMIT $4`,
+		model, pq.Array(accountIDs), before, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list recent model self check histories before: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	return scanModelSelfCheckHistoryRows(rows)
+}
+
 func (r *modelSelfCheckRepository) ListRecentStatusSnapshots(
 	ctx context.Context,
 	groupID int64,

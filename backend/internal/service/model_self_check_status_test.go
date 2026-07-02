@@ -87,6 +87,30 @@ func (s *modelSelfCheckRepoStub) ListRecentHistories(ctx context.Context, model 
 	return out, nil
 }
 
+func (s *modelSelfCheckRepoStub) ListRecentHistoriesBefore(ctx context.Context, model string, accountIDs []int64, before time.Time, limit int) ([]ModelSelfCheckHistory, error) {
+	allowed := map[int64]struct{}{}
+	for _, id := range accountIDs {
+		allowed[id] = struct{}{}
+	}
+	out := []ModelSelfCheckHistory{}
+	for _, row := range s.timeline {
+		if row.Model != model {
+			continue
+		}
+		if _, ok := allowed[row.AccountID]; !ok {
+			continue
+		}
+		if !row.CheckedAt.Before(before) {
+			continue
+		}
+		out = append(out, row)
+		if len(out) == limit {
+			break
+		}
+	}
+	return out, nil
+}
+
 func (s *modelSelfCheckRepoStub) ListRecentStatusSnapshots(ctx context.Context, groupID int64, model string, limit int) ([]ModelSelfCheckStatusSnapshot, error) {
 	out := []ModelSelfCheckStatusSnapshot{}
 	for _, row := range s.snapshots {
@@ -396,6 +420,56 @@ func TestGetUserModelStatusUsesSnapshotsForTimelineAndDetailMetrics(t *testing.T
 	}
 	if detail.LatestLatencyMs == nil || *detail.LatestLatencyMs != 500 {
 		t.Fatalf("latest latency = %v, want latest snapshot latency 500", detail.LatestLatencyMs)
+	}
+	if detail.LastCheckedAt == nil || !detail.LastCheckedAt.Equal(now.Add(-1*time.Minute)) {
+		t.Fatalf("last checked = %v, want latest snapshot time", detail.LastCheckedAt)
+	}
+}
+
+func TestGetUserModelStatusSupplementsShortSnapshotTimelineFromLegacyHistory(t *testing.T) {
+	now := time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC)
+	repo := &modelSelfCheckRepoStub{
+		targets: []ModelSelfCheckTarget{{
+			GroupID:       10,
+			GroupName:     "Pro",
+			GroupPlatform: PlatformOpenAI,
+			Model:         "gpt-4o",
+		}},
+		accounts: []ModelSelfCheckTargetAccount{
+			{GroupID: 10, AccountID: 1, Platform: PlatformOpenAI},
+		},
+		latest: []ModelSelfCheckHistory{
+			{Model: "gpt-4o", AccountID: 1, Platform: PlatformOpenAI, Status: MonitorStatusOperational, LatencyMs: modelStatusIntPtr(500), CheckedAt: now.Add(-30 * time.Second)},
+		},
+		snapshots: []ModelSelfCheckStatusSnapshot{
+			{ID: 1, GroupID: 10, Model: "gpt-4o", Status: MonitorStatusOperational, ReasonCode: modelSelfCheckSnapshotReasonOK, LatencyMs: modelStatusIntPtr(500), CheckedAt: now.Add(-1 * time.Minute)},
+		},
+		timeline: []ModelSelfCheckHistory{
+			{ID: 4, Model: "gpt-4o", AccountID: 1, Status: MonitorStatusFailed, CheckedAt: now.Add(-30 * time.Second)},
+			{ID: 3, Model: "gpt-4o", AccountID: 1, Status: MonitorStatusFailed, CheckedAt: now.Add(-2 * time.Minute)},
+			{ID: 2, Model: "gpt-4o", AccountID: 1, Status: MonitorStatusDegraded, LatencyMs: modelStatusIntPtr(800), CheckedAt: now.Add(-3 * time.Minute)},
+		},
+	}
+	svc := NewModelSelfCheckService(repo)
+	svc.now = func() time.Time { return now }
+
+	detail, err := svc.GetUserModelStatus(context.Background(), 10, "gpt-4o")
+	if err != nil {
+		t.Fatalf("GetUserModelStatus() error = %v", err)
+	}
+	if len(detail.Timeline) != 3 {
+		t.Fatalf("timeline = %#v, want snapshot plus two older legacy points", detail.Timeline)
+	}
+	if detail.Timeline[0].Status != MonitorStatusOperational ||
+		detail.Timeline[1].Status != MonitorStatusFailed ||
+		detail.Timeline[2].Status != MonitorStatusDegraded {
+		t.Fatalf("timeline statuses = %#v, want snapshot first and older legacy points after it", detail.Timeline)
+	}
+	if !detail.Timeline[0].CheckedAt.Equal(now.Add(-1 * time.Minute)) {
+		t.Fatalf("first timeline checked_at = %s, want snapshot time", detail.Timeline[0].CheckedAt)
+	}
+	if detail.Timeline[1].CheckedAt.After(detail.Timeline[0].CheckedAt) {
+		t.Fatalf("legacy timeline includes overlapping newer history: %#v", detail.Timeline)
 	}
 	if detail.LastCheckedAt == nil || !detail.LastCheckedAt.Equal(now.Add(-1*time.Minute)) {
 		t.Fatalf("last checked = %v, want latest snapshot time", detail.LastCheckedAt)

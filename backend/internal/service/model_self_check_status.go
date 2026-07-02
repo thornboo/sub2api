@@ -36,6 +36,7 @@ type ModelSelfCheckRepository interface {
 	ListLatestByModels(ctx context.Context, models []string) ([]ModelSelfCheckHistory, error)
 	ListHistoriesSince(ctx context.Context, models []string, since time.Time) ([]ModelSelfCheckHistory, error)
 	ListRecentHistories(ctx context.Context, model string, accountIDs []int64, limit int) ([]ModelSelfCheckHistory, error)
+	ListRecentHistoriesBefore(ctx context.Context, model string, accountIDs []int64, before time.Time, limit int) ([]ModelSelfCheckHistory, error)
 	ListRecentStatusSnapshots(ctx context.Context, groupID int64, model string, limit int) ([]ModelSelfCheckStatusSnapshot, error)
 	ListStatusSnapshotsSince(ctx context.Context, groupID int64, model string, since time.Time) ([]ModelSelfCheckStatusSnapshot, error)
 	CreateHistory(ctx context.Context, history *ModelSelfCheckHistory) error
@@ -247,7 +248,7 @@ func (s *ModelSelfCheckService) GetUserModelStatus(ctx context.Context, groupID 
 		return nil, ErrChannelMonitorNotFound
 	}
 	view := s.buildStatusView(ctx, target, data, nil)
-	snapshotApplied, err := s.applySnapshotDetail(ctx, view, target, data.now)
+	snapshotApplied, err := s.applySnapshotDetail(ctx, view, target, data, data.now)
 	if err != nil {
 		return nil, err
 	}
@@ -442,6 +443,7 @@ func (s *ModelSelfCheckService) applySnapshotDetail(
 	ctx context.Context,
 	view *UserModelStatusView,
 	target ModelSelfCheckTarget,
+	data *modelSelfCheckStatusData,
 	now time.Time,
 ) (bool, error) {
 	recent, err := s.repo.ListRecentStatusSnapshots(ctx, target.GroupID, target.Model, monitorTimelineMaxPoints)
@@ -452,7 +454,22 @@ func (s *ModelSelfCheckService) applySnapshotDetail(
 		return false, nil
 	}
 	sortStatusSnapshotsDesc(recent)
-	view.Timeline = timelineFromStatusSnapshots(recent)
+	timeline := timelineFromStatusSnapshots(recent)
+	if len(timeline) < monitorTimelineMaxPoints {
+		accountIDs := s.accountIDsForTarget(ctx, target, data)
+		legacy, err := s.loadTimelineBefore(
+			ctx,
+			target.Model,
+			accountIDs,
+			timeline[len(timeline)-1].CheckedAt,
+			monitorTimelineMaxPoints-len(timeline),
+		)
+		if err != nil {
+			return false, err
+		}
+		timeline = append(timeline, legacy...)
+	}
+	view.Timeline = timeline
 	latest := recent[0]
 	view.LatestLatencyMs = latest.LatencyMs
 	checkedAt := latest.CheckedAt.UTC()
@@ -796,6 +813,21 @@ func (s *ModelSelfCheckService) loadTimeline(ctx context.Context, model string, 
 	if err != nil {
 		return nil, fmt.Errorf("list model self check timeline: %w", err)
 	}
+	return timelineFromHistories(rows, monitorTimelineMaxPoints), nil
+}
+
+func (s *ModelSelfCheckService) loadTimelineBefore(ctx context.Context, model string, accountIDs []int64, before time.Time, limit int) ([]UserModelTimelinePoint, error) {
+	if len(accountIDs) == 0 || limit <= 0 {
+		return []UserModelTimelinePoint{}, nil
+	}
+	rows, err := s.repo.ListRecentHistoriesBefore(ctx, model, accountIDs, before, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list model self check timeline before snapshot: %w", err)
+	}
+	return timelineFromHistories(rows, limit), nil
+}
+
+func timelineFromHistories(rows []ModelSelfCheckHistory, limit int) []UserModelTimelinePoint {
 	points := make([]UserModelTimelinePoint, 0, len(rows))
 	for _, row := range rows {
 		points = append(points, UserModelTimelinePoint{
@@ -807,10 +839,10 @@ func (s *ModelSelfCheckService) loadTimeline(ctx context.Context, model string, 
 	sort.Slice(points, func(i, j int) bool {
 		return points[i].CheckedAt.After(points[j].CheckedAt)
 	})
-	if len(points) > monitorTimelineMaxPoints {
-		points = points[:monitorTimelineMaxPoints]
+	if limit > 0 && len(points) > limit {
+		points = points[:limit]
 	}
-	return points, nil
+	return points
 }
 
 func sortSelfCheckTargets(targets []ModelSelfCheckTarget) {
