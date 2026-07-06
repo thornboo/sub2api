@@ -785,8 +785,13 @@ func (s *adminServiceImpl) ensureDefaultUpstreamCostPoolForAccount(ctx context.C
 	if err != nil {
 		return 0, err
 	}
-	if lockRows.Next() {
-		// The lock function returns a single row; no payload is needed.
+	if !lockRows.Next() {
+		if err := lockRows.Err(); err != nil {
+			_ = lockRows.Close()
+			return 0, err
+		}
+		_ = lockRows.Close()
+		return 0, sql.ErrNoRows
 	}
 	if err := lockRows.Err(); err != nil {
 		_ = lockRows.Close()
@@ -1235,8 +1240,11 @@ func acquireUpstreamCostPoolAdvisoryLock(ctx context.Context, exec upstreamCostP
 		return err
 	}
 	defer func() { _ = rows.Close() }()
-	if rows.Next() {
-		// The lock function returns a single row; no payload is needed.
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		return sql.ErrNoRows
 	}
 	return rows.Err()
 }
