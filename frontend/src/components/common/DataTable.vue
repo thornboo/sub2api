@@ -36,6 +36,8 @@
         v-for="(row, index) in sortedData"
         :key="resolveRowKey(row, index)"
         class="rounded-lg border border-stone-200/80 bg-white/80 p-4 dark:border-white/10 dark:bg-neutral-950/70"
+        :class="{ 'cursor-pointer': clickableRows }"
+        @click="clickableRows && emit('rowClick', row)"
       >
         <div class="space-y-3">
           <div
@@ -167,6 +169,8 @@
             :data-index="virtualRow.index"
             :ref="measureElement"
             class="hover:bg-stone-50/80 dark:hover:bg-white/[0.04]"
+            :class="{ 'cursor-pointer': clickableRows }"
+            @click="clickableRows && emit('rowClick', sortedData[virtualRow.index])"
           >
             <td
               v-for="(column, colIndex) in columns"
@@ -246,6 +250,7 @@ const isDesktopViewport = ref(
 
 const emit = defineEmits<{
   sort: [key: string, order: 'asc' | 'desc']
+  rowClick: [row: any]
 }>()
 
 // 表格容器引用
@@ -415,6 +420,8 @@ interface Props {
   serverSideSort?: boolean
   /** Enable internal row virtualization. Disable when the page should grow naturally. */
   virtualScroll?: boolean
+  /** Emit 'rowClick' on row/card click and show pointer cursor (interactive cells should @click.stop) */
+  clickableRows?: boolean
   /** Estimated row height in px for the virtualizer (default 56) */
   estimateRowHeight?: number
   /** Number of rows to render beyond the visible area (default 5) */
@@ -428,7 +435,8 @@ const props = withDefaults(defineProps<Props>(), {
   expandableActions: true,
   defaultSortOrder: 'asc',
   serverSideSort: false,
-  virtualScroll: true
+  virtualScroll: true,
+  clickableRows: false
 })
 
 const sortKey = ref<string>('')

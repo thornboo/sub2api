@@ -2,6 +2,81 @@
 
 这里记录二开分支吸收上游变更的同步工作。
 
+## 2026-07-07 - 将上游 `main` 合并到 `dev-zz-develop`：供应商成本口径与上游调度/错误请求能力合流
+
+分支：
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`a632cb00`
+- 合并前目标：`e9079d92`
+- 上游 head：`67e945f8`
+- 结果提交：本次合并提交
+
+上游要点：
+- API Key 账号新增 OpenAI/Anthropic 请求头覆写能力，并补充覆写审计修复。
+- OpenAI 新模型 `gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna` 进入模型常量和前后端展示。
+- OpenAI 高级调度器新增管理端控制、调度评分展示和审计修复。
+- 用量/错误请求页新增错误列设置、排序、IP 地理信息批量查询，以及 CSV BOM 修复。
+- Anthropic Fable `7d_oi` 限流按模型级窗口处理，避免误伤账号其他模型。
+- 支付侧新增 EasyPay 自定义支付方式、CNY 换算显式 opt-in、内置支付方法精确匹配等修复。
+- 部署示例和文档吸收上游安全默认值、README、赞助商和版本同步更新。
+
+合并策略：
+- 合并前阅读 `docs-site/dev-zz/branch-policy.md`、`maintenance/merge-main.md`、`patches.md`、`reference/change-map.md`、`testing/verification-matrix.md`、`maintenance/merge-log.md` 和 `changelog.md`。
+- 用 `git fetch origin` 刷新远程引用，以上游 `origin/main` 的 `67e945f8` 作为合并目标。
+- 用 `git merge-tree --write-tree --merge-base "$(git merge-base HEAD origin/main)" HEAD origin/main` 只读预检，确认账号、用量、ops、i18n、wire、API Key 等冲突范围。
+- 用 `git merge --no-commit origin/main` 执行真实合并。
+- 保留 dev-zz 的供应商优先成本口径：账号编辑只绑定供应商，充值记录和成本对比仍按供应商聚合；账号列表继续展示综合折扣、充值/汇率、倍率。
+- 接受上游调度评分、请求头覆写、错误请求 DataTable/IP 地理信息、支付和模型常量更新；冲突处按“保留 dev-zz 产品边界，合入上游新增能力”解决。
+
+冲突文件：
+- `backend/cmd/server/VERSION`
+- `backend/cmd/server/wire_gen.go`
+- `backend/internal/handler/admin/account_handler.go`
+- `backend/internal/handler/admin/account_handler_list_test.go`
+- `backend/internal/handler/admin/admin_service_stub_test.go`
+- `backend/internal/handler/admin/ops_handler.go`
+- `backend/internal/handler/dto/mappers.go`
+- `backend/internal/repository/account_repo.go`
+- `backend/internal/service/api_key_service.go`
+- `backend/internal/service/ratelimit_service_anthropic_window_limit_test.go`
+- `backend/internal/service/wire.go`
+- `frontend/src/components/account/EditAccountModal.vue`
+- `frontend/src/components/account/__tests__/EditAccountModal.spec.ts`
+- `frontend/src/components/admin/usage/UsageFilters.vue`
+- `frontend/src/components/common/DataTable.vue`
+- `frontend/src/i18n/locales/en.ts`
+- `frontend/src/i18n/locales/zh.ts`
+- `frontend/src/views/admin/AccountsView.vue`
+- `frontend/src/views/admin/UsageView.vue`
+- `frontend/src/views/admin/ops/components/OpsErrorDetailsModal.vue`
+- `frontend/src/views/admin/ops/components/OpsErrorLogTable.vue`
+- `frontend/src/views/user/UsageView.vue`
+
+解决说明：
+- `ProvideAPIKeyService` 同时注入 `SettingService` 和 `ConcurrencyService`，保留 dev-zz 的 Key 标签/删除态映射，并合入上游当前并发数。
+- 账号列表 handler/repository 同时保留 dev-zz 的归档/过滤路径和上游调度评分过滤池，调度评分不受分页截断。
+- Anthropic 429 专用窗口优先于通用 model-scoped failure：5h/7d 仍账号级，`7d_oi` 仅 Fable 模型级，其余 Anthropic 429 维持旧账号级限流。
+- `EditAccountModal` 保留供应商绑定 UI 和高级成本/配额查询分区，同时把上游 setup-token/Grok OAuth 模型映射范围合入。
+- 管理端账号列表保留供应商成本三列，同时合入调度分数类型和相关展示。
+- 管理端/用户用量页保留 dev-zz 的对象筛选和时间参数，同时合入错误请求模式、列设置、IP 地理信息和排序。
+- `OpsErrorLogTable` 统一采用上游 `DataTable` 结构，保留用户/Key/账号归因和 dev-zz 详情弹窗的 error type 传递。
+- 中英文 i18n 同时保留用量分析 `analytics` 文案和上游 `ipGeo` 文案。
+
+验证：
+- `gofmt -w backend/cmd/server/wire_gen.go backend/internal/handler/admin/account_handler.go backend/internal/handler/admin/account_handler_list_test.go backend/internal/handler/admin/admin_service_stub_test.go backend/internal/handler/admin/ops_handler.go backend/internal/handler/dto/mappers.go backend/internal/repository/account_repo.go backend/internal/service/api_key_service.go backend/internal/service/ratelimit_service.go backend/internal/service/ratelimit_service_anthropic_window_limit_test.go backend/internal/service/wire.go`
+- `rg -n "^(<<<<<<< .+|=======|>>>>>>> .+)$"`
+- `git diff --check`
+- `go test -tags unit ./internal/handler/admin ./internal/handler/dto ./internal/repository ./internal/service -run 'TestAccountHandler|TestHandleUpstreamError_Anthropic|TestAPIKey|TestNonExistent'`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/components/account/__tests__/EditAccountModal.spec.ts src/views/admin/__tests__/AccountsView.schedulerScore.spec.ts src/views/user/__tests__/UsageView.spec.ts src/views/admin/ops/components/__tests__/OpsErrorDetailsModal.spec.ts src/views/admin/ops/components/__tests__/OpsErrorLogTable.spec.ts src/components/common/__tests__/DataTable.spec.ts`
+- `pnpm --dir docs-site docs:build`
+
+未验证：
+- 未运行完整前端测试套件。
+- 未运行完整后端测试套件。
+
 ## 2026-07-02 - 将上游 `main` 合并到 `dev-zz-develop`：分组高峰倍率、订阅计费透传与可用渠道展示
 
 分支：
