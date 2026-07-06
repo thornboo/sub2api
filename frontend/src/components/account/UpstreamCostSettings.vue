@@ -1,99 +1,122 @@
 <template>
-  <section class="space-y-4 border-t border-stone-200/80 pt-4 dark:border-white/10">
-    <div class="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h3 class="input-label mb-0 text-base font-semibold">{{ t('admin.accounts.upstreamCost.settingsTitle') }}</h3>
-        <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-          {{ t('admin.accounts.upstreamCost.description') }}
-        </p>
-      </div>
-      <span
-        class="rounded-full px-2.5 py-1 text-xs font-medium"
-        :class="defaultCalculation.complete
-          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-          : 'bg-gray-100 text-gray-600 dark:bg-white/[0.08] dark:text-gray-300'"
-      >
-        {{ defaultCalculation.label }}
-      </span>
-    </div>
-
-    <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
-      <label class="block">
-        <span class="input-label">{{ t('admin.accounts.upstreamCost.rechargeCnyPerUsd') }}</span>
-        <input
-          :value="profile.recharge_cny_per_usd ?? ''"
-          type="number"
-          min="0"
-          step="0.0001"
-          class="input"
-          placeholder="1"
-          @input="updateNumber('recharge_cny_per_usd', $event)"
-        />
-        <span class="input-hint">{{ t('admin.accounts.upstreamCost.rechargeCnyPerUsdHint') }}</span>
-      </label>
-      <label class="block">
-        <span class="input-label">{{ t('admin.accounts.upstreamCost.referenceFxRate') }}</span>
-        <input
-          :value="profile.reference_fx_rate ?? ''"
-          type="number"
-          min="0"
-          step="0.0001"
-          class="input"
-          :placeholder="String(DEFAULT_UPSTREAM_REFERENCE_FX_RATE)"
-          @input="updateNumber('reference_fx_rate', $event)"
-        />
-        <span class="input-hint">{{ t('admin.accounts.upstreamCost.referenceFxRateHint') }}</span>
-      </label>
-      <label class="block">
-        <span class="input-label">{{ t('admin.accounts.upstreamCost.groupMultiplier') }}</span>
-        <input
-          :value="profile.group_multiplier ?? ''"
-          type="number"
-          min="0"
-          step="0.0001"
-          class="input"
-          placeholder="1"
-          @input="updateNumber('group_multiplier', $event)"
-        />
-        <span class="input-hint">{{ t('admin.accounts.upstreamCost.groupMultiplierHint') }}</span>
-      </label>
-    </div>
-
-    <label class="block">
-      <span class="input-label">{{ t('admin.accounts.upstreamCost.note') }}</span>
-      <input
-        :value="profile.note ?? ''"
-        type="text"
-        class="input"
-        :placeholder="t('admin.accounts.upstreamCost.notePlaceholder')"
-        @input="updateText('note', $event)"
-      />
-    </label>
-
-    <div class="rounded-lg border border-sky-200/70 bg-sky-50/45 p-3 dark:border-sky-500/20 dark:bg-sky-500/[0.06]">
-      <div class="flex flex-wrap items-center justify-between gap-3">
+  <section
+    :class="[
+      'space-y-4',
+      props.showCostControls && 'border-t border-stone-200/80 pt-4 dark:border-white/10'
+    ]"
+  >
+    <template v-if="props.showCostControls">
+      <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h4 class="text-sm font-semibold text-gray-900 dark:text-white">
+          <h3 class="input-label mb-0 text-base font-semibold">{{ t('admin.accounts.upstreamCost.settingsTitle') }}</h3>
+          <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.upstreamCost.description') }}
+          </p>
+        </div>
+        <span
+          class="rounded-full px-2.5 py-1 text-xs font-medium"
+          :class="defaultCalculation.complete
+            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+            : 'bg-gray-100 text-gray-600 dark:bg-white/[0.08] dark:text-gray-300'"
+        >
+          {{ defaultCalculation.label }}
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <label class="block">
+          <span class="input-label">{{ t('admin.accounts.upstreamCost.rechargeCnyPerUsd') }}</span>
+          <input
+            :value="profile.recharge_cny_per_usd ?? ''"
+            type="number"
+            min="0"
+            step="0.0001"
+            class="input"
+            placeholder="1"
+            @input="updateNumber('recharge_cny_per_usd', $event)"
+          />
+          <span class="input-hint">{{ t('admin.accounts.upstreamCost.rechargeCnyPerUsdHint') }}</span>
+        </label>
+        <label class="block">
+          <span class="input-label">{{ t('admin.accounts.upstreamCost.referenceFxRate') }}</span>
+          <input
+            :value="profile.reference_fx_rate ?? ''"
+            type="number"
+            min="0"
+            step="0.0001"
+            class="input"
+            :placeholder="String(DEFAULT_UPSTREAM_REFERENCE_FX_RATE)"
+            @input="updateNumber('reference_fx_rate', $event)"
+          />
+          <span class="input-hint">{{ t('admin.accounts.upstreamCost.referenceFxRateHint') }}</span>
+        </label>
+        <label class="block">
+          <span class="input-label">{{ t('admin.accounts.upstreamCost.groupMultiplier') }}</span>
+          <input
+            :value="profile.group_multiplier ?? ''"
+            type="number"
+            min="0"
+            step="0.0001"
+            class="input"
+            placeholder="1"
+            @input="updateNumber('group_multiplier', $event)"
+          />
+          <span class="input-hint">{{ t('admin.accounts.upstreamCost.groupMultiplierHint') }}</span>
+        </label>
+      </div>
+
+      <label class="block">
+        <span class="input-label">{{ t('admin.accounts.upstreamCost.note') }}</span>
+        <input
+          :value="profile.note ?? ''"
+          type="text"
+          class="input"
+          :placeholder="t('admin.accounts.upstreamCost.notePlaceholder')"
+          @input="updateText('note', $event)"
+        />
+      </label>
+    </template>
+
+    <div
+      v-if="props.showBalanceQuery"
+      class="overflow-hidden rounded-xl border border-stone-200/80 bg-white/55 dark:border-white/10 dark:bg-white/[0.025]"
+    >
+      <div class="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div class="min-w-0">
+          <h4 class="text-sm font-semibold text-stone-900 dark:text-stone-100">
             {{ t('admin.accounts.upstreamCost.balanceQuery.title') }}
           </h4>
-          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-1 truncate text-xs text-stone-500 dark:text-stone-500">
             {{ balanceProviderLabel }}
           </p>
         </div>
         <button
           type="button"
-          class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors"
+          class="inline-flex h-9 shrink-0 items-center gap-2 rounded-full border px-2.5 text-sm font-medium transition-colors"
           :class="balanceQueryEnabled
-            ? 'border-emerald-300 bg-emerald-100 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300'
-            : 'border-gray-200 bg-white text-gray-600 hover:border-sky-300 dark:border-white/10 dark:bg-white/[0.05] dark:text-gray-300'"
+            ? 'border-emerald-300/70 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300'
+            : 'border-stone-200 bg-white text-stone-600 hover:border-stone-300 hover:bg-stone-50 dark:border-white/10 dark:bg-white/[0.05] dark:text-stone-300 dark:hover:bg-white/[0.08]'"
+          :aria-pressed="balanceQueryEnabled"
           @click="updateBalanceEnabled(!balanceQueryEnabled)"
         >
-          <span class="h-2 w-2 rounded-full" :class="balanceQueryEnabled ? 'bg-emerald-500' : 'bg-gray-400'" />
+          <span
+            class="relative inline-flex h-5 w-9 rounded-full transition-colors"
+            :class="balanceQueryEnabled ? 'bg-emerald-500' : 'bg-stone-300 dark:bg-stone-600'"
+          >
+            <span
+              class="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform"
+              :class="balanceQueryEnabled ? 'translate-x-[1.125rem]' : 'translate-x-0.5'"
+            />
+          </span>
           {{ balanceQueryEnabled ? t('common.enabled') : t('common.disabled') }}
         </button>
       </div>
 
-      <div v-if="balanceQueryEnabled" class="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1fr]">
+      <div
+        v-if="balanceQueryEnabled"
+        class="border-t border-stone-200/80 px-3 pb-3 pt-3 dark:border-white/10"
+      >
+        <div class="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1fr]">
         <div>
           <span class="input-label">{{ t('admin.accounts.upstreamCost.balanceQuery.provider') }}</span>
           <div class="grid grid-cols-2 gap-2">
@@ -103,8 +126,8 @@
               type="button"
               class="rounded-lg border px-3 py-2 text-left text-sm font-medium transition-colors"
               :class="balanceProvider === option.value
-                ? 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-300'
-                : 'border-gray-200 bg-white text-gray-600 hover:border-sky-300 dark:border-white/10 dark:bg-white/[0.05] dark:text-gray-300'"
+                ? 'border-stone-300 bg-stone-100 text-stone-900 dark:border-white/20 dark:bg-white/[0.10] dark:text-stone-100'
+                : 'border-stone-200 bg-white text-stone-600 hover:border-stone-300 hover:bg-stone-50 dark:border-white/10 dark:bg-white/[0.05] dark:text-stone-300 dark:hover:bg-white/[0.08]'"
               @click="updateBalanceProvider(option.value)"
             >
               {{ option.label }}
@@ -123,7 +146,7 @@
         </label>
       </div>
 
-      <div v-if="balanceQueryEnabled" class="mt-3 space-y-3">
+      <div class="mt-3 space-y-3">
         <div>
           <span class="input-label">{{ t('admin.accounts.upstreamCost.balanceQuery.authMode') }}</span>
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -133,8 +156,8 @@
               type="button"
               class="rounded-lg border px-3 py-2 text-left text-sm font-medium transition-colors"
               :class="balanceAuthMode === option.value
-                ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300'
-                : 'border-gray-200 bg-white text-gray-600 hover:border-sky-300 dark:border-white/10 dark:bg-white/[0.05] dark:text-gray-300'"
+                ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300'
+                : 'border-stone-200 bg-white text-stone-600 hover:border-stone-300 hover:bg-stone-50 dark:border-white/10 dark:bg-white/[0.05] dark:text-stone-300 dark:hover:bg-white/[0.08]'"
               @click="updateBalanceAuthMode(option.value)"
             >
               {{ option.label }}
@@ -169,9 +192,13 @@
           </label>
         </div>
       </div>
+      </div>
     </div>
 
-    <div class="rounded-lg border border-gray-200 bg-gray-50/70 p-3 dark:border-dark-600 dark:bg-dark-800/70">
+    <div
+      v-if="props.showCostControls"
+      class="rounded-lg border border-gray-200 bg-gray-50/70 p-3 dark:border-dark-600 dark:bg-dark-800/70"
+    >
       <div class="grid grid-cols-1 gap-3 text-sm sm:grid-cols-4">
         <div>
           <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.upstreamCost.rechargeDiscount') }}</p>
@@ -201,7 +228,7 @@
       </p>
     </div>
 
-    <div class="space-y-3">
+    <div v-if="props.showCostControls" class="space-y-3">
       <div class="flex items-center justify-between gap-3">
         <div>
           <h4 class="text-sm font-semibold text-gray-900 dark:text-white">
@@ -289,11 +316,16 @@ import {
   type UpstreamCostProfile
 } from '@/utils/upstreamCost'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue?: UpstreamCostProfile
   balanceAuthTokenValue?: string
   balanceAuthTokenConfigured?: boolean
-}>()
+  showCostControls?: boolean
+  showBalanceQuery?: boolean
+}>(), {
+  showCostControls: true,
+  showBalanceQuery: true
+})
 
 const emit = defineEmits<{
   'update:modelValue': [value: UpstreamCostProfile]
@@ -310,7 +342,11 @@ const profile = computed<UpstreamCostProfile>(() => {
   }
 })
 const families = computed(() => profile.value.model_families || [])
-const defaultCalculation = computed(() => calculateUpstreamCost(profile.value))
+const costLabelOptions = computed(() => ({
+  suffix: t('admin.accounts.upstreamCost.discountSuffix'),
+  notConfiguredLabel: t('admin.accounts.upstreamCost.notConfigured')
+}))
+const defaultCalculation = computed(() => calculateUpstreamCost(profile.value, undefined, costLabelOptions.value))
 const balanceQueryEnabled = computed(() => profile.value.balance_query_enabled === true)
 const balanceProvider = computed<UpstreamBalanceProvider>(() => profile.value.balance_provider || DEFAULT_UPSTREAM_BALANCE_PROVIDER)
 const balanceDefaultEndpoint = computed(() => defaultUpstreamBalanceEndpoint(balanceProvider.value))
@@ -443,7 +479,7 @@ const updateFamilyNumber = (index: number, event: Event) => {
   ))
 }
 
-const previewFamily = (family: string) => calculateUpstreamCost(profile.value, family)
+const previewFamily = (family: string) => calculateUpstreamCost(profile.value, family, costLabelOptions.value)
 
 const missingFieldLabels = (fields: UpstreamCostMissingField[]) => fields.map((field) => {
   if (field === 'recharge_cny_per_usd') return t('admin.accounts.upstreamCost.rechargeCnyPerUsd')

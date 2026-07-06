@@ -194,6 +194,7 @@ export type UpstreamRechargeRecordType = 'recharge' | 'bonus' | 'adjustment'
 export interface UpstreamRechargeRecord {
   id: number
   account_id?: number | null
+  cost_pool_id?: number | null
   account_name_snapshot: string
   account_platform_snapshot: string
   account_type_snapshot: string
@@ -227,9 +228,88 @@ export interface UpstreamRechargeSummary {
 export interface UpstreamRechargeRecordsResult {
   items: UpstreamRechargeRecord[]
   summary: UpstreamRechargeSummary
+  cost_pool_id?: number | null
+  deprecated?: boolean
+}
+
+export interface UpstreamSupplier {
+  id: number
+  name: string
+  status: string
+  note?: string | null
+  created_at: string
+  updated_at: string
+  archived_at?: string | null
+}
+
+export interface UpstreamSupplierPayload {
+  name: string
+  note?: string | null
+}
+
+export interface UpstreamCostPool {
+  id: number
+  supplier_id: number
+  supplier_name: string
+  name: string
+  status: string
+  base_currency: string
+  credit_currency: string
+  reference_fx_rate: number
+  cost_method: string
+  current_effective_cny_per_usd?: number | null
+  current_snapshot_id?: number | null
+  balance_query_enabled: boolean
+  balance_provider?: string | null
+  balance_endpoint?: string | null
+  balance_auth_mode?: string | null
+  balance_auth_header?: string | null
+  balance_low_threshold?: number | null
+  last_balance_snapshot?: Record<string, unknown> | null
+  note?: string | null
+  binding_count: number
+  record_count: number
+  created_at: string
+  updated_at: string
+  archived_at?: string | null
+}
+
+export interface UpstreamCostModelFamilyMultiplier {
+  family: string
+  group_multiplier: number
+  note?: string | null
+}
+
+export interface UpstreamAccountCostBinding {
+  id: number
+  account_id: number
+  account_name?: string
+  account_platform?: string
+  cost_pool_id: number
+  cost_pool_name?: string
+  supplier_id?: number
+  supplier_name?: string
+  status: string
+  default_multiplier: number
+  model_family_multipliers: UpstreamCostModelFamilyMultiplier[]
+  note?: string | null
+  valid_from: string
+  valid_to?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface UpstreamSupplierBindingPayload {
+  supplier_id?: number | null
+  supplier_name?: string | null
+  cost_pool_id?: number | null
+  default_multiplier?: number
+  model_families?: UpstreamCostModelFamilyMultiplier[]
+  note?: string | null
 }
 
 export interface UpstreamRechargeRecordPayload {
+  account_id?: number | null
   type?: UpstreamRechargeRecordType
   paid_amount: number
   paid_currency?: string
@@ -250,6 +330,81 @@ export async function createUpstreamRechargeRecord(
   payload: UpstreamRechargeRecordPayload
 ): Promise<UpstreamRechargeRecord> {
   const { data } = await apiClient.post<UpstreamRechargeRecord>(`/admin/accounts/${id}/recharge-records`, payload)
+  return data
+}
+
+export async function listUpstreamSuppliers(): Promise<UpstreamSupplier[]> {
+  const { data } = await apiClient.get<{ items: UpstreamSupplier[] }>('/admin/upstream-suppliers')
+  return data.items
+}
+
+export async function createUpstreamSupplier(payload: UpstreamSupplierPayload): Promise<UpstreamSupplier> {
+  const { data } = await apiClient.post<UpstreamSupplier>('/admin/upstream-suppliers', payload)
+  return data
+}
+
+export async function listUpstreamCostPools(): Promise<UpstreamCostPool[]> {
+  const { data } = await apiClient.get<{ items: UpstreamCostPool[] }>('/admin/upstream-cost-pools')
+  return data.items
+}
+
+export async function listUpstreamCostPoolAccounts(poolId: number): Promise<UpstreamAccountCostBinding[]> {
+  const { data } = await apiClient.get<{ items: UpstreamAccountCostBinding[] }>(
+    `/admin/upstream-cost-pools/${poolId}/accounts`
+  )
+  return data.items
+}
+
+export async function listUpstreamCostPoolRechargeRecords(poolId: number): Promise<UpstreamRechargeRecordsResult> {
+  const { data } = await apiClient.get<UpstreamRechargeRecordsResult>(
+    `/admin/upstream-cost-pools/${poolId}/recharge-records`
+  )
+  return data
+}
+
+export async function createUpstreamCostPoolRechargeRecord(
+  poolId: number,
+  payload: UpstreamRechargeRecordPayload
+): Promise<UpstreamRechargeRecord> {
+  const { data } = await apiClient.post<UpstreamRechargeRecord>(
+    `/admin/upstream-cost-pools/${poolId}/recharge-records`,
+    payload
+  )
+  return data
+}
+
+export async function updateUpstreamCostPoolRechargeRecord(
+  poolId: number,
+  recordId: number,
+  payload: UpstreamRechargeRecordPayload
+): Promise<UpstreamRechargeRecord> {
+  const { data } = await apiClient.put<UpstreamRechargeRecord>(
+    `/admin/upstream-cost-pools/${poolId}/recharge-records/${recordId}`,
+    payload
+  )
+  return data
+}
+
+export async function deleteUpstreamCostPoolRechargeRecord(poolId: number, recordId: number): Promise<{ message: string }> {
+  const { data } = await apiClient.delete<{ message: string }>(
+    `/admin/upstream-cost-pools/${poolId}/recharge-records/${recordId}`
+  )
+  return data
+}
+
+export async function getAccountUpstreamCostBinding(id: number): Promise<UpstreamAccountCostBinding> {
+  const { data } = await apiClient.get<UpstreamAccountCostBinding>(`/admin/accounts/${id}/upstream-cost-binding`)
+  return data
+}
+
+export async function updateAccountUpstreamSupplierBinding(
+  id: number,
+  payload: UpstreamSupplierBindingPayload
+): Promise<UpstreamAccountCostBinding | null> {
+  const { data } = await apiClient.put<UpstreamAccountCostBinding | null>(
+    `/admin/accounts/${id}/upstream-supplier-binding`,
+    payload
+  )
   return data
 }
 
@@ -962,6 +1117,16 @@ export const accountsAPI = {
   refreshUpstreamBalance,
   listUpstreamRechargeRecords,
   createUpstreamRechargeRecord,
+  listUpstreamSuppliers,
+  createUpstreamSupplier,
+  listUpstreamCostPools,
+  listUpstreamCostPoolAccounts,
+  listUpstreamCostPoolRechargeRecords,
+  createUpstreamCostPoolRechargeRecord,
+  updateUpstreamCostPoolRechargeRecord,
+  deleteUpstreamCostPoolRechargeRecord,
+  getAccountUpstreamCostBinding,
+  updateAccountUpstreamSupplierBinding,
   updateUpstreamRechargeRecord,
   deleteUpstreamRechargeRecord,
   checkMixedChannelRisk,

@@ -46,3 +46,68 @@ func TestNormalizeUpstreamRechargeRecordInput_RejectsUnsupportedCurrency(t *test
 		t.Fatalf("error reason = %q, want %q", got, want)
 	}
 }
+
+func TestNormalizeUpstreamCostBindingInput_DefaultsAndDeduplicatesFamilies(t *testing.T) {
+	note := "  fast lane  "
+	values, err := normalizeUpstreamCostBindingInput(UpstreamCostBindingInput{
+		AccountID:         1,
+		CostPoolID:        2,
+		DefaultMultiplier: 0,
+		ModelFamilyMultipliers: []UpstreamCostModelFamilyMultiplier{
+			{Family: " Sonnet ", GroupMultiplier: 0.7, Note: &note},
+			{Family: "sonnet", GroupMultiplier: 0.8},
+			{Family: " ", GroupMultiplier: 1},
+			{Family: "OPUS", GroupMultiplier: 1.2},
+		},
+	})
+	if err != nil {
+		t.Fatalf("normalizeUpstreamCostBindingInput() error = %v", err)
+	}
+
+	if values.DefaultMultiplier != 1 {
+		t.Fatalf("DefaultMultiplier = %v, want 1", values.DefaultMultiplier)
+	}
+	if len(values.ModelFamilyMultipliers) != 2 {
+		t.Fatalf("len(ModelFamilyMultipliers) = %d, want 2", len(values.ModelFamilyMultipliers))
+	}
+	if got, want := values.ModelFamilyMultipliers[0].Family, "sonnet"; got != want {
+		t.Fatalf("first family = %q, want %q", got, want)
+	}
+	if got, want := values.ModelFamilyMultipliers[0].GroupMultiplier, 0.7; got != want {
+		t.Fatalf("sonnet multiplier = %v, want %v", got, want)
+	}
+	if values.ModelFamilyMultipliers[0].Note == nil || *values.ModelFamilyMultipliers[0].Note != "fast lane" {
+		t.Fatalf("sonnet note = %v, want fast lane", values.ModelFamilyMultipliers[0].Note)
+	}
+	if got, want := values.ModelFamilyMultipliers[1].Family, "opus"; got != want {
+		t.Fatalf("second family = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizeUpstreamCostBindingInput_RejectsInvalidPoolAndFamilyMultiplier(t *testing.T) {
+	_, err := normalizeUpstreamCostBindingInput(UpstreamCostBindingInput{
+		AccountID:  1,
+		CostPoolID: 0,
+	})
+	if err == nil {
+		t.Fatal("normalizeUpstreamCostBindingInput() error = nil, want invalid pool error")
+	}
+	if got, want := infraerrors.Reason(err), "INVALID_UPSTREAM_COST_POOL_ID"; got != want {
+		t.Fatalf("error reason = %q, want %q", got, want)
+	}
+
+	_, err = normalizeUpstreamCostBindingInput(UpstreamCostBindingInput{
+		AccountID:         1,
+		CostPoolID:        2,
+		DefaultMultiplier: 1,
+		ModelFamilyMultipliers: []UpstreamCostModelFamilyMultiplier{
+			{Family: "haiku", GroupMultiplier: 0},
+		},
+	})
+	if err == nil {
+		t.Fatal("normalizeUpstreamCostBindingInput() error = nil, want invalid multiplier error")
+	}
+	if got, want := infraerrors.Reason(err), "INVALID_UPSTREAM_COST_MODEL_FAMILY_MULTIPLIER"; got != want {
+		t.Fatalf("error reason = %q, want %q", got, want)
+	}
+}

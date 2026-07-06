@@ -314,6 +314,32 @@
               </div>
             </div>
           </template>
+          <template #cell-upstream_supplier="{ row }">
+            <div class="flex min-w-[8rem] flex-col gap-1">
+              <span v-if="accountUpstreamSupplierName(row)" class="text-sm font-medium text-gray-800 dark:text-gray-100">
+                {{ accountUpstreamSupplierName(row) }}
+              </span>
+              <span v-else class="text-sm text-gray-400 dark:text-stone-600">-</span>
+              <span v-if="accountUpstreamPoolName(row)" class="text-xs text-gray-500 dark:text-gray-400">
+                {{ accountUpstreamPoolName(row) }}
+              </span>
+            </div>
+          </template>
+          <template #cell-upstream_effective_discount="{ row }">
+            <span :class="accountUpstreamDiscountBadgeClass(row)">
+              {{ accountUpstreamEffectiveDiscountLabel(row) }}
+            </span>
+          </template>
+          <template #cell-upstream_recharge_ratio="{ row }">
+            <span class="font-mono text-sm text-gray-700 dark:text-gray-300">
+              {{ accountUpstreamRechargeRatioLabel(row) }}
+            </span>
+          </template>
+          <template #cell-upstream_multiplier="{ row }">
+            <span class="font-mono text-sm text-gray-700 dark:text-gray-300">
+              {{ accountUpstreamMultiplierLabel(row) }}
+            </span>
+          </template>
           <template #cell-capacity="{ row }">
             <AccountCapacityCell :account="row" />
           </template>
@@ -433,17 +459,12 @@
         </template>
         <UpstreamCostComparison
           v-else
-          :accounts="costComparisonAccounts"
+          :suppliers="upstreamSuppliers"
+          :cost-pools="upstreamCostPools"
           :loading="costComparisonLoading"
           :error="costComparisonError"
-          :refreshing-balance-ids="refreshingBalanceIds"
-          :batch-refreshing-balances="batchRefreshingBalances"
-          :balance-refresh-progress="balanceRefreshProgress"
-          @refresh="loadCostComparisonAccounts"
-          @edit="handleEdit"
-          @recharge-records="openRechargeRecords"
-          @refresh-balance="handleRefreshUpstreamBalance"
-          @refresh-all-balances="handleRefreshVisibleUpstreamBalances"
+          @refresh="loadSupplierCostView"
+          @recharge-records="openSupplierRechargeRecords"
         />
       </template>
       <template #pagination><Pagination v-if="activeAccountView !== 'cost' && pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
@@ -453,7 +474,14 @@
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
-    <UpstreamRechargeRecordsModal :show="showRechargeRecords" :account="rechargeRecordsAcc" @close="closeRechargeRecords" @updated="handleAccountUpdated" />
+    <UpstreamRechargeRecordsModal
+      :show="showRechargeRecords"
+      :account="rechargeRecordsAcc"
+      :cost-pool="rechargeRecordsPool"
+      @close="closeRechargeRecords"
+      @updated="handleAccountUpdated"
+      @pool-updated="handleSupplierRechargeUpdated"
+    />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
@@ -484,7 +512,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch, type Ref } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -525,11 +553,12 @@ import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import {
-  isUpstreamKeyQuotaQueryEnabled,
-  readUpstreamKeyQuotaSnapshot
+  formatUpstreamDiscountLabel,
+  formatUpstreamRatio
 } from '@/utils/upstreamCost'
 import { tableSelectionCheckboxClasses as selectionCheckboxClasses, tableSelectionLabel as selectionLabel } from '@/utils/tableSelectionCheckbox'
 import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
+import type { UpstreamAccountCostBinding, UpstreamCostPool, UpstreamSupplier } from '@/api/admin/accounts'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -603,6 +632,7 @@ const reAuthAcc = ref<Account | null>(null)
 const testingAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
 const rechargeRecordsAcc = ref<Account | null>(null)
+const rechargeRecordsPool = ref<UpstreamCostPool | null>(null)
 const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
@@ -611,15 +641,17 @@ const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:num
 const exportingData = ref(false)
 type AccountViewMode = 'list' | 'archived' | 'cost'
 const activeAccountView = ref<AccountViewMode>('list')
-const costComparisonAccounts = ref<Account[]>([])
+const upstreamSuppliers = ref<UpstreamSupplier[]>([])
+const upstreamCostPools = ref<UpstreamCostPool[]>([])
+const upstreamAccountBindings = ref<Record<number, UpstreamAccountCostBinding>>({})
+const upstreamCostContextLoading = ref(false)
 const costComparisonLoading = ref(false)
 const costComparisonError = ref<string | null>(null)
-const refreshingBalanceIds = ref<number[]>([])
-const batchRefreshingBalances = ref(false)
-const balanceRefreshProgress = ref<{ done: number; total: number } | null>(null)
-let costComparisonAbortController: AbortController | null = null
-const costComparisonPageSize = 1000
-const balanceRefreshConcurrency = 4
+let upstreamCostPoolsRequest: Promise<UpstreamCostPool[]> | null = null
+let upstreamCostBindingsRequestKey = ''
+let upstreamCostBindingsRequest: Promise<Record<number, UpstreamAccountCostBinding>> | null = null
+let upstreamCostContextRequestSeq = 0
+let supplierCostViewRequestSeq = 0
 
 // Account tools dropdown
 const showAccountToolsDropdown = ref(false)
@@ -909,6 +941,122 @@ useSwipeSelect(accountTableRef, {
   batchUpdate
 }, swipeVirtualContext)
 
+const upstreamPoolByID = computed(() => new Map(upstreamCostPools.value.map(pool => [pool.id, pool])))
+
+const syncOpenRechargeRecordsPool = (pools: UpstreamCostPool[]) => {
+  const currentPoolID = rechargeRecordsPool.value?.id
+  if (!currentPoolID) return
+  const nextPool = pools.find(pool => pool.id === currentPoolID)
+  if (nextPool) {
+    rechargeRecordsPool.value = nextPool
+  }
+}
+
+const setUpstreamCostPools = (pools: UpstreamCostPool[]) => {
+  upstreamCostPools.value = pools
+  syncOpenRechargeRecordsPool(pools)
+}
+
+const fetchUpstreamCostPools = async () => {
+  if (!upstreamCostPoolsRequest) {
+    upstreamCostPoolsRequest = adminAPI.accounts.listUpstreamCostPools().finally(() => {
+      upstreamCostPoolsRequest = null
+    })
+  }
+  return upstreamCostPoolsRequest
+}
+
+const loadCostPoolAccountBindings = async (pools: UpstreamCostPool[]): Promise<Record<number, UpstreamAccountCostBinding>> => {
+  if (pools.length === 0) {
+    return {}
+  }
+
+  const requestKey = pools.map(pool => pool.id).sort((a, b) => a - b).join(',')
+  if (upstreamCostBindingsRequest && upstreamCostBindingsRequestKey === requestKey) {
+    return upstreamCostBindingsRequest
+  }
+
+  upstreamCostBindingsRequestKey = requestKey
+  upstreamCostBindingsRequest = Promise.allSettled(
+    pools.map(pool => adminAPI.accounts.listUpstreamCostPoolAccounts(pool.id))
+  ).then((results) => {
+    const nextBindings: Record<number, UpstreamAccountCostBinding> = {}
+    for (const result of results) {
+      if (result.status !== 'fulfilled') continue
+      for (const binding of result.value) {
+        nextBindings[binding.account_id] = binding
+      }
+    }
+    return nextBindings
+  }).finally(() => {
+    if (upstreamCostBindingsRequestKey === requestKey) {
+      upstreamCostBindingsRequest = null
+      upstreamCostBindingsRequestKey = ''
+    }
+  })
+
+  return upstreamCostBindingsRequest
+}
+
+const loadVisibleUpstreamCostContext = async () => {
+  const requestSeq = ++upstreamCostContextRequestSeq
+  if (accounts.value.length === 0) {
+    if (requestSeq === upstreamCostContextRequestSeq) {
+      upstreamAccountBindings.value = {}
+    }
+    return
+  }
+  upstreamCostContextLoading.value = true
+  try {
+    const pools = await fetchUpstreamCostPools()
+    const bindings = await loadCostPoolAccountBindings(pools)
+    if (requestSeq !== upstreamCostContextRequestSeq || activeAccountView.value === 'cost') {
+      return
+    }
+    setUpstreamCostPools(pools)
+    upstreamAccountBindings.value = bindings
+  } catch (error) {
+    if (requestSeq !== upstreamCostContextRequestSeq) {
+      return
+    }
+    console.error('Failed to load upstream cost context:', error)
+    upstreamAccountBindings.value = {}
+  } finally {
+    if (requestSeq === upstreamCostContextRequestSeq) {
+      upstreamCostContextLoading.value = false
+    }
+  }
+}
+
+const loadSupplierCostView = async () => {
+  const requestSeq = ++supplierCostViewRequestSeq
+  costComparisonLoading.value = true
+  costComparisonError.value = null
+  try {
+    const [suppliers, pools] = await Promise.all([
+      adminAPI.accounts.listUpstreamSuppliers(),
+      fetchUpstreamCostPools()
+    ])
+    if (requestSeq !== supplierCostViewRequestSeq || activeAccountView.value !== 'cost') {
+      return
+    }
+    upstreamSuppliers.value = suppliers
+    setUpstreamCostPools(pools)
+  } catch (error: any) {
+    if (requestSeq !== supplierCostViewRequestSeq) {
+      return
+    }
+    costComparisonError.value = error?.message || t('admin.accounts.upstreamCost.loadFailed')
+    upstreamSuppliers.value = []
+    setUpstreamCostPools([])
+    upstreamAccountBindings.value = {}
+  } finally {
+    if (requestSeq === supplierCostViewRequestSeq) {
+      costComparisonLoading.value = false
+    }
+  }
+}
+
 const resetAutoRefreshCache = () => {
   autoRefreshETag.value = null
 }
@@ -917,7 +1065,7 @@ const isFirstLoad = ref(true)
 
 const load = async () => {
   if (activeAccountView.value === 'cost') {
-    await loadCostComparisonAccounts()
+    await loadSupplierCostView()
     return
   }
   const requestParams = params as any
@@ -933,11 +1081,12 @@ const load = async () => {
     delete requestParams.lite
   }
   await refreshTodayStatsBatch()
+  await loadVisibleUpstreamCostContext()
 }
 
 const reload = async () => {
   if (activeAccountView.value === 'cost') {
-    await loadCostComparisonAccounts()
+    await loadSupplierCostView()
     return
   }
   hasPendingListSync.value = false
@@ -945,12 +1094,13 @@ const reload = async () => {
   pendingTodayStatsRefresh.value = false
   await baseReload()
   await refreshTodayStatsBatch()
+  await loadVisibleUpstreamCostContext()
 }
 
 const debouncedReload = () => {
   if (activeAccountView.value === 'cost') {
-    loadCostComparisonAccounts().catch((error) => {
-      console.error('Failed to load upstream cost comparison:', error)
+    loadSupplierCostView().catch((error) => {
+      console.error('Failed to load upstream supplier costs:', error)
     })
     return
   }
@@ -992,6 +1142,9 @@ watch(loading, (isLoading, wasLoading) => {
     pendingTodayStatsRefresh.value = false
     refreshTodayStatsBatch().catch((error) => {
       console.error('Failed to refresh account today stats after table load:', error)
+    })
+    loadVisibleUpstreamCostContext().catch((error) => {
+      console.error('Failed to refresh upstream cost context after table load:', error)
     })
   }
 })
@@ -1283,6 +1436,10 @@ const allColumns = computed(() => {
     { key: 'name', label: t('admin.accounts.columns.name'), sortable: true },
     { key: 'id', label: t('admin.accounts.columns.id'), sortable: true },
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false },
+    { key: 'upstream_supplier', label: t('admin.accounts.upstreamCost.supplier'), sortable: false },
+    { key: 'upstream_effective_discount', label: t('admin.accounts.upstreamCost.effectiveDiscount'), sortable: false },
+    { key: 'upstream_recharge_ratio', label: t('admin.accounts.upstreamCost.rechargeRatio'), sortable: false },
+    { key: 'upstream_multiplier', label: t('admin.accounts.upstreamCost.multiplier'), sortable: false },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true }
   ]
@@ -1322,6 +1479,83 @@ const cols = computed(() =>
     col.key === 'select' || col.key === 'name' || col.key === 'actions' || !hiddenColumns.has(col.key)
   )
 )
+
+const accountUpstreamBinding = (account: Account): UpstreamAccountCostBinding | null => (
+  upstreamAccountBindings.value[account.id] || null
+)
+
+const accountUpstreamPool = (account: Account): UpstreamCostPool | null => {
+  const binding = accountUpstreamBinding(account)
+  if (!binding) return null
+  return upstreamPoolByID.value.get(binding.cost_pool_id) || null
+}
+
+const accountUpstreamSupplierName = (account: Account): string => {
+  const binding = accountUpstreamBinding(account)
+  const pool = accountUpstreamPool(account)
+  return binding?.supplier_name || pool?.supplier_name || ''
+}
+
+const accountUpstreamPoolName = (account: Account): string => {
+  const binding = accountUpstreamBinding(account)
+  const pool = accountUpstreamPool(account)
+  return binding?.cost_pool_name || pool?.name || ''
+}
+
+const accountUpstreamRechargeFactor = (account: Account): number | null => {
+  const pool = accountUpstreamPool(account)
+  const cost = pool?.current_effective_cny_per_usd
+  const fx = pool?.reference_fx_rate
+  if (!Number.isFinite(Number(cost)) || !Number.isFinite(Number(fx)) || Number(fx) <= 0) {
+    return null
+  }
+  return Number(cost) / Number(fx)
+}
+
+const accountUpstreamEffectiveFactor = (account: Account): number | null => {
+  const rechargeFactor = accountUpstreamRechargeFactor(account)
+  const multiplier = accountUpstreamBinding(account)?.default_multiplier
+  if (rechargeFactor === null || !Number.isFinite(Number(multiplier)) || Number(multiplier) <= 0) {
+    return null
+  }
+  return rechargeFactor * Number(multiplier)
+}
+
+const accountUpstreamEffectiveDiscountLabel = (account: Account): string => {
+  const factor = accountUpstreamEffectiveFactor(account)
+  if (factor === null) return '-'
+  return formatUpstreamDiscountLabel(factor * 10, {
+    suffix: t('admin.accounts.upstreamCost.discountSuffix'),
+    notConfiguredLabel: t('admin.accounts.upstreamCost.notConfigured')
+  })
+}
+
+const accountUpstreamRechargeRatioLabel = (account: Account): string => {
+  const pool = accountUpstreamPool(account)
+  if (!pool?.current_effective_cny_per_usd) return '-'
+  return `${formatUpstreamRatio(pool.current_effective_cny_per_usd)} / ${formatUpstreamRatio(pool.reference_fx_rate)}`
+}
+
+const accountUpstreamMultiplierLabel = (account: Account): string => {
+  const multiplier = accountUpstreamBinding(account)?.default_multiplier
+  if (!Number.isFinite(Number(multiplier))) return '-'
+  return `${formatUpstreamRatio(Number(multiplier))}x`
+}
+
+const accountUpstreamDiscountBadgeClass = (account: Account): string => {
+  const base = 'rounded-md px-2 py-1 font-mono text-xs font-semibold'
+  const factor = accountUpstreamEffectiveFactor(account)
+  if (factor === null) {
+    return `${base} bg-stone-100 text-stone-500 dark:bg-white/[0.07] dark:text-stone-400`
+  }
+  if (factor <= 0.3) {
+    return `${base} bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300`
+  }
+  if (factor <= 0.7) {
+    return `${base} bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300`
+  }
+  return `${base} bg-stone-100 text-stone-700 dark:bg-white/[0.07] dark:text-stone-300`
+}
 
 const handleEdit = (a: Account) => { edAcc.value = a; showEdit.value = true }
 const openMenu = (a: Account, e: MouseEvent) => {
@@ -1612,170 +1846,6 @@ const buildAccountQueryFilters = () => ({
   sort_order: sortState.sort_order
 })
 
-const buildCostComparisonFilters = () => ({
-  platform: params.platform || '',
-  type: params.type || '',
-  status: params.status || '',
-  group: params.group || '',
-  privacy_mode: params.privacy_mode || '',
-  search: params.search || '',
-  sort_by: 'priority',
-  sort_order: 'asc' as AccountSortOrder
-})
-
-const loadCostComparisonAccounts = async () => {
-  costComparisonAbortController?.abort()
-  const controller = new AbortController()
-  costComparisonAbortController = controller
-  costComparisonLoading.value = true
-  costComparisonError.value = null
-  try {
-    const filters = buildCostComparisonFilters()
-    const allAccounts: Account[] = []
-    let page = 1
-
-    while (!controller.signal.aborted) {
-      const result = await adminAPI.accounts.list(page, costComparisonPageSize, filters, {
-        signal: controller.signal
-      })
-      if (controller.signal.aborted) return
-
-      const items = result.items || []
-      allAccounts.push(...items)
-
-      const total = result.total ?? allAccounts.length
-      const pages = result.pages || Math.ceil(total / (result.page_size || costComparisonPageSize))
-      if (items.length === 0 || allAccounts.length >= total || page >= pages) {
-        break
-      }
-      page += 1
-    }
-
-    if (controller.signal.aborted) return
-    costComparisonAccounts.value = allAccounts
-  } catch (error: any) {
-    if (controller.signal.aborted) return
-    costComparisonError.value = error?.message || t('admin.accounts.upstreamCost.loadFailed')
-    costComparisonAccounts.value = []
-  } finally {
-    if (!controller.signal.aborted) {
-      costComparisonLoading.value = false
-    }
-    if (costComparisonAbortController === controller) {
-      costComparisonAbortController = null
-    }
-  }
-}
-
-type UpstreamBalanceRefreshResult = {
-  ok: boolean
-  error?: string
-}
-
-const addRefreshingId = (ids: Ref<number[]>, accountId: number) => {
-  if (ids.value.includes(accountId)) return false
-  ids.value = [...ids.value, accountId]
-  return true
-}
-
-const removeRefreshingId = (ids: Ref<number[]>, accountId: number) => {
-  ids.value = ids.value.filter(id => id !== accountId)
-}
-
-const refreshUpstreamBalanceAccount = async (account: Account): Promise<UpstreamBalanceRefreshResult> => {
-  if (!addRefreshingId(refreshingBalanceIds, account.id)) {
-    return { ok: false, error: t('admin.accounts.upstreamCost.balanceQuery.refreshSkipped') }
-  }
-
-  try {
-    const updated = await adminAPI.accounts.refreshUpstreamBalance(account.id)
-    handleAccountUpdated(updated)
-    const snapshot = readUpstreamKeyQuotaSnapshot(updated.extra)
-    if (snapshot?.status === 'ok') {
-      return { ok: true }
-    }
-    return {
-      ok: false,
-      error: snapshot?.error || t('admin.accounts.upstreamCost.balanceQuery.refreshFailed')
-    }
-  } catch (error: any) {
-    return {
-      ok: false,
-      error: error?.response?.data?.message || error?.message || t('admin.accounts.upstreamCost.balanceQuery.refreshFailed')
-    }
-  } finally {
-    removeRefreshingId(refreshingBalanceIds, account.id)
-  }
-}
-
-const handleRefreshUpstreamBalance = async (account: Account) => {
-  const result = await refreshUpstreamBalanceAccount(account)
-  if (result.ok) {
-    appStore.showSuccess(t('admin.accounts.upstreamCost.balanceQuery.refreshSuccess'))
-  } else {
-    appStore.showWarning(result.error || t('admin.accounts.upstreamCost.balanceQuery.refreshFailed'))
-  }
-}
-
-const handleRefreshVisibleUpstreamBalances = async () => {
-  if (batchRefreshingBalances.value) return
-
-  const activeRefreshingIds = new Set(refreshingBalanceIds.value)
-  const targets = costComparisonAccounts.value.filter(account =>
-    isUpstreamKeyQuotaQueryEnabled(account.extra) && !activeRefreshingIds.has(account.id)
-  )
-
-  if (targets.length === 0) {
-    appStore.showWarning(t('admin.accounts.upstreamCost.balanceQuery.noRefreshableAccounts'))
-    return
-  }
-
-  batchRefreshingBalances.value = true
-  balanceRefreshProgress.value = { done: 0, total: targets.length }
-
-  let cursor = 0
-  let success = 0
-  let failed = 0
-  const errors: string[] = []
-
-  const runWorker = async () => {
-    while (cursor < targets.length) {
-      const account = targets[cursor]
-      cursor += 1
-      const result = await refreshUpstreamBalanceAccount(account)
-      if (result.ok) {
-        success += 1
-      } else {
-        failed += 1
-        if (result.error) {
-          errors.push(`${account.name}: ${result.error}`)
-        }
-      }
-      balanceRefreshProgress.value = { done: success + failed, total: targets.length }
-    }
-  }
-
-  try {
-    const workerCount = Math.min(balanceRefreshConcurrency, targets.length)
-    await Promise.all(Array.from({ length: workerCount }, () => runWorker()))
-
-    if (failed === 0) {
-      appStore.showSuccess(t('admin.accounts.upstreamCost.balanceQuery.batchRefreshSuccess', { count: success }))
-    } else if (success > 0) {
-      appStore.showWarning(t('admin.accounts.upstreamCost.balanceQuery.batchRefreshPartial', { success, failed }))
-    } else {
-      appStore.showError(t('admin.accounts.upstreamCost.balanceQuery.batchRefreshFailed', { failed }))
-    }
-
-    if (errors.length > 0) {
-      console.warn('Some upstream balance refresh tasks failed:', errors)
-    }
-  } finally {
-    batchRefreshingBalances.value = false
-    balanceRefreshProgress.value = null
-  }
-}
-
 const setAccountView = (view: AccountViewMode) => {
   if (activeAccountView.value === view) return
   activeAccountView.value = view
@@ -1784,8 +1854,8 @@ const setAccountView = (view: AccountViewMode) => {
   resetAutoRefreshCache()
   hasPendingListSync.value = false
   if (view === 'cost') {
-    loadCostComparisonAccounts().catch((error) => {
-      console.error('Failed to load upstream cost comparison:', error)
+    loadSupplierCostView().catch((error) => {
+      console.error('Failed to load upstream supplier costs:', error)
     })
     return
   }
@@ -1877,32 +1947,23 @@ const patchAccountInList = (updatedAccount: Account) => {
   syncAccountRefs(mergedAccount)
 }
 
-const patchAccountInCostComparison = (updatedAccount: Account) => {
-  const index = costComparisonAccounts.value.findIndex(account => account.id === updatedAccount.id)
-  if (!accountMatchesCurrentFilters(updatedAccount)) {
-    if (index !== -1) {
-      costComparisonAccounts.value = costComparisonAccounts.value.filter(account => account.id !== updatedAccount.id)
-    }
-    return
-  }
-  if (index === -1) {
-    costComparisonAccounts.value = [...costComparisonAccounts.value, updatedAccount]
-    return
-  }
-  const nextAccounts = [...costComparisonAccounts.value]
-  nextAccounts[index] = updatedAccount
-  costComparisonAccounts.value = nextAccounts
-}
-
 const handleAccountCreated = () => {
   reload()
 }
 
 const handleAccountUpdated = (updatedAccount: Account) => {
   patchAccountInList(updatedAccount)
-  patchAccountInCostComparison(updatedAccount)
   if (rechargeRecordsAcc.value?.id === updatedAccount.id) {
     rechargeRecordsAcc.value = updatedAccount
+  }
+  if (activeAccountView.value === 'cost') {
+    loadSupplierCostView().catch((error) => {
+      console.error('Failed to refresh upstream supplier costs after account update:', error)
+    })
+  } else {
+    loadVisibleUpstreamCostContext().catch((error) => {
+      console.error('Failed to refresh upstream cost context after account update:', error)
+    })
   }
   enterAutoRefreshSilentWindow()
 }
@@ -1955,8 +2016,26 @@ const closeStatsModal = () => { showStats.value = false; statsAcc.value = null }
 const closeReAuthModal = () => { showReAuth.value = false; reAuthAcc.value = null }
 const handleTest = (a: Account) => { testingAcc.value = a; showTest.value = true }
 const handleViewStats = (a: Account) => { statsAcc.value = a; showStats.value = true }
-const openRechargeRecords = (a: Account) => { rechargeRecordsAcc.value = a; showRechargeRecords.value = true }
-const closeRechargeRecords = () => { showRechargeRecords.value = false; rechargeRecordsAcc.value = null }
+const openSupplierRechargeRecords = (pool: UpstreamCostPool) => {
+  rechargeRecordsAcc.value = null
+  rechargeRecordsPool.value = pool
+  showRechargeRecords.value = true
+}
+const closeRechargeRecords = () => {
+  showRechargeRecords.value = false
+  rechargeRecordsAcc.value = null
+  rechargeRecordsPool.value = null
+}
+const handleSupplierRechargeUpdated = () => {
+  loadSupplierCostView().catch((error) => {
+    console.error('Failed to refresh upstream supplier costs after recharge update:', error)
+  })
+  if (activeAccountView.value !== 'cost') {
+    loadVisibleUpstreamCostContext().catch((error) => {
+      console.error('Failed to refresh upstream cost context after recharge update:', error)
+    })
+  }
+}
 const handleSchedule = async (a: Account) => {
   scheduleAcc.value = a
   scheduleModelOptions.value = []
@@ -2193,7 +2272,6 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  costComparisonAbortController?.abort()
   window.removeEventListener('scroll', handleScroll, true)
   document.removeEventListener('click', handleClickOutside)
 })

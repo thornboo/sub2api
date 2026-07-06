@@ -216,3 +216,29 @@ func TestMigration165RestrictsUsageLogDimensionForeignKeys(t *testing.T) {
 	require.Contains(t, sql, "REFERENCES public.%I(id) ON DELETE RESTRICT NOT VALID")
 	require.Contains(t, sql, "DROP CONSTRAINT IF EXISTS")
 }
+
+func TestMigration166CreatesUpstreamCostPoolsAndBackfillsLegacyRechargeRecords(t *testing.T) {
+	content, err := FS.ReadFile("166_upstream_cost_pools.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	require.Contains(t, sql, "CREATE TABLE IF NOT EXISTS upstream_suppliers")
+	require.Contains(t, sql, "CREATE TABLE IF NOT EXISTS upstream_cost_pools")
+	require.Contains(t, sql, "CREATE TABLE IF NOT EXISTS upstream_account_cost_bindings")
+	require.Contains(t, sql, "CREATE TABLE IF NOT EXISTS upstream_cost_snapshots")
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS cost_pool_id BIGINT")
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS source_account_id_snapshot BIGINT")
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS merged_from_pool_id BIGINT")
+	require.Contains(t, sql, "uq_upstream_suppliers_active_name")
+	require.Contains(t, sql, "uq_upstream_account_cost_bindings_active")
+	require.Contains(t, sql, "WHERE status = 'active'")
+	require.Contains(t, sql, "r.type IN ('recharge', 'bonus')")
+	require.Contains(t, sql, "UPDATE upstream_recharge_records r")
+	require.Contains(t, sql, "r.account_id = b.account_id")
+	require.Contains(t, sql, "r.cost_pool_id IS NULL")
+	require.Contains(t, sql, "current_effective_cny_per_usd")
+	require.Contains(t, sql, "current_snapshot_id")
+	require.Contains(t, sql, "VALIDATE CONSTRAINT fk_upstream_recharge_records_cost_pool_id")
+	require.Contains(t, sql, "VALIDATE CONSTRAINT fk_upstream_recharge_records_merged_from_pool_id")
+	require.NotContains(t, sql, "ALTER TABLE upstream_recharge_records DROP COLUMN")
+}

@@ -1,5 +1,44 @@
 # 补丁记录
 
+## 2026-07-06 - 上游成本池 Phase 1 后端兼容层
+
+范围：
+- 后端：上游供应商、资金池、账号成本绑定、成本快照和资金池账本兼容服务。
+- 迁移：`backend/migrations/166_upstream_cost_pools.sql`。
+- 路由：新增 `/api/v1/admin/upstream-suppliers`、`/api/v1/admin/upstream-cost-pools/*` 和 `/api/v1/admin/accounts/:id/upstream-cost-binding`。
+- 文档：`docs-site/dev-zz/features/upstream-cost-pools-and-ledger.md`、接口索引、迁移索引、变更记录和侧边栏。
+
+改动：
+- 新增 `upstream_suppliers`、`upstream_cost_pools`、`upstream_account_cost_bindings`、`upstream_cost_snapshots`。
+- `upstream_recharge_records` 新增 `cost_pool_id`、`source_account_id_snapshot`、`merged_from_pool_id`、作废字段和来源字段。
+- 迁移为每个现有账号创建“未归类供应商”下的账号默认资金池和 active 绑定，并把旧账号充值记录回填到资金池。
+- 旧账号级充值记录接口继续兼容；账号有 active 成本绑定时读取/写入对应资金池账本，并返回 `deprecated` / `cost_pool_id`。
+- 新增账号成本绑定接口，替换绑定时归档旧 active 绑定，保留绑定历史。
+- 新增充值记录后会生成最新成本快照并更新资金池当前基础成本。
+- `adjustment` 账本不再刷新资金池当前成本；成本快照只从 `recharge` / `bonus` 生成。
+- 账号默认资金池创建改为事务内账号级 advisory lock，避免并发首次创建留下孤儿资金池。
+- 供应商补 active 名称唯一索引，未归类供应商创建改为唯一约束驱动。
+- 页面设计方向修正为“供应商优先，资金池后置”：账号编辑页应支持选择 / 新建供应商，并在供应商只有一个资金池时自动绑定默认资金池；资金池选择器只在多钱包或高级运营场景展示。
+
+边界：
+- 不自动合并多个账号的共享钱包。
+- 不改变普通用户扣费或用户侧返回字段。
+- 不启用成本优先调度。
+- 本期账本只支持 `recharge` / `bonus` / `adjustment` 三类非负金额记录；暂不实现退款、冲正、作废、供应商优先的账号编辑 UI、完整资金池管理页、余额查询迁移和 usage 上游成本证据落账。
+
+验证：
+- `gofmt -w backend/internal/service/upstream_recharge_service_test.go backend/internal/service/upstream_cost_pool_service.go backend/internal/handler/admin/upstream_cost_pool_handler.go backend/internal/server/routes/admin.go`
+- `git diff --check`
+- `mise x -C backend -- go test -tags unit ./internal/service -run 'Upstream(Recharge|Cost)' -count=1`
+- `mise x -C backend -- go test -tags unit ./migrations -run 'Migration166|Migration165' -count=1`
+- `mise x -C backend -- go test -tags unit ./internal/handler/admin ./internal/server -run 'Upstream|TestAPIContracts' -count=1`
+- `mise x -C backend -- go test -tags unit ./migrations ./internal/service ./internal/handler/admin ./internal/server -count=1`
+- `pnpm --dir docs-site docs:build`
+
+未验证：
+- 完整仓库级 `go test ./...`。
+- 前端管理页切换主入口和浏览器人工 smoke；本阶段未实现资金池管理页。
+
 ## 2026-07-02 - 上游 main 同步到 dev-zz-develop：分组高峰倍率与订阅计费展示
 
 范围：

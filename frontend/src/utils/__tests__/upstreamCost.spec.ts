@@ -25,6 +25,7 @@ import {
   normalizeUpstreamBalanceEndpoint,
   readUpstreamBalanceSnapshot,
   readUpstreamCostProfile,
+  formatUpstreamDiscountLabel,
   requiresUpstreamBalanceAuthToken
 } from '@/utils/upstreamCost'
 
@@ -83,6 +84,17 @@ describe('upstreamCost utils', () => {
     expect(result.complete).toBe(false)
     expect(result.label).toBe('未配置')
     expect(result.missing_fields).toEqual(['recharge_cny_per_usd', 'group_multiplier'])
+  })
+
+  it('formats discount labels with localized suffixes', () => {
+    expect(formatUpstreamDiscountLabel(1.43, {
+      suffix: '/10',
+      notConfiguredLabel: 'Not configured'
+    })).toBe('1.4/10')
+    expect(formatUpstreamDiscountLabel(undefined, {
+      suffix: '/10',
+      notConfiguredLabel: 'Not configured'
+    })).toBe('Not configured')
   })
 
   it('reads and writes cost profile fields in account extra', () => {

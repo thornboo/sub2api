@@ -394,7 +394,8 @@ export const getUpstreamCostFamilies = (profile?: UpstreamCostProfile | null): s
 
 export const calculateUpstreamCost = (
   profile?: UpstreamCostProfile | null,
-  family = DEFAULT_FAMILY
+  family = DEFAULT_FAMILY,
+  labelOptions: UpstreamDiscountLabelOptions = {}
 ): UpstreamCostCalculation => {
   const normalized = normalizeUpstreamCostProfile(profile)
   const wantedFamily = normalizeFamily(family)
@@ -421,7 +422,7 @@ export const calculateUpstreamCost = (
       recharge_cny_per_usd: recharge,
       reference_fx_rate: fx,
       group_multiplier: groupMultiplier,
-      label: '未配置',
+      label: labelOptions.notConfiguredLabel ?? '未配置',
       missing_fields: missingFields,
       note
     }
@@ -442,15 +443,23 @@ export const calculateUpstreamCost = (
     recharge_cost_factor: rechargeCostFactor,
     effective_discount: effectiveDiscount,
     display_discount: displayDiscount,
-    label: formatUpstreamDiscountLabel(displayDiscount),
+    label: formatUpstreamDiscountLabel(displayDiscount, labelOptions),
     missing_fields: [],
     note
   }
 }
 
-export const formatUpstreamDiscountLabel = (displayDiscount?: number): string => {
-  if (!Number.isFinite(displayDiscount)) return '未配置'
-  return `${Number(displayDiscount).toFixed(1)}折`
+export interface UpstreamDiscountLabelOptions {
+  suffix?: string
+  notConfiguredLabel?: string
+}
+
+export const formatUpstreamDiscountLabel = (
+  displayDiscount?: number,
+  options: UpstreamDiscountLabelOptions = {}
+): string => {
+  if (!Number.isFinite(displayDiscount)) return options.notConfiguredLabel ?? '未配置'
+  return `${Number(displayDiscount).toFixed(1)}${options.suffix ?? '折'}`
 }
 
 export const formatUpstreamRatio = (value?: number): string => {

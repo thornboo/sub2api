@@ -77,7 +77,8 @@ export default defineConfig({
           { text: '企业用量分析中心', link: '/dev-zz/features/enterprise-usage-analytics' },
           { text: '用量账本与已删除 Key 证据', link: '/dev-zz/features/usage-ledger-evidence-integrity' },
           { text: '客户可见错误排障', link: '/dev-zz/features/ops-customer-visible-error-triage' },
-          { text: '模型自检监控（定价驱动）', link: '/dev-zz/features/pricing-driven-self-check-monitoring-design' }
+          { text: '模型自检监控（定价驱动）', link: '/dev-zz/features/pricing-driven-self-check-monitoring-design' },
+          { text: '上游供应商资金池与成本账本', link: '/dev-zz/features/upstream-cost-pools-and-ledger' }
         ]
       },
       {

@@ -34,6 +34,7 @@ func RegisterAdminRoutes(
 
 		// 账号管理
 		registerAccountRoutes(admin, h)
+		registerUpstreamCostPoolRoutes(admin, h)
 
 		// 公告管理
 		registerAnnouncementRoutes(admin, h)
@@ -297,6 +298,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		accounts.GET("", h.Admin.Account.List)
 		accounts.GET("/archived", h.Admin.Account.ListArchived)
 		accounts.GET("/:id/recharge-records", h.Admin.Account.ListUpstreamRechargeRecords)
+		accounts.GET("/:id/upstream-cost-binding", h.Admin.Account.GetAccountUpstreamCostBinding)
 		accounts.GET("/:id", h.Admin.Account.GetByID)
 		accounts.POST("", h.Admin.Account.Create)
 		accounts.POST("/check-mixed-channel", h.Admin.Account.CheckMixedChannel)
@@ -309,6 +311,8 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		accounts.POST("/:id/archive", h.Admin.Account.Archive)
 		accounts.POST("/:id/restore", h.Admin.Account.Restore)
 		accounts.PUT("/:id/recharge-records/:record_id", h.Admin.Account.UpdateUpstreamRechargeRecord)
+		accounts.PUT("/:id/upstream-cost-binding", h.Admin.Account.UpdateAccountUpstreamCostBinding)
+		accounts.PUT("/:id/upstream-supplier-binding", h.Admin.Account.UpdateAccountUpstreamSupplierBinding)
 		accounts.PUT("/:id", h.Admin.Account.Update)
 		accounts.PATCH("/:id/upstream-cost-profile", h.Admin.Account.UpdateUpstreamCostProfile)
 		accounts.DELETE("/:id/recharge-records/:record_id", h.Admin.Account.DeleteUpstreamRechargeRecord)
@@ -356,6 +360,25 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		accounts.POST("/exchange-setup-token-code", h.Admin.OAuth.ExchangeSetupTokenCode)
 		accounts.POST("/cookie-auth", h.Admin.OAuth.CookieAuth)
 		accounts.POST("/setup-token-cookie-auth", h.Admin.OAuth.SetupTokenCookieAuth)
+	}
+}
+
+func registerUpstreamCostPoolRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	suppliers := admin.Group("/upstream-suppliers")
+	{
+		suppliers.GET("", h.Admin.Account.ListUpstreamSuppliers)
+		suppliers.POST("", h.Admin.Account.CreateUpstreamSupplier)
+	}
+
+	costPools := admin.Group("/upstream-cost-pools")
+	{
+		costPools.GET("", h.Admin.Account.ListUpstreamCostPools)
+		costPools.GET("/:pool_id/recharge-records", h.Admin.Account.ListUpstreamCostPoolRechargeRecords)
+		costPools.POST("/:pool_id/recharge-records", h.Admin.Account.CreateUpstreamCostPoolRechargeRecord)
+		costPools.PUT("/:pool_id/recharge-records/:record_id", h.Admin.Account.UpdateUpstreamCostPoolRechargeRecord)
+		costPools.DELETE("/:pool_id/recharge-records/:record_id", h.Admin.Account.DeleteUpstreamCostPoolRechargeRecord)
+		costPools.GET("/:pool_id/accounts", h.Admin.Account.ListUpstreamCostPoolAccounts)
+		costPools.GET("/:pool_id", h.Admin.Account.GetUpstreamCostPool)
 	}
 }
 

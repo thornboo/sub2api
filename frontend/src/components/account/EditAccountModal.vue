@@ -467,12 +467,114 @@
 
       </div>
 
-      <UpstreamCostSettings
+      <section
         v-if="showUpstreamCostSettings"
-        v-model="upstreamCostProfile"
-        v-model:balance-auth-token-value="upstreamBalanceAuthToken"
-        :balance-auth-token-configured="props.account?.credentials_status?.has_upstream_balance_auth_token === true"
-      />
+        class="border-t border-stone-200/80 pt-4 dark:border-white/10"
+      >
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">
+              {{ t('admin.accounts.upstreamCost.supplierBindingTitle') }}
+            </h3>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.upstreamCost.supplierBindingDescription') }}
+            </p>
+          </div>
+          <span
+            v-if="currentUpstreamBindingLabel"
+            class="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+          >
+            {{ currentUpstreamBindingLabel }}
+          </span>
+        </div>
+
+        <div
+          v-if="upstreamSupplierLoadError"
+          class="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+        >
+          {{ upstreamSupplierLoadError }}
+        </div>
+
+        <div class="max-w-4xl space-y-3">
+          <div>
+            <label class="input-label">{{ t('admin.accounts.upstreamCost.supplier') }}</label>
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-start">
+              <div class="min-w-0 flex-1">
+                <Select
+                  v-model="upstreamSupplierSelectValue"
+                  :options="upstreamSupplierSelectOptions"
+                  :placeholder="t('admin.accounts.upstreamCost.supplierPlaceholder')"
+                  :empty-text="t('admin.accounts.upstreamCost.supplierEmpty')"
+                  :disabled="upstreamSupplierLoading || upstreamSupplierCreating"
+                />
+              </div>
+              <button
+                type="button"
+                class="btn btn-secondary h-11 shrink-0 rounded-xl px-4 py-0"
+                :disabled="showNewUpstreamSupplierForm || upstreamSupplierCreating"
+                @click="openNewUpstreamSupplierForm"
+              >
+                <Icon name="plus" size="sm" />
+                {{ t('admin.accounts.upstreamCost.addSupplier') }}
+              </button>
+            </div>
+          </div>
+
+          <div
+            v-if="showNewUpstreamSupplierForm"
+            class="rounded-xl border border-dashed border-stone-200/80 bg-stone-50/70 p-2.5 dark:border-white/10 dark:bg-white/[0.03]"
+          >
+            <div class="flex flex-col gap-2 md:flex-row md:items-center">
+              <div class="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+                <span class="shrink-0 px-1 text-sm font-medium text-stone-600 dark:text-stone-300">
+                  {{ t('admin.accounts.upstreamCost.quickAddSupplier') }}
+                </span>
+                <input
+                  v-model="newUpstreamSupplierName"
+                  type="text"
+                  class="input h-10 min-w-0 flex-1 rounded-lg py-2"
+                  :placeholder="t('admin.accounts.upstreamCost.newSupplierNamePlaceholder')"
+                  :disabled="upstreamSupplierCreating"
+                  @keydown.enter.prevent="createUpstreamSupplierFromDraft"
+                />
+              </div>
+              <div class="flex shrink-0 gap-2">
+                <button
+                  type="button"
+                  class="btn btn-primary h-10 rounded-lg px-3 py-0"
+                  :disabled="upstreamSupplierCreating"
+                  @click="createUpstreamSupplierFromDraft"
+                >
+                  <Icon name="check" size="sm" />
+                  {{ t('admin.accounts.upstreamCost.saveSupplier') }}
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-secondary h-10 rounded-lg px-3 py-0"
+                  :disabled="upstreamSupplierCreating"
+                  @click="cancelNewUpstreamSupplier"
+                >
+                  {{ t('common.cancel') }}
+                </button>
+              </div>
+            </div>
+            <p class="mt-2 px-1 text-xs text-stone-500 dark:text-stone-500">
+              {{ t('admin.accounts.upstreamCost.supplierCreateHint') }}
+            </p>
+          </div>
+
+          <p class="text-xs text-stone-500 dark:text-stone-500">
+            {{ t('admin.accounts.upstreamCost.supplierBindingHint') }}
+          </p>
+        </div>
+
+        <UpstreamCostSettings
+          v-model="upstreamCostProfile"
+          v-model:balance-auth-token-value="upstreamBalanceAuthToken"
+          :balance-auth-token-configured="props.account?.credentials_status?.has_upstream_balance_auth_token === true"
+          :show-cost-controls="false"
+        />
+      </section>
 
       <!-- OpenAI OAuth Model Mapping (OAuth 类型没有 apikey 容器，需要独立的模型映射区域) -->
       <div
@@ -2647,6 +2749,11 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
+import type {
+  UpstreamAccountCostBinding,
+  UpstreamSupplier,
+  UpstreamSupplierBindingPayload
+} from '@/api/admin/accounts'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import type {
   Account,
@@ -2751,6 +2858,14 @@ const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
 const upstreamCostProfile = ref<UpstreamCostProfile>({})
 const upstreamBalanceAuthToken = ref('')
+const upstreamSuppliers = ref<UpstreamSupplier[]>([])
+const upstreamCostBinding = ref<UpstreamAccountCostBinding | null>(null)
+const upstreamSupplierID = ref<number | null>(null)
+const showNewUpstreamSupplierForm = ref(false)
+const newUpstreamSupplierName = ref('')
+const upstreamSupplierLoading = ref(false)
+const upstreamSupplierCreating = ref(false)
+const upstreamSupplierLoadError = ref('')
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
@@ -2840,6 +2955,31 @@ const getAntigravityModelMappingKey = createStableObjectKeyResolver<ModelMapping
 const getTempUnschedRuleKey = createStableObjectKeyResolver<TempUnschedRuleForm>('edit-temp-unsched-rule')
 
 const showUpstreamCostSettings = computed(() => props.account?.type === 'apikey')
+const activeUpstreamSuppliers = computed(() =>
+  upstreamSuppliers.value.filter((supplier) => supplier.status === 'active' && !supplier.archived_at)
+)
+const upstreamSupplierSelectOptions = computed(() =>
+  activeUpstreamSuppliers.value.map((supplier) => ({
+    value: supplier.id,
+    label: supplier.name
+  }))
+)
+const upstreamSupplierSelectValue = computed<string | number | boolean | null>({
+  get: () => upstreamSupplierID.value,
+  set: (value) => {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      upstreamSupplierID.value = value
+      return
+    }
+    upstreamSupplierID.value = null
+  }
+})
+const currentUpstreamBindingLabel = computed(() => {
+  if (!upstreamCostBinding.value?.supplier_name) {
+    return ''
+  }
+  return upstreamCostBinding.value.supplier_name
+})
 
 const showMixedChannelWarning = ref(false)
 const mixedChannelWarningDetails = ref<{ groupName: string; currentPlatform: string; otherPlatform: string } | null>(
@@ -3363,6 +3503,145 @@ const expiresAtInput = computed({
   }
 })
 
+const resetUpstreamSupplierBindingState = () => {
+  upstreamSuppliers.value = []
+  upstreamCostBinding.value = null
+  upstreamSupplierID.value = null
+  showNewUpstreamSupplierForm.value = false
+  newUpstreamSupplierName.value = ''
+  upstreamSupplierCreating.value = false
+  upstreamSupplierLoadError.value = ''
+}
+
+const isNotFoundError = (error: any) => error?.status === 404 || error?.response?.status === 404
+
+const hydrateUpstreamSupplierBinding = (binding: UpstreamAccountCostBinding | null) => {
+  upstreamCostBinding.value = binding
+  upstreamSupplierID.value = binding?.supplier_id ?? null
+  showNewUpstreamSupplierForm.value = false
+  newUpstreamSupplierName.value = ''
+}
+
+const loadUpstreamSupplierBinding = async (accountID: number) => {
+  resetUpstreamSupplierBindingState()
+  upstreamSupplierLoading.value = true
+  try {
+    const suppliers = await adminAPI.accounts.listUpstreamSuppliers()
+    let binding: UpstreamAccountCostBinding | null = null
+    try {
+      binding = await adminAPI.accounts.getAccountUpstreamCostBinding(accountID)
+    } catch (error: any) {
+      if (!isNotFoundError(error)) {
+        throw error
+      }
+    }
+    if (props.account?.id !== accountID) {
+      return
+    }
+    upstreamSuppliers.value = suppliers
+    hydrateUpstreamSupplierBinding(binding)
+  } catch (error: any) {
+    if (props.account?.id !== accountID) {
+      return
+    }
+    upstreamSupplierLoadError.value = error?.message || t('admin.accounts.upstreamCost.supplierLoadFailed')
+  } finally {
+    if (props.account?.id === accountID) {
+      upstreamSupplierLoading.value = false
+    }
+  }
+}
+
+const openNewUpstreamSupplierForm = () => {
+  showNewUpstreamSupplierForm.value = true
+}
+
+const cancelNewUpstreamSupplier = () => {
+  if (upstreamSupplierCreating.value) {
+    return
+  }
+  showNewUpstreamSupplierForm.value = false
+  newUpstreamSupplierName.value = ''
+}
+
+const upsertUpstreamSupplier = (supplier: UpstreamSupplier) => {
+  const next = upstreamSuppliers.value.filter((item) => item.id !== supplier.id)
+  next.push(supplier)
+  next.sort((a, b) => {
+    const statusCompare = a.status.localeCompare(b.status)
+    if (statusCompare !== 0) return statusCompare
+    const nameCompare = a.name.localeCompare(b.name)
+    if (nameCompare !== 0) return nameCompare
+    return a.id - b.id
+  })
+  upstreamSuppliers.value = next
+}
+
+const createUpstreamSupplierFromDraft = async () => {
+  const name = newUpstreamSupplierName.value.trim()
+  if (!name) {
+    appStore.showWarning(t('admin.accounts.upstreamCost.supplierNameRequired'))
+    return
+  }
+  upstreamSupplierCreating.value = true
+  try {
+    const supplier = await adminAPI.accounts.createUpstreamSupplier({ name })
+    upsertUpstreamSupplier(supplier)
+    upstreamSupplierID.value = supplier.id
+    showNewUpstreamSupplierForm.value = false
+    newUpstreamSupplierName.value = ''
+    appStore.showSuccess(t('admin.accounts.upstreamCost.supplierCreated'))
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.accounts.upstreamCost.supplierCreateFailed'))
+  } finally {
+    upstreamSupplierCreating.value = false
+  }
+}
+
+const buildUpstreamSupplierBindingPayload = (): UpstreamSupplierBindingPayload | null => {
+  if (!showUpstreamCostSettings.value) {
+    return null
+  }
+
+  if (!upstreamSupplierID.value || upstreamSupplierID.value <= 0) {
+    if (upstreamCostBinding.value) {
+      return { supplier_id: null }
+    }
+    return null
+  }
+  const currentCostPoolID = upstreamCostBinding.value?.supplier_id === upstreamSupplierID.value
+    ? upstreamCostBinding.value.cost_pool_id
+    : null
+  return {
+    supplier_id: upstreamSupplierID.value,
+    cost_pool_id: currentCostPoolID
+  }
+}
+
+const upstreamSupplierBindingChanged = (payload: UpstreamSupplierBindingPayload | null) => {
+  if (!payload) {
+    return false
+  }
+  const current = upstreamCostBinding.value
+  if ((payload.supplier_id ?? 0) <= 0) {
+    return !!current
+  }
+  if (!current) {
+    return true
+  }
+  const currentSupplierID = current.supplier_id ?? 0
+  const nextSupplierID = payload.supplier_id ?? 0
+  return currentSupplierID !== nextSupplierID
+}
+
+const persistUpstreamSupplierBindingIfNeeded = async (accountID: number) => {
+  const payload = buildUpstreamSupplierBindingPayload()
+  if (!upstreamSupplierBindingChanged(payload)) {
+    return
+  }
+  await adminAPI.accounts.updateAccountUpstreamSupplierBinding(accountID, payload!)
+}
+
 // Watchers
 const normalizePoolModeRetryCount = (value: number) => {
   if (!Number.isFinite(value)) {
@@ -3499,6 +3778,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   autoPause7dDisabled.value = extra?.auto_pause_7d_disabled === true
   upstreamCostProfile.value = newAccount.type === 'apikey' ? readUpstreamCostProfile(extra) : {}
   upstreamBalanceAuthToken.value = ''
+  if (newAccount.type === 'apikey') {
+    void loadUpstreamSupplierBinding(newAccount.id)
+  } else {
+    resetUpstreamSupplierBindingState()
+  }
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/API Key)
   openaiPassthroughEnabled.value = false
@@ -4216,10 +4500,24 @@ const handleClose = () => {
   emit('close')
 }
 
-const submitUpdateAccount = async (accountID: number, updatePayload: Record<string, unknown>) => {
+const submitUpdateAccount = async (
+  accountID: number,
+  updatePayload: Record<string, unknown>,
+  afterUpdate?: () => Promise<void>
+) => {
   submitting.value = true
   try {
     const updatedAccount = await adminAPI.accounts.update(accountID, withAntigravityConfirmFlag(updatePayload))
+    if (afterUpdate) {
+      try {
+        await afterUpdate()
+      } catch (error: any) {
+        emit('updated', updatedAccount)
+        const detail = error?.message ? `: ${error.message}` : ''
+        appStore.showError(`${t('admin.accounts.upstreamCost.supplierBindingUpdatePartialFailed')}${detail}`)
+        return
+      }
+    }
     appStore.showSuccess(t('admin.accounts.accountUpdated'))
     emit('updated', updatedAccount)
     handleClose()
@@ -4229,7 +4527,7 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
         message: error.message,
         onConfirm: async () => {
           antigravityMixedChannelConfirmed.value = true
-          await submitUpdateAccount(accountID, updatePayload)
+          await submitUpdateAccount(accountID, updatePayload, afterUpdate)
         }
       })
       return
@@ -4813,14 +5111,17 @@ const handleSubmit = async () => {
       updatePayload.extra = mergeUpstreamCostProfileExtra(currentExtra, upstreamCostProfile.value)
     }
 
+    const persistUpstreamBinding = async () => {
+      await persistUpstreamSupplierBindingIfNeeded(accountID)
+    }
     const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
-      await submitUpdateAccount(accountID, updatePayload)
+      await submitUpdateAccount(accountID, updatePayload, persistUpstreamBinding)
     })
     if (!canContinue) {
       return
     }
 
-    await submitUpdateAccount(accountID, updatePayload)
+    await submitUpdateAccount(accountID, updatePayload, persistUpstreamBinding)
   } catch (error: any) {
     appStore.showError(error.message || t('admin.accounts.failedToUpdate'))
   }

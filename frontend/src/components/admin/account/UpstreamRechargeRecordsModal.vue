@@ -9,12 +9,15 @@
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2">
-            <span class="text-lg font-semibold text-stone-950 dark:text-white">{{ account?.name || '-' }}</span>
+            <span class="text-lg font-semibold text-stone-950 dark:text-white">{{ targetName }}</span>
             <span class="rounded-md bg-stone-100 px-2 py-1 text-xs font-medium text-stone-700 dark:bg-white/[0.07] dark:text-stone-200">
-              {{ account?.platform || '-' }}
+              {{ targetPrimaryMeta }}
             </span>
-            <span class="rounded-md bg-sky-50 px-2 py-1 text-xs font-medium text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">
-              {{ account?.type || '-' }}
+            <span
+              v-if="targetSecondaryMeta"
+              class="rounded-md bg-sky-50 px-2 py-1 text-xs font-medium text-sky-700 dark:bg-sky-500/10 dark:text-sky-300"
+            >
+              {{ targetSecondaryMeta }}
             </span>
           </div>
         </div>
@@ -183,7 +186,10 @@
                 {{ summary.record_count }} {{ t('admin.accounts.upstreamCost.rechargeRecords.records') }}
               </p>
             </div>
-            <div class="flex flex-wrap gap-2">
+            <div v-if="isPoolMode" class="text-xs text-stone-500 dark:text-stone-400">
+              {{ t('admin.accounts.upstreamCost.rechargeRecords.poolAutoApplyHint') }}
+            </div>
+            <div v-else class="flex flex-wrap gap-2">
               <button
                 type="button"
                 class="btn btn-secondary h-9 px-3 text-xs"
@@ -296,6 +302,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type {
+  UpstreamCostPool,
   UpstreamRechargeRecord,
   UpstreamRechargeRecordPayload,
   UpstreamRechargeRecordType,
@@ -316,24 +323,27 @@ import {
 
 const props = defineProps<{
   show: boolean
-  account: Account | null
+  account?: Account | null
+  costPool?: UpstreamCostPool | null
 }>()
 
 const emit = defineEmits<{
   close: []
   updated: [account: Account]
+  'pool-updated': []
 }>()
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const paidCurrency = 'CNY'
 const receivedCreditCurrency = 'USD'
+const defaultReferenceFXRate = computed(() => props.costPool?.reference_fx_rate || DEFAULT_UPSTREAM_REFERENCE_FX_RATE)
 
 const emptySummary = (): UpstreamRechargeSummary => ({
   record_count: 0,
   total_paid_amount: 0,
   total_received_credit_amount: 0,
-  reference_fx_rate: DEFAULT_UPSTREAM_REFERENCE_FX_RATE
+  reference_fx_rate: defaultReferenceFXRate.value
 })
 
 const records = ref<UpstreamRechargeRecord[]>([])
@@ -345,6 +355,16 @@ const error = ref<string | null>(null)
 const editingRecordId = ref<number | null>(null)
 const deleteTarget = ref<UpstreamRechargeRecord | null>(null)
 const receivedCreditManual = ref(false)
+const isPoolMode = computed(() => Boolean(props.costPool?.id))
+const targetName = computed(() => props.costPool?.supplier_name || props.account?.name || '-')
+const targetPrimaryMeta = computed(() => {
+  if (props.costPool) return props.costPool.name || t('admin.accounts.upstreamCost.supplierPool')
+  return props.account?.platform || '-'
+})
+const targetSecondaryMeta = computed(() => {
+  if (props.costPool) return t('admin.accounts.upstreamCost.supplierRechargeScope')
+  return props.account?.type || ''
+})
 
 const form = reactive({
   type: 'recharge' as UpstreamRechargeRecordType,
@@ -373,7 +393,9 @@ const canSubmit = computed(() => {
 const primaryPaidCurrency = computed(() => records.value[0]?.paid_currency || form.paidCurrency || 'CNY')
 const primaryCreditCurrency = computed(() => records.value[0]?.received_credit_currency || form.receivedCreditCurrency || 'USD')
 const accountCostProfile = computed(() => readUpstreamCostProfile(props.account?.extra as Record<string, unknown> | undefined))
-const configuredRechargeCNYPerUSD = computed(() => accountCostProfile.value.recharge_cny_per_usd)
+const configuredRechargeCNYPerUSD = computed(() => (
+  props.costPool?.current_effective_cny_per_usd || accountCostProfile.value.recharge_cny_per_usd
+))
 const autoReceivedCreditAvailable = computed(() => {
   const rate = configuredRechargeCNYPerUSD.value
   return Boolean(
@@ -384,7 +406,7 @@ const autoReceivedCreditAvailable = computed(() => {
 })
 
 watch(
-  () => [props.show, props.account?.id] as const,
+  () => [props.show, props.account?.id, props.costPool?.id] as const,
   ([show]) => {
     if (show) {
       resetForm()
@@ -414,11 +436,13 @@ watch(
 )
 
 const loadRecords = async () => {
-  if (!props.account) return
+  if (!props.account && !props.costPool) return
   loading.value = true
   error.value = null
   try {
-    const result = await adminAPI.accounts.listUpstreamRechargeRecords(props.account.id)
+    const result = props.costPool
+      ? await adminAPI.accounts.listUpstreamCostPoolRechargeRecords(props.costPool.id)
+      : await adminAPI.accounts.listUpstreamRechargeRecords(props.account!.id)
     records.value = result.items || []
     summary.value = result.summary || emptySummary()
   } catch (err: any) {
@@ -429,20 +453,31 @@ const loadRecords = async () => {
 }
 
 const submitRecord = async () => {
-  if (!props.account || saving.value || !canSubmit.value) return
+  if ((!props.account && !props.costPool) || saving.value || !canSubmit.value) return
   saving.value = true
   error.value = null
   try {
     const payload = buildPayload()
     if (editingRecordId.value) {
-      await adminAPI.accounts.updateUpstreamRechargeRecord(props.account.id, editingRecordId.value, payload)
+      if (props.costPool) {
+        await adminAPI.accounts.updateUpstreamCostPoolRechargeRecord(props.costPool.id, editingRecordId.value, payload)
+      } else {
+        await adminAPI.accounts.updateUpstreamRechargeRecord(props.account!.id, editingRecordId.value, payload)
+      }
       appStore.showSuccess(t('admin.accounts.upstreamCost.rechargeRecords.saved'))
     } else {
-      await adminAPI.accounts.createUpstreamRechargeRecord(props.account.id, payload)
+      if (props.costPool) {
+        await adminAPI.accounts.createUpstreamCostPoolRechargeRecord(props.costPool.id, payload)
+      } else {
+        await adminAPI.accounts.createUpstreamRechargeRecord(props.account!.id, payload)
+      }
       appStore.showSuccess(t('admin.accounts.upstreamCost.rechargeRecords.created'))
     }
     resetForm()
     await loadRecords()
+    if (props.costPool) {
+      emit('pool-updated')
+    }
   } catch (err: any) {
     error.value = err?.message || t('admin.accounts.upstreamCost.rechargeRecords.saveFailed')
   } finally {
@@ -456,7 +491,7 @@ const buildPayload = (): UpstreamRechargeRecordPayload => ({
   paid_currency: paidCurrency,
   received_credit_amount: numberFromInput(form.receivedCreditAmount),
   received_credit_currency: receivedCreditCurrency,
-  reference_fx_rate: numberFromInput(form.referenceFXRate) || DEFAULT_UPSTREAM_REFERENCE_FX_RATE,
+  reference_fx_rate: numberFromInput(form.referenceFXRate) || defaultReferenceFXRate.value,
   recorded_at: fromDateTimeLocal(form.recordedAt),
   note: form.note.trim() || null
 })
@@ -469,7 +504,7 @@ const resetForm = () => {
   form.paidCurrency = paidCurrency
   form.receivedCreditAmount = ''
   form.receivedCreditCurrency = receivedCreditCurrency
-  form.referenceFXRate = String(DEFAULT_UPSTREAM_REFERENCE_FX_RATE)
+  form.referenceFXRate = String(defaultReferenceFXRate.value)
   form.recordedAt = toDateTimeLocal(new Date())
   form.note = ''
 }
@@ -482,7 +517,7 @@ const startEdit = (record: UpstreamRechargeRecord) => {
   form.paidCurrency = paidCurrency
   form.receivedCreditAmount = String(record.received_credit_amount)
   form.receivedCreditCurrency = receivedCreditCurrency
-  form.referenceFXRate = String(record.reference_fx_rate || DEFAULT_UPSTREAM_REFERENCE_FX_RATE)
+  form.referenceFXRate = String(record.reference_fx_rate || defaultReferenceFXRate.value)
   form.recordedAt = toDateTimeLocal(record.recorded_at)
   form.note = record.note || ''
 }
@@ -492,24 +527,31 @@ const askDelete = (record: UpstreamRechargeRecord) => {
 }
 
 const confirmDelete = async () => {
-  if (!props.account || !deleteTarget.value) return
+  if ((!props.account && !props.costPool) || !deleteTarget.value) return
   const target = deleteTarget.value
   deleteTarget.value = null
   error.value = null
   try {
-    await adminAPI.accounts.deleteUpstreamRechargeRecord(props.account.id, target.id)
+    if (props.costPool) {
+      await adminAPI.accounts.deleteUpstreamCostPoolRechargeRecord(props.costPool.id, target.id)
+    } else {
+      await adminAPI.accounts.deleteUpstreamRechargeRecord(props.account!.id, target.id)
+    }
     if (editingRecordId.value === target.id) {
       resetForm()
     }
     appStore.showSuccess(t('admin.accounts.upstreamCost.rechargeRecords.deleted'))
     await loadRecords()
+    if (props.costPool) {
+      emit('pool-updated')
+    }
   } catch (err: any) {
     error.value = err?.message || t('admin.accounts.upstreamCost.rechargeRecords.deleteFailed')
   }
 }
 
 const applyCost = async (mode: 'latest' | 'weighted') => {
-  if (!props.account || applying.value) return
+  if (!props.account || props.costPool || applying.value) return
   const value = mode === 'latest'
     ? summary.value.latest_effective_cny_per_usd
     : summary.value.weighted_effective_cny_per_usd
@@ -610,7 +652,10 @@ const formatCost = (value?: number | null) => {
 
 const formatDiscount = (value?: number | null) => {
   if (!Number.isFinite(Number(value))) return '-'
-  return formatUpstreamDiscountLabel(Number(value) * 10)
+  return formatUpstreamDiscountLabel(Number(value) * 10, {
+    suffix: t('admin.accounts.upstreamCost.discountSuffix'),
+    notConfiguredLabel: t('admin.accounts.upstreamCost.notConfigured')
+  })
 }
 
 const typeLabel = (value: string) => {
