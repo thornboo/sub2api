@@ -216,7 +216,8 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	// It must take precedence over user-configured 429 temp-unsched rules,
 	// otherwise a broad "rate limit" keyword rule can shorten a multi-hour
 	// cooldown to a local temporary pause.
-	if statusCode == http.StatusTooManyRequests && account.Platform == PlatformAnthropic {
+	isAnthropic429 := statusCode == http.StatusTooManyRequests && account.Platform == PlatformAnthropic
+	if isAnthropic429 {
 		// 7d_oi 是 Fable 模型专属的 7d 窗口：只标记模型级限流，账号对其他模型仍可调度。
 		fableLimited := s.persistAnthropicFableWindowLimit(ctx, account, headers)
 		if s.persistAnthropicExhaustedWindowLimit(ctx, account, headers) {
@@ -227,7 +228,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		}
 	}
 
-	if len(requestedModel) > 0 && !(statusCode == http.StatusTooManyRequests && account.Platform == PlatformAnthropic) {
+	if len(requestedModel) > 0 && !isAnthropic429 {
 		if handled, shouldFailover := s.HandleModelScopedFailure(ctx, account, requestedModel[0], statusCode, headers, responseBody); handled {
 			// Model-scoped upstream failures should fail over the current request,
 			// but the persisted state mutation stays limited to account+model.
