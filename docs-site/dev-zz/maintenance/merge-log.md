@@ -2,6 +2,39 @@
 
 这里记录二开分支吸收上游变更的同步工作。
 
+## 2026-07-07 - 将 `dev-zz-develop` 供应商成本排序修正提升到 `dev-zz`
+
+分支：
+- 目标：`dev-zz`
+- 来源：`dev-zz-develop`
+- 合并前目标：`cde90d58`
+- 功能提交：`ee2a8d20`
+- 发布提交：本条所在提交
+- 发布标签：`v1.4.8`
+
+发布要点：
+- 账号列表供应商成本列移到「分组」列后方。
+- 「综合折扣」和「倍率」按页面实际展示口径支持服务端排序。
+- 成本对比页保持供应商视角，继续作为供应商级充值记录入口。
+- 补齐 `changelog.md` 和 `patches.md` 记录后再提升到 `dev-zz` 并发布 patch tag。
+
+合并策略：
+- 以 `dev-zz-develop` 的供应商成本排序提交作为来源，先补本文档、补丁记录、变更记录和版本号。
+- `dev-zz` 与 `dev-zz-develop` 保持同一发布提交后打 `v1.4.8`。
+- 只发布 dev-zz 二开 patch，不同步新的上游 `main`。
+
+验证：
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `go test ./internal/repository`
+- `golangci-lint run --timeout=30m`
+- `pnpm --dir docs-site docs:build`
+- `git diff --check`
+
+未验证：
+- Docker / testcontainers 依赖的数据库集成排序用例未能在本机运行；本地环境报 `rootless Docker not found`。
+- 浏览器人工 smoke。
+
 ## 2026-07-07 - 将上游 `main` 合并到 `dev-zz-develop`：供应商成本口径与上游调度/错误请求能力合流
 
 分支：

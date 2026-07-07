@@ -1,5 +1,37 @@
 # 补丁记录
 
+## 2026-07-07 - 账号列表供应商成本列与排序
+
+范围：
+- 前端：管理端账号列表供应商成本列位置、综合折扣排序、倍率排序。
+- 后端：账号列表仓储的 `upstream_effective_discount` / `upstream_multiplier` 服务端排序。
+- 文档：`docs-site/dev-zz/changelog.md`、`patches.md`、`maintenance/merge-log.md`。
+- 发布：`backend/cmd/server/VERSION` 更新为 `1.4.8`，用于 `v1.4.8` patch release。
+
+改动：
+- 账号列表把「供应商、综合折扣、充值/汇率、倍率」移动到「分组」列后方，保留账号基础信息和调度字段原有顺序。
+- 「综合折扣」列启用服务端排序，排序值与页面展示保持一致：`current_effective_cny_per_usd / reference_fx_rate * default_multiplier`。
+- 「倍率」列启用服务端排序，读取账号 active 供应商绑定的默认倍率；未绑定、供应商归档或成本未配置的账号排在排序末尾。
+- 后端排序 JOIN 只读取 active 账号成本绑定、active 且未归档的资金池和 active 供应商，避免旧绑定或归档供应商影响列表排序。
+- 补充账号仓储 SQL 形态单测和数据库集成测试用例，覆盖综合折扣与倍率排序口径。
+
+边界：
+- 不改变普通用户扣费。
+- 不改变调度逻辑或供应商成本快照计算。
+- 不把供应商、资金池、上游余额、真实成本或利润字段暴露给普通用户侧接口。
+
+验证：
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `go test ./internal/repository`
+- `golangci-lint run --timeout=30m`
+- `pnpm --dir docs-site docs:build`
+- `git diff --check`
+
+未验证：
+- Docker / testcontainers 依赖的数据库集成排序用例未能在本机运行；本地环境报 `rootless Docker not found`。
+- 浏览器人工 smoke。
+
 ## 2026-07-06 - 上游成本池 Phase 1 后端兼容层
 
 范围：
