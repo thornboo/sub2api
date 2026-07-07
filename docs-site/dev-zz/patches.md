@@ -1,5 +1,32 @@
 # 补丁记录
 
+## 2026-07-07 - v1.4.9 Security Scan exception follow-up
+
+范围：
+- CI：`.github/audit-exceptions.yml` 中 `xlsx` 两个 high advisory 的例外说明和到期日。
+- 发布：`backend/cmd/server/VERSION` 更新为 `1.4.9`，用于 `v1.4.9` patch release。
+- 文档：`docs-site/dev-zz/changelog.md`、`patches.md`、`maintenance/merge-log.md`。
+
+改动：
+- 将 `xlsx` 的 `GHSA-4r6h-8v6p-xvw6` 和 `GHSA-5pgg-2g8v-p4x9` 例外到期日从 `2026-07-06` 延长到 `2026-08-07`。
+- 更新例外理由：当前代码只用 `xlsx` 生成导出文件，不调用 `xlsx.read` / `readFile` 解析用户上传的 XLSX 文件；相关功能仍通过动态 import 仅在导出时加载。
+- 本次不改变前端导出行为、不引入依赖升级、不修改业务代码。
+
+边界：
+- 这不是漏洞修复，只是对现有已接受风险的有效期和说明做续期；后续仍应评估替换 `xlsx` 或迁移到可维护的表格导出库。
+- `v1.4.8` release 已成功发布，但 Security Scan 因过期例外失败；`v1.4.9` 作为 CI follow-up patch supersede `v1.4.8`。
+
+验证：
+- `python tools/check_pnpm_audit_exceptions.py --audit frontend/audit.json --exceptions .github/audit-exceptions.yml`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir docs-site docs:build`
+- `git diff --check`
+
+未验证：
+- 未替换 `xlsx` 依赖。
+- 浏览器人工 smoke。
+
 ## 2026-07-07 - 账号列表供应商成本列与排序
 
 范围：

@@ -2,6 +2,36 @@
 
 这里记录二开分支吸收上游变更的同步工作。
 
+## 2026-07-07 - 将 Security Scan exception follow-up 提升到 `dev-zz`
+
+分支：
+- 目标：`dev-zz`
+- 来源：`dev-zz-develop`
+- 合并前目标：`edb14865`
+- 发布提交：本条所在提交
+- 发布标签：`v1.4.9`
+
+发布要点：
+- `v1.4.8` release workflow 已成功发布镜像和 release 产物，但 Security Scan 因 `xlsx` audit exception 在 `2026-07-06` 到期而失败。
+- 本次只刷新 `xlsx` 两个 high advisory 的例外说明与到期日，保留“只导出、不解析用户上传 XLSX”的风险接受前提。
+- `v1.4.9` 作为 CI follow-up patch，覆盖 `v1.4.8` 的红色 Security Scan 状态。
+
+合并策略：
+- 不同步新的上游 `main`。
+- 不修改业务代码、不调整供应商成本排序行为。
+- 先在 `dev-zz-develop` 提交 security metadata 和版本记录，再快进 `dev-zz` 并打 `v1.4.9`。
+
+验证：
+- `python tools/check_pnpm_audit_exceptions.py --audit frontend/audit.json --exceptions .github/audit-exceptions.yml`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir docs-site docs:build`
+- `git diff --check`
+
+未验证：
+- 未替换 `xlsx` 依赖。
+- 浏览器人工 smoke。
+
 ## 2026-07-07 - 将 `dev-zz-develop` 供应商成本排序修正提升到 `dev-zz`
 
 分支：
