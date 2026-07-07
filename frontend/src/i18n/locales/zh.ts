@@ -1984,8 +1984,6 @@ export default {
       configureAiAccounts: '配置 AI 平台账号',
       batchImage: '批量生图',
       batchImageDesc: '提交任务、复制 Agent 调用说明',
-      groupPricing: '分组定价',
-      groupPricingDesc: '设置批量折扣和冻结比例',
       systemSettings: '系统设置',
       configureSystem: '配置系统设置',
       failedToLoad: '加载仪表盘数据失败'

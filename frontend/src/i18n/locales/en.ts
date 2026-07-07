@@ -1971,8 +1971,6 @@ export default {
       quickActions: 'Quick Actions',
       batchImage: 'Batch Image',
       batchImageDesc: 'Submit jobs and copy agent instructions',
-      groupPricing: 'Group Pricing',
-      groupPricingDesc: 'Configure batch discount and hold ratio',
       failedToLoad: 'Failed to load dashboard statistics'
     },
 
