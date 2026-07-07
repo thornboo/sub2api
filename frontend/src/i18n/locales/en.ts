@@ -1404,12 +1404,14 @@ export default {
     searchPlaceholder: 'Search models...',
     allProviders: 'All Providers',
     loadError: 'Failed to load model status',
+    tokenUsageLoadError: 'Failed to load self-check token usage',
     detailLoadError: 'Failed to load model detail',
     detailTitle: 'Model Detail',
     closeDetail: 'Close',
     unknownGroup: 'Unnamed group',
     groupPrefix: 'Group: ',
     windowTab: {
+      today: 'Today',
       '24h': '24 hours',
       '7d': '7 days',
       '15d': '15 days',
@@ -1430,6 +1432,10 @@ export default {
     metrics: {
       latency: 'Avg Latency',
       avgLatency7d: '7d Avg Latency',
+      selfCheckTokens: 'Global Self-check Tokens',
+      selfCheckTokensScope: 'Aggregated globally by model, not by group',
+      inputTokens: 'Input',
+      outputTokens: 'Output',
       lastChecked: 'Last Checked'
     },
     message: {

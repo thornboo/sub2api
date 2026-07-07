@@ -16,6 +16,8 @@ type modelSelfCheckRepoStub struct {
 	history          []ModelSelfCheckHistory
 	timeline         []ModelSelfCheckHistory
 	snapshots        []ModelSelfCheckStatusSnapshot
+	tokenUsage       []ModelSelfCheckTokenUsage
+	tokenUsageSince  time.Time
 	created          []ModelSelfCheckHistory
 	createdSnapshots []ModelSelfCheckStatusSnapshot
 }
@@ -139,6 +141,11 @@ func (s *modelSelfCheckRepoStub) ListStatusSnapshotsSince(ctx context.Context, g
 	return out, nil
 }
 
+func (s *modelSelfCheckRepoStub) ListTokenUsageSince(ctx context.Context, since time.Time) ([]ModelSelfCheckTokenUsage, error) {
+	s.tokenUsageSince = since
+	return append([]ModelSelfCheckTokenUsage(nil), s.tokenUsage...), nil
+}
+
 func (s *modelSelfCheckRepoStub) CreateHistory(ctx context.Context, history *ModelSelfCheckHistory) error {
 	if history != nil {
 		s.created = append(s.created, *history)
@@ -258,6 +265,43 @@ func TestListUserModelStatusAggregatesSelfCheckByGroupModel(t *testing.T) {
 	}
 	assertFloatNear(t, row.Availability24h, 66.6666667)
 	assertFloatNear(t, row.DegradedRatio24h, 33.3333333)
+}
+
+func TestListUserModelStatusIncludesRecentTimeline(t *testing.T) {
+	now := time.Date(2026, 7, 8, 10, 0, 0, 0, time.UTC)
+	repo := &modelSelfCheckRepoStub{
+		targets: []ModelSelfCheckTarget{{
+			GroupID:       10,
+			GroupName:     "Pro",
+			GroupPlatform: PlatformOpenAI,
+			Model:         "gpt-4o",
+		}},
+		accounts: []ModelSelfCheckTargetAccount{
+			{GroupID: 10, AccountID: 1, Platform: PlatformOpenAI},
+		},
+		latest: []ModelSelfCheckHistory{
+			{Model: "gpt-4o", AccountID: 1, Platform: PlatformOpenAI, Status: MonitorStatusOperational, LatencyMs: modelStatusIntPtr(500), CheckedAt: now.Add(-30 * time.Second)},
+		},
+		snapshots: []ModelSelfCheckStatusSnapshot{
+			{ID: 2, GroupID: 10, Model: "gpt-4o", Status: MonitorStatusOperational, ReasonCode: modelSelfCheckSnapshotReasonOK, LatencyMs: modelStatusIntPtr(500), CheckedAt: now.Add(-1 * time.Minute)},
+			{ID: 1, GroupID: 10, Model: "gpt-4o", Status: MonitorStatusFailed, ReasonCode: modelSelfCheckSnapshotReasonNoAvailableAccount, CheckedAt: now.Add(-2 * time.Minute)},
+		},
+	}
+	svc := NewModelSelfCheckService(repo)
+	svc.now = func() time.Time { return now }
+
+	rows, err := svc.ListUserModelStatus(context.Background())
+	if err != nil {
+		t.Fatalf("ListUserModelStatus() error = %v", err)
+	}
+
+	row := findModelStatusRow(t, rows, 10, "gpt-4o")
+	if len(row.Timeline) != 2 {
+		t.Fatalf("timeline = %#v, want two snapshot points", row.Timeline)
+	}
+	if row.Timeline[0].Status != MonitorStatusOperational || row.Timeline[1].Status != MonitorStatusFailed {
+		t.Fatalf("timeline statuses = %#v, want newest snapshot order", row.Timeline)
+	}
 }
 
 func TestListUserModelStatusMarksUnknownWhenLatestIsStale(t *testing.T) {
@@ -594,9 +638,11 @@ func TestRunProbeCallsExecutorAndRecordsHistory(t *testing.T) {
 	httpStatus := 200
 	executor := &modelSelfCheckProbeExecutorStub{
 		result: ModelSelfCheckProbeResult{
-			Status:     MonitorStatusOperational,
-			LatencyMs:  &latency,
-			HTTPStatus: &httpStatus,
+			Status:       MonitorStatusOperational,
+			LatencyMs:    &latency,
+			HTTPStatus:   &httpStatus,
+			InputTokens:  12,
+			OutputTokens: 1,
 		},
 	}
 	svc := NewModelSelfCheckService(repo)
@@ -627,6 +673,37 @@ func TestRunProbeCallsExecutorAndRecordsHistory(t *testing.T) {
 	}
 	if got.HTTPStatus == nil || *got.HTTPStatus != httpStatus {
 		t.Fatalf("history http status = %v, want %d", got.HTTPStatus, httpStatus)
+	}
+	if got.InputTokens != 12 || got.OutputTokens != 1 {
+		t.Fatalf("history tokens = %d/%d, want 12/1", got.InputTokens, got.OutputTokens)
+	}
+}
+
+func TestListTokenUsageSinceCalculatesTotals(t *testing.T) {
+	since := time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC)
+	repo := &modelSelfCheckRepoStub{
+		tokenUsage: []ModelSelfCheckTokenUsage{
+			{Model: "gpt-4o", InputTokens: 12, OutputTokens: 2},
+			{Model: "claude-sonnet", InputTokens: 30, OutputTokens: 1, TotalTokens: 999},
+		},
+	}
+	svc := NewModelSelfCheckService(repo)
+
+	rows, err := svc.ListTokenUsageSince(context.Background(), since)
+	if err != nil {
+		t.Fatalf("ListTokenUsageSince() error = %v", err)
+	}
+	if !repo.tokenUsageSince.Equal(since) {
+		t.Fatalf("since = %v, want %v", repo.tokenUsageSince, since)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows = %#v, want 2", rows)
+	}
+	if rows[0].TotalTokens != 14 {
+		t.Fatalf("first total = %d, want 14", rows[0].TotalTokens)
+	}
+	if rows[1].TotalTokens != 31 {
+		t.Fatalf("second total = %d, want recomputed 31", rows[1].TotalTokens)
 	}
 }
 

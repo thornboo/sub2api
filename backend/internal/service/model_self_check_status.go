@@ -38,6 +38,7 @@ type ModelSelfCheckRepository interface {
 	ListRecentHistoriesBefore(ctx context.Context, model string, accountIDs []int64, before time.Time, limit int) ([]ModelSelfCheckHistory, error)
 	ListRecentStatusSnapshots(ctx context.Context, groupID int64, model string, limit int) ([]ModelSelfCheckStatusSnapshot, error)
 	ListStatusSnapshotsSince(ctx context.Context, groupID int64, model string, since time.Time) ([]ModelSelfCheckStatusSnapshot, error)
+	ListTokenUsageSince(ctx context.Context, since time.Time) ([]ModelSelfCheckTokenUsage, error)
 	CreateHistory(ctx context.Context, history *ModelSelfCheckHistory) error
 	CreateStatusSnapshot(ctx context.Context, snapshot *ModelSelfCheckStatusSnapshot) error
 	DeleteStatusSnapshotsBefore(ctx context.Context, before time.Time) (int64, error)
@@ -62,15 +63,24 @@ type ModelSelfCheckTargetAccount struct {
 }
 
 type ModelSelfCheckHistory struct {
-	ID         int64
-	Model      string
-	AccountID  int64
-	Platform   string
-	Status     string
-	LatencyMs  *int
-	HTTPStatus *int
-	ErrorCode  string
-	CheckedAt  time.Time
+	ID           int64
+	Model        string
+	AccountID    int64
+	Platform     string
+	Status       string
+	LatencyMs    *int
+	HTTPStatus   *int
+	ErrorCode    string
+	InputTokens  int
+	OutputTokens int
+	CheckedAt    time.Time
+}
+
+type ModelSelfCheckTokenUsage struct {
+	Model        string
+	InputTokens  int64
+	OutputTokens int64
+	TotalTokens  int64
 }
 
 // ModelSelfCheckStatusSnapshot is a user-safe aggregate for one (group, model)
@@ -174,6 +184,20 @@ func (s *ModelSelfCheckService) RecordHistory(ctx context.Context, history *Mode
 	return nil
 }
 
+func (s *ModelSelfCheckService) ListTokenUsageSince(ctx context.Context, since time.Time) ([]ModelSelfCheckTokenUsage, error) {
+	if s == nil || s.repo == nil {
+		return []ModelSelfCheckTokenUsage{}, nil
+	}
+	rows, err := s.repo.ListTokenUsageSince(ctx, since)
+	if err != nil {
+		return nil, fmt.Errorf("list model self check token usage: %w", err)
+	}
+	for i := range rows {
+		rows[i].TotalTokens = rows[i].InputTokens + rows[i].OutputTokens
+	}
+	return rows, nil
+}
+
 // RefreshStatusSnapshots records one user-safe status snapshot for every
 // currently enabled (group, model) self-check target. It also records failure
 // evidence when no account can currently serve the target, which account-level
@@ -233,7 +257,11 @@ func (s *ModelSelfCheckService) ListUserModelStatus(ctx context.Context) ([]*Use
 	}
 	out := make([]*UserModelStatusView, 0, len(data.targets))
 	for _, target := range data.targets {
-		out = append(out, s.buildStatusView(ctx, target, data, nil))
+		timeline, err := s.loadStatusTimeline(ctx, target, data)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, s.buildStatusView(ctx, target, data, timeline))
 	}
 	return out, nil
 }
@@ -496,6 +524,38 @@ func (s *ModelSelfCheckService) applySnapshotDetail(
 	view.Availability30d = availability30d.Availability
 	view.DegradedRatio24h = availability24h.DegradedRatio
 	return true, nil
+}
+
+func (s *ModelSelfCheckService) loadStatusTimeline(
+	ctx context.Context,
+	target ModelSelfCheckTarget,
+	data *modelSelfCheckStatusData,
+) ([]UserModelTimelinePoint, error) {
+	recent, err := s.repo.ListRecentStatusSnapshots(ctx, target.GroupID, target.Model, monitorTimelineMaxPoints)
+	if err != nil {
+		return nil, fmt.Errorf("list model self check status snapshot timeline: %w", err)
+	}
+	if len(recent) > 0 {
+		sortStatusSnapshotsDesc(recent)
+		timeline := timelineFromStatusSnapshots(recent)
+		if len(timeline) < monitorTimelineMaxPoints {
+			accountIDs := s.accountIDsForTarget(ctx, target, data)
+			legacy, err := s.loadTimelineBefore(
+				ctx,
+				target.Model,
+				accountIDs,
+				timeline[len(timeline)-1].CheckedAt,
+				monitorTimelineMaxPoints-len(timeline),
+			)
+			if err != nil {
+				return nil, err
+			}
+			timeline = append(timeline, legacy...)
+		}
+		return timeline, nil
+	}
+	accountIDs := s.accountIDsForTarget(ctx, target, data)
+	return s.loadTimeline(ctx, target.Model, accountIDs)
 }
 
 func findSelfCheckTarget(targets []ModelSelfCheckTarget, groupID int64, model string) (ModelSelfCheckTarget, bool) {

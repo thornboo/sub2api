@@ -101,6 +101,7 @@ func RegisterAdminRoutes(
 
 		// 渠道监控
 		registerChannelMonitorRoutes(admin, h)
+		registerModelSelfCheckRoutes(admin, h)
 
 		// 风控中心
 		registerContentModerationRoutes(admin, h)
@@ -704,6 +705,13 @@ func registerChannelMonitorRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		templates.DELETE("/:id", h.Admin.ChannelMonitorTemplate.Delete)
 		templates.GET("/:id/monitors", h.Admin.ChannelMonitorTemplate.AssociatedMonitors)
 		templates.POST("/:id/apply", h.Admin.ChannelMonitorTemplate.Apply)
+	}
+}
+
+func registerModelSelfCheckRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	selfCheck := admin.Group("/model-self-check")
+	{
+		selfCheck.GET("/token-usage", h.Admin.ModelSelfCheck.GetTokenUsage)
 	}
 }
 

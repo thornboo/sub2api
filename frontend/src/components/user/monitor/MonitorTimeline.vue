@@ -17,7 +17,7 @@
       <div
         v-for="(bar, idx) in displayBars"
         :key="idx"
-        class="group relative flex h-full min-w-[3px] flex-1 items-end"
+        class="timeline-bar relative flex h-full min-w-[3px] flex-1 items-end"
       >
         <div
           class="w-full rounded-sm"
@@ -28,7 +28,7 @@
         <div
           v-if="bar.title"
           role="tooltip"
-          class="pointer-events-none absolute bottom-full z-30 mb-2 max-w-[min(72vw,280px)] whitespace-nowrap rounded-sm border border-stone-700 bg-stone-900 px-2 py-1 text-[11px] font-semibold leading-tight text-stone-50 opacity-0 shadow-lg transition-opacity duration-75 group-hover:opacity-100 dark:border-stone-600 dark:bg-stone-800"
+          class="timeline-tooltip pointer-events-none absolute bottom-full z-30 mb-2 max-w-[min(72vw,280px)] whitespace-nowrap rounded-sm border border-stone-700 bg-stone-900 px-2 py-1 text-[11px] font-semibold leading-tight text-stone-50 opacity-0 shadow-lg transition-opacity duration-75 dark:border-stone-600 dark:bg-stone-800"
           :class="bar.tooltipClass"
         >
           {{ bar.title }}
@@ -141,3 +141,9 @@ function tooltipAlignClass(index: number, total: number): string {
   return 'left-1/2 -translate-x-1/2'
 }
 </script>
+
+<style scoped>
+.timeline-bar:hover > .timeline-tooltip {
+  opacity: 1;
+}
+</style>

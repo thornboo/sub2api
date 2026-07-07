@@ -184,6 +184,12 @@
                 </div>
               </div>
 
+              <MonitorTimeline
+                :buckets="item.timeline ?? []"
+                :countdown-seconds="countdown"
+                :length="60"
+              />
+
               <div class="mt-auto pt-5 text-xs text-stone-500 dark:text-stone-400">
                 {{ t('channelStatus.metrics.lastChecked') }}:
                 <span class="font-medium text-stone-700 dark:text-stone-300">{{ formatRelativeTime(item.last_checked_at) }}</span>
@@ -244,6 +250,52 @@
           </div>
         </div>
 
+        <div
+          v-if="isAdmin"
+          class="rounded-lg border border-emerald-500/15 bg-emerald-50/60 p-4 dark:border-emerald-400/15 dark:bg-emerald-400/[0.06]"
+        >
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div class="min-w-0">
+              <div class="text-xs font-semibold text-stone-700 dark:text-stone-200">
+                {{ t('channelStatus.metrics.selfCheckTokens') }} · {{ currentTokenUsageWindowLabel }}
+              </div>
+              <div class="mt-1 text-xs text-stone-500 dark:text-stone-400">
+                {{ t('channelStatus.metrics.selfCheckTokensScope') }}
+              </div>
+            </div>
+            <div
+              class="font-mono text-2xl font-semibold leading-none text-stone-950 dark:text-stone-50"
+              :title="formatFullTokenCount(detailTokenUsage.total_tokens)"
+            >
+              {{ tokenUsageLoading ? t('common.loading') : formatTokenCount(detailTokenUsage.total_tokens) }}
+            </div>
+          </div>
+          <div class="mt-4 grid grid-cols-2 gap-3">
+            <div class="rounded-lg bg-white/70 p-3 dark:bg-white/[0.06]">
+              <div class="text-[11px] font-medium text-stone-500 dark:text-stone-400">
+                {{ t('channelStatus.metrics.inputTokens') }}
+              </div>
+              <div
+                class="mt-1 font-mono text-base font-semibold text-stone-950 dark:text-stone-50"
+                :title="formatFullTokenCount(detailTokenUsage.input_tokens)"
+              >
+                {{ formatTokenCount(detailTokenUsage.input_tokens) }}
+              </div>
+            </div>
+            <div class="rounded-lg bg-white/70 p-3 dark:bg-white/[0.06]">
+              <div class="text-[11px] font-medium text-stone-500 dark:text-stone-400">
+                {{ t('channelStatus.metrics.outputTokens') }}
+              </div>
+              <div
+                class="mt-1 font-mono text-base font-semibold text-stone-950 dark:text-stone-50"
+                :title="formatFullTokenCount(detailTokenUsage.output_tokens)"
+              >
+                {{ formatTokenCount(detailTokenUsage.output_tokens) }}
+              </div>
+            </div>
+          </div>
+        </div>
+
         <MonitorTimeline
           :buckets="detail.timeline ?? []"
           :countdown-seconds="countdown"
@@ -266,13 +318,18 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import {
   list as listModelStatus,
   detail as fetchModelStatusDetail,
+  fetchSelfCheckTokenUsage,
   type UserModelStatus,
   type ModelStatus,
+  type SelfCheckTokenUsageItem,
+  type SelfCheckTokenUsageWindow,
 } from '@/api/modelStatus'
+import { formatNumber as formatCompactNumber, formatNumberLocaleString } from '@/utils/format'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import AutoRefreshButton from '@/components/common/AutoRefreshButton.vue'
@@ -294,11 +351,14 @@ interface UserModelStatusGroup {
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const authStore = useAuthStore()
 const { statusLabel, statusBadgeClass, formatLatency, formatPercent, formatRelativeTime } = useChannelMonitorFormat()
 
 const items = ref<UserModelStatus[]>([])
+const tokenUsageItems = ref<SelfCheckTokenUsageItem[]>([])
 const updatedAt = ref<string | null>(null)
 const loading = ref(false)
+const tokenUsageLoading = ref(false)
 const search = ref('')
 const currentWindow = ref<StatusWindow>('24h')
 const showDetail = ref(false)
@@ -307,6 +367,7 @@ const detail = ref<UserModelStatus | null>(null)
 const detailTarget = ref<UserModelStatus | null>(null)
 
 let abortController: AbortController | null = null
+let tokenUsageAbortController: AbortController | null = null
 
 const autoRefresh = useAutoRefresh({
   storageKey: 'model-status-auto-refresh',
@@ -322,6 +383,24 @@ const windowOptions = computed<{ value: StatusWindow; label: string }[]>(() => [
   { value: '7d', label: t('channelStatus.windowTab.7d') },
   { value: '30d', label: t('channelStatus.windowTab.30d') },
 ])
+
+const isAdmin = computed(() => authStore.isAdmin)
+
+const currentTokenUsageWindow = computed<SelfCheckTokenUsageWindow>(() =>
+  currentWindow.value === '24h' ? 'today' : currentWindow.value
+)
+
+const currentTokenUsageWindowLabel = computed(() =>
+  t(`channelStatus.windowTab.${currentTokenUsageWindow.value}`)
+)
+
+const tokenUsageByModel = computed(() => {
+  const usage = new Map<string, SelfCheckTokenUsageItem>()
+  for (const item of tokenUsageItems.value) {
+    usage.set(item.model, item)
+  }
+  return usage
+})
 
 const filteredItems = computed(() => {
   const q = search.value.toLowerCase()
@@ -401,6 +480,11 @@ const detailTitle = computed(() =>
     : t('channelStatus.detailTitle')
 )
 
+const detailTokenUsage = computed<SelfCheckTokenUsageItem>(() => {
+  const model = detail.value?.model || detailTarget.value?.model || ''
+  return tokenUsageForModel(model)
+})
+
 function statusPriority(status: ModelStatus): number {
   switch (status) {
     case STATUS_FAILED:
@@ -438,6 +522,48 @@ function formatLatencyWithUnit(ms: number | null | undefined): string {
   return `${formatLatency(ms)}ms`
 }
 
+function tokenUsageForModel(model: string): SelfCheckTokenUsageItem {
+  return tokenUsageByModel.value.get(model) ?? {
+    model,
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+  }
+}
+
+function formatTokenCount(value: number): string {
+  return formatCompactNumber(value)
+}
+
+function formatFullTokenCount(value: number): string {
+  return formatNumberLocaleString(Math.max(0, Math.trunc(value || 0)))
+}
+
+async function loadSelfCheckTokenUsage(silent = false) {
+  if (!isAdmin.value) {
+    tokenUsageItems.value = []
+    return
+  }
+  if (tokenUsageAbortController) tokenUsageAbortController.abort()
+  const ctrl = new AbortController()
+  tokenUsageAbortController = ctrl
+  if (!silent) tokenUsageLoading.value = true
+  try {
+    const res = await fetchSelfCheckTokenUsage(currentTokenUsageWindow.value, { signal: ctrl.signal })
+    if (ctrl.signal.aborted || tokenUsageAbortController !== ctrl) return
+    tokenUsageItems.value = res.items || []
+  } catch (err: unknown) {
+    const e = err as { name?: string; code?: string }
+    if (e?.name === 'AbortError' || e?.code === 'ERR_CANCELED') return
+    appStore.showError(extractApiErrorMessage(err, t('channelStatus.tokenUsageLoadError')))
+  } finally {
+    if (tokenUsageAbortController === ctrl) {
+      if (!silent) tokenUsageLoading.value = false
+      tokenUsageAbortController = null
+    }
+  }
+}
+
 async function reload(silent = false) {
   if (abortController) abortController.abort()
   const ctrl = new AbortController()
@@ -448,6 +574,7 @@ async function reload(silent = false) {
     if (ctrl.signal.aborted || abortController !== ctrl) return
     items.value = res.items || []
     updatedAt.value = res.updated_at
+    await loadSelfCheckTokenUsage(true)
   } catch (err: unknown) {
     const e = err as { name?: string; code?: string }
     if (e?.name === 'AbortError' || e?.code === 'ERR_CANCELED') return
@@ -500,6 +627,15 @@ watch(
   },
 )
 
+watch(currentTokenUsageWindow, () => {
+  if (isAdmin.value) void loadSelfCheckTokenUsage(false)
+})
+
+watch(isAdmin, (admin) => {
+  if (admin) void loadSelfCheckTokenUsage(false)
+  else tokenUsageItems.value = []
+})
+
 onMounted(() => {
   void reload(false)
   if (appStore.cachedPublicSettings?.channel_monitor_enabled !== false) {
@@ -509,5 +645,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (abortController) abortController.abort()
+  if (tokenUsageAbortController) tokenUsageAbortController.abort()
 })
 </script>

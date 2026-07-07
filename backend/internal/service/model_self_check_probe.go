@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 const (
@@ -38,10 +39,12 @@ type ModelSelfCheckProbeTask struct {
 }
 
 type ModelSelfCheckProbeResult struct {
-	Status     string
-	LatencyMs  *int
-	HTTPStatus *int
-	ErrorCode  string
+	Status       string
+	LatencyMs    *int
+	HTTPStatus   *int
+	ErrorCode    string
+	InputTokens  int
+	OutputTokens int
 }
 
 type ModelSelfCheckProbeExecutor interface {
@@ -142,13 +145,15 @@ func (s *ModelSelfCheckService) RunProbe(ctx context.Context, task ModelSelfChec
 	}
 	result := s.probeExecutor.Probe(ctx, account, model)
 	return s.RecordHistory(ctx, &ModelSelfCheckHistory{
-		Model:      model,
-		AccountID:  account.ID,
-		Platform:   account.Platform,
-		Status:     result.Status,
-		LatencyMs:  result.LatencyMs,
-		HTTPStatus: result.HTTPStatus,
-		ErrorCode:  result.ErrorCode,
+		Model:        model,
+		AccountID:    account.ID,
+		Platform:     account.Platform,
+		Status:       result.Status,
+		LatencyMs:    result.LatencyMs,
+		HTTPStatus:   result.HTTPStatus,
+		ErrorCode:    result.ErrorCode,
+		InputTokens:  result.InputTokens,
+		OutputTokens: result.OutputTokens,
 	})
 }
 
@@ -217,19 +222,20 @@ func (e *gatewayModelSelfCheckProbeExecutor) Probe(ctx context.Context, account 
 	var status int
 	var err error
 	var duration time.Duration
+	var usage modelSelfCheckTokenUsage
 
 	switch strings.ToLower(strings.TrimSpace(account.Platform)) {
 	case PlatformOpenAI:
-		status, duration, err = e.probeOpenAI(ctx, account, model)
+		status, duration, usage, err = e.probeOpenAI(ctx, account, model)
 	case PlatformGemini:
-		status, duration, err = e.probeGemini(ctx, account, model)
+		status, duration, usage, err = e.probeGemini(ctx, account, model)
 	case PlatformAntigravity:
-		status, duration, err = e.probeAntigravity(ctx, account, model)
+		status, duration, usage, err = e.probeAntigravity(ctx, account, model)
 	case PlatformAnthropic:
-		status, duration, err = e.probeAnthropic(ctx, account, model)
+		status, duration, usage, err = e.probeAnthropic(ctx, account, model)
 	default:
 		if account.IsBedrock() {
-			status, duration, err = e.probeAnthropic(ctx, account, model)
+			status, duration, usage, err = e.probeAnthropic(ctx, account, model)
 			break
 		}
 		return failedSelfCheckProbeResult(0, modelSelfCheckErrorConfig)
@@ -241,75 +247,155 @@ func (e *gatewayModelSelfCheckProbeExecutor) Probe(ctx context.Context, account 
 	if latency < 0 {
 		latency = 0
 	}
-	return normalizeSelfCheckProbeResult(status, err, latency)
+	result := normalizeSelfCheckProbeResult(status, err, latency)
+	result.InputTokens = usage.InputTokens
+	result.OutputTokens = usage.OutputTokens
+	return result
 }
 
-func (e *gatewayModelSelfCheckProbeExecutor) probeAnthropic(ctx context.Context, account *Account, model string) (int, time.Duration, error) {
+func (e *gatewayModelSelfCheckProbeExecutor) probeAnthropic(ctx context.Context, account *Account, model string) (int, time.Duration, modelSelfCheckTokenUsage, error) {
 	if e == nil || e.gatewayService == nil {
-		return 0, 0, fmt.Errorf("anthropic gateway service is not configured")
+		return 0, 0, modelSelfCheckTokenUsage{}, fmt.Errorf("anthropic gateway service is not configured")
 	}
 	body, err := buildAnthropicSelfCheckBody(model)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, modelSelfCheckTokenUsage{}, err
 	}
 	parsed, err := ParseGatewayRequest(NewRequestBodyRef(body), domain.PlatformAnthropic)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, modelSelfCheckTokenUsage{}, err
 	}
 	c, recorder := newModelSelfCheckGinContext(ctx, "/v1/messages", body)
 	result, err := e.gatewayService.Forward(ctx, c, account, parsed)
+	usage := parseModelSelfCheckTokenUsage(recorder)
 	if result != nil && result.Duration > 0 {
-		return modelSelfCheckHTTPStatus(c, recorder, err), result.Duration, modelSelfCheckProbeError(c, err)
+		return modelSelfCheckHTTPStatus(c, recorder, err), result.Duration, usage, modelSelfCheckProbeError(c, err)
 	}
-	return modelSelfCheckHTTPStatus(c, recorder, err), 0, modelSelfCheckProbeError(c, err)
+	return modelSelfCheckHTTPStatus(c, recorder, err), 0, usage, modelSelfCheckProbeError(c, err)
 }
 
-func (e *gatewayModelSelfCheckProbeExecutor) probeOpenAI(ctx context.Context, account *Account, model string) (int, time.Duration, error) {
+func (e *gatewayModelSelfCheckProbeExecutor) probeOpenAI(ctx context.Context, account *Account, model string) (int, time.Duration, modelSelfCheckTokenUsage, error) {
 	if e == nil || e.openAIGatewayService == nil {
-		return 0, 0, fmt.Errorf("openai gateway service is not configured")
+		return 0, 0, modelSelfCheckTokenUsage{}, fmt.Errorf("openai gateway service is not configured")
 	}
 	body, err := buildChatCompletionsSelfCheckBody(model)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, modelSelfCheckTokenUsage{}, err
 	}
 	c, recorder := newModelSelfCheckGinContext(ctx, "/v1/chat/completions", body)
 	result, err := e.openAIGatewayService.ForwardAsChatCompletions(ctx, c, account, body, "", "")
+	usage := parseModelSelfCheckTokenUsage(recorder)
 	if result != nil && result.Duration > 0 {
-		return modelSelfCheckHTTPStatus(c, recorder, err), result.Duration, modelSelfCheckProbeError(c, err)
+		return modelSelfCheckHTTPStatus(c, recorder, err), result.Duration, usage, modelSelfCheckProbeError(c, err)
 	}
-	return modelSelfCheckHTTPStatus(c, recorder, err), 0, modelSelfCheckProbeError(c, err)
+	return modelSelfCheckHTTPStatus(c, recorder, err), 0, usage, modelSelfCheckProbeError(c, err)
 }
 
-func (e *gatewayModelSelfCheckProbeExecutor) probeGemini(ctx context.Context, account *Account, model string) (int, time.Duration, error) {
+func (e *gatewayModelSelfCheckProbeExecutor) probeGemini(ctx context.Context, account *Account, model string) (int, time.Duration, modelSelfCheckTokenUsage, error) {
 	if e == nil || e.geminiCompatService == nil {
-		return 0, 0, fmt.Errorf("gemini compat service is not configured")
+		return 0, 0, modelSelfCheckTokenUsage{}, fmt.Errorf("gemini compat service is not configured")
 	}
 	body, err := buildChatCompletionsSelfCheckBody(model)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, modelSelfCheckTokenUsage{}, err
 	}
 	c, recorder := newModelSelfCheckGinContext(ctx, "/v1/chat/completions", body)
 	result, err := e.geminiCompatService.ForwardAsChatCompletions(ctx, c, account, body)
+	usage := parseModelSelfCheckTokenUsage(recorder)
 	if result != nil && result.Duration > 0 {
-		return modelSelfCheckHTTPStatus(c, recorder, err), result.Duration, modelSelfCheckProbeError(c, err)
+		return modelSelfCheckHTTPStatus(c, recorder, err), result.Duration, usage, modelSelfCheckProbeError(c, err)
 	}
-	return modelSelfCheckHTTPStatus(c, recorder, err), 0, modelSelfCheckProbeError(c, err)
+	return modelSelfCheckHTTPStatus(c, recorder, err), 0, usage, modelSelfCheckProbeError(c, err)
 }
 
-func (e *gatewayModelSelfCheckProbeExecutor) probeAntigravity(ctx context.Context, account *Account, model string) (int, time.Duration, error) {
+func (e *gatewayModelSelfCheckProbeExecutor) probeAntigravity(ctx context.Context, account *Account, model string) (int, time.Duration, modelSelfCheckTokenUsage, error) {
 	if e == nil || e.antigravityGatewayService == nil {
-		return 0, 0, fmt.Errorf("antigravity gateway service is not configured")
+		return 0, 0, modelSelfCheckTokenUsage{}, fmt.Errorf("antigravity gateway service is not configured")
 	}
 	body, err := buildAnthropicSelfCheckBody(model)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, modelSelfCheckTokenUsage{}, err
 	}
 	c, recorder := newModelSelfCheckGinContext(ctx, "/v1/messages", body)
 	result, err := e.antigravityGatewayService.Forward(ctx, c, account, body, false)
+	usage := parseModelSelfCheckTokenUsage(recorder)
 	if result != nil && result.Duration > 0 {
-		return modelSelfCheckHTTPStatus(c, recorder, err), result.Duration, modelSelfCheckProbeError(c, err)
+		return modelSelfCheckHTTPStatus(c, recorder, err), result.Duration, usage, modelSelfCheckProbeError(c, err)
 	}
-	return modelSelfCheckHTTPStatus(c, recorder, err), 0, modelSelfCheckProbeError(c, err)
+	return modelSelfCheckHTTPStatus(c, recorder, err), 0, usage, modelSelfCheckProbeError(c, err)
+}
+
+type modelSelfCheckTokenUsage struct {
+	InputTokens  int
+	OutputTokens int
+}
+
+func parseModelSelfCheckTokenUsage(recorder *httptest.ResponseRecorder) modelSelfCheckTokenUsage {
+	if recorder == nil || recorder.Body == nil {
+		return modelSelfCheckTokenUsage{}
+	}
+	return parseModelSelfCheckTokenUsageBody(recorder.Body.Bytes())
+}
+
+func parseModelSelfCheckTokenUsageBody(body []byte) modelSelfCheckTokenUsage {
+	payload := strings.TrimSpace(string(body))
+	if payload == "" {
+		return modelSelfCheckTokenUsage{}
+	}
+	if usage := parseModelSelfCheckTokenUsageJSON(payload); usage.InputTokens > 0 || usage.OutputTokens > 0 {
+		return usage
+	}
+	var usage modelSelfCheckTokenUsage
+	for _, line := range strings.Split(payload, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+		part := parseModelSelfCheckTokenUsageJSON(data)
+		usage.InputTokens += part.InputTokens
+		usage.OutputTokens += part.OutputTokens
+	}
+	return usage
+}
+
+func parseModelSelfCheckTokenUsageJSON(payload string) modelSelfCheckTokenUsage {
+	if !gjson.Valid(payload) {
+		return modelSelfCheckTokenUsage{}
+	}
+	candidates := []struct {
+		inputPath  string
+		outputPath string
+	}{
+		{inputPath: "usage.input_tokens", outputPath: "usage.output_tokens"},
+		{inputPath: "usage.prompt_tokens", outputPath: "usage.completion_tokens"},
+		{inputPath: "usageMetadata.promptTokenCount", outputPath: "usageMetadata.candidatesTokenCount"},
+		{inputPath: "usageMetadata.promptTokenCount", outputPath: "usageMetadata.outputTokenCount"},
+		{inputPath: "response.usageMetadata.promptTokenCount", outputPath: "response.usageMetadata.candidatesTokenCount"},
+		{inputPath: "response.usageMetadata.promptTokenCount", outputPath: "response.usageMetadata.outputTokenCount"},
+	}
+	for _, candidate := range candidates {
+		input := nonNegativeGJSONInt(gjson.Get(payload, candidate.inputPath))
+		output := nonNegativeGJSONInt(gjson.Get(payload, candidate.outputPath))
+		if input > 0 || output > 0 {
+			return modelSelfCheckTokenUsage{InputTokens: input, OutputTokens: output}
+		}
+	}
+	return modelSelfCheckTokenUsage{}
+}
+
+func nonNegativeGJSONInt(value gjson.Result) int {
+	if !value.Exists() {
+		return 0
+	}
+	n := value.Int()
+	if n <= 0 {
+		return 0
+	}
+	return int(n)
 }
 
 func buildAnthropicSelfCheckBody(model string) ([]byte, error) {

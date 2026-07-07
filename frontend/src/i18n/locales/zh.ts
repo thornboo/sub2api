@@ -1403,12 +1403,14 @@ export default {
     searchPlaceholder: '搜索模型...',
     allProviders: '全部供应商',
     loadError: '加载模型状态失败',
+    tokenUsageLoadError: '加载自检 Token 统计失败',
     detailLoadError: '加载模型详情失败',
     detailTitle: '模型详情',
     closeDetail: '关闭',
     unknownGroup: '未命名分组',
     groupPrefix: '分组：',
     windowTab: {
+      today: '今日',
       '24h': '24 小时',
       '7d': '7 天',
       '15d': '15 天',
@@ -1429,6 +1431,10 @@ export default {
     metrics: {
       latency: '平均延迟',
       avgLatency7d: '7 天平均延迟',
+      selfCheckTokens: '全局自检 Token',
+      selfCheckTokensScope: '按模型全局聚合，不按分组拆分',
+      inputTokens: '输入',
+      outputTokens: '输出',
       lastChecked: '最后检测'
     },
     message: {

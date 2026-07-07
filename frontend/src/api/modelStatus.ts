@@ -1,9 +1,9 @@
 /**
- * User-facing model service status API.
+ * Model service status API.
  *
- * These endpoints intentionally expose only public model health fields. They
- * do not return monitor IDs, providers, accounts, upstream endpoints, or raw
- * upstream errors.
+ * Public endpoints intentionally expose only model health fields. Admin-only
+ * helpers below are guarded by backend admin routes and keep the same
+ * account/upstream redaction boundary.
  */
 
 import { apiClient } from './client'
@@ -54,6 +54,20 @@ export interface ModelStatusListResponse {
   updated_at: string
 }
 
+export type SelfCheckTokenUsageWindow = 'today' | '7d' | '30d'
+
+export interface SelfCheckTokenUsageItem {
+  model: string
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+}
+
+export interface SelfCheckTokenUsageResponse {
+  window: SelfCheckTokenUsageWindow
+  items: SelfCheckTokenUsageItem[]
+}
+
 export async function list(options?: { signal?: AbortSignal }): Promise<ModelStatusListResponse> {
   const { data } = await apiClient.get<ModelStatusListResponse>('/model-status', {
     signal: options?.signal,
@@ -71,9 +85,33 @@ export async function detail(model: string, groupId?: number): Promise<UserModel
   return normalizeModelStatus(data)
 }
 
+export async function fetchSelfCheckTokenUsage(
+  window: SelfCheckTokenUsageWindow,
+  options?: { signal?: AbortSignal }
+): Promise<SelfCheckTokenUsageResponse> {
+  const timezone = getBrowserTimeZone()
+  const { data } = await apiClient.get<SelfCheckTokenUsageResponse>('/admin/model-self-check/token-usage', {
+    params: timezone ? { window, timezone } : { window },
+    signal: options?.signal,
+  })
+  return {
+    window: data.window || 'today',
+    items: Array.isArray(data.items) ? data.items : [],
+  }
+}
+
+function getBrowserTimeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined
+  } catch {
+    return undefined
+  }
+}
+
 export const modelStatusAPI = {
   list,
   detail,
+  fetchSelfCheckTokenUsage,
 }
 
 export default modelStatusAPI

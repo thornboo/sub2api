@@ -249,8 +249,8 @@ func (r *modelSelfCheckRepository) CreateHistory(ctx context.Context, history *s
 	}
 	err := r.db.QueryRowContext(ctx, `
 		INSERT INTO model_self_check_histories
-		    (model, account_id, platform, status, latency_ms, http_status, error_code, checked_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		    (model, account_id, platform, status, latency_ms, http_status, error_code, input_tokens, output_tokens, checked_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id`,
 		history.Model,
 		history.AccountID,
@@ -259,12 +259,45 @@ func (r *modelSelfCheckRepository) CreateHistory(ctx context.Context, history *s
 		history.LatencyMs,
 		history.HTTPStatus,
 		nullableStringValue(history.ErrorCode),
+		history.InputTokens,
+		history.OutputTokens,
 		history.CheckedAt,
 	).Scan(&history.ID)
 	if err != nil {
 		return fmt.Errorf("insert model self check history: %w", err)
 	}
 	return nil
+}
+
+func (r *modelSelfCheckRepository) ListTokenUsageSince(ctx context.Context, since time.Time) ([]service.ModelSelfCheckTokenUsage, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT model,
+		       COALESCE(SUM(input_tokens), 0) AS input_tokens,
+		       COALESCE(SUM(output_tokens), 0) AS output_tokens
+		FROM model_self_check_histories
+		WHERE checked_at >= $1
+		GROUP BY model
+		ORDER BY model`,
+		since,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list model self check token usage: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := []service.ModelSelfCheckTokenUsage{}
+	for rows.Next() {
+		var row service.ModelSelfCheckTokenUsage
+		if err := rows.Scan(&row.Model, &row.InputTokens, &row.OutputTokens); err != nil {
+			return nil, fmt.Errorf("scan model self check token usage: %w", err)
+		}
+		row.TotalTokens = row.InputTokens + row.OutputTokens
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate model self check token usage: %w", err)
+	}
+	return out, nil
 }
 
 func (r *modelSelfCheckRepository) CreateStatusSnapshot(ctx context.Context, snapshot *service.ModelSelfCheckStatusSnapshot) error {

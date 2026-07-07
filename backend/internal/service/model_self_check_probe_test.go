@@ -26,12 +26,16 @@ func TestGatewayModelSelfCheckProbeExecutorOpenAIForwardPath(t *testing.T) {
 		upstreamErr error
 		wantStatus  string
 		wantCode    string
+		wantInput   int
+		wantOutput  int
 	}{
 		{
 			name:       "upstream 200 operational",
 			statusCode: http.StatusOK,
 			body:       `{"id":"chatcmpl_self_check","object":"chat.completion","model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`,
 			wantStatus: MonitorStatusOperational,
+			wantInput:  1,
+			wantOutput: 1,
 		},
 		{
 			name:       "upstream 401 config error",
@@ -102,11 +106,67 @@ func TestGatewayModelSelfCheckProbeExecutorOpenAIForwardPath(t *testing.T) {
 			require.False(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
 			require.Equal(t, tt.wantStatus, result.Status)
 			require.Equal(t, tt.wantCode, result.ErrorCode)
+			require.Equal(t, tt.wantInput, result.InputTokens)
+			require.Equal(t, tt.wantOutput, result.OutputTokens)
 			require.NotNil(t, result.LatencyMs)
 			if tt.upstreamErr == nil {
 				require.NotNil(t, result.HTTPStatus)
 				require.Equal(t, tt.statusCode, *result.HTTPStatus)
 			}
+		})
+	}
+}
+
+func TestParseModelSelfCheckTokenUsageBody(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantInput  int
+		wantOutput int
+	}{
+		{
+			name:       "openai chat completions usage",
+			body:       `{"usage":{"prompt_tokens":12,"completion_tokens":1,"total_tokens":13}}`,
+			wantInput:  12,
+			wantOutput: 1,
+		},
+		{
+			name:       "anthropic messages usage",
+			body:       `{"usage":{"input_tokens":10,"output_tokens":1}}`,
+			wantInput:  10,
+			wantOutput: 1,
+		},
+		{
+			name:       "gemini usage metadata",
+			body:       `{"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":1}}`,
+			wantInput:  8,
+			wantOutput: 1,
+		},
+		{
+			name:       "antigravity sse usage metadata",
+			body:       "data: {\"response\":{\"usageMetadata\":{\"promptTokenCount\":9,\"candidatesTokenCount\":1}}}\n\ndata: [DONE]\n\n",
+			wantInput:  9,
+			wantOutput: 1,
+		},
+		{
+			name: "invalid body",
+			body: `not-json`,
+		},
+		{
+			name: "missing usage",
+			body: `{"id":"msg_self_check","content":[]}`,
+		},
+		{
+			name: "negative usage clamps to zero",
+			body: `{"usage":{"input_tokens":-1,"output_tokens":-2}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseModelSelfCheckTokenUsageBody([]byte(tt.body))
+			require.Equal(t, tt.wantInput, got.InputTokens)
+			require.Equal(t, tt.wantOutput, got.OutputTokens)
 		})
 	}
 }
@@ -120,6 +180,8 @@ func TestGatewayModelSelfCheckProbeExecutorAnthropicForwardPath(t *testing.T) {
 			statusCode: http.StatusOK,
 			body:       `{"id":"msg_self_check","type":"message","role":"assistant","model":"claude-3-5-sonnet-20241022","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`,
 			wantStatus: MonitorStatusOperational,
+			wantInput:  1,
+			wantOutput: 1,
 		},
 		{
 			name:       "upstream 401 config error",
@@ -184,6 +246,8 @@ func TestGatewayModelSelfCheckProbeExecutorAnthropicForwardPath(t *testing.T) {
 			require.False(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
 			require.Equal(t, tt.wantStatus, result.Status)
 			require.Equal(t, tt.wantCode, result.ErrorCode)
+			require.Equal(t, tt.wantInput, result.InputTokens)
+			require.Equal(t, tt.wantOutput, result.OutputTokens)
 			require.NotNil(t, result.LatencyMs)
 			if tt.upstreamErr == nil {
 				require.NotNil(t, result.HTTPStatus)
@@ -397,6 +461,8 @@ type modelSelfCheckForwardCase struct {
 	upstreamErr error
 	wantStatus  string
 	wantCode    string
+	wantInput   int
+	wantOutput  int
 }
 
 type modelSelfCheckRateLimitRepo struct {
