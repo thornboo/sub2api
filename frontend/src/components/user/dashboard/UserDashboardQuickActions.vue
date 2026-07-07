@@ -41,6 +41,25 @@
       </button>
 
       <button
+        v-if="canUseBatchImage"
+        @click="router.push('/batch-image')"
+        class="group flex w-full items-center gap-4 rounded-xl border border-stone-200/70 bg-gradient-to-r from-white to-sky-50/70 p-4 text-left shadow-sm shadow-stone-950/5 transition-all duration-200 hover:-translate-y-0.5 hover:border-sky-300/70 hover:shadow-md hover:shadow-sky-950/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:border-white/10 dark:from-white/[0.055] dark:to-sky-400/[0.05] dark:shadow-black/20 dark:hover:border-sky-300/25 dark:hover:from-white/[0.075] dark:hover:to-sky-400/[0.08] dark:focus-visible:ring-sky-300/70 dark:focus-visible:ring-offset-black"
+      >
+        <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600 ring-1 ring-sky-200/80 transition-all duration-200 group-hover:scale-105 group-hover:bg-sky-100 dark:bg-sky-400/10 dark:text-sky-300 dark:ring-sky-300/20 dark:group-hover:bg-sky-400/15">
+          <Icon name="sparkles" size="lg" />
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold text-stone-900 dark:text-stone-100">{{ t('dashboard.batchImageAgent') }}</p>
+          <p class="text-xs text-stone-500 dark:text-stone-500">{{ t('dashboard.batchImageAgentDesc') }}</p>
+        </div>
+        <Icon
+          name="chevronRight"
+          size="md"
+          class="text-stone-400 transition-colors group-hover:text-sky-500 dark:text-stone-600 dark:group-hover:text-sky-300"
+        />
+      </button>
+
+      <button
         @click="router.push('/redeem')"
         class="group flex w-full items-center gap-4 rounded-xl border border-stone-200/70 bg-gradient-to-r from-white to-amber-50/70 p-4 text-left shadow-sm shadow-stone-950/5 transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-300/70 hover:shadow-md hover:shadow-amber-950/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:border-white/10 dark:from-white/[0.055] dark:to-amber-400/[0.05] dark:shadow-black/20 dark:hover:border-amber-300/25 dark:hover:from-white/[0.075] dark:hover:to-amber-400/[0.08] dark:focus-visible:ring-amber-300/70 dark:focus-visible:ring-offset-black"
       >
@@ -62,9 +81,17 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
+import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
+
 const router = useRouter()
 const { t } = useI18n()
+const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()
+
+onMounted(() => {
+  void refreshBatchImageAccess()
+})
 </script>

@@ -2,6 +2,73 @@
 
 这里记录二开分支吸收上游变更的同步工作。
 
+## 2026-07-08 - 将上游 `main` 合并到 `dev-zz-develop`：批量生图、网关拆分与 Chat Completions 回退合流
+
+分支：
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`67e945f8`
+- 合并前目标：`ff3b347f`
+- 上游 head：`e8e23425`
+- 结果提交：本次合并提交
+
+上游要点：
+- 批量生图 MVP：新增 batch image ent/schema/migrations/repository/service/handler、分组生图权限、用户冻结余额、批量生图用户入口和指南页。
+- OpenAI Responses / Chat Completions fallback 拆分共享 CC 管线，补充 messages fallback、非流式 / 流式测试、GLM reasoning effort 归一化和错误处理。
+- OpenAI、Grok、Responses、Chat Completions 路径新增 prompt / function-call / video-text / web-search / image namespace 等兼容修复。
+- 网关 Anthropic passthrough 和 Bedrock 逻辑从 `gateway_service.go` 拆出到独立文件。
+- 管理端分组、套餐和设置补充批量生图 pricing、gate、hold ratio、下载与用户删除相关配置。
+- 安全扫描 `xlsx` exception 到期日刷新，并补充 README、部署和赞助商镜像同步。
+
+合并策略：
+- 合并前阅读 `docs-site/dev-zz/branch-policy.md`、`maintenance/merge-main.md`、`maintenance/merge-log.md`、`reference/change-map.md`、`testing/verification-matrix.md`、`patches.md`、`api-surface.md`、`configuration-and-migrations.md` 和 `changelog.md`。
+- 用 `git fetch origin` 刷新远程引用，用 `git merge-tree --write-tree --merge-base "$(git merge-base HEAD origin/main)" HEAD origin/main` 做只读预检，再用 `git merge --no-commit origin/main` 执行真实合并。
+- 接受上游拆分后的网关文件结构，移除旧大文件重复块；再把 dev-zz 的 context-aware retry、OpenAI usage cache-read 口径、ScheduleMeta、UpstreamEndpoint 和 messages 后置 fallback 顺序补回新文件。
+- messages API-key force Chat Completions fallback 保持 dev-zz 的后置路径，避免绕过 prompt cache、Claude Code todo guard、fast policy、Grok patch、billing model 和 upstream model 归一化。
+- 余额 quick action、modal 和 header 冲突保留 dev-zz stone / emerald UI，合入上游批量生图入口、余额 tooltip 和 focus-visible 细节。
+- `xlsx` audit exception 保留 dev-zz “仅导出、不解析用户上传 XLSX”的风险说明，并采用上游更晚到期日。
+- 合并后修正 rate-limit 顺序回归：5xx 显式 temp-unsched 规则优先于通用模型级上游失败，404 / model_not_found 仍保持模型级冷却，Anthropic 429 官方窗口仍优先于 temp-unsched。
+
+冲突文件：
+- `.github/audit-exceptions.yml`
+- `backend/cmd/server/VERSION`
+- `backend/cmd/server/wire_gen.go`
+- `backend/internal/repository/migrations_runner.go`
+- `backend/internal/service/gateway_service.go`
+- `backend/internal/service/openai_gateway_messages_chat_fallback.go`
+- `backend/internal/service/openai_gateway_responses_chat_fallback.go`
+- `backend/internal/service/openai_gateway_service.go`
+- `frontend/src/components/common/BaseDialog.vue`
+- `frontend/src/components/layout/AppHeader.vue`
+- `frontend/src/components/user/dashboard/UserDashboardQuickActions.vue`
+
+解决说明：
+- `wire_gen.go` 同时注入上游 `BatchImageCleanupService`、`BatchImageWorkerRuntime` 和 dev-zz `ModelSelfCheckRunner`。
+- `migrations_runner.go` 保留 `159_create_upstream_recharge_records.sql`、`159_batch_image_foundation.sql`、`161_batch_image_pricing_snapshot.sql` 三条 checksum 兼容记录。
+- `gateway_service.go` 采用上游拆分结构，并在 `gateway_anthropic_passthrough.go`、`gateway_bedrock.go`、`gateway_service.go` 统一保留 model self-check probe 不触发上游重试的 guard。
+- `openai_gateway_usage.go` 保留 ScheduleMeta 透传和 OpenAI cache-read token 是否计入 input 的 dev-zz 口径。
+- `openai_gateway_messages_chat_fallback.go` / `openai_gateway_responses_chat_fallback.go` 使用上游共享 CC fallback 管线，同时补齐 `UpstreamEndpoint: "/v1/chat/completions"`。
+- `openai_gateway_messages.go` 去掉上游前置 force-CC fallback，保留 dev-zz 后置 fallback，确保请求先经过转换、策略和计费归一化。
+- `BaseDialog.vue`、`AppHeader.vue` 和 `UserDashboardQuickActions.vue` 保留 dev-zz 视觉边界，同时合入上游批量生图入口和可访问性细节。
+- `openai_gateway_messages_chat_fallback_test.go` 的非流式 body 断言改为搜索 user message，因为 dev-zz 转换路径会在用户消息前注入 Claude Code todo guard。
+- `ratelimit_service.go` 将 5xx temp-unsched 规则提前到通用模型级失败之前，修复 502 非 JSON 响应被错误写成模型冷却的问题，并通过 404 / Anthropic 429 回归测试确认边界。
+
+验证：
+- `gofmt -w backend/internal/service/gateway_service.go backend/internal/service/gateway_anthropic_passthrough.go backend/internal/service/gateway_bedrock.go backend/internal/service/openai_gateway_usage.go backend/internal/service/openai_gateway_service.go backend/internal/service/openai_gateway_messages.go backend/internal/service/openai_gateway_messages_chat_fallback.go backend/internal/service/openai_gateway_responses_chat_fallback.go backend/internal/service/ratelimit_service.go backend/cmd/server/wire_gen.go`
+- `rg -n "^(<<<<<<< .+|=======|>>>>>>> .+)$" .`
+- `git diff --check`
+- `go test -tags unit ./internal/service -run 'ForceChatCompletions|RecordUsage|OpenAIAPIKeyDefaultIncludesCacheRead|OpenAIOAuthIgnoresSeparatedCacheUsageMode|ScheduleMeta|ModelSelfCheck' -count=1`
+- `go test -tags unit ./internal/repository -run 'MigrationChecksumCompatibility|IsMigrationChecksumCompatible' -count=1`
+- `go test -tags unit ./internal/service -run 'NonJSON2xxMatchesTempUnschedulableRule|HandleUpstreamError_ModelNotFound|HandleUpstreamError_Bare404|HandleUpstreamError_AnthropicWindowLimitPreemptsTempUnschedRule|HandleModelScopedFailure' -count=1`
+- `go test -tags unit ./internal/handler ./internal/server ./internal/repository ./internal/service -count=1`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir docs-site docs:build`
+
+未验证：
+- 未运行浏览器人工 smoke。
+- 未运行完整前端测试套件。
+
 ## 2026-07-07 - 账号管理供应商入口简化
 
 分支：

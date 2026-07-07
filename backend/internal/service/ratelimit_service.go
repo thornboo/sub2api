@@ -228,19 +228,22 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		}
 	}
 
+	// Explicit temp-unschedulable rules for 5xx upstream failures are account
+	// policy and should win over generic account+model cooldown. Anthropic 429
+	// window handling stays above this block because official window exhaustion
+	// is a harder account limit; 4xx model errors still keep their model-scoped
+	// handling precedence.
+	if statusCode >= http.StatusInternalServerError {
+		if s.tryTempUnschedulable(ctx, account, statusCode, responseBody) {
+			return true
+		}
+	}
+
 	if len(requestedModel) > 0 && !isAnthropic429 {
 		if handled, shouldFailover := s.HandleModelScopedFailure(ctx, account, requestedModel[0], statusCode, headers, responseBody); handled {
 			// Model-scoped upstream failures should fail over the current request,
 			// but the persisted state mutation stays limited to account+model.
 			return shouldFailover
-		}
-	}
-
-	// 先尝试临时不可调度规则（401除外）
-	// 如果匹配成功，直接返回，不执行后续禁用逻辑
-	if statusCode != 401 {
-		if s.tryTempUnschedulable(ctx, account, statusCode, responseBody) {
-			return true
 		}
 	}
 

@@ -20,7 +20,7 @@
             <button
               v-if="showCloseButton"
               @click="handleCloseButton"
-              class="-mr-2 rounded-xl p-2 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-600 dark:text-stone-500 dark:hover:bg-white/[0.06] dark:hover:text-stone-300"
+              class="-mr-2 rounded-xl p-2 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:text-stone-500 dark:hover:bg-white/[0.06] dark:hover:text-stone-300 dark:focus-visible:ring-offset-black"
               aria-label="Close modal"
             >
               <Icon name="x" size="md" />
