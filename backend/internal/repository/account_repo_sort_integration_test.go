@@ -3,6 +3,8 @@
 package repository
 
 import (
+	"fmt"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -32,4 +34,111 @@ func (s *AccountRepoSuite) TestListWithFilters_SortByPriorityDesc() {
 	s.Require().Len(accounts, 2)
 	s.Require().Equal("high-priority", accounts[0].Name)
 	s.Require().Equal("low-priority", accounts[1].Name)
+}
+
+func (s *AccountRepoSuite) TestListWithFilters_SortByUpstreamEffectiveDiscount() {
+	lowDiscount := mustCreateAccount(s.T(), s.client, &service.Account{Name: "discount-low"})
+	highDiscount := mustCreateAccount(s.T(), s.client, &service.Account{Name: "discount-high"})
+	unconfigured := mustCreateAccount(s.T(), s.client, &service.Account{Name: "discount-none"})
+
+	s.mustBindAccountCostForSort(lowDiscount.ID, 5.6, 7, 0.5)
+	s.mustBindAccountCostForSort(highDiscount.ID, 3.5, 7, 2)
+
+	asc, _, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{
+		Page:      1,
+		PageSize:  10,
+		SortBy:    "upstream_effective_discount",
+		SortOrder: "asc",
+	}, "", "", "", "", 0, "")
+	s.Require().NoError(err)
+	s.Require().Len(asc, 3)
+	s.Require().Equal(lowDiscount.ID, asc[0].ID)
+	s.Require().Equal(highDiscount.ID, asc[1].ID)
+	s.Require().Equal(unconfigured.ID, asc[2].ID)
+
+	desc, _, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{
+		Page:      1,
+		PageSize:  10,
+		SortBy:    "upstream_effective_discount",
+		SortOrder: "desc",
+	}, "", "", "", "", 0, "")
+	s.Require().NoError(err)
+	s.Require().Len(desc, 3)
+	s.Require().Equal(highDiscount.ID, desc[0].ID)
+	s.Require().Equal(lowDiscount.ID, desc[1].ID)
+	s.Require().Equal(unconfigured.ID, desc[2].ID)
+}
+
+func (s *AccountRepoSuite) TestListWithFilters_SortByUpstreamMultiplier() {
+	lowMultiplier := mustCreateAccount(s.T(), s.client, &service.Account{Name: "multiplier-low"})
+	highMultiplier := mustCreateAccount(s.T(), s.client, &service.Account{Name: "multiplier-high"})
+	unconfigured := mustCreateAccount(s.T(), s.client, &service.Account{Name: "multiplier-none"})
+
+	s.mustBindAccountCostForSort(lowMultiplier.ID, 7, 7, 0.5)
+	s.mustBindAccountCostForSort(highMultiplier.ID, 7, 7, 2)
+
+	asc, _, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{
+		Page:      1,
+		PageSize:  10,
+		SortBy:    "upstream_multiplier",
+		SortOrder: "asc",
+	}, "", "", "", "", 0, "")
+	s.Require().NoError(err)
+	s.Require().Len(asc, 3)
+	s.Require().Equal(lowMultiplier.ID, asc[0].ID)
+	s.Require().Equal(highMultiplier.ID, asc[1].ID)
+	s.Require().Equal(unconfigured.ID, asc[2].ID)
+
+	desc, _, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{
+		Page:      1,
+		PageSize:  10,
+		SortBy:    "upstream_multiplier",
+		SortOrder: "desc",
+	}, "", "", "", "", 0, "")
+	s.Require().NoError(err)
+	s.Require().Len(desc, 3)
+	s.Require().Equal(highMultiplier.ID, desc[0].ID)
+	s.Require().Equal(lowMultiplier.ID, desc[1].ID)
+	s.Require().Equal(unconfigured.ID, desc[2].ID)
+}
+
+func (s *AccountRepoSuite) mustBindAccountCostForSort(accountID int64, effectiveCNYPerUSD, referenceFXRate, defaultMultiplier float64) {
+	s.T().Helper()
+
+	supplierID := s.mustInsertIDForAccountSort(
+		`INSERT INTO upstream_suppliers (name) VALUES ($1) RETURNING id`,
+		fmt.Sprintf("account-sort-supplier-%d", accountID),
+	)
+	poolID := s.mustInsertIDForAccountSort(
+		`INSERT INTO upstream_cost_pools (supplier_id, name, reference_fx_rate, current_effective_cny_per_usd)
+		 VALUES ($1, $2, $3, $4)
+		 RETURNING id`,
+		supplierID,
+		fmt.Sprintf("account-sort-pool-%d", accountID),
+		referenceFXRate,
+		effectiveCNYPerUSD,
+	)
+	_, err := s.repo.sql.ExecContext(
+		s.ctx,
+		`INSERT INTO upstream_account_cost_bindings (account_id, cost_pool_id, status, default_multiplier)
+		 VALUES ($1, $2, 'active', $3)`,
+		accountID,
+		poolID,
+		defaultMultiplier,
+	)
+	s.Require().NoError(err)
+}
+
+func (s *AccountRepoSuite) mustInsertIDForAccountSort(query string, args ...any) int64 {
+	s.T().Helper()
+
+	rows, err := s.repo.sql.QueryContext(s.ctx, query, args...)
+	s.Require().NoError(err)
+	defer func() { _ = rows.Close() }()
+
+	s.Require().True(rows.Next(), "expected INSERT ... RETURNING id to return a row")
+	var id int64
+	s.Require().NoError(rows.Scan(&id))
+	s.Require().NoError(rows.Err())
+	return id
 }

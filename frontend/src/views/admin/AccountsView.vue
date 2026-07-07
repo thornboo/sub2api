@@ -1489,10 +1489,6 @@ const allColumns = computed(() => {
     { key: 'name', label: t('admin.accounts.columns.name'), sortable: true },
     { key: 'id', label: t('admin.accounts.columns.id'), sortable: true },
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false },
-    { key: 'upstream_supplier', label: t('admin.accounts.upstreamCost.supplier'), sortable: false },
-    { key: 'upstream_effective_discount', label: t('admin.accounts.upstreamCost.effectiveDiscount'), sortable: false },
-    { key: 'upstream_recharge_ratio', label: t('admin.accounts.upstreamCost.rechargeRatio'), sortable: false },
-    { key: 'upstream_multiplier', label: t('admin.accounts.upstreamCost.multiplier'), sortable: false },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true }
   ]
@@ -1506,6 +1502,12 @@ const allColumns = computed(() => {
   if (!authStore.isSimpleMode) {
     c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false })
   }
+  c.push(
+    { key: 'upstream_supplier', label: t('admin.accounts.upstreamCost.supplier'), sortable: false },
+    { key: 'upstream_effective_discount', label: t('admin.accounts.upstreamCost.effectiveDiscount'), sortable: true },
+    { key: 'upstream_recharge_ratio', label: t('admin.accounts.upstreamCost.rechargeRatio'), sortable: false },
+    { key: 'upstream_multiplier', label: t('admin.accounts.upstreamCost.multiplier'), sortable: true }
+  )
   c.push(
     { key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false },
     { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false },

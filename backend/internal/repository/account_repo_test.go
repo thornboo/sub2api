@@ -6,11 +6,14 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
 	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 
@@ -42,6 +45,48 @@ func TestAccountsToService_LargeActiveAccountSetDoesNotExceedPostgresParameterLi
 	got, err := repo.accountsToService(context.Background(), accounts)
 	require.NoError(t, err)
 	require.Len(t, got, len(accounts))
+}
+
+func TestAccountListOrder_UpstreamEffectiveDiscountSQL(t *testing.T) {
+	query, args := accountListOrderQueryForTest(pagination.PaginationParams{
+		SortBy:    "upstream_effective_discount",
+		SortOrder: pagination.SortOrderDesc,
+	})
+
+	require.Equal(t, []any{service.StatusActive, service.StatusActive}, args)
+	require.Contains(t, query, `LEFT JOIN "upstream_account_cost_bindings" AS "upstream_account_cost_binding_sort"`)
+	require.Contains(t, query, `LEFT JOIN "upstream_cost_pools" AS "upstream_cost_pool_sort"`)
+	require.Contains(t, query, `"upstream_account_cost_binding_sort"."account_id" = "accounts"."id"`)
+	require.Contains(t, query, `"upstream_cost_pool_sort"."id" = "upstream_account_cost_binding_sort"."cost_pool_id"`)
+	require.Contains(t, query, `"upstream_cost_pool_sort"."archived_at" IS NULL`)
+	require.Contains(t, query, `(("upstream_cost_pool_sort"."current_effective_cny_per_usd" / NULLIF("upstream_cost_pool_sort"."reference_fx_rate", 0)) * "upstream_account_cost_binding_sort"."default_multiplier") DESC NULLS LAST`)
+	require.True(t, strings.Contains(query, `ORDER BY`) && strings.Contains(query, `"accounts"."id" DESC`), query)
+}
+
+func TestAccountListOrder_UpstreamMultiplierSQL(t *testing.T) {
+	query, args := accountListOrderQueryForTest(pagination.PaginationParams{
+		SortBy:    "upstream_multiplier",
+		SortOrder: pagination.SortOrderAsc,
+	})
+
+	require.Equal(t, []any{service.StatusActive, service.StatusActive}, args)
+	require.Contains(t, query, `LEFT JOIN "upstream_account_cost_bindings" AS "upstream_account_cost_binding_sort"`)
+	require.Contains(t, query, `LEFT JOIN "upstream_cost_pools" AS "upstream_cost_pool_sort"`)
+	require.Contains(t, query, `"upstream_cost_pool_sort"."archived_at" IS NULL`)
+	require.Contains(t, query, `"upstream_account_cost_binding_sort"."default_multiplier" ASC NULLS LAST`)
+	require.True(t, strings.Contains(query, `ORDER BY`) && strings.Contains(query, `"accounts"."id" ASC`), query)
+}
+
+func accountListOrderQueryForTest(params pagination.PaginationParams) (string, []any) {
+	selector := entsql.Dialect(dialect.Postgres).
+		Select(dbaccount.FieldID).
+		From(entsql.Dialect(dialect.Postgres).Table(dbaccount.Table))
+
+	for _, order := range accountListOrder(params) {
+		order(selector)
+	}
+
+	return selector.Query()
 }
 
 func newParameterLimitAccountRepo(t *testing.T) *accountRepository {

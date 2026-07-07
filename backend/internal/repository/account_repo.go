@@ -67,6 +67,11 @@ var schedulerNeutralExtraKeys = map[string]struct{}{
 
 const postgresParameterBatchSize = 50000
 
+const (
+	upstreamAccountCostBindingSortAlias = "upstream_account_cost_binding_sort"
+	upstreamCostPoolSortAlias           = "upstream_cost_pool_sort"
+)
+
 // NewAccountRepository 创建账户仓储实例。
 // 这是对外暴露的构造函数，返回接口类型以便于依赖注入。
 func NewAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCache service.SchedulerCache) service.AccountRepository {
@@ -742,6 +747,10 @@ func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selecto
 	sortBy := strings.ToLower(strings.TrimSpace(params.SortBy))
 	sortOrder := params.NormalizedSortOrder(pagination.SortOrderAsc)
 
+	if sortBy == "upstream_effective_discount" || sortBy == "upstream_multiplier" {
+		return accountUpstreamCostOrder(sortBy, sortOrder)
+	}
+
 	field := dbaccount.FieldName
 	defaultOrder := true
 	switch sortBy {
@@ -783,6 +792,39 @@ func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selecto
 		return []func(*entsql.Selector){dbent.Asc(dbaccount.FieldName), dbent.Asc(dbaccount.FieldID)}
 	}
 	return []func(*entsql.Selector){dbent.Asc(field), dbent.Asc(dbaccount.FieldID)}
+}
+
+func accountUpstreamCostOrder(sortBy string, sortOrder string) []func(*entsql.Selector) {
+	direction := "ASC"
+	tieOrder := entsql.Asc
+	if sortOrder == pagination.SortOrderDesc {
+		direction = "DESC"
+		tieOrder = entsql.Desc
+	}
+
+	return []func(*entsql.Selector){
+		func(s *entsql.Selector) {
+			binding := entsql.Table("upstream_account_cost_bindings").As(upstreamAccountCostBindingSortAlias)
+			pool := entsql.Table("upstream_cost_pools").As(upstreamCostPoolSortAlias)
+			s.LeftJoin(binding).OnP(entsql.And(
+				entsql.ColumnsEQ(binding.C("account_id"), s.C(dbaccount.FieldID)),
+				entsql.EQ(binding.C("status"), service.StatusActive),
+				entsql.IsNull(binding.C("valid_to")),
+			))
+			s.LeftJoin(pool).OnP(entsql.And(
+				entsql.ColumnsEQ(pool.C("id"), binding.C("cost_pool_id")),
+				entsql.EQ(pool.C("status"), service.StatusActive),
+				entsql.IsNull(pool.C("archived_at")),
+			))
+
+			orderExpr := binding.C("default_multiplier")
+			if sortBy == "upstream_effective_discount" {
+				orderExpr = "((" + pool.C("current_effective_cny_per_usd") + " / NULLIF(" + pool.C("reference_fx_rate") + ", 0)) * " + binding.C("default_multiplier") + ")"
+			}
+			s.OrderExpr(entsql.Expr(orderExpr + " " + direction + " NULLS LAST"))
+			s.OrderBy(tieOrder(s.C(dbaccount.FieldID)))
+		},
+	}
 }
 
 func (r *accountRepository) ListByGroup(ctx context.Context, groupID int64) ([]service.Account, error) {
