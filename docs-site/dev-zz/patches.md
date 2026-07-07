@@ -1,5 +1,42 @@
 # 补丁记录
 
+## 2026-07-08 - v1.4.10 上游 main 同步发布
+
+范围：
+- 上游同步：`origin/main` `e8e23425` 合并到 `dev-zz-develop`，并提升到正式 `dev-zz`。
+- 后端：批量生图 ent/schema/migrations/repository/service/handler、网关拆分、OpenAI / Anthropic / Grok fallback 与 usage 记录。
+- 前端：批量生图用户入口、管理端分组 / 套餐 / 设置配置、dashboard quick action、sidebar / router / i18n。
+- 文档：`docs-site/dev-zz/changelog.md`、`patches.md`、`maintenance/merge-log.md`。
+- 发布：`backend/cmd/server/VERSION` 更新为 `1.4.10`，用于 `v1.4.10` release。
+
+改动：
+- 吸收上游批量生图 MVP：任务、队列、冻结余额、结算、下载、清理、worker runtime、Gemini / Vertex provider、分组 gate、pricing snapshot 和用户侧指南页。
+- 接受上游网关拆分结构，把 Anthropic passthrough、Bedrock、OpenAI passthrough、OpenAI scheduling、usage 和 CC fallback 管线拆到独立文件。
+- 合入 OpenAI Responses / Chat Completions 共享 fallback 管线，并保留 dev-zz 的 prompt cache、Claude Code todo guard、fast policy、billing / upstream model 归一化和 `UpstreamEndpoint` 记录。
+- 保留 dev-zz 的 OpenAI cache-read 计费口径、ScheduleMeta、model self-check probe 不触发生产账号 retry / failover 的 guard。
+- 修正 rate-limit 合并边界：5xx temp-unsched 优先于通用模型级失败；非模型级 4xx / 429 自定义 temp-unsched 兜底保留；404 / model_not_found 和 Anthropic 429 官方窗口维持专用优先级。
+- `xlsx` audit exception 保留 dev-zz “仅导出、不解析用户上传 XLSX”的风险说明，并采用上游更晚的 `2026-10-06` 到期日。
+
+边界：
+- 普通用户侧仍不暴露上游账号、渠道、供应商、成本、利润或管理员字段。
+- `dev-zz` 继续使用 docs-site 文档中心和 fork release / 镜像策略，不采用上游版本号。
+- 前端继续保留 dev-zz stone / emerald 控制台方向，批量生图入口按当前二开视觉接入。
+
+验证：
+- `rg -n "^(<<<<<<< .+|=======|>>>>>>> .+)$" .`
+- `git diff --check`
+- `go test -tags unit ./internal/service -run 'ForceChatCompletions|RecordUsage|OpenAIAPIKeyDefaultIncludesCacheRead|OpenAIOAuthIgnoresSeparatedCacheUsageMode|ScheduleMeta|ModelSelfCheck' -count=1`
+- `go test -tags unit ./internal/repository -run 'MigrationChecksumCompatibility|IsMigrationChecksumCompatible' -count=1`
+- `go test -tags unit ./internal/service -run 'Custom403TempUnschedulableRule|OpenAI403|HandleUpstreamError_ModelNotFound|HandleUpstreamError_Bare404|NonJSON2xxMatchesTempUnschedulableRule|HandleUpstreamError_AnthropicWindowLimitPreemptsTempUnschedRule|HandleModelScopedFailure' -count=1`
+- `go test -tags unit ./internal/handler ./internal/server ./internal/repository ./internal/service -count=1`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir docs-site docs:build`
+
+未验证：
+- 浏览器人工 smoke。
+- 完整前端测试套件。
+
 ## 2026-07-07 - 账号管理供应商入口简化
 
 范围：

@@ -1,5 +1,13 @@
 # 变更记录
 
+## 2026-07-08
+
+- 发布 v1.4.10：将上游 `main`（`e8e23425`）同步到 `dev-zz-develop` 后提升到正式 `dev-zz`，吸收批量生图 MVP、OpenAI Responses / Chat Completions fallback 共享 CC 管线、网关文件拆分、Grok / web-search / image namespace 等兼容修复。
+- 批量生图新增任务、队列、冻结余额、结算、下载、清理、worker runtime、Gemini / Vertex provider、分组权限、管理端 pricing / gate / hold ratio 配置，以及用户侧批量生图入口和指南页。
+- 网关同步上游拆分结构，同时保留 dev-zz 的 model self-check probe 安全边界、OpenAI cache-read usage 口径、ScheduleMeta、真实 `UpstreamEndpoint` 记录和 messages 后置 fallback 顺序。
+- 修正合并后的 rate-limit 顺序边界：5xx 显式 temp-unsched 规则优先于通用模型级失败，非模型级 4xx / 429 仍保留账号自定义 temp-unsched 兜底，404 / model_not_found 继续走模型级冷却，Anthropic 429 官方窗口仍优先。
+- 本次同步继续保留 dev-zz 的 docs-site 文档中心、stone / emerald 控制台视觉方向、用户/admin 字段边界、供应商成本与模型自检策略。
+
 ## 2026-07-07
 
 - 管理端账号页把「供应商成本」标签改为「供应商」：供应商新增和充值记录入口集中到该标签页；账号创建 / 编辑弹窗不再承担新增供应商或高级成本 / Key 配额查询配置，账号编辑仅保留供应商选择并支持清空绑定。

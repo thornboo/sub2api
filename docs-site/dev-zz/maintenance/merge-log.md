@@ -10,7 +10,10 @@
 - Base：`67e945f8`
 - 合并前目标：`ff3b347f`
 - 上游 head：`e8e23425`
-- 结果提交：本次合并提交
+- 结果提交：`eeb45334`
+- 补充修复：`a714ddab`
+- 发布提交：本条所在提交
+- 发布标签：`v1.4.10`
 
 上游要点：
 - 批量生图 MVP：新增 batch image ent/schema/migrations/repository/service/handler、分组生图权限、用户冻结余额、批量生图用户入口和指南页。
