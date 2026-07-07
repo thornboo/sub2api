@@ -27,7 +27,7 @@
 - messages API-key force Chat Completions fallback 保持 dev-zz 的后置路径，避免绕过 prompt cache、Claude Code todo guard、fast policy、Grok patch、billing model 和 upstream model 归一化。
 - 余额 quick action、modal 和 header 冲突保留 dev-zz stone / emerald UI，合入上游批量生图入口、余额 tooltip 和 focus-visible 细节。
 - `xlsx` audit exception 保留 dev-zz “仅导出、不解析用户上传 XLSX”的风险说明，并采用上游更晚到期日。
-- 合并后修正 rate-limit 顺序回归：5xx 显式 temp-unsched 规则优先于通用模型级上游失败，404 / model_not_found 仍保持模型级冷却，Anthropic 429 官方窗口仍优先于 temp-unsched。
+- 合并后修正 rate-limit 顺序回归：5xx 显式 temp-unsched 规则优先于通用模型级上游失败，非模型级 4xx / 429 仍保留账号自定义 temp-unsched 兜底，404 / model_not_found 仍保持模型级冷却，Anthropic 429 官方窗口仍优先于 temp-unsched。
 
 冲突文件：
 - `.github/audit-exceptions.yml`
@@ -51,7 +51,7 @@
 - `openai_gateway_messages.go` 去掉上游前置 force-CC fallback，保留 dev-zz 后置 fallback，确保请求先经过转换、策略和计费归一化。
 - `BaseDialog.vue`、`AppHeader.vue` 和 `UserDashboardQuickActions.vue` 保留 dev-zz 视觉边界，同时合入上游批量生图入口和可访问性细节。
 - `openai_gateway_messages_chat_fallback_test.go` 的非流式 body 断言改为搜索 user message，因为 dev-zz 转换路径会在用户消息前注入 Claude Code todo guard。
-- `ratelimit_service.go` 将 5xx temp-unsched 规则提前到通用模型级失败之前，修复 502 非 JSON 响应被错误写成模型冷却的问题，并通过 404 / Anthropic 429 回归测试确认边界。
+- `ratelimit_service.go` 将 5xx temp-unsched 规则提前到通用模型级失败之前，修复 502 非 JSON 响应被错误写成模型冷却的问题；同时补回模型级处理之后的非 401 temp-unsched 兜底，避免 403 等账号自定义规则被静默跳过，并通过 403 / 404 / Anthropic 429 回归测试确认边界。
 
 验证：
 - `gofmt -w backend/internal/service/gateway_service.go backend/internal/service/gateway_anthropic_passthrough.go backend/internal/service/gateway_bedrock.go backend/internal/service/openai_gateway_usage.go backend/internal/service/openai_gateway_service.go backend/internal/service/openai_gateway_messages.go backend/internal/service/openai_gateway_messages_chat_fallback.go backend/internal/service/openai_gateway_responses_chat_fallback.go backend/internal/service/ratelimit_service.go backend/cmd/server/wire_gen.go`
@@ -59,7 +59,7 @@
 - `git diff --check`
 - `go test -tags unit ./internal/service -run 'ForceChatCompletions|RecordUsage|OpenAIAPIKeyDefaultIncludesCacheRead|OpenAIOAuthIgnoresSeparatedCacheUsageMode|ScheduleMeta|ModelSelfCheck' -count=1`
 - `go test -tags unit ./internal/repository -run 'MigrationChecksumCompatibility|IsMigrationChecksumCompatible' -count=1`
-- `go test -tags unit ./internal/service -run 'NonJSON2xxMatchesTempUnschedulableRule|HandleUpstreamError_ModelNotFound|HandleUpstreamError_Bare404|HandleUpstreamError_AnthropicWindowLimitPreemptsTempUnschedRule|HandleModelScopedFailure' -count=1`
+- `go test -tags unit ./internal/service -run 'Custom403TempUnschedulableRule|OpenAI403|HandleUpstreamError_ModelNotFound|HandleUpstreamError_Bare404|NonJSON2xxMatchesTempUnschedulableRule|HandleUpstreamError_AnthropicWindowLimitPreemptsTempUnschedRule|HandleModelScopedFailure' -count=1`
 - `go test -tags unit ./internal/handler ./internal/server ./internal/repository ./internal/service -count=1`
 - `pnpm --dir frontend typecheck`
 - `pnpm --dir frontend lint:check`

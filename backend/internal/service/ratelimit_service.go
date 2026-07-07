@@ -247,6 +247,15 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		}
 	}
 
+	// Preserve custom account-level temp-unschedulable rules for non-model
+	// failures. Model-scoped handling above intentionally keeps precedence for
+	// 4xx model errors such as 404/model_not_found.
+	if statusCode != http.StatusUnauthorized {
+		if s.tryTempUnschedulable(ctx, account, statusCode, responseBody) {
+			return true
+		}
+	}
+
 	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(responseBody))
 	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 	if upstreamMsg != "" {

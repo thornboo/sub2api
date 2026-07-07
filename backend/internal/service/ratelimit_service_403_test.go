@@ -29,6 +29,41 @@ func (r *runtimeBlockRecorder) ClearAccountSchedulingBlock(accountID int64) {
 	r.clearedIDs = append(r.clearedIDs, accountID)
 }
 
+func TestRateLimitService_HandleUpstreamError_Custom403TempUnschedulableRule(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       300,
+		Platform: PlatformGemini,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"temp_unschedulable_enabled": true,
+			"temp_unschedulable_rules": []any{
+				map[string]any{
+					"error_code":       float64(http.StatusForbidden),
+					"keywords":         []any{"quota paused"},
+					"duration_minutes": float64(10),
+				},
+			},
+		},
+	}
+
+	shouldFailover := service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		[]byte(`{"error":{"message":"quota paused by provider"}}`),
+	)
+
+	require.True(t, shouldFailover)
+	require.Equal(t, 1, repo.tempCalls)
+	require.Equal(t, int64(300), repo.lastTempID)
+	require.Contains(t, repo.lastTempReason, `"status_code":403`)
+	require.Contains(t, repo.lastTempReason, `"matched_keyword":"quota paused"`)
+	require.Equal(t, 0, repo.setErrorCalls)
+}
+
 func TestRateLimitService_HandleUpstreamError_OpenAI403FirstHitTempUnschedulable(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &openAI403CounterCacheStub{counts: []int64{1}}
