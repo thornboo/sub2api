@@ -160,7 +160,7 @@ func (s *adminServiceImpl) CreateUpstreamSupplier(ctx context.Context, input Cre
 
 	note := normalizeOptionalString(input.Note)
 	if note == nil {
-		note = upstreamCostPoolStringPtr("通过账号编辑新增到供应商列表。")
+		note = upstreamCostPoolStringPtr("通过管理端新增到供应商列表。")
 	}
 	supplierID, err := ensureNamedUpstreamSupplier(ctx, txClient, input.Name, note, input.CreatedBy)
 	if err != nil {

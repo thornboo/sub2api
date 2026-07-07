@@ -1661,13 +1661,6 @@
 
       </div>
 
-      <UpstreamCostSettings
-        v-if="showUpstreamCostSettings"
-        v-model="upstreamCostProfile"
-        v-model:balance-auth-token-value="upstreamBalanceAuthToken"
-        :balance-auth-token-configured="false"
-      />
-
       <!-- Bedrock credentials (only for Anthropic Bedrock type) -->
       <div v-if="form.platform === 'anthropic' && accountCategory === 'bedrock'" class="space-y-4">
         <!-- Auth Mode Radio -->
@@ -3637,7 +3630,6 @@ import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import ModelCatalogSearch from '@/components/account/ModelCatalogSearch.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
-import UpstreamCostSettings from '@/components/account/UpstreamCostSettings.vue'
 import { buildChannelModelRecommendations } from '@/components/account/channelModelRecommendations'
 import {
   applyAntigravityProjectID,
@@ -3660,12 +3652,6 @@ import {
   resolveOpenAIWSModeConcurrencyHintKey,
   type OpenAIWSMode
 } from '@/utils/openaiWsMode'
-import {
-  UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY,
-  maybeMergeUpstreamCostProfileExtra,
-  requiresUpstreamBalanceAuthToken,
-  type UpstreamCostProfile
-} from '@/utils/upstreamCost'
 import OAuthAuthorizationFlow from './OAuthAuthorizationFlow.vue'
 
 // Type for exposed OAuthAuthorizationFlow component
@@ -3786,8 +3772,6 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
-const upstreamCostProfile = ref<UpstreamCostProfile>({})
-const upstreamBalanceAuthToken = ref('')
 
 const syncPreviewCredentials = computed(() => {
   if (!apiKeyValue.value) return undefined
@@ -3798,8 +3782,6 @@ const syncPreviewCredentials = computed(() => {
     api_key: apiKeyValue.value
   }
 })
-
-const showUpstreamCostSettings = computed(() => form.type === 'apikey')
 
 const editQuotaLimit = ref<number | null>(null)
 const editQuotaDailyLimit = ref<number | null>(null)
@@ -4909,8 +4891,6 @@ const resetForm = () => {
   addMethod.value = 'oauth'
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
-  upstreamCostProfile.value = {}
-  upstreamBalanceAuthToken.value = ''
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -5097,13 +5077,6 @@ const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unk
   }
 
   return Object.keys(extra).length > 0 ? extra : undefined
-}
-
-const buildUpstreamCostExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
-  if (!showUpstreamCostSettings.value) {
-    return base
-  }
-  return maybeMergeUpstreamCostProfileExtra(base, upstreamCostProfile.value)
 }
 
 // Helper function to create account with mixed channel warning handling
@@ -5311,7 +5284,7 @@ const handleSubmit = async () => {
 
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
 
-    const extra = buildUpstreamCostExtra(buildAntigravityExtra())
+    const extra = buildAntigravityExtra()
     await createAccountAndFinish(form.platform, 'apikey', credentials, extra)
     return
   }
@@ -5357,16 +5330,6 @@ const handleSubmit = async () => {
   const credentials: Record<string, unknown> = {
     base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl,
     api_key: apiKeyValue.value.trim()
-  }
-  if (showUpstreamCostSettings.value && requiresUpstreamBalanceAuthToken(upstreamCostProfile.value)) {
-    const balanceAuthToken = upstreamBalanceAuthToken.value.trim()
-    if (!balanceAuthToken) {
-      appStore.showError(t('admin.accounts.upstreamCost.balanceQuery.authTokenRequired'))
-      return
-    }
-    credentials.upstream_balance_auth_token = balanceAuthToken
-  } else if (upstreamCostProfile.value.balance_auth_mode === UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY) {
-    upstreamBalanceAuthToken.value = ''
   }
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
@@ -5422,7 +5385,7 @@ const handleSubmit = async () => {
   }
 
   form.credentials = credentials
-  const extra = buildUpstreamCostExtra(buildAnthropicExtra(buildOpenAIExtra()))
+  const extra = buildAnthropicExtra(buildOpenAIExtra())
 
   await doCreateAccount({
     ...form,

@@ -10,16 +10,67 @@
             {{ t('admin.accounts.upstreamCost.supplierListDescription') }}
           </p>
         </div>
-        <button
-          type="button"
-          class="btn btn-secondary h-10 justify-center px-3"
-          :disabled="loading"
-          @click="$emit('refresh')"
-        >
-          <Icon name="refresh" size="sm" :class="{ 'animate-spin': loading }" />
-          {{ t('common.refresh') }}
-        </button>
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            class="btn btn-secondary h-10 justify-center px-3"
+            :disabled="loading || supplierCreating"
+            @click="emit('refresh')"
+          >
+            <Icon name="refresh" size="sm" :class="{ 'animate-spin': loading }" />
+            {{ t('common.refresh') }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary h-10 justify-center px-3"
+            :disabled="loading || supplierCreating"
+            @click="openSupplierCreate"
+          >
+            <Icon name="plus" size="sm" />
+            {{ t('admin.accounts.upstreamCost.addSupplier') }}
+          </button>
+        </div>
       </div>
+      <form
+        v-if="supplierCreateOpen"
+        class="mt-3 rounded-xl border border-stone-200 bg-stone-50/80 p-3 dark:border-white/10 dark:bg-white/[0.04]"
+        @submit.prevent="createSupplier"
+      >
+        <label class="input-label mb-2 block">
+          {{ t('admin.accounts.upstreamCost.newSupplierName') }}
+        </label>
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <input
+            v-model="supplierNameDraft"
+            type="text"
+            class="input h-10 min-w-0 flex-1 rounded-lg py-2"
+            :placeholder="t('admin.accounts.upstreamCost.newSupplierNamePlaceholder')"
+            :disabled="supplierCreating"
+            autofocus
+          />
+          <div class="flex shrink-0 gap-2">
+            <button
+              type="submit"
+              class="btn btn-primary h-10 rounded-lg px-3 py-0"
+              :disabled="supplierCreating"
+            >
+              <Icon name="check" size="sm" />
+              {{ t('admin.accounts.upstreamCost.saveSupplier') }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary h-10 rounded-lg px-3 py-0"
+              :disabled="supplierCreating"
+              @click="cancelSupplierCreate"
+            >
+              {{ t('common.cancel') }}
+            </button>
+          </div>
+        </div>
+        <p class="mt-2 text-xs text-stone-500 dark:text-stone-500">
+          {{ t('admin.accounts.upstreamCost.supplierCreateHint') }}
+        </p>
+      </form>
     </div>
 
     <div class="grid border-b border-stone-200 bg-stone-50/70 dark:border-white/10 dark:bg-white/[0.025] md:grid-cols-3">
@@ -149,10 +200,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { adminAPI } from '@/api/admin'
 import type { UpstreamCostPool, UpstreamSupplier } from '@/api/admin/accounts'
 import Icon from '@/components/icons/Icon.vue'
+import { useAppStore } from '@/stores/app'
 import { formatUpstreamDiscountLabel, formatUpstreamRatio } from '@/utils/upstreamCost'
 
 interface SupplierCostRow {
@@ -173,12 +226,48 @@ const props = defineProps<{
   error?: string | null
 }>()
 
-defineEmits<{
-  refresh: []
+const emit = defineEmits<{
+  refresh: [options?: { forcePools?: boolean }]
   'recharge-records': [pool: UpstreamCostPool]
 }>()
 
 const { t } = useI18n()
+const appStore = useAppStore()
+const supplierCreateOpen = ref(false)
+const supplierNameDraft = ref('')
+const supplierCreating = ref(false)
+
+const openSupplierCreate = () => {
+  supplierCreateOpen.value = true
+}
+
+const cancelSupplierCreate = () => {
+  if (supplierCreating.value) {
+    return
+  }
+  supplierCreateOpen.value = false
+  supplierNameDraft.value = ''
+}
+
+const createSupplier = async () => {
+  const name = supplierNameDraft.value.trim()
+  if (!name) {
+    appStore.showWarning(t('admin.accounts.upstreamCost.supplierNameRequired'))
+    return
+  }
+  supplierCreating.value = true
+  try {
+    await adminAPI.accounts.createUpstreamSupplier({ name })
+    appStore.showSuccess(t('admin.accounts.upstreamCost.supplierCreated'))
+    supplierCreateOpen.value = false
+    supplierNameDraft.value = ''
+    emit('refresh', { forcePools: true })
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.accounts.upstreamCost.supplierCreateFailed'))
+  } finally {
+    supplierCreating.value = false
+  }
+}
 
 const rows = computed<SupplierCostRow[]>(() => {
   const bySupplier = new Map<number, SupplierCostRow>()

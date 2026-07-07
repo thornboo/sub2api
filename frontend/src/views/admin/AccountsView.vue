@@ -1010,11 +1010,14 @@ const setUpstreamCostPools = (pools: UpstreamCostPool[]) => {
   syncOpenRechargeRecordsPool(pools)
 }
 
-const fetchUpstreamCostPools = async () => {
-  if (!upstreamCostPoolsRequest) {
-    upstreamCostPoolsRequest = adminAPI.accounts.listUpstreamCostPools().finally(() => {
-      upstreamCostPoolsRequest = null
+const fetchUpstreamCostPools = async (force = false) => {
+  if (!upstreamCostPoolsRequest || force) {
+    const request = adminAPI.accounts.listUpstreamCostPools().finally(() => {
+      if (upstreamCostPoolsRequest === request) {
+        upstreamCostPoolsRequest = null
+      }
     })
+    upstreamCostPoolsRequest = request
   }
   return upstreamCostPoolsRequest
 }
@@ -1081,14 +1084,14 @@ const loadVisibleUpstreamCostContext = async () => {
   }
 }
 
-const loadSupplierCostView = async () => {
+const loadSupplierCostView = async (options?: { forcePools?: boolean }) => {
   const requestSeq = ++supplierCostViewRequestSeq
   costComparisonLoading.value = true
   costComparisonError.value = null
   try {
     const [suppliers, pools] = await Promise.all([
       adminAPI.accounts.listUpstreamSuppliers(),
-      fetchUpstreamCostPools()
+      fetchUpstreamCostPools(options?.forcePools === true)
     ])
     if (requestSeq !== supplierCostViewRequestSeq || activeAccountView.value !== 'cost') {
       return

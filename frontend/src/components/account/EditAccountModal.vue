@@ -581,10 +581,10 @@
       </div>
 
       <section
-        v-if="showUpstreamCostSettings"
+        v-if="showUpstreamSupplierBinding"
         class="border-t border-stone-200/80 pt-4 dark:border-white/10"
       >
-        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div class="mb-4">
           <div>
             <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">
               {{ t('admin.accounts.upstreamCost.supplierBindingTitle') }}
@@ -593,12 +593,6 @@
               {{ t('admin.accounts.upstreamCost.supplierBindingDescription') }}
             </p>
           </div>
-          <span
-            v-if="currentUpstreamBindingLabel"
-            class="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
-          >
-            {{ currentUpstreamBindingLabel }}
-          </span>
         </div>
 
         <div
@@ -611,82 +605,20 @@
         <div class="max-w-4xl space-y-3">
           <div>
             <label class="input-label">{{ t('admin.accounts.upstreamCost.supplier') }}</label>
-            <div class="flex flex-col gap-2 sm:flex-row sm:items-start">
-              <div class="min-w-0 flex-1">
-                <Select
-                  v-model="upstreamSupplierSelectValue"
-                  :options="upstreamSupplierSelectOptions"
-                  :placeholder="t('admin.accounts.upstreamCost.supplierPlaceholder')"
-                  :empty-text="t('admin.accounts.upstreamCost.supplierEmpty')"
-                  :disabled="upstreamSupplierLoading || upstreamSupplierCreating"
-                />
-              </div>
-              <button
-                type="button"
-                class="btn btn-secondary h-11 shrink-0 rounded-xl px-4 py-0"
-                :disabled="showNewUpstreamSupplierForm || upstreamSupplierCreating"
-                @click="openNewUpstreamSupplierForm"
-              >
-                <Icon name="plus" size="sm" />
-                {{ t('admin.accounts.upstreamCost.addSupplier') }}
-              </button>
-            </div>
-          </div>
-
-          <div
-            v-if="showNewUpstreamSupplierForm"
-            class="rounded-xl border border-dashed border-stone-200/80 bg-stone-50/70 p-2.5 dark:border-white/10 dark:bg-white/[0.03]"
-          >
-            <div class="flex flex-col gap-2 md:flex-row md:items-center">
-              <div class="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
-                <span class="shrink-0 px-1 text-sm font-medium text-stone-600 dark:text-stone-300">
-                  {{ t('admin.accounts.upstreamCost.quickAddSupplier') }}
-                </span>
-                <input
-                  v-model="newUpstreamSupplierName"
-                  type="text"
-                  class="input h-10 min-w-0 flex-1 rounded-lg py-2"
-                  :placeholder="t('admin.accounts.upstreamCost.newSupplierNamePlaceholder')"
-                  :disabled="upstreamSupplierCreating"
-                  @keydown.enter.prevent="createUpstreamSupplierFromDraft"
-                />
-              </div>
-              <div class="flex shrink-0 gap-2">
-                <button
-                  type="button"
-                  class="btn btn-primary h-10 rounded-lg px-3 py-0"
-                  :disabled="upstreamSupplierCreating"
-                  @click="createUpstreamSupplierFromDraft"
-                >
-                  <Icon name="check" size="sm" />
-                  {{ t('admin.accounts.upstreamCost.saveSupplier') }}
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-secondary h-10 rounded-lg px-3 py-0"
-                  :disabled="upstreamSupplierCreating"
-                  @click="cancelNewUpstreamSupplier"
-                >
-                  {{ t('common.cancel') }}
-                </button>
-              </div>
-            </div>
-            <p class="mt-2 px-1 text-xs text-stone-500 dark:text-stone-500">
-              {{ t('admin.accounts.upstreamCost.supplierCreateHint') }}
-            </p>
+            <Select
+              v-model="upstreamSupplierSelectValue"
+              :options="upstreamSupplierSelectOptions"
+              :placeholder="t('admin.accounts.upstreamCost.supplierPlaceholder')"
+              :empty-text="t('admin.accounts.upstreamCost.supplierEmpty')"
+              :disabled="upstreamSupplierLoading"
+              clearable
+            />
           </div>
 
           <p class="text-xs text-stone-500 dark:text-stone-500">
             {{ t('admin.accounts.upstreamCost.supplierBindingHint') }}
           </p>
         </div>
-
-        <UpstreamCostSettings
-          v-model="upstreamCostProfile"
-          v-model:balance-auth-token-value="upstreamBalanceAuthToken"
-          :balance-auth-token-configured="props.account?.credentials_status?.has_upstream_balance_auth_token === true"
-          :show-cost-controls="false"
-        />
       </section>
 
       <!-- OpenAI/Grok OAuth Model Mapping (OAuth 类型没有 apikey 容器，需要独立的模型映射区域) -->
@@ -2942,7 +2874,6 @@ import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import ModelCatalogSearch from '@/components/account/ModelCatalogSearch.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
-import UpstreamCostSettings from '@/components/account/UpstreamCostSettings.vue'
 import {
   applyAntigravityProjectID,
   applyHeaderOverride,
@@ -2968,12 +2899,6 @@ import {
   type OpenAIWSMode,
   resolveOpenAIWSModeFromExtra
 } from '@/utils/openaiWsMode'
-import {
-  mergeUpstreamCostProfileExtra,
-  readUpstreamCostProfile,
-  requiresUpstreamBalanceAuthToken,
-  type UpstreamCostProfile
-} from '@/utils/upstreamCost'
 import {
   getPresetMappingsByPlatform,
   commonErrorCodes,
@@ -3033,15 +2958,10 @@ interface TempUnschedRuleForm {
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
-const upstreamCostProfile = ref<UpstreamCostProfile>({})
-const upstreamBalanceAuthToken = ref('')
 const upstreamSuppliers = ref<UpstreamSupplier[]>([])
 const upstreamCostBinding = ref<UpstreamAccountCostBinding | null>(null)
 const upstreamSupplierID = ref<number | null>(null)
-const showNewUpstreamSupplierForm = ref(false)
-const newUpstreamSupplierName = ref('')
 const upstreamSupplierLoading = ref(false)
-const upstreamSupplierCreating = ref(false)
 const upstreamSupplierLoadError = ref('')
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
@@ -3156,7 +3076,7 @@ const getOpenAICompactModelMappingKey = createStableObjectKeyResolver<ModelMappi
 const getAntigravityModelMappingKey = createStableObjectKeyResolver<ModelMapping>('edit-antigravity-model-mapping')
 const getTempUnschedRuleKey = createStableObjectKeyResolver<TempUnschedRuleForm>('edit-temp-unsched-rule')
 
-const showUpstreamCostSettings = computed(() => props.account?.type === 'apikey')
+const showUpstreamSupplierBinding = computed(() => props.account?.type === 'apikey')
 const activeUpstreamSuppliers = computed(() =>
   upstreamSuppliers.value.filter((supplier) => supplier.status === 'active' && !supplier.archived_at)
 )
@@ -3176,13 +3096,6 @@ const upstreamSupplierSelectValue = computed<string | number | boolean | null>({
     upstreamSupplierID.value = null
   }
 })
-const currentUpstreamBindingLabel = computed(() => {
-  if (!upstreamCostBinding.value?.supplier_name) {
-    return ''
-  }
-  return upstreamCostBinding.value.supplier_name
-})
-
 const showMixedChannelWarning = ref(false)
 const mixedChannelWarningDetails = ref<{ groupName: string; currentPlatform: string; otherPlatform: string } | null>(
   null
@@ -3732,9 +3645,6 @@ const resetUpstreamSupplierBindingState = () => {
   upstreamSuppliers.value = []
   upstreamCostBinding.value = null
   upstreamSupplierID.value = null
-  showNewUpstreamSupplierForm.value = false
-  newUpstreamSupplierName.value = ''
-  upstreamSupplierCreating.value = false
   upstreamSupplierLoadError.value = ''
 }
 
@@ -3743,8 +3653,6 @@ const isNotFoundError = (error: any) => error?.status === 404 || error?.response
 const hydrateUpstreamSupplierBinding = (binding: UpstreamAccountCostBinding | null) => {
   upstreamCostBinding.value = binding
   upstreamSupplierID.value = binding?.supplier_id ?? null
-  showNewUpstreamSupplierForm.value = false
-  newUpstreamSupplierName.value = ''
 }
 
 const loadUpstreamSupplierBinding = async (accountID: number) => {
@@ -3777,54 +3685,8 @@ const loadUpstreamSupplierBinding = async (accountID: number) => {
   }
 }
 
-const openNewUpstreamSupplierForm = () => {
-  showNewUpstreamSupplierForm.value = true
-}
-
-const cancelNewUpstreamSupplier = () => {
-  if (upstreamSupplierCreating.value) {
-    return
-  }
-  showNewUpstreamSupplierForm.value = false
-  newUpstreamSupplierName.value = ''
-}
-
-const upsertUpstreamSupplier = (supplier: UpstreamSupplier) => {
-  const next = upstreamSuppliers.value.filter((item) => item.id !== supplier.id)
-  next.push(supplier)
-  next.sort((a, b) => {
-    const statusCompare = a.status.localeCompare(b.status)
-    if (statusCompare !== 0) return statusCompare
-    const nameCompare = a.name.localeCompare(b.name)
-    if (nameCompare !== 0) return nameCompare
-    return a.id - b.id
-  })
-  upstreamSuppliers.value = next
-}
-
-const createUpstreamSupplierFromDraft = async () => {
-  const name = newUpstreamSupplierName.value.trim()
-  if (!name) {
-    appStore.showWarning(t('admin.accounts.upstreamCost.supplierNameRequired'))
-    return
-  }
-  upstreamSupplierCreating.value = true
-  try {
-    const supplier = await adminAPI.accounts.createUpstreamSupplier({ name })
-    upsertUpstreamSupplier(supplier)
-    upstreamSupplierID.value = supplier.id
-    showNewUpstreamSupplierForm.value = false
-    newUpstreamSupplierName.value = ''
-    appStore.showSuccess(t('admin.accounts.upstreamCost.supplierCreated'))
-  } catch (error: any) {
-    appStore.showError(error?.message || t('admin.accounts.upstreamCost.supplierCreateFailed'))
-  } finally {
-    upstreamSupplierCreating.value = false
-  }
-}
-
 const buildUpstreamSupplierBindingPayload = (): UpstreamSupplierBindingPayload | null => {
-  if (!showUpstreamCostSettings.value) {
+  if (!showUpstreamSupplierBinding.value) {
     return null
   }
 
@@ -4001,8 +3863,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   autoPause7dThreshold.value = typeof extra?.auto_pause_7d_threshold === 'number' ? extra.auto_pause_7d_threshold * 100 : null
   autoPause5hDisabled.value = extra?.auto_pause_5h_disabled === true
   autoPause7dDisabled.value = extra?.auto_pause_7d_disabled === true
-  upstreamCostProfile.value = newAccount.type === 'apikey' ? readUpstreamCostProfile(extra) : {}
-  upstreamBalanceAuthToken.value = ''
   if (newAccount.type === 'apikey') {
     void loadUpstreamSupplierBinding(newAccount.id)
   } else {
@@ -4832,18 +4692,6 @@ const handleSubmit = async () => {
         return
       }
 
-      if (requiresUpstreamBalanceAuthToken(upstreamCostProfile.value)) {
-        const balanceAuthToken = upstreamBalanceAuthToken.value.trim()
-        const hasExistingBalanceAuthToken =
-          props.account.credentials_status?.has_upstream_balance_auth_token ??
-          Boolean(currentCredentials.upstream_balance_auth_token)
-        if (balanceAuthToken) {
-          newCredentials.upstream_balance_auth_token = balanceAuthToken
-        } else if (!hasExistingBalanceAuthToken) {
-          appStore.showError(t('admin.accounts.upstreamCost.balanceQuery.authTokenRequired'))
-          return
-        }
-      }
       // Add model mapping if configured（OpenAI 开启自动透传时保留现有映射，不再编辑）
       if (shouldApplyModelMapping) {
         const modelMapping = buildModelRestrictionMapping()
@@ -5381,12 +5229,6 @@ const handleSubmit = async () => {
       // Quota notify config
       writeQuotaNotifyToExtra(newExtra, 'update')
       updatePayload.extra = newExtra
-    }
-
-    if (showUpstreamCostSettings.value) {
-      const currentExtra = (updatePayload.extra as Record<string, unknown>) ||
-        (props.account.extra as Record<string, unknown>) || {}
-      updatePayload.extra = mergeUpstreamCostProfileExtra(currentExtra, upstreamCostProfile.value)
     }
 
     const persistUpstreamBinding = async () => {
