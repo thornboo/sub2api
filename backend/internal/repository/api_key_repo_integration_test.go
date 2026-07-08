@@ -407,6 +407,83 @@ func (s *APIKeyRepoSuite) TestClearGroupIDByGroupID() {
 	s.Require().Zero(count)
 }
 
+func (s *APIKeyRepoSuite) TestDisableKeysForGroupUsersRateChange_DisablesMatchingUserGroupKeys() {
+	user := s.mustCreateUser("rate-change-user@test.com")
+	otherUser := s.mustCreateUser("rate-change-other@test.com")
+	group := s.mustCreateGroup("openai-rate-change")
+	otherGroup := s.mustCreateGroup("anthropic-rate-change")
+
+	matchingKey := s.mustCreateApiKey(user.ID, "sk-rate-change-match", "matching", &group.ID)
+	otherUserKey := s.mustCreateApiKey(otherUser.ID, "sk-rate-change-other-user", "other user", &group.ID)
+	otherGroupKey := s.mustCreateApiKey(user.ID, "sk-rate-change-other-group", "other group", &otherGroup.ID)
+	unscopedKey := s.mustCreateApiKey(user.ID, "sk-rate-change-unscoped", "unscoped", nil)
+
+	affected, err := s.repo.DisableKeysForGroupUsersRateChange(s.ctx, group.ID, []int64{user.ID})
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), affected)
+
+	got, err := s.repo.GetByID(s.ctx, matchingKey.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(service.StatusAPIKeyDisabled, got.Status)
+	s.Require().Equal(service.APIKeyDisabledReasonRateChanged, got.DisabledReason)
+
+	for _, key := range []*service.APIKey{otherUserKey, otherGroupKey, unscopedKey} {
+		got, err := s.repo.GetByID(s.ctx, key.ID)
+		s.Require().NoError(err)
+		s.Require().Equal(service.StatusAPIKeyActive, got.Status)
+		s.Require().Empty(got.DisabledReason)
+	}
+}
+
+func (s *APIKeyRepoSuite) TestDisableKeysForGroupRateChange_ExcludesUsersWithCustomRateAndInactiveKeys() {
+	defaultUser := s.mustCreateUser("default-rate-user@test.com")
+	customUser := s.mustCreateUser("custom-rate-user@test.com")
+	expiredUser := s.mustCreateUser("expired-rate-user@test.com")
+	deletedUser := s.mustCreateUser("deleted-rate-user@test.com")
+	group := s.mustCreateGroup("openai-default-rate-change")
+
+	defaultKey := s.mustCreateApiKey(defaultUser.ID, "sk-rate-change-default", "default", &group.ID)
+	customKey := s.mustCreateApiKey(customUser.ID, "sk-rate-change-custom", "custom", &group.ID)
+	expiredKey := s.mustCreateApiKey(expiredUser.ID, "sk-rate-change-expired", "expired", &group.ID)
+	deletedKey := s.mustCreateApiKey(deletedUser.ID, "sk-rate-change-deleted", "deleted", &group.ID)
+
+	customRate := 2.5
+	rateRepo := &userGroupRateRepository{sql: s.repo.sql}
+	s.Require().NoError(rateRepo.SyncUserGroupRates(s.ctx, customUser.ID, map[int64]*float64{
+		group.ID: &customRate,
+	}))
+
+	expiredKey.Status = service.StatusAPIKeyExpired
+	s.Require().NoError(s.repo.Update(s.ctx, expiredKey))
+	s.Require().NoError(s.repo.Delete(s.ctx, deletedKey.ID))
+
+	affected, err := s.repo.DisableKeysForGroupRateChange(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), affected)
+
+	gotDefault, err := s.repo.GetByID(s.ctx, defaultKey.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(service.StatusAPIKeyDisabled, gotDefault.Status)
+	s.Require().Equal(service.APIKeyDisabledReasonRateChanged, gotDefault.DisabledReason)
+
+	gotCustom, err := s.repo.GetByID(s.ctx, customKey.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(service.StatusAPIKeyActive, gotCustom.Status)
+	s.Require().Empty(gotCustom.DisabledReason)
+
+	gotExpired, err := s.repo.GetByID(s.ctx, expiredKey.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(service.StatusAPIKeyExpired, gotExpired.Status)
+	s.Require().Empty(gotExpired.DisabledReason)
+
+	_, err = s.repo.GetByID(s.ctx, deletedKey.ID)
+	s.Require().ErrorIs(err, service.ErrAPIKeyNotFound)
+	gotDeleted, err := s.repo.GetByIDIncludingDeleted(s.ctx, deletedKey.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(service.StatusAPIKeyActive, gotDeleted.Status)
+	s.Require().Empty(gotDeleted.DisabledReason)
+}
+
 // --- Combined CRUD/Search/ClearGroupID (original test preserved as integration) ---
 
 func (s *APIKeyRepoSuite) TestCRUD_Search_ClearGroupID() {

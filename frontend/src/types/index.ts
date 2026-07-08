@@ -587,6 +587,7 @@ export interface ApiKey {
   tags: string[]
   group_id: number | null
   status: 'active' | 'disabled' | 'quota_exhausted' | 'expired'
+  disabled_reason?: '' | 'rate_changed' | string
   ip_whitelist: string[]
   ip_blacklist: string[]
   last_used_at: string | null

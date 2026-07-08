@@ -19,6 +19,7 @@ import (
 
 	entsql "entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqljson"
+	"github.com/lib/pq"
 )
 
 type apiKeyRepository struct {
@@ -47,6 +48,7 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 		SetName(key.Name).
 		SetTags(apiKeyTagsForStorage(key.Tags)).
 		SetStatus(key.Status).
+		SetDisabledReason(key.DisabledReason).
 		SetNillableGroupID(key.GroupID).
 		SetNillableLastUsedAt(key.LastUsedAt).
 		SetQuota(key.Quota).
@@ -171,6 +173,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 			apikey.FieldGroupID,
 			apikey.FieldName,
 			apikey.FieldStatus,
+			apikey.FieldDisabledReason,
 			apikey.FieldIPWhitelist,
 			apikey.FieldIPBlacklist,
 			apikey.FieldQuota,
@@ -263,6 +266,7 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey) erro
 		SetName(key.Name).
 		SetTags(apiKeyTagsForStorage(key.Tags)).
 		SetStatus(key.Status).
+		SetDisabledReason(key.DisabledReason).
 		SetQuota(key.Quota).
 		SetQuotaUsed(key.QuotaUsed).
 		SetRateLimit5h(key.RateLimit5h).
@@ -708,6 +712,57 @@ func (r *apiKeyRepository) ListKeysByGroupID(ctx context.Context, groupID int64)
 	return keys, nil
 }
 
+func (r *apiKeyRepository) DisableKeysForGroupRateChange(ctx context.Context, groupID int64) (int64, error) {
+	result, err := sqlExecutorFromContext(ctx, r.sql).ExecContext(ctx, `
+		UPDATE api_keys AS k
+		SET status = $2,
+		    disabled_reason = $3,
+		    updated_at = NOW()
+		WHERE k.group_id = $1
+		  AND k.status = $4
+		  AND k.deleted_at IS NULL
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM user_group_rate_multipliers AS ugr
+			WHERE ugr.group_id = $1
+			  AND ugr.user_id = k.user_id
+			  AND ugr.rate_multiplier IS NOT NULL
+		  )
+	`, groupID, service.StatusAPIKeyDisabled, service.APIKeyDisabledReasonRateChanged, service.StatusAPIKeyActive)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+func (r *apiKeyRepository) DisableKeysForGroupUsersRateChange(ctx context.Context, groupID int64, userIDs []int64) (int64, error) {
+	if len(userIDs) == 0 {
+		return 0, nil
+	}
+	result, err := sqlExecutorFromContext(ctx, r.sql).ExecContext(ctx, `
+		UPDATE api_keys
+		SET status = $3,
+		    disabled_reason = $4,
+		    updated_at = NOW()
+		WHERE group_id = $1
+		  AND user_id = ANY($2)
+		  AND status = $5
+		  AND deleted_at IS NULL
+	`, groupID, pq.Array(userIDs), service.StatusAPIKeyDisabled, service.APIKeyDisabledReasonRateChanged, service.StatusAPIKeyActive)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // IncrementQuotaUsed 使用 Ent 原子递增 quota_used 字段并返回新值
 func (r *apiKeyRepository) IncrementQuotaUsed(ctx context.Context, id int64, amount float64) (float64, error) {
 	updated, err := r.client.APIKey.UpdateOneID(id).
@@ -827,31 +882,32 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		return nil
 	}
 	out := &service.APIKey{
-		ID:            m.ID,
-		UserID:        m.UserID,
-		Key:           m.Key,
-		Name:          m.Name,
-		Tags:          append([]string(nil), m.Tags...),
-		Status:        m.Status,
-		IPWhitelist:   m.IPWhitelist,
-		IPBlacklist:   m.IPBlacklist,
-		LastUsedAt:    m.LastUsedAt,
-		CreatedAt:     m.CreatedAt,
-		UpdatedAt:     m.UpdatedAt,
-		DeletedAt:     m.DeletedAt,
-		GroupID:       m.GroupID,
-		Quota:         m.Quota,
-		QuotaUsed:     m.QuotaUsed,
-		ExpiresAt:     m.ExpiresAt,
-		RateLimit5h:   m.RateLimit5h,
-		RateLimit1d:   m.RateLimit1d,
-		RateLimit7d:   m.RateLimit7d,
-		Usage5h:       m.Usage5h,
-		Usage1d:       m.Usage1d,
-		Usage7d:       m.Usage7d,
-		Window5hStart: m.Window5hStart,
-		Window1dStart: m.Window1dStart,
-		Window7dStart: m.Window7dStart,
+		ID:             m.ID,
+		UserID:         m.UserID,
+		Key:            m.Key,
+		Name:           m.Name,
+		Tags:           append([]string(nil), m.Tags...),
+		Status:         m.Status,
+		DisabledReason: m.DisabledReason,
+		IPWhitelist:    m.IPWhitelist,
+		IPBlacklist:    m.IPBlacklist,
+		LastUsedAt:     m.LastUsedAt,
+		CreatedAt:      m.CreatedAt,
+		UpdatedAt:      m.UpdatedAt,
+		DeletedAt:      m.DeletedAt,
+		GroupID:        m.GroupID,
+		Quota:          m.Quota,
+		QuotaUsed:      m.QuotaUsed,
+		ExpiresAt:      m.ExpiresAt,
+		RateLimit5h:    m.RateLimit5h,
+		RateLimit1d:    m.RateLimit1d,
+		RateLimit7d:    m.RateLimit7d,
+		Usage5h:        m.Usage5h,
+		Usage1d:        m.Usage1d,
+		Usage7d:        m.Usage7d,
+		Window5hStart:  m.Window5hStart,
+		Window1dStart:  m.Window1dStart,
+		Window7dStart:  m.Window7dStart,
 	}
 	if m.Edges.User != nil {
 		out.User = userEntityToService(m.Edges.User)

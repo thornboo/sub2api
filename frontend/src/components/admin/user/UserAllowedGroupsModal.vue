@@ -216,9 +216,9 @@ const exclusiveGroupConfigs = computed(() => groupConfigs.value.filter((c) => c.
 const publicGroupConfigs = computed(() => groupConfigs.value.filter((c) => !c.isExclusive))
 
 watch(
-  () => props.show,
-  (v) => {
-    if (v && props.user) {
+  () => [props.show, props.user?.id] as const,
+  ([show]) => {
+    if (show && props.user) {
       load()
     }
   }

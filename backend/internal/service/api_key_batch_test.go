@@ -372,6 +372,37 @@ func TestAPIKeyServiceUpdate_AllowsExplicitDisabledForSystemStatus(t *testing.T)
 	}
 }
 
+func TestAPIKeyServiceUpdate_ClearsRateChangedDisabledReasonWhenReenabled(t *testing.T) {
+	repo := &batchCreateAPIKeyRepoStub{
+		keysByID: map[int64]APIKey{
+			1: {
+				ID:             1,
+				UserID:         42,
+				Key:            "sk-rate-changed",
+				Name:           "rate changed",
+				Status:         StatusAPIKeyDisabled,
+				DisabledReason: APIKeyDisabledReasonRateChanged,
+			},
+		},
+	}
+	svc := NewAPIKeyService(repo, nil, nil, nil, nil, nil, nil)
+	activeStatus := StatusAPIKeyActive
+
+	updated, err := svc.Update(context.Background(), 1, 42, UpdateAPIKeyRequest{Status: &activeStatus})
+	if err != nil {
+		t.Fatalf("Update returned error: %v", err)
+	}
+	if got := updated.DisabledReason; got != "" {
+		t.Fatalf("returned disabled_reason = %q, want empty", got)
+	}
+	if got := repo.keysByID[1].DisabledReason; got != "" {
+		t.Fatalf("persisted disabled_reason = %q, want empty", got)
+	}
+	if got := repo.keysByID[1].Status; got != StatusAPIKeyActive {
+		t.Fatalf("status = %q, want %q", got, StatusAPIKeyActive)
+	}
+}
+
 func TestAPIKeyServiceUpdate_SkipsUnchangedGroupRebinding(t *testing.T) {
 	groupID := int64(3)
 	repo := &batchCreateAPIKeyRepoStub{

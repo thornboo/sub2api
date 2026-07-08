@@ -146,6 +146,20 @@ func (_u *APIKeyUpdate) SetNillableStatus(v *string) *APIKeyUpdate {
 	return _u
 }
 
+// SetDisabledReason sets the "disabled_reason" field.
+func (_u *APIKeyUpdate) SetDisabledReason(v string) *APIKeyUpdate {
+	_u.mutation.SetDisabledReason(v)
+	return _u
+}
+
+// SetNillableDisabledReason sets the "disabled_reason" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableDisabledReason(v *string) *APIKeyUpdate {
+	if v != nil {
+		_u.SetDisabledReason(*v)
+	}
+	return _u
+}
+
 // SetLastUsedAt sets the "last_used_at" field.
 func (_u *APIKeyUpdate) SetLastUsedAt(v time.Time) *APIKeyUpdate {
 	_u.mutation.SetLastUsedAt(v)
@@ -572,6 +586,11 @@ func (_u *APIKeyUpdate) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.DisabledReason(); ok {
+		if err := apikey.DisabledReasonValidator(v); err != nil {
+			return &ValidationError{Name: "disabled_reason", err: fmt.Errorf(`ent: validator failed for field "APIKey.disabled_reason": %w`, err)}
+		}
+	}
 	if _u.mutation.UserCleared() && len(_u.mutation.UserIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "APIKey.user"`)
 	}
@@ -615,6 +634,9 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.DisabledReason(); ok {
+		_spec.SetField(apikey.FieldDisabledReason, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.LastUsedAt(); ok {
 		_spec.SetField(apikey.FieldLastUsedAt, field.TypeTime, value)
@@ -949,6 +971,20 @@ func (_u *APIKeyUpdateOne) SetStatus(v string) *APIKeyUpdateOne {
 func (_u *APIKeyUpdateOne) SetNillableStatus(v *string) *APIKeyUpdateOne {
 	if v != nil {
 		_u.SetStatus(*v)
+	}
+	return _u
+}
+
+// SetDisabledReason sets the "disabled_reason" field.
+func (_u *APIKeyUpdateOne) SetDisabledReason(v string) *APIKeyUpdateOne {
+	_u.mutation.SetDisabledReason(v)
+	return _u
+}
+
+// SetNillableDisabledReason sets the "disabled_reason" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableDisabledReason(v *string) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetDisabledReason(*v)
 	}
 	return _u
 }
@@ -1392,6 +1428,11 @@ func (_u *APIKeyUpdateOne) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.DisabledReason(); ok {
+		if err := apikey.DisabledReasonValidator(v); err != nil {
+			return &ValidationError{Name: "disabled_reason", err: fmt.Errorf(`ent: validator failed for field "APIKey.disabled_reason": %w`, err)}
+		}
+	}
 	if _u.mutation.UserCleared() && len(_u.mutation.UserIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "APIKey.user"`)
 	}
@@ -1452,6 +1493,9 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.DisabledReason(); ok {
+		_spec.SetField(apikey.FieldDisabledReason, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.LastUsedAt(); ok {
 		_spec.SetField(apikey.FieldLastUsedAt, field.TypeTime, value)

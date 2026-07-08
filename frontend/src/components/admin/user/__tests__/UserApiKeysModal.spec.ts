@@ -184,4 +184,38 @@ describe('UserApiKeysModal', () => {
     expect(modal.text()).toBe('target@example.com')
     expect(modal.attributes('data-api-key-id')).toBe('')
   })
+
+  it('reloads API keys when the refresh token changes while open', async () => {
+    const wrapper = mount(UserApiKeysModal, {
+      props: {
+        show: true,
+        user,
+        refreshToken: 0,
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            props: ['show', 'title'],
+            template: '<section v-if="show"><slot /></section>',
+          },
+          Icon: {
+            props: ['name'],
+            template: '<span class="icon">{{ name }}</span>',
+          },
+          GroupBadge: true,
+          GroupOptionItem: true,
+          AdminApiKeyUsageModal: true,
+        },
+      },
+    })
+
+    await flushPromises()
+    expect(getUserApiKeys).toHaveBeenCalledTimes(1)
+
+    await wrapper.setProps({ refreshToken: 1 })
+    await flushPromises()
+
+    expect(getUserApiKeys).toHaveBeenCalledTimes(2)
+    expect(getUserApiKeys).toHaveBeenLastCalledWith(7)
+  })
 })

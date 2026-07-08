@@ -431,16 +431,24 @@
             <span v-else class="text-sm text-gray-400 dark:text-dark-500">{{ t('keys.noExpiration') }}</span>
           </template>
 
-          <template #cell-status="{ value }">
-            <span :class="[
-              'badge',
-              value === 'active' ? 'badge-success' :
-              value === 'quota_exhausted' ? 'badge-warning' :
-              value === 'expired' ? 'badge-danger' :
-              'badge-gray'
-            ]">
-              {{ t('keys.status.' + value) }}
-            </span>
+          <template #cell-status="{ value, row }">
+            <div class="flex flex-col items-start gap-1">
+              <span :class="[
+                'badge',
+                value === 'active' ? 'badge-success' :
+                value === 'quota_exhausted' ? 'badge-warning' :
+                value === 'expired' ? 'badge-danger' :
+                'badge-gray'
+              ]">
+                {{ t('keys.status.' + value) }}
+              </span>
+              <span
+                v-if="isRateChangedDisabled(row)"
+                class="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+              >
+                {{ t('keys.systemStatus.rateChangedBadge') }}
+              </span>
+            </div>
           </template>
 
           <template #cell-last_used_at="{ value }">
@@ -486,7 +494,7 @@
               >
                 <Icon v-if="row.status === 'active'" name="ban" size="sm" />
                 <Icon v-else name="checkCircle" size="sm" />
-                <span class="text-xs">{{ row.status === 'active' ? t('keys.disable') : t('keys.enable') }}</span>
+                <span class="text-xs">{{ getStatusToggleLabel(row) }}</span>
               </button>
               <!-- Edit Button -->
               <button
@@ -692,12 +700,33 @@
               </span>
             </label>
           </div>
-          <Select
-            v-else
-            v-model="formData.status"
-            :options="statusOptions"
-            :placeholder="t('keys.selectStatus')"
-          />
+          <div v-else class="space-y-3">
+            <div
+              v-if="selectedKeyRateChangedDisabled"
+              class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-100"
+            >
+              <div class="flex gap-3">
+                <Icon
+                  name="exclamationTriangle"
+                  size="sm"
+                  class="mt-0.5 shrink-0"
+                />
+                <div class="min-w-0">
+                  <div class="text-sm font-medium">
+                    {{ t('keys.systemStatus.rateChangedTitle') }}
+                  </div>
+                  <p class="mt-1 text-sm opacity-90">
+                    {{ t('keys.systemStatus.rateChangedDescription') }}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <Select
+              v-model="formData.status"
+              :options="statusOptions"
+              :placeholder="t('keys.selectStatus')"
+            />
+          </div>
         </div>
 
         <!-- IP Restriction Section -->
@@ -1913,6 +1942,18 @@ import {
 
 const { t } = useI18n()
 
+const API_KEY_DISABLED_REASON_RATE_CHANGED = 'rate_changed'
+
+const isRateChangedDisabled = (key: Pick<ApiKey, 'status' | 'disabled_reason'> | null | undefined): boolean =>
+  key?.status === 'disabled' && key.disabled_reason === API_KEY_DISABLED_REASON_RATE_CHANGED
+
+const getStatusToggleLabel = (key: Pick<ApiKey, 'status' | 'disabled_reason'>): string => {
+  if (key.status === 'active') {
+    return t('keys.disable')
+  }
+  return isRateChangedDisabled(key) ? t('keys.systemStatus.rateChangedEnableAction') : t('keys.enable')
+}
+
 // Helper to format date for datetime-local input
 const formatDateTimeLocal = (isoDate: string): string => {
   const date = new Date(isoDate)
@@ -2401,6 +2442,8 @@ const selectedKeySystemStatus = computed(() => {
   const status = selectedKey.value?.status
   return isApiKeySystemStatus(status) ? status : null
 })
+
+const selectedKeyRateChangedDisabled = computed(() => isRateChangedDisabled(selectedKey.value))
 
 const batchUpdateStatusOptions = computed(() => [
   { value: 'active', label: t('keys.status.active') },

@@ -119,6 +119,20 @@ func (_c *APIKeyCreate) SetNillableStatus(v *string) *APIKeyCreate {
 	return _c
 }
 
+// SetDisabledReason sets the "disabled_reason" field.
+func (_c *APIKeyCreate) SetDisabledReason(v string) *APIKeyCreate {
+	_c.mutation.SetDisabledReason(v)
+	return _c
+}
+
+// SetNillableDisabledReason sets the "disabled_reason" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableDisabledReason(v *string) *APIKeyCreate {
+	if v != nil {
+		_c.SetDisabledReason(*v)
+	}
+	return _c
+}
+
 // SetLastUsedAt sets the "last_used_at" field.
 func (_c *APIKeyCreate) SetLastUsedAt(v time.Time) *APIKeyCreate {
 	_c.mutation.SetLastUsedAt(v)
@@ -397,6 +411,10 @@ func (_c *APIKeyCreate) defaults() error {
 		v := apikey.DefaultStatus
 		_c.mutation.SetStatus(v)
 	}
+	if _, ok := _c.mutation.DisabledReason(); !ok {
+		v := apikey.DefaultDisabledReason
+		_c.mutation.SetDisabledReason(v)
+	}
 	if _, ok := _c.mutation.Quota(); !ok {
 		v := apikey.DefaultQuota
 		_c.mutation.SetQuota(v)
@@ -468,6 +486,14 @@ func (_c *APIKeyCreate) check() error {
 	if v, ok := _c.mutation.Status(); ok {
 		if err := apikey.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.DisabledReason(); !ok {
+		return &ValidationError{Name: "disabled_reason", err: errors.New(`ent: missing required field "APIKey.disabled_reason"`)}
+	}
+	if v, ok := _c.mutation.DisabledReason(); ok {
+		if err := apikey.DisabledReasonValidator(v); err != nil {
+			return &ValidationError{Name: "disabled_reason", err: fmt.Errorf(`ent: validator failed for field "APIKey.disabled_reason": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.Quota(); !ok {
@@ -551,6 +577,10 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
 		_node.Status = value
+	}
+	if value, ok := _c.mutation.DisabledReason(); ok {
+		_spec.SetField(apikey.FieldDisabledReason, field.TypeString, value)
+		_node.DisabledReason = value
 	}
 	if value, ok := _c.mutation.LastUsedAt(); ok {
 		_spec.SetField(apikey.FieldLastUsedAt, field.TypeTime, value)
@@ -819,6 +849,18 @@ func (u *APIKeyUpsert) SetStatus(v string) *APIKeyUpsert {
 // UpdateStatus sets the "status" field to the value that was provided on create.
 func (u *APIKeyUpsert) UpdateStatus() *APIKeyUpsert {
 	u.SetExcluded(apikey.FieldStatus)
+	return u
+}
+
+// SetDisabledReason sets the "disabled_reason" field.
+func (u *APIKeyUpsert) SetDisabledReason(v string) *APIKeyUpsert {
+	u.Set(apikey.FieldDisabledReason, v)
+	return u
+}
+
+// UpdateDisabledReason sets the "disabled_reason" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateDisabledReason() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldDisabledReason)
 	return u
 }
 
@@ -1260,6 +1302,20 @@ func (u *APIKeyUpsertOne) SetStatus(v string) *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) UpdateStatus() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateStatus()
+	})
+}
+
+// SetDisabledReason sets the "disabled_reason" field.
+func (u *APIKeyUpsertOne) SetDisabledReason(v string) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetDisabledReason(v)
+	})
+}
+
+// UpdateDisabledReason sets the "disabled_reason" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateDisabledReason() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateDisabledReason()
 	})
 }
 
@@ -1912,6 +1968,20 @@ func (u *APIKeyUpsertBulk) SetStatus(v string) *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) UpdateStatus() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateStatus()
+	})
+}
+
+// SetDisabledReason sets the "disabled_reason" field.
+func (u *APIKeyUpsertBulk) SetDisabledReason(v string) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetDisabledReason(v)
+	})
+}
+
+// UpdateDisabledReason sets the "disabled_reason" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateDisabledReason() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateDisabledReason()
 	})
 }
 

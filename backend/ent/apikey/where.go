@@ -95,6 +95,11 @@ func Status(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldStatus, v))
 }
 
+// DisabledReason applies equality check predicate on the "disabled_reason" field. It's identical to DisabledReasonEQ.
+func DisabledReason(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldDisabledReason, v))
+}
+
 // LastUsedAt applies equality check predicate on the "last_used_at" field. It's identical to LastUsedAtEQ.
 func LastUsedAt(v time.Time) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldLastUsedAt, v))
@@ -533,6 +538,71 @@ func StatusEqualFold(v string) predicate.APIKey {
 // StatusContainsFold applies the ContainsFold predicate on the "status" field.
 func StatusContainsFold(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldContainsFold(FieldStatus, v))
+}
+
+// DisabledReasonEQ applies the EQ predicate on the "disabled_reason" field.
+func DisabledReasonEQ(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldDisabledReason, v))
+}
+
+// DisabledReasonNEQ applies the NEQ predicate on the "disabled_reason" field.
+func DisabledReasonNEQ(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldDisabledReason, v))
+}
+
+// DisabledReasonIn applies the In predicate on the "disabled_reason" field.
+func DisabledReasonIn(vs ...string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldDisabledReason, vs...))
+}
+
+// DisabledReasonNotIn applies the NotIn predicate on the "disabled_reason" field.
+func DisabledReasonNotIn(vs ...string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldDisabledReason, vs...))
+}
+
+// DisabledReasonGT applies the GT predicate on the "disabled_reason" field.
+func DisabledReasonGT(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGT(FieldDisabledReason, v))
+}
+
+// DisabledReasonGTE applies the GTE predicate on the "disabled_reason" field.
+func DisabledReasonGTE(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGTE(FieldDisabledReason, v))
+}
+
+// DisabledReasonLT applies the LT predicate on the "disabled_reason" field.
+func DisabledReasonLT(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLT(FieldDisabledReason, v))
+}
+
+// DisabledReasonLTE applies the LTE predicate on the "disabled_reason" field.
+func DisabledReasonLTE(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLTE(FieldDisabledReason, v))
+}
+
+// DisabledReasonContains applies the Contains predicate on the "disabled_reason" field.
+func DisabledReasonContains(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldContains(FieldDisabledReason, v))
+}
+
+// DisabledReasonHasPrefix applies the HasPrefix predicate on the "disabled_reason" field.
+func DisabledReasonHasPrefix(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldHasPrefix(FieldDisabledReason, v))
+}
+
+// DisabledReasonHasSuffix applies the HasSuffix predicate on the "disabled_reason" field.
+func DisabledReasonHasSuffix(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldHasSuffix(FieldDisabledReason, v))
+}
+
+// DisabledReasonEqualFold applies the EqualFold predicate on the "disabled_reason" field.
+func DisabledReasonEqualFold(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEqualFold(FieldDisabledReason, v))
+}
+
+// DisabledReasonContainsFold applies the ContainsFold predicate on the "disabled_reason" field.
+func DisabledReasonContainsFold(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldContainsFold(FieldDisabledReason, v))
 }
 
 // LastUsedAtEQ applies the EQ predicate on the "last_used_at" field.

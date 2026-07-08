@@ -161,7 +161,7 @@ import GroupBadge from '@/components/common/GroupBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 import AdminApiKeyUsageModal from './AdminApiKeyUsageModal.vue'
 
-const props = defineProps<{ show: boolean; user: AdminUser | null }>()
+const props = defineProps<{ show: boolean; user: AdminUser | null; refreshToken?: number }>()
 const emit = defineEmits(['close'])
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -339,6 +339,15 @@ watch(
     }
   },
   { immediate: true }
+)
+
+watch(
+  () => props.refreshToken,
+  () => {
+    if (props.show && props.user) {
+      load()
+    }
+  }
 )
 
 onMounted(() => {

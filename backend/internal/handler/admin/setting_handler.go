@@ -338,6 +338,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 
 		AffiliateEnabled: settings.AffiliateEnabled,
 
+		DisableKeysOnRateChange: settings.DisableKeysOnRateChange,
+
 		AllowUserViewErrorRequests: settings.AllowUserViewErrorRequests,
 	}
 
@@ -713,6 +715,8 @@ type UpdateSettingsRequest struct {
 
 	// Affiliate (邀请返利) feature switch
 	AffiliateEnabled *bool `json:"affiliate_enabled"`
+
+	DisableKeysOnRateChange *bool `json:"disable_keys_on_rate_change"`
 
 	// 风控中心功能开关
 	RiskControlEnabled *bool `json:"risk_control_enabled"`
@@ -1947,6 +1951,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.AvailableChannelsEnabled
 		}(),
+		DisableKeysOnRateChange: func() bool {
+			if req.DisableKeysOnRateChange != nil {
+				return *req.DisableKeysOnRateChange
+			}
+			return previousSettings.DisableKeysOnRateChange
+		}(),
 		AffiliateEnabled: func() bool {
 			if req.AffiliateEnabled != nil {
 				return *req.AffiliateEnabled
@@ -2331,6 +2341,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 
 		AffiliateEnabled: updatedSettings.AffiliateEnabled,
 
+		DisableKeysOnRateChange:     updatedSettings.DisableKeysOnRateChange,
 		RiskControlEnabled:          updatedSettings.RiskControlEnabled,
 		CyberSessionBlockEnabled:    updatedSettings.CyberSessionBlockEnabled,
 		CyberSessionBlockTTLSeconds: updatedSettings.CyberSessionBlockTTLSeconds,
@@ -2887,6 +2898,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.AvailableChannelsEnabled != after.AvailableChannelsEnabled {
 		changed = append(changed, "available_channels_enabled")
+	}
+	if before.DisableKeysOnRateChange != after.DisableKeysOnRateChange {
+		changed = append(changed, "disable_keys_on_rate_change")
 	}
 	if before.AffiliateEnabled != after.AffiliateEnabled {
 		changed = append(changed, "affiliate_enabled")

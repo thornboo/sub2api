@@ -831,6 +831,9 @@ func applyBatchAPIKeyUpdate(key *APIKey, req BatchUpdateAPIKeysRequest, now time
 	}
 	if req.UpdateStatus {
 		key.Status = req.Status
+		if key.Status == StatusAPIKeyActive || key.Status == StatusAPIKeyDisabled {
+			key.DisabledReason = ""
+		}
 	}
 	if req.UpdateQuota {
 		switch req.QuotaMode {
@@ -875,6 +878,9 @@ func applyBatchAPIKeyUpdate(key *APIKey, req BatchUpdateAPIKeysRequest, now time
 	}
 	if req.UpdateTags {
 		key.Tags = applyAPIKeyTagsMode(key.Tags, req.TagsMode, req.Tags)
+	}
+	if key.Status == StatusAPIKeyActive {
+		key.DisabledReason = ""
 	}
 	return resetRateLimit
 }
@@ -1461,6 +1467,9 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 			return nil, ErrAPIKeyStatusInvalid.WithMetadata(map[string]string{"field": "status"})
 		}
 		apiKey.Status = status
+		if status == StatusAPIKeyActive || status == StatusAPIKeyDisabled {
+			apiKey.DisabledReason = ""
+		}
 		// 如果状态改变，清除Redis缓存
 		if s.cache != nil {
 			_ = s.cache.DeleteCreateAttemptCount(ctx, apiKey.UserID)
@@ -1525,6 +1534,9 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		apiKey.Window5hStart = nil
 		apiKey.Window1dStart = nil
 		apiKey.Window7dStart = nil
+	}
+	if apiKey.Status == StatusAPIKeyActive {
+		apiKey.DisabledReason = ""
 	}
 
 	if err := s.apiKeyRepo.Update(ctx, apiKey); err != nil {

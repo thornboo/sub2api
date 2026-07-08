@@ -267,6 +267,7 @@ const (
 	SettingKeyDefaultSubscriptions      = "default_subscriptions"          // 新用户默认订阅列表（JSON）
 	SettingKeyDefaultUserRPMLimit       = "default_user_rpm_limit"         // 新用户默认 RPM 限制（0 = 不限制）
 	SettingKeyAPIKeyBatchCreateMaxCount = "api_key_batch_create_max_count" // 用户侧 API Key 批量创建数量上限
+	SettingKeyDisableKeysOnRateChange   = "disable_keys_on_rate_change"    // 修改分组倍率后是否自动停用受影响 API Key
 
 	// 第三方认证来源默认授予配置
 	SettingKeyAuthSourceDefaultEmailBalance             = "auth_source_default_email_balance"

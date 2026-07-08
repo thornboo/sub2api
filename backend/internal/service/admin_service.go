@@ -598,6 +598,11 @@ type userGroupRateBatchReader interface {
 	GetByUserIDs(ctx context.Context, userIDs []int64) (map[int64]map[int64]float64, error)
 }
 
+type apiKeyRateChangeDisabler interface {
+	DisableKeysForGroupRateChange(ctx context.Context, groupID int64) (int64, error)
+	DisableKeysForGroupUsersRateChange(ctx context.Context, groupID int64, userIDs []int64) (int64, error)
+}
+
 // NewAdminService creates a new AdminService
 func NewAdminService(
 	userRepo UserRepository,
@@ -799,6 +804,7 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	oldRole := user.Role
 	oldRPMLimit := user.RPMLimit
 	oldAllowedGroups := append([]int64(nil), user.AllowedGroups...)
+	groupRatesTouched := input.GroupRates != nil && s.userGroupRateRepo != nil
 
 	if input.Email != "" {
 		user.Email = input.Email
@@ -832,21 +838,59 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 		user.AllowedGroups = *input.AllowedGroups
 	}
 
-	if err := s.userRepo.Update(ctx, user); err != nil {
-		return nil, err
-	}
+	disableKeysForUserRateChange := groupRatesTouched && s.disableKeysOnRateChangeEnabled(ctx)
+	if disableKeysForUserRateChange {
+		err = s.runRateChangeTx(ctx, func(txCtx context.Context) error {
+			currentRates, err := s.userGroupRateRepo.GetByUserID(txCtx, user.ID)
+			if err != nil {
+				return fmt.Errorf("get user group rates: %w", err)
+			}
+			affectedGroupIDs := changedUserGroupRateGroups(currentRates, input.GroupRates)
 
-	// 同步用户专属分组倍率
-	if input.GroupRates != nil && s.userGroupRateRepo != nil {
-		if err := s.userGroupRateRepo.SyncUserGroupRates(ctx, user.ID, input.GroupRates); err != nil {
-			logger.LegacyPrintf("service.admin", "failed to sync user group rates: user_id=%d err=%v", user.ID, err)
+			var disabler apiKeyRateChangeDisabler
+			if len(affectedGroupIDs) > 0 {
+				var err error
+				disabler, err = s.rateChangeKeyDisabler()
+				if err != nil {
+					return err
+				}
+			}
+			if err := s.userRepo.Update(txCtx, user); err != nil {
+				return err
+			}
+			if err := s.userGroupRateRepo.SyncUserGroupRates(txCtx, user.ID, input.GroupRates); err != nil {
+				return fmt.Errorf("sync user group rates: %w", err)
+			}
+			if len(affectedGroupIDs) == 0 {
+				return nil
+			}
+			for _, groupID := range affectedGroupIDs {
+				if _, err := disabler.DisableKeysForGroupUsersRateChange(txCtx, groupID, []int64{user.ID}); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		if err := s.userRepo.Update(ctx, user); err != nil {
+			return nil, err
+		}
+
+		// 同步用户专属分组倍率
+		if groupRatesTouched {
+			if err := s.userGroupRateRepo.SyncUserGroupRates(ctx, user.ID, input.GroupRates); err != nil {
+				logger.LegacyPrintf("service.admin", "failed to sync user group rates: user_id=%d err=%v", user.ID, err)
+			}
 		}
 	}
 
 	if s.authCacheInvalidator != nil {
 		// RPMLimit 直接参与 billing_cache_service.checkRPM 的三级级联，
-		// allowed_groups 参与 API Key 专属分组授权判断；不失效缓存会让修改在一个 L2 TTL 内失去效果。
-		if user.Concurrency != oldConcurrency || user.Status != oldStatus || user.Role != oldRole || user.RPMLimit != oldRPMLimit || !sameInt64Set(user.AllowedGroups, oldAllowedGroups) {
+		// allowed_groups 与 group_rates 参与 API Key 专属分组授权/计费倍率判断；不失效缓存会让修改在一个 L2 TTL 内失去效果。
+		if user.Concurrency != oldConcurrency || user.Status != oldStatus || user.Role != oldRole || user.RPMLimit != oldRPMLimit || !sameInt64Set(user.AllowedGroups, oldAllowedGroups) || groupRatesTouched {
 			s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, user.ID)
 		}
 	}
@@ -2117,6 +2161,7 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 		return nil, err
 	}
 
+	defaultRateChanged := false
 	if input.Name != "" {
 		group.Name = input.Name
 	}
@@ -2130,6 +2175,7 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 		if *input.RateMultiplier <= 0 {
 			return nil, errors.New("rate_multiplier must be > 0")
 		}
+		defaultRateChanged = group.RateMultiplier != *input.RateMultiplier
 		group.RateMultiplier = *input.RateMultiplier
 	}
 	if input.IsExclusive != nil {
@@ -2285,7 +2331,28 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	sanitizeGroupMessagesDispatchFields(group)
 
-	if err := s.groupRepo.Update(ctx, group); err != nil {
+	disableKeysForRateChange := defaultRateChanged && s.disableKeysOnRateChangeEnabled(ctx)
+	var disabler apiKeyRateChangeDisabler
+	if disableKeysForRateChange {
+		disabler, err = s.rateChangeKeyDisabler()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if disableKeysForRateChange {
+		err = s.runRateChangeTx(ctx, func(txCtx context.Context) error {
+			if err := s.groupRepo.Update(txCtx, group); err != nil {
+				return err
+			}
+			if _, err := disabler.DisableKeysForGroupRateChange(txCtx, id); err != nil {
+				return err
+			}
+			return nil
+		})
+	} else {
+		err = s.groupRepo.Update(ctx, group)
+	}
+	if err != nil {
 		return nil, err
 	}
 
@@ -2417,11 +2484,144 @@ func (s *adminServiceImpl) GetGroupRateMultipliers(ctx context.Context, groupID 
 	return s.userGroupRateRepo.GetByGroupID(ctx, groupID)
 }
 
+func (s *adminServiceImpl) disableKeysOnRateChangeEnabled(ctx context.Context) bool {
+	return s.settingService != nil && s.settingService.IsDisableKeysOnRateChangeEnabled(ctx)
+}
+
+func (s *adminServiceImpl) rateChangeKeyDisabler() (apiKeyRateChangeDisabler, error) {
+	disabler, ok := s.apiKeyRepo.(apiKeyRateChangeDisabler)
+	if !ok || disabler == nil {
+		return nil, infraerrors.InternalServer("RATE_CHANGE_KEY_DISABLER_UNAVAILABLE", "api key repository does not support rate-change key disabling")
+	}
+	return disabler, nil
+}
+
+func (s *adminServiceImpl) runRateChangeTx(ctx context.Context, fn func(context.Context) error) error {
+	if fn == nil {
+		return nil
+	}
+	if txRepo, ok := s.apiKeyRepo.(apiKeyTransactionalRepository); ok {
+		return txRepo.RunInTx(ctx, fn)
+	}
+	if s.entClient != nil {
+		tx, err := s.entClient.Tx(ctx)
+		if err != nil {
+			return err
+		}
+		txCtx := dbent.NewTxContext(ctx, tx)
+		defer func() { _ = tx.Rollback() }()
+		if err := fn(txCtx); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}
+	return fn(ctx)
+}
+
+func changedRateMultiplierUsers(before map[int64]float64, after map[int64]float64) []int64 {
+	if len(before) == 0 && len(after) == 0 {
+		return nil
+	}
+	changed := make([]int64, 0, len(before)+len(after))
+	seen := make(map[int64]struct{}, len(before)+len(after))
+	for userID, oldRate := range before {
+		newRate, ok := after[userID]
+		if !ok || newRate != oldRate {
+			changed = append(changed, userID)
+			seen[userID] = struct{}{}
+		}
+	}
+	for userID, newRate := range after {
+		if _, ok := seen[userID]; ok {
+			continue
+		}
+		oldRate, ok := before[userID]
+		if !ok || oldRate != newRate {
+			changed = append(changed, userID)
+		}
+	}
+	sort.Slice(changed, func(i, j int) bool { return changed[i] < changed[j] })
+	return changed
+}
+
+func groupRateEntriesToMap(entries []UserGroupRateEntry) map[int64]float64 {
+	out := make(map[int64]float64, len(entries))
+	for _, entry := range entries {
+		if entry.RateMultiplier != nil {
+			out[entry.UserID] = *entry.RateMultiplier
+		}
+	}
+	return out
+}
+
+func groupRateInputsToMap(entries []GroupRateMultiplierInput) map[int64]float64 {
+	out := make(map[int64]float64, len(entries))
+	for _, entry := range entries {
+		out[entry.UserID] = entry.RateMultiplier
+	}
+	return out
+}
+
+func changedUserGroupRateGroups(before map[int64]float64, updates map[int64]*float64) []int64 {
+	if len(updates) == 0 {
+		return nil
+	}
+	changed := make([]int64, 0, len(updates))
+	for groupID, newRate := range updates {
+		oldRate, hadOld := before[groupID]
+		if newRate == nil {
+			if hadOld {
+				changed = append(changed, groupID)
+			}
+			continue
+		}
+		if !hadOld || oldRate != *newRate {
+			changed = append(changed, groupID)
+		}
+	}
+	sort.Slice(changed, func(i, j int) bool { return changed[i] < changed[j] })
+	return changed
+}
+
 func (s *adminServiceImpl) ClearGroupRateMultipliers(ctx context.Context, groupID int64) error {
 	if s.userGroupRateRepo == nil {
 		return nil
 	}
-	return s.userGroupRateRepo.DeleteByGroupID(ctx, groupID)
+	disableKeysForRateChange := s.disableKeysOnRateChangeEnabled(ctx)
+	err := s.runRateChangeTx(ctx, func(txCtx context.Context) error {
+		var affectedUserIDs []int64
+		if disableKeysForRateChange {
+			entries, err := s.userGroupRateRepo.GetByGroupID(txCtx, groupID)
+			if err != nil {
+				return err
+			}
+			affectedUserIDs = changedRateMultiplierUsers(groupRateEntriesToMap(entries), nil)
+		}
+		var disabler apiKeyRateChangeDisabler
+		if len(affectedUserIDs) > 0 {
+			var err error
+			disabler, err = s.rateChangeKeyDisabler()
+			if err != nil {
+				return err
+			}
+		}
+		if err := s.userGroupRateRepo.DeleteByGroupID(txCtx, groupID); err != nil {
+			return err
+		}
+		if len(affectedUserIDs) > 0 {
+			if _, err := disabler.DisableKeysForGroupUsersRateChange(txCtx, groupID, affectedUserIDs); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if s.authCacheInvalidator != nil {
+		s.authCacheInvalidator.InvalidateAuthCacheByGroupID(ctx, groupID)
+	}
+	return nil
 }
 
 func (s *adminServiceImpl) BatchSetGroupRateMultipliers(ctx context.Context, groupID int64, entries []GroupRateMultiplierInput) error {
@@ -2433,7 +2633,41 @@ func (s *adminServiceImpl) BatchSetGroupRateMultipliers(ctx context.Context, gro
 			return fmt.Errorf("rate_multiplier must be > 0 (user_id=%d)", e.UserID)
 		}
 	}
-	return s.userGroupRateRepo.SyncGroupRateMultipliers(ctx, groupID, entries)
+	disableKeysForRateChange := s.disableKeysOnRateChangeEnabled(ctx)
+	err := s.runRateChangeTx(ctx, func(txCtx context.Context) error {
+		var affectedUserIDs []int64
+		if disableKeysForRateChange {
+			current, err := s.userGroupRateRepo.GetByGroupID(txCtx, groupID)
+			if err != nil {
+				return err
+			}
+			affectedUserIDs = changedRateMultiplierUsers(groupRateEntriesToMap(current), groupRateInputsToMap(entries))
+		}
+		var disabler apiKeyRateChangeDisabler
+		if len(affectedUserIDs) > 0 {
+			var err error
+			disabler, err = s.rateChangeKeyDisabler()
+			if err != nil {
+				return err
+			}
+		}
+		if err := s.userGroupRateRepo.SyncGroupRateMultipliers(txCtx, groupID, entries); err != nil {
+			return err
+		}
+		if len(affectedUserIDs) > 0 {
+			if _, err := disabler.DisableKeysForGroupUsersRateChange(txCtx, groupID, affectedUserIDs); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if s.authCacheInvalidator != nil {
+		s.authCacheInvalidator.InvalidateAuthCacheByGroupID(ctx, groupID)
+	}
+	return nil
 }
 
 func (s *adminServiceImpl) ClearGroupRPMOverrides(ctx context.Context, groupID int64) error {

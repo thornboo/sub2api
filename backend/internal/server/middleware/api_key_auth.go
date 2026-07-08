@@ -87,7 +87,11 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		if !apiKey.IsActive() &&
 			apiKey.Status != service.StatusAPIKeyExpired &&
 			apiKey.Status != service.StatusAPIKeyQuotaExhausted {
-			AbortWithError(c, 401, "API_KEY_DISABLED", "API key is disabled")
+			message := "API key is disabled"
+			if apiKey.DisabledReason == service.APIKeyDisabledReasonRateChanged {
+				message = "因分组倍率调整，该 API Key 已被停用，请在控制台确认后重新启用。"
+			}
+			AbortWithError(c, 401, "API_KEY_DISABLED", message)
 			return
 		}
 

@@ -1024,6 +1024,10 @@ export default {
         title: 'Expired',
         description: 'Extend or clear the expiration time to restore availability.'
       },
+      rateChangedTitle: 'Group rate changed',
+      rateChangedDescription: 'This API key was disabled because its group rate changed. Review the new rate before enabling it again.',
+      rateChangedBadge: 'Rate change disabled',
+      rateChangedEnableAction: 'Review & enable',
       manualDisableLabel: 'Manually disable this key',
       manualDisableHint: 'Save as disabled even if quota or expiration changes would otherwise reactivate it.'
     },
@@ -6417,6 +6421,12 @@ export default {
           maxTasksPerRoundHint: 'Maximum deduped probes scheduled per refresh to protect upstream accounts when many models are enabled. Range 1 – 10000.',
           snapshotRetentionDays: 'Status snapshot retention days',
           snapshotRetentionDaysHint: 'Keeps user-visible status evidence such as no available account windows. 0 disables automatic cleanup; positive values are clamped to 30 – 3650 days, so values from 1 to 29 are saved as 30.',
+        },
+        keyRateChangeGuard: {
+          title: 'Group Rate Change Guard',
+          description: 'Automatically disables affected API keys after group default or per-user rate changes so users must review before re-enabling.',
+          enabled: 'Disable affected keys after rate changes',
+          enabledHint: 'Disabled by default. When enabled, only active keys still using the changed rate are disabled; manually re-enabling clears the system reason.',
         },
         availableChannels: {
           title: 'Available Channels',

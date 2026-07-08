@@ -40,3 +40,18 @@ func TestAPIKeyFromService_MapsNilLastUsedAt(t *testing.T) {
 	require.NotNil(t, out)
 	require.Nil(t, out.LastUsedAt)
 }
+
+func TestAPIKeyFromService_MapsDisabledReason(t *testing.T) {
+	src := &service.APIKey{
+		ID:             1,
+		UserID:         2,
+		Key:            "sk-rate-changed",
+		Name:           "MapperReason",
+		Status:         service.StatusAPIKeyDisabled,
+		DisabledReason: service.APIKeyDisabledReasonRateChanged,
+	}
+
+	out := APIKeyFromService(src)
+	require.NotNil(t, out)
+	require.Equal(t, service.APIKeyDisabledReasonRateChanged, out.DisabledReason)
+}

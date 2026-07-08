@@ -33,6 +33,8 @@ const (
 	FieldGroupID = "group_id"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
+	// FieldDisabledReason holds the string denoting the disabled_reason field in the database.
+	FieldDisabledReason = "disabled_reason"
 	// FieldLastUsedAt holds the string denoting the last_used_at field in the database.
 	FieldLastUsedAt = "last_used_at"
 	// FieldIPWhitelist holds the string denoting the ip_whitelist field in the database.
@@ -106,6 +108,7 @@ var Columns = []string{
 	FieldTags,
 	FieldGroupID,
 	FieldStatus,
+	FieldDisabledReason,
 	FieldLastUsedAt,
 	FieldIPWhitelist,
 	FieldIPBlacklist,
@@ -157,6 +160,10 @@ var (
 	DefaultStatus string
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	StatusValidator func(string) error
+	// DefaultDisabledReason holds the default value on creation for the "disabled_reason" field.
+	DefaultDisabledReason string
+	// DisabledReasonValidator is a validator for the "disabled_reason" field. It is called by the builders before save.
+	DisabledReasonValidator func(string) error
 	// DefaultQuota holds the default value on creation for the "quota" field.
 	DefaultQuota float64
 	// DefaultQuotaUsed holds the default value on creation for the "quota_used" field.
@@ -221,6 +228,11 @@ func ByGroupID(opts ...sql.OrderTermOption) OrderOption {
 // ByStatus orders the results by the status field.
 func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStatus, opts...).ToFunc()
+}
+
+// ByDisabledReason orders the results by the disabled_reason field.
+func ByDisabledReason(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDisabledReason, opts...).ToFunc()
 }
 
 // ByLastUsedAt orders the results by the last_used_at field.

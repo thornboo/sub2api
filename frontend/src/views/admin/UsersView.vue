@@ -750,14 +750,14 @@
       @close="closePlatformQuotaModal"
       @success="loadUsers"
     />
-    <UserApiKeysModal :show="showApiKeysModal" :user="viewingUser" @close="closeApiKeysModal" />
+    <UserApiKeysModal :show="showApiKeysModal" :user="viewingUser" :refresh-token="apiKeysRefreshToken" @close="closeApiKeysModal" />
     <AdminApiKeyUsageModal
       :show="showUserUsageModal"
       :user="usageDetailsUser"
       :api-key="null"
       @close="closeUserUsageModal"
     />
-    <UserAllowedGroupsModal :show="showAllowedGroupsModal" :user="allowedGroupsUser" @close="closeAllowedGroupsModal" @success="loadUsers" />
+    <UserAllowedGroupsModal :show="showAllowedGroupsModal" :user="allowedGroupsUser" @close="closeAllowedGroupsModal" @success="handleAllowedGroupsSuccess" />
     <UserBalanceModal :show="showBalanceModal" :user="balanceUser" :operation="balanceOperation" @close="closeBalanceModal" @success="loadUsers" />
     <UserBalanceHistoryModal :show="showBalanceHistoryModal" :user="balanceHistoryUser" @close="closeBalanceHistoryModal" @deposit="handleDepositFromHistory" @withdraw="handleWithdrawFromHistory" />
     <GroupReplaceModal :show="showGroupReplaceModal" :user="groupReplaceUser" :old-group="groupReplaceOldGroup" :all-groups="allGroups" @close="closeGroupReplaceModal" @success="loadUsers" />
@@ -1298,6 +1298,7 @@ const showCreateModal = ref(false)
 const showEditModal = ref(false)
 const showDeleteDialog = ref(false)
 const showApiKeysModal = ref(false)
+const apiKeysRefreshToken = ref(0)
 const showUserUsageModal = ref(false)
 const showAttributesModal = ref(false)
 const showPlatformQuotaModal = ref(false)
@@ -1725,14 +1726,33 @@ const closeUserUsageModal = () => {
   usageDetailsUser.value = null
 }
 
-const handleAllowedGroups = (user: AdminUser) => {
-  allowedGroupsUser.value = user
+const handleAllowedGroups = async (user: AdminUser) => {
+  showAllowedGroupsModal.value = false
+  allowedGroupsUser.value = null
+  try {
+    allowedGroupsUser.value = await adminAPI.users.getById(user.id)
+  } catch (error) {
+    console.error('Failed to load latest user group config:', error)
+    allowedGroupsUser.value = user
+  }
   showAllowedGroupsModal.value = true
 }
 
 const closeAllowedGroupsModal = () => {
   showAllowedGroupsModal.value = false
   allowedGroupsUser.value = null
+}
+
+const handleAllowedGroupsSuccess = () => {
+  if (
+    showApiKeysModal.value &&
+    viewingUser.value &&
+    allowedGroupsUser.value &&
+    viewingUser.value.id === allowedGroupsUser.value.id
+  ) {
+    apiKeysRefreshToken.value += 1
+  }
+  loadUsers()
 }
 
 const openGroupReplace = (user: AdminUser, group: { id: number; name: string }) => {

@@ -53,6 +53,10 @@ func (APIKey) Fields() []ent.Field {
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),
+		field.String("disabled_reason").
+			MaxLen(40).
+			Default("").
+			Comment("system-driven disable reason, empty for manual/admin disable"),
 		field.Time("last_used_at").
 			Optional().
 			Nillable().

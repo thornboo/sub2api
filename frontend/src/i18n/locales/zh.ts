@@ -1020,6 +1020,10 @@ export default {
         title: '已过期',
         description: '延长或清除过期时间后，这把密钥会恢复可用。'
       },
+      rateChangedTitle: '分组倍率已调整',
+      rateChangedDescription: '该 API Key 因分组倍率调整被系统停用。确认新倍率后，可将状态改为启用。',
+      rateChangedBadge: '倍率变更停用',
+      rateChangedEnableAction: '确认启用',
       manualDisableLabel: '手动禁用这把密钥',
       manualDisableHint: '即使额度或过期时间变更本可恢复，也保存为已禁用。'
     },
@@ -6570,6 +6574,12 @@ export default {
           maxTasksPerRoundHint: '每次刷新最多调度的去重探针数量，防止误开大量模型时刷爆上游。范围 1 – 10000。',
           snapshotRetentionDays: '状态快照保留天数',
           snapshotRetentionDaysHint: '用于保留无可用账号等用户可见状态证据。0 表示关闭自动清理；正数有效范围 30 – 3650 天，1 – 29 会按 30 天保存。',
+        },
+        keyRateChangeGuard: {
+          title: '分组倍率变更保护',
+          description: '修改分组默认倍率或用户专属倍率后，自动停用受影响的 API Key，要求用户确认后重新启用。',
+          enabled: '倍率变更后停用受影响 Key',
+          enabledHint: '默认关闭。开启后仅停用仍沿用被修改倍率的有效 Key；手动重新启用会清除系统停用原因。',
         },
         availableChannels: {
           title: '可用渠道',

@@ -17,10 +17,11 @@ func ptrString[T ~string](v T) *string {
 
 // groupRepoStubForAdmin 用于测试 AdminService 的 GroupRepository Stub
 type groupRepoStubForAdmin struct {
-	created *Group // 记录 Create 调用的参数
-	updated *Group // 记录 Update 调用的参数
-	getByID *Group // GetByID 返回值
-	getErr  error  // GetByID 返回的错误
+	created               *Group // 记录 Create 调用的参数
+	updated               *Group // 记录 Update 调用的参数
+	getByID               *Group // GetByID 返回值
+	getErr                error  // GetByID 返回的错误
+	updateSawRateChangeTx []bool
 
 	listWithFiltersCalls       int
 	listWithFiltersParams      pagination.PaginationParams
@@ -38,8 +39,9 @@ func (s *groupRepoStubForAdmin) Create(_ context.Context, g *Group) error {
 	return nil
 }
 
-func (s *groupRepoStubForAdmin) Update(_ context.Context, g *Group) error {
+func (s *groupRepoStubForAdmin) Update(ctx context.Context, g *Group) error {
 	s.updated = g
+	s.updateSawRateChangeTx = append(s.updateSawRateChangeTx, ctx.Value(rateChangeTxMarkerKey{}) == true)
 	return nil
 }
 
