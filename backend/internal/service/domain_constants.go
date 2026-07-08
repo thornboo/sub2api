@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
@@ -457,6 +458,8 @@ const (
 
 	// SettingKeyAllowUngroupedKeyScheduling 允许未分组 API Key 调度（默认 false：未分组 Key 返回 403）
 	SettingKeyAllowUngroupedKeyScheduling = "allow_ungrouped_key_scheduling"
+	// SettingKeyScheduleStrategy 网关账号调度策略（默认 strict_priority）。
+	SettingKeyScheduleStrategy = "schedule_strategy"
 	// SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled OpenAI 高级调度下是否启用粘性加权。
 	SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled = "openai_advanced_scheduler_sticky_weighted_enabled"
 	// SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled OpenAI 高级调度下是否优先使用订阅账号池。
@@ -542,6 +545,20 @@ const (
 	QuotaDimensionGlobal = "global"
 	QuotaDimensionSpark  = "spark"
 )
+
+const (
+	ScheduleStrategyStrictPriority = "strict_priority"
+	ScheduleStrategyCostFirst      = "cost_first"
+)
+
+func NormalizeScheduleStrategy(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case ScheduleStrategyCostFirst:
+		return ScheduleStrategyCostFirst
+	default:
+		return ScheduleStrategyStrictPriority
+	}
+}
 
 // AdminAPIKeyPrefix is the prefix for admin API keys (distinct from user "sk-" keys).
 const AdminAPIKeyPrefix = "admin-"

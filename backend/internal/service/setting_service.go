@@ -148,9 +148,18 @@ type cachedOpenAIQuotaAutoPauseSettings struct {
 	expiresAt int64
 }
 
+type cachedScheduleStrategy struct {
+	value     string
+	expiresAt int64
+}
+
 const openAICodexUserAgentCacheTTL = 60 * time.Second
 const openAICodexUserAgentErrorTTL = 5 * time.Second
 const openAICodexUserAgentDBTimeout = 5 * time.Second
+
+const scheduleStrategyCacheTTL = 60 * time.Second
+const scheduleStrategyErrorTTL = 5 * time.Second
+const scheduleStrategyDBTimeout = 5 * time.Second
 
 const codexRestrictionPolicyCacheTTL = 60 * time.Second
 const codexRestrictionPolicyDBTimeout = 5 * time.Second
@@ -216,6 +225,9 @@ type SettingService struct {
 	// instance owns its own cache, no shared package-level state.
 	openAIQuotaAutoPauseSettingsCache atomic.Value // *cachedOpenAIQuotaAutoPauseSettings
 	openAIQuotaAutoPauseSettingsSF    singleflight.Group
+
+	scheduleStrategyCache atomic.Value // *cachedScheduleStrategy
+	scheduleStrategySF    singleflight.Group
 }
 
 // DefaultPlatformQuotaSetting 单 platform 三档限额（nil = 沿用上层；0 = 显式禁用；>0 = 上限）
@@ -2383,6 +2395,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 
 	// 分组隔离
 	updates[SettingKeyAllowUngroupedKeyScheduling] = strconv.FormatBool(settings.AllowUngroupedKeyScheduling)
+	updates[SettingKeyScheduleStrategy] = NormalizeScheduleStrategy(settings.ScheduleStrategy)
 
 	// Backend Mode
 	updates[SettingKeyBackendModeEnabled] = strconv.FormatBool(settings.BackendModeEnabled)
@@ -2539,6 +2552,11 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	backendModeCache.Store(&cachedBackendMode{
 		value:     settings.BackendModeEnabled,
 		expiresAt: time.Now().Add(backendModeCacheTTL).UnixNano(),
+	})
+	s.scheduleStrategySF.Forget("schedule_strategy")
+	s.scheduleStrategyCache.Store(&cachedScheduleStrategy{
+		value:     NormalizeScheduleStrategy(settings.ScheduleStrategy),
+		expiresAt: time.Now().Add(scheduleStrategyCacheTTL).UnixNano(),
 	})
 	gatewayForwardingSF.Forget("gateway_forwarding")
 	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
@@ -3435,6 +3453,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 		// 分组隔离（默认不允许未分组 Key 调度）
 		SettingKeyAllowUngroupedKeyScheduling:                        "false",
+		SettingKeyScheduleStrategy:                                   ScheduleStrategyStrictPriority,
 		SettingKeyEnableAnthropicCacheTTL1hInjection:                 "false",
 		SettingKeyRewriteMessageCacheControl:                         strconv.FormatBool(s.defaultRewriteMessageCacheControl()),
 		SettingKeyEnableClientDatelineNormalization:                  "true",
@@ -3981,6 +4000,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	// 分组隔离
 	result.AllowUngroupedKeyScheduling = settings[SettingKeyAllowUngroupedKeyScheduling] == "true"
+	result.ScheduleStrategy = NormalizeScheduleStrategy(settings[SettingKeyScheduleStrategy])
 
 	// Gateway forwarding behavior (defaults: fingerprint=true, metadata_passthrough=false,
 	// cch_signing=false, claude_oauth_system_prompt_injection=true)
@@ -5319,6 +5339,49 @@ func (s *SettingService) IsUngroupedKeySchedulingAllowed(ctx context.Context) bo
 		return false // fail-closed: 查询失败时默认不允许
 	}
 	return value == "true"
+}
+
+func (s *SettingService) GetScheduleStrategy(ctx context.Context) string {
+	if s == nil || s.settingRepo == nil {
+		return ScheduleStrategyStrictPriority
+	}
+	if cached, ok := s.scheduleStrategyCache.Load().(*cachedScheduleStrategy); ok {
+		if time.Now().UnixNano() < cached.expiresAt {
+			return NormalizeScheduleStrategy(cached.value)
+		}
+	}
+
+	result, _, _ := s.scheduleStrategySF.Do("schedule_strategy", func() (any, error) {
+		if cached, ok := s.scheduleStrategyCache.Load().(*cachedScheduleStrategy); ok {
+			if time.Now().UnixNano() < cached.expiresAt {
+				return NormalizeScheduleStrategy(cached.value), nil
+			}
+		}
+
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), scheduleStrategyDBTimeout)
+		defer cancel()
+		value, err := s.settingRepo.GetValue(dbCtx, SettingKeyScheduleStrategy)
+		if err != nil && !errors.Is(err, ErrSettingNotFound) {
+			slog.Warn("failed to get schedule strategy setting, using strict priority", "error", err)
+			s.scheduleStrategyCache.Store(&cachedScheduleStrategy{
+				value:     ScheduleStrategyStrictPriority,
+				expiresAt: time.Now().Add(scheduleStrategyErrorTTL).UnixNano(),
+			})
+			return ScheduleStrategyStrictPriority, nil
+		}
+
+		strategy := NormalizeScheduleStrategy(value)
+		s.scheduleStrategyCache.Store(&cachedScheduleStrategy{
+			value:     strategy,
+			expiresAt: time.Now().Add(scheduleStrategyCacheTTL).UnixNano(),
+		})
+		return strategy, nil
+	})
+
+	if strategy, ok := result.(string); ok {
+		return NormalizeScheduleStrategy(strategy)
+	}
+	return ScheduleStrategyStrictPriority
 }
 
 // GetClaudeCodeVersionBounds 获取 Claude Code 版本号上下限要求

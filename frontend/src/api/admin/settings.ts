@@ -355,6 +355,8 @@ export function deriveWeChatConnectStoredMode(
 /**
  * System settings interface
  */
+export type ScheduleStrategy = "strict_priority" | "cost_first" | string;
+
 export interface SystemSettings {
   // Registration settings
   registration_enabled: boolean;
@@ -552,6 +554,7 @@ export interface SystemSettings {
 
   // 分组隔离
   allow_ungrouped_key_scheduling: boolean;
+  schedule_strategy: ScheduleStrategy;
 
   // Gateway forwarding behavior
   enable_fingerprint_unification: boolean;
@@ -836,6 +839,7 @@ export interface UpdateSettingsRequest {
   min_claude_code_version?: string;
   max_claude_code_version?: string;
   allow_ungrouped_key_scheduling?: boolean;
+  schedule_strategy?: ScheduleStrategy;
   enable_fingerprint_unification?: boolean;
   enable_metadata_passthrough?: boolean;
   enable_cch_signing?: boolean;

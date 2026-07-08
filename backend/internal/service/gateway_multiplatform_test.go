@@ -2160,6 +2160,37 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 		require.Equal(t, int64(1), result.Account.ID, "应选择优先级最高的账号")
 	})
 
+	t.Run("禁用负载批量查询-cost_first按成本选择", func(t *testing.T) {
+		repo := &mockAccountRepoForPlatform{
+			accounts: []Account{
+				{ID: 1, Platform: PlatformAnthropic, Priority: 1, Status: StatusActive, Schedulable: true, Concurrency: 5, UpstreamEffectiveDiscount: testFloatPtr(0.9)},
+				{ID: 2, Platform: PlatformAnthropic, Priority: 9, Status: StatusActive, Schedulable: true, Concurrency: 5, UpstreamEffectiveDiscount: testFloatPtr(0.2)},
+			},
+			accountsByID: map[int64]*Account{},
+		}
+		for i := range repo.accounts {
+			repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+		}
+
+		cfg := testConfig()
+		cfg.Gateway.Scheduling.LoadBatchEnabled = false
+
+		svc := &GatewayService{
+			accountRepo: repo,
+			cache:       &mockGatewayCacheForPlatform{},
+			cfg:         cfg,
+			settingService: NewSettingService(&settingValueRepoStub{values: map[string]string{
+				SettingKeyScheduleStrategy: ScheduleStrategyCostFirst,
+			}}, &config.Config{}),
+		}
+
+		result, err := svc.SelectAccountWithLoadAwareness(ctx, nil, "", "claude-3-5-sonnet-20241022", nil, "", int64(0))
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.NotNil(t, result.Account)
+		require.Equal(t, int64(2), result.Account.ID, "cost_first 在 legacy 路径也应选择有效折扣最低的账号")
+	})
+
 	t.Run("模型路由-无ConcurrencyService也生效", func(t *testing.T) {
 		groupID := int64(1)
 		sessionHash := "sticky"
@@ -2556,6 +2587,45 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 		require.Equal(t, int64(2), cache.sessionBindings["legacy"])
 	})
 
+	t.Run("负载批量查询失败-cost_first降级仍按成本选择", func(t *testing.T) {
+		repo := &mockAccountRepoForPlatform{
+			accounts: []Account{
+				{ID: 1, Platform: PlatformAnthropic, Priority: 1, Status: StatusActive, Schedulable: true, Concurrency: 5, UpstreamEffectiveDiscount: testFloatPtr(0.8)},
+				{ID: 2, Platform: PlatformAnthropic, Priority: 8, Status: StatusActive, Schedulable: true, Concurrency: 5, UpstreamEffectiveDiscount: testFloatPtr(0.1)},
+			},
+			accountsByID: map[int64]*Account{},
+		}
+		for i := range repo.accounts {
+			repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+		}
+
+		cache := &mockGatewayCacheForPlatform{}
+
+		cfg := testConfig()
+		cfg.Gateway.Scheduling.LoadBatchEnabled = true
+
+		concurrencyCache := &mockConcurrencyCache{
+			loadBatchErr: errors.New("load batch failed"),
+		}
+
+		svc := &GatewayService{
+			accountRepo:        repo,
+			cache:              cache,
+			cfg:                cfg,
+			concurrencyService: NewConcurrencyService(concurrencyCache),
+			settingService: NewSettingService(&settingValueRepoStub{values: map[string]string{
+				SettingKeyScheduleStrategy: ScheduleStrategyCostFirst,
+			}}, &config.Config{}),
+		}
+
+		result, err := svc.SelectAccountWithLoadAwareness(ctx, nil, "legacy-cost", "claude-3-5-sonnet-20241022", nil, "", int64(0))
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.NotNil(t, result.Account)
+		require.Equal(t, int64(2), result.Account.ID)
+		require.Equal(t, int64(2), cache.sessionBindings["legacy-cost"])
+	})
+
 	t.Run("模型路由-粘性账号等待计划", func(t *testing.T) {
 		groupID := int64(20)
 		sessionHash := "route-sticky"
@@ -2779,6 +2849,66 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 		require.NotNil(t, result.Account)
 		require.Equal(t, int64(2), result.Account.ID)
 		require.Equal(t, int64(2), cache.sessionBindings["route"])
+	})
+
+	t.Run("模型路由-cost_first优先于优先级和负载", func(t *testing.T) {
+		groupID := int64(24)
+
+		repo := &mockAccountRepoForPlatform{
+			accounts: []Account{
+				{ID: 1, Platform: PlatformAnthropic, Priority: 1, Status: StatusActive, Schedulable: true, Concurrency: 5, UpstreamEffectiveDiscount: testFloatPtr(0.9)},
+				{ID: 2, Platform: PlatformAnthropic, Priority: 9, Status: StatusActive, Schedulable: true, Concurrency: 5, UpstreamEffectiveDiscount: testFloatPtr(0.2)},
+			},
+			accountsByID: map[int64]*Account{},
+		}
+		for i := range repo.accounts {
+			repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+		}
+
+		cache := &mockGatewayCacheForPlatform{}
+
+		groupRepo := &mockGroupRepoForGateway{
+			groups: map[int64]*Group{
+				groupID: {
+					ID:                  groupID,
+					Platform:            PlatformAnthropic,
+					Status:              StatusActive,
+					Hydrated:            true,
+					ModelRoutingEnabled: true,
+					ModelRouting: map[string][]int64{
+						"claude-3-5-sonnet-20241022": {1, 2},
+					},
+				},
+			},
+		}
+
+		cfg := testConfig()
+		cfg.Gateway.Scheduling.LoadBatchEnabled = true
+
+		concurrencyCache := &mockConcurrencyCache{
+			loadMap: map[int64]*AccountLoadInfo{
+				1: {AccountID: 1, LoadRate: 10},
+				2: {AccountID: 2, LoadRate: 90},
+			},
+		}
+
+		svc := &GatewayService{
+			accountRepo:        repo,
+			groupRepo:          groupRepo,
+			cache:              cache,
+			cfg:                cfg,
+			concurrencyService: NewConcurrencyService(concurrencyCache),
+			settingService: NewSettingService(&settingValueRepoStub{values: map[string]string{
+				SettingKeyScheduleStrategy: ScheduleStrategyCostFirst,
+			}}, &config.Config{}),
+		}
+
+		result, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, "route-cost", "claude-3-5-sonnet-20241022", nil, "", int64(0))
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.NotNil(t, result.Account)
+		require.Equal(t, int64(2), result.Account.ID)
+		require.Equal(t, int64(2), cache.sessionBindings["route-cost"])
 	})
 
 	t.Run("模型路由-路由账号全满返回等待计划", func(t *testing.T) {

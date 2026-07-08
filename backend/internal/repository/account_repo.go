@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -1012,6 +1013,10 @@ func (r *accountRepository) syncSchedulerAccountSnapshot(ctx context.Context, ac
 	}
 }
 
+func (r *accountRepository) SyncSchedulerAccountSnapshot(ctx context.Context, accountID int64) {
+	r.syncSchedulerAccountSnapshot(ctx, accountID)
+}
+
 func (r *accountRepository) deleteSchedulerAccountSnapshot(ctx context.Context, accountID int64) {
 	if r == nil || r.schedulerCache == nil || accountID <= 0 {
 		return
@@ -1986,6 +1991,10 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 	if err != nil {
 		return nil, err
 	}
+	upstreamDiscounts, err := r.loadUpstreamEffectiveDiscounts(ctx, accountIDs)
+	if err != nil {
+		return nil, err
+	}
 
 	outAccounts := make([]service.Account, 0, len(accounts))
 	for _, acc := range accounts {
@@ -2014,10 +2023,59 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		if ags, ok := accountGroupsByAccount[acc.ID]; ok {
 			out.AccountGroups = ags
 		}
+		if discount, ok := upstreamDiscounts[acc.ID]; ok {
+			out.UpstreamEffectiveDiscount = discount
+		}
 		outAccounts = append(outAccounts, *out)
 	}
 
 	return outAccounts, nil
+}
+
+func (r *accountRepository) loadUpstreamEffectiveDiscounts(ctx context.Context, accountIDs []int64) (map[int64]*float64, error) {
+	result := make(map[int64]*float64)
+	accountIDs = uniquePositiveInt64s(accountIDs)
+	if len(accountIDs) == 0 || r == nil || r.sql == nil {
+		return result, nil
+	}
+
+	rows, err := r.sql.QueryContext(ctx, `
+SELECT binding.account_id,
+       ((pool.current_effective_cny_per_usd::double precision / NULLIF(pool.reference_fx_rate::double precision, 0)) * binding.default_multiplier::double precision) AS effective_discount
+FROM upstream_account_cost_bindings binding
+JOIN upstream_cost_pools pool ON pool.id = binding.cost_pool_id
+WHERE binding.account_id = ANY($1)
+  AND binding.status = $2
+  AND binding.valid_to IS NULL
+  AND pool.status = $2
+  AND pool.archived_at IS NULL
+  AND pool.current_effective_cny_per_usd IS NOT NULL
+  AND pool.reference_fx_rate > 0
+  AND binding.default_multiplier > 0`,
+		pq.Array(accountIDs),
+		service.StatusActive,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var accountID int64
+		var discount sql.NullFloat64
+		if err := rows.Scan(&accountID, &discount); err != nil {
+			return nil, err
+		}
+		if accountID <= 0 || !discount.Valid || math.IsNaN(discount.Float64) || math.IsInf(discount.Float64, 0) || discount.Float64 < 0 {
+			continue
+		}
+		value := discount.Float64
+		result[accountID] = &value
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func tempUnschedulablePredicate() dbpredicate.Account {

@@ -13,6 +13,8 @@ import (
 
 func testTimePtr(t time.Time) *time.Time { return &t }
 
+func testFloatPtr(v float64) *float64 { return &v }
+
 func makeAccWithLoad(id int64, priority int, loadRate int, lastUsed *time.Time, accType string) accountWithLoad {
 	return accountWithLoad{
 		account: &Account{
@@ -129,6 +131,121 @@ func TestFilterByMinPriority_SelectsMinPriority(t *testing.T) {
 	require.Len(t, result, 2)
 	require.Equal(t, int64(2), result[0].account.ID)
 	require.Equal(t, int64(3), result[1].account.ID)
+}
+
+func TestFilterByScheduleStrategy_StrictPriorityMatchesMinPriority(t *testing.T) {
+	accounts := []accountWithLoad{
+		makeAccWithLoad(1, 5, 10, nil, AccountTypeAPIKey),
+		makeAccWithLoad(2, 1, 10, nil, AccountTypeAPIKey),
+		makeAccWithLoad(3, 1, 20, nil, AccountTypeAPIKey),
+	}
+	accounts[0].account.UpstreamEffectiveDiscount = testFloatPtr(0.1)
+	accounts[1].account.UpstreamEffectiveDiscount = testFloatPtr(0.9)
+	accounts[2].account.UpstreamEffectiveDiscount = testFloatPtr(0.8)
+
+	result := filterByScheduleStrategy(accounts, ScheduleStrategyStrictPriority)
+	require.Equal(t, []int64{2, 3}, []int64{result[0].account.ID, result[1].account.ID})
+}
+
+func TestFilterByScheduleStrategy_CostFirstLowestDiscountThenPriority(t *testing.T) {
+	accounts := []accountWithLoad{
+		makeAccWithLoad(1, 5, 10, nil, AccountTypeAPIKey),
+		makeAccWithLoad(2, 3, 10, nil, AccountTypeAPIKey),
+		makeAccWithLoad(3, 1, 10, nil, AccountTypeAPIKey),
+	}
+	accounts[0].account.UpstreamEffectiveDiscount = testFloatPtr(0.7)
+	accounts[1].account.UpstreamEffectiveDiscount = testFloatPtr(0.4)
+	accounts[2].account.UpstreamEffectiveDiscount = testFloatPtr(0.4)
+
+	result := filterByScheduleStrategy(accounts, ScheduleStrategyCostFirst)
+	require.Len(t, result, 1)
+	require.Equal(t, int64(3), result[0].account.ID, "同折扣时回退 priority 最小账号")
+}
+
+func TestFilterByScheduleStrategy_CostFirstNilDiscountsSink(t *testing.T) {
+	accounts := []accountWithLoad{
+		makeAccWithLoad(1, 1, 10, nil, AccountTypeAPIKey),
+		makeAccWithLoad(2, 5, 10, nil, AccountTypeAPIKey),
+	}
+	accounts[1].account.UpstreamEffectiveDiscount = testFloatPtr(0.8)
+
+	result := filterByScheduleStrategy(accounts, ScheduleStrategyCostFirst)
+	require.Len(t, result, 1)
+	require.Equal(t, int64(2), result[0].account.ID, "有有效折扣时 nil 折扣不参与最低折扣组")
+}
+
+func TestFilterByScheduleStrategy_CostFirstAllNilFallsBackToPriority(t *testing.T) {
+	accounts := []accountWithLoad{
+		makeAccWithLoad(1, 4, 10, nil, AccountTypeAPIKey),
+		makeAccWithLoad(2, 1, 10, nil, AccountTypeAPIKey),
+		makeAccWithLoad(3, 1, 20, nil, AccountTypeAPIKey),
+	}
+
+	result := filterByScheduleStrategy(accounts, ScheduleStrategyCostFirst)
+	require.Equal(t, []int64{2, 3}, []int64{result[0].account.ID, result[1].account.ID})
+}
+
+func TestSortAccountWithLoadsForSelection_CostFirstPrecedesPriority(t *testing.T) {
+	now := time.Now()
+	accounts := []accountWithLoad{
+		makeAccWithLoad(1, 1, 10, testTimePtr(now), AccountTypeAPIKey),
+		makeAccWithLoad(2, 5, 20, testTimePtr(now.Add(-time.Hour)), AccountTypeAPIKey),
+		makeAccWithLoad(3, 2, 5, nil, AccountTypeAPIKey),
+	}
+	accounts[0].account.UpstreamEffectiveDiscount = testFloatPtr(0.9)
+	accounts[1].account.UpstreamEffectiveDiscount = testFloatPtr(0.4)
+	accounts[2].account.UpstreamEffectiveDiscount = testFloatPtr(0.5)
+
+	sortAccountWithLoadsForSelection(accounts, ScheduleStrategyCostFirst)
+
+	require.Equal(t, []int64{2, 3, 1}, []int64{
+		accounts[0].account.ID,
+		accounts[1].account.ID,
+		accounts[2].account.ID,
+	})
+}
+
+func TestSortAccountWithLoadsForSelection_StrictPriorityIgnoresDiscount(t *testing.T) {
+	accounts := []accountWithLoad{
+		makeAccWithLoad(1, 1, 30, nil, AccountTypeAPIKey),
+		makeAccWithLoad(2, 2, 10, nil, AccountTypeAPIKey),
+	}
+	accounts[0].account.UpstreamEffectiveDiscount = testFloatPtr(0.9)
+	accounts[1].account.UpstreamEffectiveDiscount = testFloatPtr(0.1)
+
+	sortAccountWithLoadsForSelection(accounts, ScheduleStrategyStrictPriority)
+
+	require.Equal(t, []int64{1, 2}, []int64{
+		accounts[0].account.ID,
+		accounts[1].account.ID,
+	})
+}
+
+func TestSortAccountsByScheduleStrategyAndLastUsed_CostFirstNilDiscountLast(t *testing.T) {
+	now := time.Now()
+	accounts := []*Account{
+		{ID: 1, Priority: 1, LastUsedAt: testTimePtr(now), UpstreamEffectiveDiscount: nil},
+		{ID: 2, Priority: 5, LastUsedAt: testTimePtr(now.Add(-time.Hour)), UpstreamEffectiveDiscount: testFloatPtr(0.6)},
+		{ID: 3, Priority: 3, LastUsedAt: nil, UpstreamEffectiveDiscount: testFloatPtr(0.4)},
+	}
+
+	sortAccountsByScheduleStrategyAndLastUsed(accounts, ScheduleStrategyCostFirst, false)
+
+	require.Equal(t, []int64{3, 2, 1}, []int64{accounts[0].ID, accounts[1].ID, accounts[2].ID})
+}
+
+func TestIsBetterAccountByScheduleStrategy_PreferOAuthSamePlatformOnlyGemini(t *testing.T) {
+	anthropicCurrent := &Account{ID: 1, Platform: PlatformAnthropic, Priority: 1, Type: AccountTypeAPIKey}
+	anthropicOAuth := &Account{ID: 2, Platform: PlatformAnthropic, Priority: 1, Type: AccountTypeOAuth}
+	require.False(t,
+		isBetterAccountByScheduleStrategy(anthropicOAuth, anthropicCurrent, ScheduleStrategyStrictPriority, true, true),
+		"mixed scheduling 旧逻辑只允许 Gemini-vs-Gemini 的 OAuth tie-break")
+
+	geminiCurrent := &Account{ID: 3, Platform: PlatformGemini, Priority: 1, Type: AccountTypeAPIKey}
+	geminiOAuth := &Account{ID: 4, Platform: PlatformGemini, Priority: 1, Type: AccountTypeOAuth}
+	require.True(t,
+		isBetterAccountByScheduleStrategy(geminiOAuth, geminiCurrent, ScheduleStrategyStrictPriority, true, true),
+		"Gemini-vs-Gemini 仍应保留 OAuth tie-break")
 }
 
 // --- filterByMinLoadRate ---

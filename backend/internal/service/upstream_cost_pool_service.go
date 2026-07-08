@@ -30,6 +30,16 @@ type upstreamCostPoolSQLExecutor interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
 }
 
+type schedulerAccountSnapshotRefresher interface {
+	SyncSchedulerAccountSnapshot(context.Context, int64)
+}
+
+func refreshSchedulerAccountSnapshot(ctx context.Context, repo AccountRepository, accountID int64) {
+	if refresher, ok := repo.(schedulerAccountSnapshotRefresher); ok {
+		refresher.SyncSchedulerAccountSnapshot(ctx, accountID)
+	}
+}
+
 type UpstreamSupplier struct {
 	ID         int64      `json:"id"`
 	Name       string     `json:"name"`
@@ -549,6 +559,7 @@ inserted AS (
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	refreshSchedulerAccountSnapshot(ctx, s.accountRepo, normalized.AccountID)
 	return binding, nil
 }
 
@@ -595,6 +606,7 @@ WHERE account_id = $1
 		if err := tx.Commit(); err != nil {
 			return nil, err
 		}
+		refreshSchedulerAccountSnapshot(ctx, s.accountRepo, normalized.AccountID)
 		return nil, nil
 	}
 
@@ -686,6 +698,7 @@ inserted AS (
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	refreshSchedulerAccountSnapshot(ctx, s.accountRepo, normalized.AccountID)
 	return binding, nil
 }
 

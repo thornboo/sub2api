@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
 	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
@@ -75,6 +76,27 @@ func TestAccountListOrder_UpstreamMultiplierSQL(t *testing.T) {
 	require.Contains(t, query, `"upstream_cost_pool_sort"."archived_at" IS NULL`)
 	require.Contains(t, query, `"upstream_account_cost_binding_sort"."default_multiplier" ASC NULLS LAST`)
 	require.True(t, strings.Contains(query, `ORDER BY`) && strings.Contains(query, `"accounts"."id" ASC`), query)
+}
+
+func TestAccountRepository_LoadUpstreamEffectiveDiscounts(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	repo := newAccountRepositoryWithSQL(nil, db, nil)
+	mock.ExpectQuery(`(?s)SELECT binding\.account_id,.*FROM upstream_account_cost_bindings binding.*JOIN upstream_cost_pools pool ON pool\.id = binding\.cost_pool_id.*binding\.status = \$2.*binding\.valid_to IS NULL.*pool\.status = \$2.*pool\.archived_at IS NULL.*pool\.reference_fx_rate > 0.*binding\.default_multiplier > 0`).
+		WithArgs(sqlmock.AnyArg(), service.StatusActive).
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "effective_discount"}).
+			AddRow(int64(1), 0.4).
+			AddRow(int64(2), 1.2).
+			AddRow(int64(3), nil))
+
+	got, err := repo.loadUpstreamEffectiveDiscounts(context.Background(), []int64{1, 2, 3})
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.InDelta(t, 0.4, *got[1], 0.000001)
+	require.InDelta(t, 1.2, *got[2], 0.000001)
+	require.Nil(t, got[3])
 }
 
 func accountListOrderQueryForTest(params pagination.PaginationParams) (string, []any) {

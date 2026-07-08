@@ -485,6 +485,60 @@ score =
 - `cost_first` 能在同模型健康候选中选择最低综合折扣账号。
 - 解释记录展示得分和选择原因。
 
+#### 阶段 4 落地细化（`cost_first` 首版）
+
+> 本节细化「按最便宜供应商调度」的首版落地口径，只覆盖 `strict_priority` 与 `cost_first` 两种策略；`balanced` / `canary` 仍属后续。
+
+**设置项（全局）**
+
+`SystemSettings` 新增：
+
+```go
+// settings_view.go
+ScheduleStrategy string `json:"schedule_strategy"` // "strict_priority" | "cost_first"
+```
+
+- 默认 `"strict_priority"`（＝现状）。非法值一律回退 `"strict_priority"`（安全默认）。
+- 同步 `config` 加载、admin 设置读写、前端设置页二选一开关。
+- 满足「策略切换必须可回滚」：不开 `cost_first` 时行为与现有优先级逐字节兼容。
+
+**综合折扣进入调度快照**
+
+调度是热路径，不能每请求查库：
+
+- 在账号快照 / 调度缓存（`backend/internal/repository/scheduler_cache.go`）为每账号预解析并携带 `effectiveDiscount *float64`（`nil` = 未绑定成本池 / 无有效资金池快照）。
+- 复用 `upstream_cost_pool_service.go:findActiveUpstreamCostPoolIDForAccount` + 资金池 `effective_cny_per_usd` 与账号成本绑定倍率，按本文「计算公式」求综合折扣，在快照构建 / 刷新时算一次。
+- 成本数据变更随快照刷新更新（允许秒级延迟，成本折扣非高频变化）。
+
+**排序语义（`cost_first`，折扣为主、priority 兜底）**
+
+在**现有可用性 / 模型级健康 / 负载过滤之后**，对候选集排序：
+
+1. 综合折扣升序（越低＝成本越便宜越优先）；`effectiveDiscount == nil` 视为「最大」，**统一垫底**。
+2. 折扣相同 → 按 `account.priority` 升序（现有人工兜底权重，不消失）。
+3. 再相同 → 现有 load/lastUsed 打散（`gateway_scheduling.go:shuffleWithinPriorityAndLastUsed` 逻辑不变）。
+
+实现建议：在 `gateway_scheduling.go` 按 `ScheduleStrategy` 选择比较器；`filterByMinPriority` 在 `cost_first` 下对应改为「取最低折扣组」（与现有取最小 priority 组对称），未配成本账号不进入「最低折扣组」除非无其它候选。
+
+**未配成本账号 / 全未配的退化**
+
+- `effectiveDiscount == nil` 的账号排在所有已配账号之后，组内按 `priority` + 现有打散。
+- 若**所有**候选都未配成本池：整体退化为现状 `strict_priority` 逻辑（保证确定性，且对未启用成本池功能的用户零影响）。
+
+**边界与验收补充**
+
+- 成本池解析失败 / 数据缺失 → 该账号 `nil` 垫底，不阻断调度。
+- `cost` 不压过硬健康：不健康账号不因便宜被选（健康过滤在排序前）。
+- 回归保护：`strict_priority` 分支与现状逐字节一致——实现以「新增分支、不改老分支」为原则。
+
+**测试计划（首版）**
+
+- 单元：`cost_first` 比较器（低折扣优先；`nil` 垫底；折扣相同回退 priority；全 `nil` 退化 `strict_priority`）。
+- 单元：`strict_priority` 与现状行为一致（回归保护）。
+- 集成：多账号 + 不同资金池折扣，验证选中顺序；成本数据更新后快照刷新生效。
+- 设置：非法 `schedule_strategy` 回退默认；读写往返。
+- 前端：开关切换触发保存；文案。
+
 ### 阶段 5：上游余额查询
 
 要做的事：

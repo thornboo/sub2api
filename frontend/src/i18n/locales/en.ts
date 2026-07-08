@@ -6707,7 +6707,11 @@ export default {
         title: 'Gateway Scheduling Settings',
         description: 'Control API Key scheduling behavior',
         allowUngroupedKey: 'Allow Ungrouped Key Scheduling',
-        allowUngroupedKeyHint: 'When disabled, API Keys not assigned to any group cannot make requests (403 Forbidden). Keep disabled to ensure all Keys belong to a specific group.'
+        allowUngroupedKeyHint: 'When disabled, API Keys not assigned to any group cannot make requests (403 Forbidden). Keep disabled to ensure all Keys belong to a specific group.',
+        strategy: 'Scheduling Strategy',
+        strategyHint: 'Strict priority keeps the existing priority scheduler. Cost first prefers the healthy account with the lowest effective discount and ranks accounts without cost pools after configured accounts.',
+        strategyStrictPriority: 'Strict Priority',
+        strategyCostFirst: 'Cost First'
       },
       gatewayForwarding: {
         title: 'Request Forwarding',

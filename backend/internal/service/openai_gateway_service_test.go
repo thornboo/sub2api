@@ -25,6 +25,8 @@ import (
 var _ AccountRepository = (*stubOpenAIAccountRepo)(nil)
 var _ GatewayCache = (*stubGatewayCache)(nil)
 
+func openAITestFloatPtr(v float64) *float64 { return &v }
+
 type stubOpenAIAccountRepo struct {
 	AccountRepository
 	accounts []Account
@@ -110,6 +112,41 @@ type stubConcurrencyCache struct {
 	acquireResults  map[int64]bool
 	waitCounts      map[int64]int
 	skipDefaultLoad bool
+}
+
+type openAICostFirstSettingRepo struct {
+	values map[string]string
+}
+
+func (r *openAICostFirstSettingRepo) Get(ctx context.Context, key string) (*Setting, error) {
+	return nil, errors.New("unexpected Get call")
+}
+
+func (r *openAICostFirstSettingRepo) GetValue(ctx context.Context, key string) (string, error) {
+	if value, ok := r.values[key]; ok {
+		return value, nil
+	}
+	return "", ErrSettingNotFound
+}
+
+func (r *openAICostFirstSettingRepo) Set(ctx context.Context, key, value string) error {
+	return errors.New("unexpected Set call")
+}
+
+func (r *openAICostFirstSettingRepo) GetMultiple(ctx context.Context, keys []string) (map[string]string, error) {
+	return nil, errors.New("unexpected GetMultiple call")
+}
+
+func (r *openAICostFirstSettingRepo) SetMultiple(ctx context.Context, settings map[string]string) error {
+	return errors.New("unexpected SetMultiple call")
+}
+
+func (r *openAICostFirstSettingRepo) GetAll(ctx context.Context) (map[string]string, error) {
+	return nil, errors.New("unexpected GetAll call")
+}
+
+func (r *openAICostFirstSettingRepo) Delete(ctx context.Context, key string) error {
+	return errors.New("unexpected Delete call")
 }
 
 type cancelReadCloser struct{}
@@ -779,6 +816,46 @@ func TestOpenAISelectAccountWithLoadAwareness_LoadBatchErrorFallback(t *testing.
 	}
 }
 
+func TestOpenAISelectAccountWithLoadAwareness_LoadBatchErrorCostFirstFallback(t *testing.T) {
+	groupID := int64(1)
+	repo := stubOpenAIAccountRepo{
+		accounts: []Account{
+			{ID: 1, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1, UpstreamEffectiveDiscount: openAITestFloatPtr(0.9)},
+			{ID: 2, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 8, UpstreamEffectiveDiscount: openAITestFloatPtr(0.2)},
+		},
+	}
+	cache := &stubGatewayCache{}
+	concurrencyCache := stubConcurrencyCache{
+		loadBatchErr: errors.New("load batch failed"),
+	}
+
+	svc := &OpenAIGatewayService{
+		accountRepo:        repo,
+		cache:              cache,
+		concurrencyService: NewConcurrencyService(concurrencyCache),
+		settingService: NewSettingService(&openAICostFirstSettingRepo{values: map[string]string{
+			SettingKeyScheduleStrategy: ScheduleStrategyCostFirst,
+		}}, &config.Config{}),
+	}
+
+	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "fallback-cost", "gpt-4", nil)
+	if err != nil {
+		t.Fatalf("SelectAccountWithLoadAwareness error: %v", err)
+	}
+	if selection == nil || selection.Account == nil {
+		t.Fatalf("expected selection")
+	}
+	if selection.Account.ID != 2 {
+		t.Fatalf("expected cost-first account 2, got %d", selection.Account.ID)
+	}
+	if cache.sessionBindings["openai:fallback-cost"] != 2 {
+		t.Fatalf("expected sticky session updated")
+	}
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
 func TestOpenAISelectAccountWithLoadAwareness_NoSlotFallbackWait(t *testing.T) {
 	groupID := int64(1)
 	repo := stubOpenAIAccountRepo{
@@ -834,6 +911,36 @@ func TestOpenAISelectAccountForModelWithExclusions_SetsStickyBinding(t *testing.
 		t.Fatalf("expected account 1")
 	}
 	if cache.sessionBindings["openai:"+sessionHash] != 1 {
+		t.Fatalf("expected sticky session binding")
+	}
+}
+
+func TestOpenAISelectAccountForModelWithExclusions_CostFirstLegacySelection(t *testing.T) {
+	sessionHash := "cost-first-legacy"
+	repo := stubOpenAIAccountRepo{
+		accounts: []Account{
+			{ID: 1, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1, UpstreamEffectiveDiscount: openAITestFloatPtr(0.9)},
+			{ID: 2, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 9, UpstreamEffectiveDiscount: openAITestFloatPtr(0.1)},
+		},
+	}
+	cache := &stubGatewayCache{}
+
+	svc := &OpenAIGatewayService{
+		accountRepo: repo,
+		cache:       cache,
+		settingService: NewSettingService(&openAICostFirstSettingRepo{values: map[string]string{
+			SettingKeyScheduleStrategy: ScheduleStrategyCostFirst,
+		}}, &config.Config{}),
+	}
+
+	acc, err := svc.SelectAccountForModelWithExclusions(context.Background(), nil, sessionHash, "gpt-4", nil)
+	if err != nil {
+		t.Fatalf("SelectAccountForModelWithExclusions error: %v", err)
+	}
+	if acc == nil || acc.ID != 2 {
+		t.Fatalf("expected cost-first account 2")
+	}
+	if cache.sessionBindings["openai:"+sessionHash] != 2 {
 		t.Fatalf("expected sticky session binding")
 	}
 }

@@ -4137,6 +4137,22 @@
                 <Toggle v-model="form.allow_ungrouped_key_scheduling" />
               </div>
 
+              <div class="border-t border-gray-100 pt-5 dark:border-dark-700">
+                <label
+                  class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {{ t("admin.settings.scheduling.strategy") }}
+                </label>
+                <Select
+                  v-model="form.schedule_strategy"
+                  :options="scheduleStrategyOptions"
+                  class="mt-2 w-full md:w-80"
+                />
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.scheduling.strategyHint") }}
+                </p>
+              </div>
+
               <div class="flex items-center justify-between">
                 <div>
                   <label
@@ -8146,6 +8162,22 @@ const claudeOAuthSystemPromptCacheTTLOptions = computed(() => [
   { value: "1h", label: t("admin.settings.gatewayForwarding.cacheTTL1h") },
 ]);
 
+const normalizeScheduleStrategy = (
+  value: unknown,
+): "strict_priority" | "cost_first" =>
+  value === "cost_first" ? "cost_first" : "strict_priority";
+
+const scheduleStrategyOptions = computed(() => [
+  {
+    value: "strict_priority",
+    label: t("admin.settings.scheduling.strategyStrictPriority"),
+  },
+  {
+    value: "cost_first",
+    label: t("admin.settings.scheduling.strategyCostFirst"),
+  },
+]);
+
 function getClaudeOAuthPresetLabel(
   preset: ClaudeOAuthSystemPromptPreset,
 ): string {
@@ -8485,6 +8517,7 @@ const form = reactive<SettingsForm>({
   max_claude_code_version: "",
   // 分组隔离
   allow_ungrouped_key_scheduling: false,
+  schedule_strategy: "strict_priority",
   openai_advanced_scheduler_enabled: false,
   openai_advanced_scheduler_sticky_weighted_enabled: false,
   openai_advanced_scheduler_subscription_priority_enabled: false,
@@ -9304,6 +9337,7 @@ async function loadSettings() {
         (form as Record<string, unknown>)[key] = value;
       }
     }
+    form.schedule_strategy = normalizeScheduleStrategy(form.schedule_strategy);
     if (!form.claude_oauth_system_prompt_blocks?.trim()) {
       form.claude_oauth_system_prompt_blocks =
         defaultClaudeOAuthSystemPromptBlocks;
@@ -9822,6 +9856,7 @@ async function saveSettings() {
       min_claude_code_version: form.min_claude_code_version,
       max_claude_code_version: form.max_claude_code_version,
       allow_ungrouped_key_scheduling: form.allow_ungrouped_key_scheduling,
+      schedule_strategy: normalizeScheduleStrategy(form.schedule_strategy),
       enable_fingerprint_unification: form.enable_fingerprint_unification,
       enable_metadata_passthrough: form.enable_metadata_passthrough,
       enable_cch_signing: form.enable_cch_signing,

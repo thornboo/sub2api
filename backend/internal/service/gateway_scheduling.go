@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	mathrand "math/rand"
 	"sort"
 	"strings"
@@ -94,6 +95,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		"excluded_ids", excludedIDsList)
 
 	cfg := s.schedulingConfig()
+	scheduleStrategy := s.scheduleStrategy(ctx)
 
 	// 检查 Claude Code 客户端限制（可能会替换 groupID 为降级分组）
 	group, groupID, err := s.checkClaudeCodeRestriction(ctx, groupID)
@@ -422,27 +424,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			}
 
 			if len(routingAvailable) > 0 {
-				// 排序：优先级 > 负载率 > 最后使用时间
-				sort.SliceStable(routingAvailable, func(i, j int) bool {
-					a, b := routingAvailable[i], routingAvailable[j]
-					if a.account.Priority != b.account.Priority {
-						return a.account.Priority < b.account.Priority
-					}
-					if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
-						return a.loadInfo.LoadRate < b.loadInfo.LoadRate
-					}
-					switch {
-					case a.account.LastUsedAt == nil && b.account.LastUsedAt != nil:
-						return true
-					case a.account.LastUsedAt != nil && b.account.LastUsedAt == nil:
-						return false
-					case a.account.LastUsedAt == nil && b.account.LastUsedAt == nil:
-						return false
-					default:
-						return a.account.LastUsedAt.Before(*b.account.LastUsedAt)
-					}
-				})
-				shuffleWithinSortGroups(routingAvailable)
+				sortAccountWithLoadsForSelection(routingAvailable, scheduleStrategy)
 
 				// 4. 尝试获取槽位
 				for _, item := range routingAvailable {
@@ -661,7 +643,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 
 	loadMap, err := s.concurrencyService.GetAccountsLoadBatch(ctx, accountLoads)
 	if err != nil {
-		if result, ok, legacyErr := s.tryAcquireByLegacyOrder(ctx, candidates, groupID, sessionHash, preferOAuth); legacyErr != nil {
+		if result, ok, legacyErr := s.tryAcquireByLegacyOrder(ctx, candidates, groupID, sessionHash, preferOAuth, scheduleStrategy); legacyErr != nil {
 			return nil, legacyErr
 		} else if ok {
 			return result, nil
@@ -681,10 +663,10 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			}
 		}
 
-		// 分层过滤选择：优先级 →（可选）最早重置 → 负载率 → LRU
+		// 分层过滤选择：调度策略 →（可选）最早重置 → 负载率 → LRU
 		for len(available) > 0 {
 			// 1. 取优先级最小的集合
-			candidates := filterByMinPriority(available)
+			candidates := filterByScheduleStrategy(available, scheduleStrategy)
 			// 2. （可选）use-it-or-lose-it：优先选用会话窗口最早重置的账号
 			if cfg.PreferSoonestReset {
 				candidates = filterBySoonestReset(candidates)
@@ -723,7 +705,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	}
 
 	// ============ Layer 3: 兜底排队 ============
-	s.sortCandidatesForFallback(candidates, preferOAuth, cfg.FallbackSelectionMode)
+	s.sortCandidatesForFallback(candidates, preferOAuth, cfg.FallbackSelectionMode, scheduleStrategy)
 	for _, acc := range candidates {
 		// 会话数量限制检查（等待计划也需要占用会话配额）
 		if !s.checkAndRegisterSession(ctx, acc, sessionHash) {
@@ -739,9 +721,9 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	return nil, ErrNoAvailableAccounts
 }
 
-func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates []*Account, groupID *int64, sessionHash string, preferOAuth bool) (*AccountSelectionResult, bool, error) {
+func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates []*Account, groupID *int64, sessionHash string, preferOAuth bool, scheduleStrategy string) (*AccountSelectionResult, bool, error) {
 	ordered := append([]*Account(nil), candidates...)
-	sortAccountsByPriorityAndLastUsed(ordered, preferOAuth)
+	sortAccountsByScheduleStrategyAndLastUsed(ordered, scheduleStrategy, preferOAuth)
 
 	for _, acc := range ordered {
 		result, err := s.tryAcquireAccountSlot(ctx, acc.ID, acc.Concurrency)
@@ -777,6 +759,27 @@ func (s *GatewayService) schedulingConfig() config.GatewaySchedulingConfig {
 		LoadBatchEnabled:         true,
 		SlotCleanupInterval:      30 * time.Second,
 	}
+}
+
+func scheduleStrategyFromSettings(ctx context.Context, settingService *SettingService) string {
+	if settingService == nil {
+		return ScheduleStrategyStrictPriority
+	}
+	return settingService.GetScheduleStrategy(ctx)
+}
+
+func (s *GatewayService) scheduleStrategy(ctx context.Context) string {
+	if s == nil {
+		return ScheduleStrategyStrictPriority
+	}
+	return scheduleStrategyFromSettings(ctx, s.settingService)
+}
+
+func (s *OpenAIGatewayService) scheduleStrategy(ctx context.Context) string {
+	if s == nil {
+		return ScheduleStrategyStrictPriority
+	}
+	return scheduleStrategyFromSettings(ctx, s.settingService)
 }
 
 func (s *GatewayService) withGroupContext(ctx context.Context, group *Group) context.Context {
@@ -1430,6 +1433,42 @@ func filterByMinPriority(accounts []accountWithLoad) []accountWithLoad {
 	return result
 }
 
+func filterByScheduleStrategy(accounts []accountWithLoad, strategy string) []accountWithLoad {
+	if NormalizeScheduleStrategy(strategy) == ScheduleStrategyCostFirst {
+		return filterByLowestEffectiveDiscountThenPriority(accounts)
+	}
+	return filterByMinPriority(accounts)
+}
+
+func filterByLowestEffectiveDiscountThenPriority(accounts []accountWithLoad) []accountWithLoad {
+	if len(accounts) == 0 {
+		return accounts
+	}
+	var minDiscount float64
+	hasDiscount := false
+	for _, acc := range accounts {
+		discount := validUpstreamEffectiveDiscount(acc.account)
+		if discount == nil {
+			continue
+		}
+		if !hasDiscount || *discount < minDiscount {
+			minDiscount = *discount
+			hasDiscount = true
+		}
+	}
+	if !hasDiscount {
+		return filterByMinPriority(accounts)
+	}
+	result := make([]accountWithLoad, 0, len(accounts))
+	for _, acc := range accounts {
+		discount := validUpstreamEffectiveDiscount(acc.account)
+		if discount != nil && *discount == minDiscount {
+			result = append(result, acc)
+		}
+	}
+	return filterByMinPriority(result)
+}
+
 // filterByMinLoadRate 过滤出负载率最低的账号集合
 func filterByMinLoadRate(accounts []accountWithLoad) []accountWithLoad {
 	if len(accounts) == 0 {
@@ -1566,16 +1605,148 @@ func sortAccountsByPriorityAndLastUsed(accounts []*Account, preferOAuth bool) {
 	shuffleWithinPriorityAndLastUsed(accounts, preferOAuth)
 }
 
+func sortAccountsByScheduleStrategyAndLastUsed(accounts []*Account, strategy string, preferOAuth bool) {
+	useCostFirst := NormalizeScheduleStrategy(strategy) == ScheduleStrategyCostFirst && hasAnyValidUpstreamEffectiveDiscount(accounts)
+	if !useCostFirst {
+		sortAccountsByPriorityAndLastUsed(accounts, preferOAuth)
+		return
+	}
+	sort.SliceStable(accounts, func(i, j int) bool {
+		a, b := accounts[i], accounts[j]
+		if less, decided := compareAccountsByEffectiveDiscount(a, b); decided {
+			return less
+		}
+		if a.Priority != b.Priority {
+			return a.Priority < b.Priority
+		}
+		return accountLastUsedLess(a, b, preferOAuth)
+	})
+	shuffleWithinSchedulePriorityAndLastUsed(accounts, preferOAuth, true)
+}
+
+func sortAccountWithLoadsForSelection(accounts []accountWithLoad, strategy string) {
+	useCostFirst := NormalizeScheduleStrategy(strategy) == ScheduleStrategyCostFirst && hasAnyValidUpstreamEffectiveDiscountWithLoad(accounts)
+	sort.SliceStable(accounts, func(i, j int) bool {
+		a, b := accounts[i], accounts[j]
+		if useCostFirst {
+			if less, decided := compareAccountsByEffectiveDiscount(a.account, b.account); decided {
+				return less
+			}
+		}
+		if a.account.Priority != b.account.Priority {
+			return a.account.Priority < b.account.Priority
+		}
+		if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
+			return a.loadInfo.LoadRate < b.loadInfo.LoadRate
+		}
+		return accountLastUsedLess(a.account, b.account, false)
+	})
+	shuffleWithinSortGroupsForSchedule(accounts, useCostFirst)
+}
+
+func validUpstreamEffectiveDiscount(account *Account) *float64 {
+	if account == nil || account.UpstreamEffectiveDiscount == nil {
+		return nil
+	}
+	value := *account.UpstreamEffectiveDiscount
+	if value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+		return nil
+	}
+	return account.UpstreamEffectiveDiscount
+}
+
+func hasAnyValidUpstreamEffectiveDiscount(accounts []*Account) bool {
+	for _, account := range accounts {
+		if validUpstreamEffectiveDiscount(account) != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAnyValidUpstreamEffectiveDiscountWithLoad(accounts []accountWithLoad) bool {
+	for _, account := range accounts {
+		if validUpstreamEffectiveDiscount(account.account) != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func compareAccountsByEffectiveDiscount(a, b *Account) (bool, bool) {
+	discountA := validUpstreamEffectiveDiscount(a)
+	discountB := validUpstreamEffectiveDiscount(b)
+	switch {
+	case discountA == nil && discountB == nil:
+		return false, false
+	case discountA == nil:
+		return false, true
+	case discountB == nil:
+		return true, true
+	case *discountA != *discountB:
+		return *discountA < *discountB, true
+	default:
+		return false, false
+	}
+}
+
+func accountLastUsedLess(a, b *Account, preferOAuth bool) bool {
+	switch {
+	case a.LastUsedAt == nil && b.LastUsedAt != nil:
+		return true
+	case a.LastUsedAt != nil && b.LastUsedAt == nil:
+		return false
+	case a.LastUsedAt == nil && b.LastUsedAt == nil:
+		if preferOAuth && a.Type != b.Type {
+			return a.Type == AccountTypeOAuth
+		}
+		return false
+	default:
+		return a.LastUsedAt.Before(*b.LastUsedAt)
+	}
+}
+
+func isBetterAccountByScheduleStrategy(candidate, current *Account, strategy string, preferOAuth bool, preferOAuthSamePlatformOnly bool) bool {
+	if current == nil {
+		return true
+	}
+	if NormalizeScheduleStrategy(strategy) == ScheduleStrategyCostFirst {
+		if less, decided := compareAccountsByEffectiveDiscount(candidate, current); decided {
+			return less
+		}
+	}
+	if candidate.Priority != current.Priority {
+		return candidate.Priority < current.Priority
+	}
+	switch {
+	case candidate.LastUsedAt == nil && current.LastUsedAt != nil:
+		return true
+	case candidate.LastUsedAt != nil && current.LastUsedAt == nil:
+		return false
+	case candidate.LastUsedAt == nil && current.LastUsedAt == nil:
+		if preferOAuth && candidate.Type != current.Type && candidate.Type == AccountTypeOAuth {
+			return !preferOAuthSamePlatformOnly || (candidate.Platform == PlatformGemini && current.Platform == PlatformGemini)
+		}
+		return false
+	default:
+		return candidate.LastUsedAt.Before(*current.LastUsedAt)
+	}
+}
+
 // shuffleWithinSortGroups 对排序后的 accountWithLoad 切片，按 (Priority, LoadRate, LastUsedAt) 分组后组内随机打乱。
 // 防止并发请求读取同一快照时，确定性排序导致所有请求命中相同账号。
 func shuffleWithinSortGroups(accounts []accountWithLoad) {
+	shuffleWithinSortGroupsForSchedule(accounts, false)
+}
+
+func shuffleWithinSortGroupsForSchedule(accounts []accountWithLoad, includeDiscount bool) {
 	if len(accounts) <= 1 {
 		return
 	}
 	i := 0
 	for i < len(accounts) {
 		j := i + 1
-		for j < len(accounts) && sameAccountWithLoadGroup(accounts[i], accounts[j]) {
+		for j < len(accounts) && sameAccountWithLoadScheduleGroup(accounts[i], accounts[j], includeDiscount) {
 			j++
 		}
 		if j-i > 1 {
@@ -1589,6 +1760,13 @@ func shuffleWithinSortGroups(accounts []accountWithLoad) {
 
 // sameAccountWithLoadGroup 判断两个 accountWithLoad 是否属于同一排序组
 func sameAccountWithLoadGroup(a, b accountWithLoad) bool {
+	return sameAccountWithLoadScheduleGroup(a, b, false)
+}
+
+func sameAccountWithLoadScheduleGroup(a, b accountWithLoad, includeDiscount bool) bool {
+	if includeDiscount && !sameEffectiveDiscount(a.account, b.account) {
+		return false
+	}
 	if a.account.Priority != b.account.Priority {
 		return false
 	}
@@ -1605,13 +1783,17 @@ func sameAccountWithLoadGroup(a, b accountWithLoad) bool {
 // - 先把同组账号按 (OAuth / 非 OAuth) 拆成两段，保持 OAuth 段在前；
 // - 再分别在各段内随机打散，避免热点。
 func shuffleWithinPriorityAndLastUsed(accounts []*Account, preferOAuth bool) {
+	shuffleWithinSchedulePriorityAndLastUsed(accounts, preferOAuth, false)
+}
+
+func shuffleWithinSchedulePriorityAndLastUsed(accounts []*Account, preferOAuth bool, includeDiscount bool) {
 	if len(accounts) <= 1 {
 		return
 	}
 	i := 0
 	for i < len(accounts) {
 		j := i + 1
-		for j < len(accounts) && sameAccountGroup(accounts[i], accounts[j]) {
+		for j < len(accounts) && sameAccountScheduleGroup(accounts[i], accounts[j], includeDiscount) {
 			j++
 		}
 		if j-i > 1 {
@@ -1645,10 +1827,30 @@ func shuffleWithinPriorityAndLastUsed(accounts []*Account, preferOAuth bool) {
 
 // sameAccountGroup 判断两个 Account 是否属于同一排序组（Priority + LastUsedAt）
 func sameAccountGroup(a, b *Account) bool {
+	return sameAccountScheduleGroup(a, b, false)
+}
+
+func sameAccountScheduleGroup(a, b *Account, includeDiscount bool) bool {
+	if includeDiscount && !sameEffectiveDiscount(a, b) {
+		return false
+	}
 	if a.Priority != b.Priority {
 		return false
 	}
 	return sameLastUsedAt(a.LastUsedAt, b.LastUsedAt)
+}
+
+func sameEffectiveDiscount(a, b *Account) bool {
+	discountA := validUpstreamEffectiveDiscount(a)
+	discountB := validUpstreamEffectiveDiscount(b)
+	switch {
+	case discountA == nil && discountB == nil:
+		return true
+	case discountA == nil || discountB == nil:
+		return false
+	default:
+		return *discountA == *discountB
+	}
 }
 
 // sameLastUsedAt 判断两个 LastUsedAt 是否相同（精度到秒）
@@ -1663,9 +1865,13 @@ func sameLastUsedAt(a, b *time.Time) bool {
 	}
 }
 
-// sortCandidatesForFallback 根据配置选择排序策略
+// sortCandidatesForFallback 根据配置选择排序策略。
 // mode: "last_used"(按最后使用时间) 或 "random"(随机)
-func (s *GatewayService) sortCandidatesForFallback(accounts []*Account, preferOAuth bool, mode string) {
+func (s *GatewayService) sortCandidatesForFallback(accounts []*Account, preferOAuth bool, mode string, scheduleStrategy string) {
+	if NormalizeScheduleStrategy(scheduleStrategy) == ScheduleStrategyCostFirst {
+		sortAccountsByScheduleStrategyAndLastUsed(accounts, ScheduleStrategyCostFirst, preferOAuth)
+		return
+	}
 	if mode == "random" {
 		// 先按优先级排序，然后在同优先级内随机打乱
 		sortAccountsByPriorityOnly(accounts, preferOAuth)
@@ -1716,6 +1922,7 @@ func shuffleWithinPriority(accounts []*Account) {
 // selectAccountForModelWithPlatform 选择单平台账户（完全隔离）
 func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, platform string) (*Account, error) {
 	preferOAuth := platform == PlatformGemini
+	scheduleStrategy := s.scheduleStrategy(ctx)
 	routingAccountIDs := s.routingAccountIDsForRequest(ctx, groupID, requestedModel, platform)
 
 	// require_privacy_set: 获取分组信息
@@ -1816,27 +2023,8 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 			if !s.isAccountSchedulableForRPM(ctx, acc, false) {
 				continue
 			}
-			if selected == nil {
+			if isBetterAccountByScheduleStrategy(acc, selected, scheduleStrategy, preferOAuth, false) {
 				selected = acc
-				continue
-			}
-			if acc.Priority < selected.Priority {
-				selected = acc
-			} else if acc.Priority == selected.Priority {
-				switch {
-				case acc.LastUsedAt == nil && selected.LastUsedAt != nil:
-					selected = acc
-				case acc.LastUsedAt != nil && selected.LastUsedAt == nil:
-					// keep selected (never used is preferred)
-				case acc.LastUsedAt == nil && selected.LastUsedAt == nil:
-					if preferOAuth && acc.Type != selected.Type && acc.Type == AccountTypeOAuth {
-						selected = acc
-					}
-				default:
-					if acc.LastUsedAt.Before(*selected.LastUsedAt) {
-						selected = acc
-					}
-				}
 			}
 		}
 
@@ -1891,7 +2079,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 	ctx = s.withWindowCostPrefetch(ctx, accounts)
 	ctx = s.withRPMPrefetch(ctx, accounts)
 
-	// 3. 按优先级+最久未用选择（考虑模型支持）
+	// 3. 按调度策略+最久未用选择（考虑模型支持）
 	// needsUpstreamCheck 仅在主选择循环中使用；粘性会话命中时跳过此检查，
 	// 因为粘性会话优先保持连接一致性，且 upstream 计费基准极少使用。
 	needsUpstreamCheck := s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
@@ -1930,27 +2118,8 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 		if !s.isAccountSchedulableForRPM(ctx, acc, false) {
 			continue
 		}
-		if selected == nil {
+		if isBetterAccountByScheduleStrategy(acc, selected, scheduleStrategy, preferOAuth, false) {
 			selected = acc
-			continue
-		}
-		if acc.Priority < selected.Priority {
-			selected = acc
-		} else if acc.Priority == selected.Priority {
-			switch {
-			case acc.LastUsedAt == nil && selected.LastUsedAt != nil:
-				selected = acc
-			case acc.LastUsedAt != nil && selected.LastUsedAt == nil:
-				// keep selected (never used is preferred)
-			case acc.LastUsedAt == nil && selected.LastUsedAt == nil:
-				if preferOAuth && acc.Type != selected.Type && acc.Type == AccountTypeOAuth {
-					selected = acc
-				}
-			default:
-				if acc.LastUsedAt.Before(*selected.LastUsedAt) {
-					selected = acc
-				}
-			}
 		}
 	}
 
@@ -1976,6 +2145,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 // 查询原生平台账户 + 启用 mixed_scheduling 的 antigravity 账户
 func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, nativePlatform string) (*Account, error) {
 	preferOAuth := nativePlatform == PlatformGemini
+	scheduleStrategy := s.scheduleStrategy(ctx)
 	routingAccountIDs := s.routingAccountIDsForRequest(ctx, groupID, requestedModel, nativePlatform)
 
 	// require_privacy_set: 获取分组信息
@@ -2076,27 +2246,8 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 			if !s.isAccountSchedulableForRPM(ctx, acc, false) {
 				continue
 			}
-			if selected == nil {
+			if isBetterAccountByScheduleStrategy(acc, selected, scheduleStrategy, preferOAuth, true) {
 				selected = acc
-				continue
-			}
-			if acc.Priority < selected.Priority {
-				selected = acc
-			} else if acc.Priority == selected.Priority {
-				switch {
-				case acc.LastUsedAt == nil && selected.LastUsedAt != nil:
-					selected = acc
-				case acc.LastUsedAt != nil && selected.LastUsedAt == nil:
-					// keep selected (never used is preferred)
-				case acc.LastUsedAt == nil && selected.LastUsedAt == nil:
-					if preferOAuth && acc.Platform == PlatformGemini && selected.Platform == PlatformGemini && acc.Type != selected.Type && acc.Type == AccountTypeOAuth {
-						selected = acc
-					}
-				default:
-					if acc.LastUsedAt.Before(*selected.LastUsedAt) {
-						selected = acc
-					}
-				}
 			}
 		}
 
@@ -2149,7 +2300,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 	ctx = s.withWindowCostPrefetch(ctx, accounts)
 	ctx = s.withRPMPrefetch(ctx, accounts)
 
-	// 3. 按优先级+最久未用选择（考虑模型支持和混合调度）
+	// 3. 按调度策略+最久未用选择（考虑模型支持和混合调度）
 	// needsUpstreamCheck 仅在主选择循环中使用；粘性会话命中时跳过此检查。
 	needsUpstreamCheck := s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
 	var selected *Account
@@ -2191,27 +2342,8 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 		if !s.isAccountSchedulableForRPM(ctx, acc, false) {
 			continue
 		}
-		if selected == nil {
+		if isBetterAccountByScheduleStrategy(acc, selected, scheduleStrategy, preferOAuth, true) {
 			selected = acc
-			continue
-		}
-		if acc.Priority < selected.Priority {
-			selected = acc
-		} else if acc.Priority == selected.Priority {
-			switch {
-			case acc.LastUsedAt == nil && selected.LastUsedAt != nil:
-				selected = acc
-			case acc.LastUsedAt != nil && selected.LastUsedAt == nil:
-				// keep selected (never used is preferred)
-			case acc.LastUsedAt == nil && selected.LastUsedAt == nil:
-				if preferOAuth && acc.Platform == PlatformGemini && selected.Platform == PlatformGemini && acc.Type != selected.Type && acc.Type == AccountTypeOAuth {
-					selected = acc
-				}
-			default:
-				if acc.LastUsedAt.Before(*selected.LastUsedAt) {
-					selected = acc
-				}
-			}
 		}
 	}
 

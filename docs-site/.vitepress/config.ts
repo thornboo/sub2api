@@ -84,7 +84,9 @@ export default defineConfig({
       {
         text: '方案稿（未实现）',
         items: [
-          { text: '上游成本感知调度', link: '/dev-zz/features/upstream-provider-cost-aware-scheduling' }
+          { text: '上游成本感知调度', link: '/dev-zz/features/upstream-provider-cost-aware-scheduling' },
+          { text: '模型自检 Token 消耗统计', link: '/dev-zz/features/self-check-token-usage-stats' },
+          { text: '改倍率停用受影响 Key', link: '/dev-zz/features/disable-keys-on-group-rate-change' }
         ]
       },
       {

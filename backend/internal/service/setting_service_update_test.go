@@ -121,6 +121,46 @@ func (s *settingAntigravityUARepoStub) Delete(ctx context.Context, key string) e
 	panic("unexpected Delete call")
 }
 
+type settingValueRepoStub struct {
+	values map[string]string
+	calls  map[string]int
+}
+
+func (s *settingValueRepoStub) Get(ctx context.Context, key string) (*Setting, error) {
+	panic("unexpected Get call")
+}
+
+func (s *settingValueRepoStub) GetValue(ctx context.Context, key string) (string, error) {
+	if s.calls == nil {
+		s.calls = make(map[string]int)
+	}
+	s.calls[key]++
+	if value, ok := s.values[key]; ok {
+		return value, nil
+	}
+	return "", ErrSettingNotFound
+}
+
+func (s *settingValueRepoStub) Set(ctx context.Context, key, value string) error {
+	panic("unexpected Set call")
+}
+
+func (s *settingValueRepoStub) GetMultiple(ctx context.Context, keys []string) (map[string]string, error) {
+	panic("unexpected GetMultiple call")
+}
+
+func (s *settingValueRepoStub) SetMultiple(ctx context.Context, settings map[string]string) error {
+	panic("unexpected SetMultiple call")
+}
+
+func (s *settingValueRepoStub) GetAll(ctx context.Context) (map[string]string, error) {
+	panic("unexpected GetAll call")
+}
+
+func (s *settingValueRepoStub) Delete(ctx context.Context, key string) error {
+	panic("unexpected Delete call")
+}
+
 type defaultSubGroupReaderStub struct {
 	byID  map[int64]*Group
 	errBy map[int64]error
@@ -274,6 +314,47 @@ func TestParseDefaultSubscriptions_NormalizesValues(t *testing.T) {
 		{GroupID: 11, ValidityDays: 60},
 		{GroupID: 12, ValidityDays: MaxValidityDays},
 	}, got)
+}
+
+func TestSettingService_UpdateSettings_ScheduleStrategyNormalizes(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	require.NoError(t, svc.UpdateSettings(context.Background(), &SystemSettings{
+		ScheduleStrategy: ScheduleStrategyCostFirst,
+	}))
+	require.Equal(t, ScheduleStrategyCostFirst, repo.updates[SettingKeyScheduleStrategy])
+
+	require.NoError(t, svc.UpdateSettings(context.Background(), &SystemSettings{
+		ScheduleStrategy: "bogus",
+	}))
+	require.Equal(t, ScheduleStrategyStrictPriority, repo.updates[SettingKeyScheduleStrategy])
+}
+
+func TestSettingService_GetAllSettings_ScheduleStrategyFallback(t *testing.T) {
+	svc := NewSettingService(&settingGetAllRepoStub{values: map[string]string{
+		SettingKeyScheduleStrategy: "bogus",
+	}}, &config.Config{})
+
+	got, err := svc.GetAllSettings(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, ScheduleStrategyStrictPriority, got.ScheduleStrategy)
+}
+
+func TestSettingService_GetScheduleStrategy_CachesAndFallbacks(t *testing.T) {
+	repo := &settingValueRepoStub{values: map[string]string{
+		SettingKeyScheduleStrategy: ScheduleStrategyCostFirst,
+	}}
+	svc := NewSettingService(repo, &config.Config{})
+
+	require.Equal(t, ScheduleStrategyCostFirst, svc.GetScheduleStrategy(context.Background()))
+	require.Equal(t, ScheduleStrategyCostFirst, svc.GetScheduleStrategy(context.Background()))
+	require.Equal(t, 1, repo.calls[SettingKeyScheduleStrategy])
+
+	fallbackSvc := NewSettingService(&settingValueRepoStub{values: map[string]string{
+		SettingKeyScheduleStrategy: "unknown",
+	}}, &config.Config{})
+	require.Equal(t, ScheduleStrategyStrictPriority, fallbackSvc.GetScheduleStrategy(context.Background()))
 }
 
 func TestSettingService_UpdateSettings_TablePreferences(t *testing.T) {

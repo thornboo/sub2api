@@ -6854,7 +6854,11 @@ export default {
         title: '网关调度设置',
         description: '控制 API Key 的调度行为',
         allowUngroupedKey: '允许未分组 Key 调度',
-        allowUngroupedKeyHint: '关闭后，未分配到任何分组的 API Key 将无法发起请求（返回 403）。建议保持关闭以确保所有 Key 都归属明确的分组。'
+        allowUngroupedKeyHint: '关闭后，未分配到任何分组的 API Key 将无法发起请求（返回 403）。建议保持关闭以确保所有 Key 都归属明确的分组。',
+        strategy: '调度策略',
+        strategyHint: '严格优先级保持现有 priority 调度；成本优先会在健康候选中优先选择综合折扣最低的账号，未配置成本池的账号靠后。',
+        strategyStrictPriority: '严格优先级',
+        strategyCostFirst: '成本优先'
       },
       gatewayForwarding: {
         title: '请求转发行为',
