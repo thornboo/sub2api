@@ -63,8 +63,7 @@ func SetupRouter(
 
 	// Serve embedded frontend with settings injection if available
 	if web.HasEmbeddedFrontend() {
-		frontendServer, err := web.NewFrontendServer(settingService)
-		if err != nil { //nolint:staticcheck // Non-embed builds return a fixed error; embed build always returns nil, but this branch is intentional cross-build.
+		if frontendServer, err := web.NewFrontendServer(settingService); err != nil { //nolint:staticcheck // SA4023: embed build's NewFrontendServer always returns nil err; guard kept for cross-build correctness.
 			log.Printf("Warning: Failed to create frontend server with settings injection: %v, using legacy mode", err)
 			r.Use(web.ServeEmbeddedFrontend())
 			settingService.SetOnUpdateCallback(refreshFrameOrigins)
