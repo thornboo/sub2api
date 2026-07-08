@@ -1733,12 +1733,6 @@ func isBetterAccountByScheduleStrategy(candidate, current *Account, strategy str
 	}
 }
 
-// shuffleWithinSortGroups 对排序后的 accountWithLoad 切片，按 (Priority, LoadRate, LastUsedAt) 分组后组内随机打乱。
-// 防止并发请求读取同一快照时，确定性排序导致所有请求命中相同账号。
-func shuffleWithinSortGroups(accounts []accountWithLoad) {
-	shuffleWithinSortGroupsForSchedule(accounts, false)
-}
-
 func shuffleWithinSortGroupsForSchedule(accounts []accountWithLoad, includeDiscount bool) {
 	if len(accounts) <= 1 {
 		return
@@ -1756,11 +1750,6 @@ func shuffleWithinSortGroupsForSchedule(accounts []accountWithLoad, includeDisco
 		}
 		i = j
 	}
-}
-
-// sameAccountWithLoadGroup 判断两个 accountWithLoad 是否属于同一排序组
-func sameAccountWithLoadGroup(a, b accountWithLoad) bool {
-	return sameAccountWithLoadScheduleGroup(a, b, false)
 }
 
 func sameAccountWithLoadScheduleGroup(a, b accountWithLoad, includeDiscount bool) bool {
@@ -1823,11 +1812,6 @@ func shuffleWithinSchedulePriorityAndLastUsed(accounts []*Account, preferOAuth b
 		}
 		i = j
 	}
-}
-
-// sameAccountGroup 判断两个 Account 是否属于同一排序组（Priority + LastUsedAt）
-func sameAccountGroup(a, b *Account) bool {
-	return sameAccountScheduleGroup(a, b, false)
 }
 
 func sameAccountScheduleGroup(a, b *Account, includeDiscount bool) bool {

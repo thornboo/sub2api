@@ -232,6 +232,7 @@ func TestAPIContracts(t *testing.T) {
 					"name": "Key One",
 					"group_id": null,
 					"status": "active",
+					"disabled_reason": "",
 					"tags": null,
 					"ip_whitelist": null,
 					"ip_blacklist": null,
@@ -283,6 +284,7 @@ func TestAPIContracts(t *testing.T) {
 							"name": "Key One",
 							"group_id": null,
 							"status": "active",
+							"disabled_reason": "",
 							"tags": null,
 							"ip_whitelist": null,
 							"ip_blacklist": null,
@@ -939,6 +941,8 @@ func TestAPIContracts(t *testing.T) {
 					"risk_control_enabled": false,
 					"cyber_session_block_enabled": false,
 					"cyber_session_block_ttl_seconds": 3600,
+					"disable_keys_on_rate_change": false,
+					"schedule_strategy": "strict_priority",
 					"affiliate_enabled": false,
 					"wechat_connect_enabled": false,
 					"wechat_connect_app_id": "",
@@ -1267,6 +1271,8 @@ func TestAPIContracts(t *testing.T) {
 					"auth_source_default_dingtalk_grant_on_signup": false,
 					"auth_source_default_dingtalk_grant_on_first_bind": false,
 					"force_email_on_third_party_signup": false,
+					"disable_keys_on_rate_change": false,
+					"schedule_strategy": "strict_priority",
 					"allow_user_view_error_requests": false
 				}
 			}`,
