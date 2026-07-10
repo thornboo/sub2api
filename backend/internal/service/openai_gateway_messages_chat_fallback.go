@@ -71,7 +71,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		chatReq.StreamOptions = &apicompat.ChatStreamOptions{IncludeUsage: true}
 	}
 
-	reasoningEffort := extractOpenAIReasoningEffortFromBody(responsesBody, originalModel)
+	reasoningEffort := extractOpenAIReasoningEffortFromBody(responsesBody, upstreamModel, billingModel, originalModel)
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, responsesBody, billingModel)
 	serviceTier := extractOpenAIServiceTierFromBody(responsesBody)
 

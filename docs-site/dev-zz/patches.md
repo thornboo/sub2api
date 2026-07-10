@@ -1,5 +1,36 @@
 # 补丁记录
 
+## 2026-07-10 - 上游 GPT-5.6、排行与结构拆分同步
+
+范围：
+- 上游：`origin/main` `6dd3274a` 合并到 `dev-zz-develop`。
+- 后端：GPT-5.6 / OpenAI gateway、API Key、admin、settings、usage log、Grok 视频计费与迁移。
+- 前端：管理端用量排行、账号 / Key 列表、版本回退、i18n 模块拆分。
+- 文档：`changelog.md`、`patches.md`、`maintenance/merge-log.md`。
+
+改动：
+- 吸收 GPT-5.6 reasoning effort、cache write token、usage 和计费口径修复，以及 compact、WebSocket、messages fallback 的上游兼容更新。
+- API Key 增加最近使用 IP，账号和 Key 列表支持按当前并发排序；管理端用量页增加用户 Token 排行。
+- 版本提示增加管理员回退能力，但 release API 与跳转链接继续固定到 fork `thornboo/sub2api`。
+- 接受上游 Go 大文件和 i18n 的按职责拆分；dev-zz 功能以小型补充文件和 locale overlay 保留，减少后续 merge 冲突面。
+- 用量日志新增上游视频分辨率 / 时长字段时，继续完整保存 dev-zz 调度诊断 `schedule_meta`；插入、批处理和扫描列序保持一致。
+- 模型自检继续禁止 Gateway / Antigravity 上游重试和限流副作用；分组 / 用户倍率变更继续按设置停用受影响 Key。
+- 供应商 Modal、成本事实、账号归档、普通用户字段隔离和 stone / neutral / emerald UI 保持不变。
+
+边界：
+- 不提升 `dev-zz`、不打 tag、不推送远端；本次只完成 `dev-zz-develop` 的本地合并提交。
+- 不采用上游版本号，继续保留 dev-zz `1.5.1`。
+- 不把管理员排行、供应商成本、上游账号或调度诊断字段暴露到普通用户接口。
+
+验证：
+- 后端冲突包编译、全仓 `go test ./...`、带 `unit` 标签的完整 service 测试与 `golangci-lint`。
+- 前端 typecheck、lint、生产构建和完整 Vitest（163 个测试文件、1026 个用例）。
+- docs-site VitePress 构建、冲突标记扫描和 `git diff --check`。
+
+未验证：
+- 浏览器人工 smoke。
+- Docker / testcontainers 集成测试。
+
 ## 2026-07-10 - 供应商默认结算与充值录入简化
 
 范围：

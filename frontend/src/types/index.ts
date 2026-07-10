@@ -530,6 +530,11 @@ export interface Group {
   image_price_1k: number | null
   image_price_2k: number | null
   image_price_4k: number | null
+  video_rate_independent: boolean
+  video_rate_multiplier: number
+  video_price_480p: number | null
+  video_price_720p: number | null
+  video_price_1080p: number | null
   // 高峰时段倍率配置
   peak_rate_enabled: boolean
   peak_start: string
@@ -591,6 +596,7 @@ export interface ApiKey {
   ip_whitelist: string[]
   ip_blacklist: string[]
   last_used_at: string | null
+  last_used_ip: string | null
   deleted_at?: string | null
   quota: number // Quota limit in USD (0 = unlimited)
   quota_used: number // Used quota amount in USD
@@ -763,6 +769,11 @@ export interface CreateGroupRequest {
   image_price_1k?: number | null
   image_price_2k?: number | null
   image_price_4k?: number | null
+  video_rate_independent?: boolean
+  video_rate_multiplier?: number
+  video_price_480p?: number | null
+  video_price_720p?: number | null
+  video_price_1080p?: number | null
   peak_rate_enabled?: boolean
   peak_start?: string
   peak_end?: string
@@ -805,6 +816,11 @@ export interface UpdateGroupRequest {
   image_price_1k?: number | null
   image_price_2k?: number | null
   image_price_4k?: number | null
+  video_rate_independent?: boolean
+  video_rate_multiplier?: number
+  video_price_480p?: number | null
+  video_price_720p?: number | null
+  video_price_1080p?: number | null
   peak_rate_enabled?: boolean
   peak_start?: string
   peak_end?: string
@@ -1709,6 +1725,9 @@ export interface UserBreakdownItem {
   user_id: number
   email: string
   requests: number
+  input_tokens: number
+  output_tokens: number
+  cache_tokens: number
   total_tokens: number
   cost: number
   actual_cost: number

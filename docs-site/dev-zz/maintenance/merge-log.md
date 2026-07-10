@@ -2,6 +2,93 @@
 
 这里记录二开分支吸收上游变更的同步工作。
 
+## 2026-07-10 - 将上游 `main` 合并到 `dev-zz-develop`：GPT-5.6 计费、用量排行与模块拆分合流
+
+分支：
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`e8e23425`
+- 合并前目标：`9b8d19c9`
+- 上游 head：`6dd3274a`
+- 结果提交：本次合并提交
+
+上游要点：
+- GPT-5.6 Responses / Chat Completions 路径补充 reasoning effort、usage、cache write 和计费兼容修复，并继续完善 compact、WebSocket 和失败响应处理。
+- API Key 新增最近使用 IP，账号 / Key 列表新增当前并发排序；管理端用量页新增用户 Token 排行。
+- 管理端版本提示新增版本回退入口，发布检查、系统 API 与前端交互同步补齐。
+- Grok 视频计费补充分辨率、时长与 usage metadata；cyber 失败请求类型迁移同步进入上游 schema。
+- `setting_handler`、`admin_service`、`gateway_service`、`antigravity_gateway_service`、`usage_log_repo`、`setting_service` 和前端 i18n 接受上游模块拆分，Go toolchain 同步到 1.26.5。
+
+合并策略：
+- 合并前阅读 `branch-policy.md`、`maintenance/merge-main.md`、`maintenance/merge-log.md`、`reference/change-map.md`、`testing/verification-matrix.md`、`patches.md` 和 `changelog.md`，随后刷新 `origin/main` 并用 `git merge-tree --write-tree` 做只读预检。
+- 用 `git merge --no-commit origin/main` 展开真实合并，接受上游模块拆分后的文件结构，再把 dev-zz 的账号归档、倍率变更 Key 失效、模型自检、成本优先调度、用量调度证据和供应商页面边界补回拆分文件。
+- 用量日志同时保留上游视频字段和 dev-zz `schedule_meta`，所有 INSERT、批处理 CTE、SELECT 与扫描顺序统一维护。
+- i18n 接受上游按域拆分的 zh/en 目录，并用独立 dev-zz overlay 深合并二开文案，避免重新制造两个超大单文件。
+- 前端继续保留 stone / neutral / emerald 视觉、fork release 链接、用户/admin 字段边界和供应商成本入口，同时吸收上游用户 Token 排行、最近使用 IP、当前并发排序和版本回退。
+
+冲突文件：
+- `backend/cmd/server/VERSION`
+- `backend/internal/handler/admin/account_handler.go`
+- `backend/internal/handler/admin/setting_handler.go`
+- `backend/internal/handler/dto/mappers.go`
+- `backend/internal/handler/dto/types.go`
+- `backend/internal/repository/api_key_repo.go`
+- `backend/internal/repository/usage_log_repo.go`
+- `backend/internal/service/admin_service.go`
+- `backend/internal/service/antigravity_gateway_service.go`
+- `backend/internal/service/api_key_service.go`
+- `backend/internal/service/api_key_service_delete_test.go`
+- `backend/internal/service/gateway_service.go`
+- `backend/internal/service/openai_gateway_messages_chat_fallback.go`
+- `backend/internal/service/openai_gateway_usage.go`
+- `backend/internal/service/setting_service.go`
+- `backend/internal/service/update_service_test.go`
+- `backend/migrations/auth_identity_payment_migrations_regression_test.go`
+- `frontend/src/components/account/__tests__/BulkEditAccountModal.spec.ts`
+- `frontend/src/components/admin/usage/UsageFilters.vue`
+- `frontend/src/components/common/VersionBadge.vue`
+- `frontend/src/types/index.ts`
+- `frontend/src/views/HomeView.vue`
+- `frontend/src/views/KeyUsageView.vue`
+- `frontend/src/views/admin/AccountsView.vue`
+- `frontend/src/views/admin/GroupsView.vue`
+- `frontend/src/views/admin/UsageView.vue`
+- `frontend/src/views/admin/__tests__/UsageView.spec.ts`
+- `frontend/src/views/user/KeysView.vue`
+- `frontend/src/i18n/locales/en.ts`
+- `frontend/src/i18n/locales/zh.ts`
+
+解决说明：
+- `VERSION` 保留 dev-zz `1.5.1` 发布线，不采用上游版本号。
+- 后端列表 DTO 同时保留 dev-zz tag / disabled reason / deleted audit 字段和上游 `last_used_ip` / current concurrency 排序能力。
+- 上游服务与仓储大文件拆分后，通过 `*_devzz.go` 隔离保留账号归档、owner analytics、模型自检、模型限流配置和成本优先调度，减少未来上游同文件冲突。
+- 分组默认倍率、用户专属倍率发生变化时继续按设置停用受影响 Key，并保持更新与停用的事务边界；上游新增的视频分组计费字段不受影响。
+- 模型自检探针在 Gateway / Antigravity 路径继续禁止 retry、限流写入和账号惩罚。
+- `openai_gateway_usage.go` 保留 API Key / OAuth 不同的 cache-read input 口径；messages fallback 保留 dev-zz 转换后 body 与真实 upstream endpoint。
+- 管理端用量页合入用户 Token 排行，保留路由时间范围、对象下钻和 dev-zz popover；供应商 tab 继续使用专用“添加供应商”操作与 Modal。
+- 版本回退采用上游交互，但仓库与 release 链接固定到 `thornboo/sub2api`，并继续使用 dev-zz 视觉样式。
+
+验证：
+- `go test ./internal/handler/admin ./internal/handler/dto ./internal/repository ./internal/service ./migrations -run '^$' -count=1`
+- `go test ./internal/repository -count=1`
+- `go test ./internal/handler/admin ./migrations -count=1`
+- `go test ./internal/service -run '^TestGatewayModelSelfCheckProbeExecutorAntigravityForwardPath$' -count=1`
+- `go test -tags unit ./internal/repository ./internal/handler/admin ./migrations -count=1`
+- `go test -tags unit ./internal/service -count=1`
+- `go test ./... -count=1`
+- `golangci-lint run --timeout=30m`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run`（163 个测试文件、1026 个用例）
+- `pnpm --dir frontend build`
+- `pnpm --dir docs-site build`
+- `git diff --check`
+- `rg -n '^(<<<<<<<|=======|>>>>>>>)' backend frontend docs-site`
+
+未验证：
+- 浏览器人工 smoke。
+- Docker / testcontainers 集成测试。
+
 ## 2026-07-08 - 将上游 `main` 合并到 `dev-zz-develop`：批量生图、网关拆分与 Chat Completions 回退合流
 
 分支：

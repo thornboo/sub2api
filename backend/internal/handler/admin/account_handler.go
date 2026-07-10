@@ -202,17 +202,18 @@ type AccountWithConcurrency struct {
 }
 
 type accountListQuery struct {
-	page        int
-	pageSize    int
-	platform    string
-	accountType string
-	status      string
-	search      string
-	privacyMode string
-	sortBy      string
-	sortOrder   string
-	groupID     int64
-	lite        bool
+	page                  int
+	pageSize              int
+	platform              string
+	accountType           string
+	status                string
+	search                string
+	privacyMode           string
+	sortBy                string
+	sortOrder             string
+	groupID               int64
+	lite                  bool
+	includeSchedulerScore bool
 }
 
 type accountArchiveAdminService interface {
@@ -286,16 +287,17 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 func (h *AccountHandler) parseAccountListQuery(c *gin.Context) (accountListQuery, bool) {
 	page, pageSize := response.ParsePagination(c)
 	q := accountListQuery{
-		page:        page,
-		pageSize:    pageSize,
-		platform:    c.Query("platform"),
-		accountType: c.Query("type"),
-		status:      c.Query("status"),
-		search:      c.Query("search"),
-		privacyMode: strings.TrimSpace(c.Query("privacy_mode")),
-		sortBy:      c.DefaultQuery("sort_by", "name"),
-		sortOrder:   c.DefaultQuery("sort_order", "asc"),
-		lite:        parseBoolQueryWithDefault(c.Query("lite"), false),
+		page:                  page,
+		pageSize:              pageSize,
+		platform:              c.Query("platform"),
+		accountType:           c.Query("type"),
+		status:                c.Query("status"),
+		search:                c.Query("search"),
+		privacyMode:           strings.TrimSpace(c.Query("privacy_mode")),
+		sortBy:                c.DefaultQuery("sort_by", "name"),
+		sortOrder:             c.DefaultQuery("sort_order", "asc"),
+		lite:                  parseBoolQueryWithDefault(c.Query("lite"), false),
+		includeSchedulerScore: parseBoolQueryWithDefault(c.Query("include_scheduler_score"), false),
 	}
 	// 标准化和验证 search 参数
 	q.search = strings.TrimSpace(q.search)
@@ -610,7 +612,7 @@ func (h *AccountHandler) respondAccountList(c *gin.Context, q accountListQuery, 
 	var windowCosts map[int64]float64
 	var activeSessions map[int64]int
 	var rpmCounts map[int64]int
-	// 仅当前页存在 OpenAI 账号时才计算调度分数，避免为空结果付出池查询开销。
+	// 双重门控：用户要看该列，且当前页确实有 OpenAI 账号，才进入昂贵的候选池打分路径。
 	var schedulerScores map[int64]*AccountSchedulerScore
 	var schedulerGroupScores map[int64][]AccountSchedulerGroupScore
 	pageHasOpenAIAccounts := false
@@ -620,7 +622,7 @@ func (h *AccountHandler) respondAccountList(c *gin.Context, q accountListQuery, 
 			break
 		}
 	}
-	if pageHasOpenAIAccounts {
+	if q.includeSchedulerScore && pageHasOpenAIAccounts {
 		schedulerFilterPool := h.listAccountSchedulerScoreFilterPool(c.Request.Context(), q.platform, q.accountType, q.status, q.search, q.groupID, q.privacyMode)
 		schedulerScores, schedulerGroupScores = h.buildOpenAIAccountSchedulerScores(c.Request.Context(), accounts, schedulerFilterPool)
 	}
