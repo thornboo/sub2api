@@ -206,6 +206,58 @@ func TestSettingHandler_UpdateSettings_PreservesOmittedAuthSourceDefaults(t *tes
 	require.Equal(t, true, data["force_email_on_third_party_signup"])
 }
 
+func TestSettingHandler_UpdateSettings_PreservesOmittedDevZZOperationalSettings(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &settingHandlerRepoStub{
+		values: map[string]string{
+			service.SettingKeyPromoCodeEnabled:                     "true",
+			service.SettingKeyScheduleStrategy:                     service.ScheduleStrategyCostFirst,
+			service.SettingKeyModelSelfCheckEnabled:                "true",
+			service.SettingKeyModelSelfCheckDefaultIntervalSeconds: "900",
+			service.SettingKeyModelSelfCheckMaxConcurrency:         "12",
+			service.SettingKeyModelSelfCheckMaxTasksPerRound:       "1200",
+			service.SettingKeyModelSelfCheckSnapshotRetentionDays:  "180",
+			service.SettingKeyDisableKeysOnRateChange:              "true",
+		},
+	}
+	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
+	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+
+	body := map[string]any{
+		"promo_code_enabled": true,
+	}
+	rawBody, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.UpdateSettings(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, service.ScheduleStrategyCostFirst, repo.values[service.SettingKeyScheduleStrategy])
+	require.Equal(t, "true", repo.values[service.SettingKeyModelSelfCheckEnabled])
+	require.Equal(t, "900", repo.values[service.SettingKeyModelSelfCheckDefaultIntervalSeconds])
+	require.Equal(t, "12", repo.values[service.SettingKeyModelSelfCheckMaxConcurrency])
+	require.Equal(t, "1200", repo.values[service.SettingKeyModelSelfCheckMaxTasksPerRound])
+	require.Equal(t, "180", repo.values[service.SettingKeyModelSelfCheckSnapshotRetentionDays])
+	require.Equal(t, "true", repo.values[service.SettingKeyDisableKeysOnRateChange])
+
+	var resp response.Response
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	data, ok := resp.Data.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, service.ScheduleStrategyCostFirst, data["schedule_strategy"])
+	require.Equal(t, true, data["model_self_check_enabled"])
+	require.Equal(t, float64(900), data["self_check_default_interval_seconds"])
+	require.Equal(t, float64(12), data["self_check_max_concurrency"])
+	require.Equal(t, float64(1200), data["self_check_max_tasks_per_round"])
+	require.Equal(t, float64(180), data["model_self_check_status_snapshot_retention_days"])
+	require.Equal(t, true, data["disable_keys_on_rate_change"])
+}
+
 func TestSettingHandler_UpdateSettings_PersistsPaymentVisibleMethodsAndAdvancedScheduler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &settingHandlerRepoStub{

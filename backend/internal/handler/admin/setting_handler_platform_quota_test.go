@@ -64,6 +64,40 @@ func TestDiffSettings_NoChangeWhenEqual(t *testing.T) {
 	}
 }
 
+func TestDiffSettings_DetectsDevZZOperationalSettingChanges(t *testing.T) {
+	before := &service.SystemSettings{
+		ScheduleStrategy:                     service.ScheduleStrategyStrictPriority,
+		ModelSelfCheckEnabled:                true,
+		ModelSelfCheckDefaultIntervalSeconds: 300,
+		ModelSelfCheckMaxConcurrency:         4,
+		ModelSelfCheckMaxTasksPerRound:       500,
+		ModelSelfCheckSnapshotRetentionDays:  90,
+		DisableKeysOnRateChange:              false,
+	}
+	after := &service.SystemSettings{
+		ScheduleStrategy:                     service.ScheduleStrategyCostFirst,
+		ModelSelfCheckEnabled:                false,
+		ModelSelfCheckDefaultIntervalSeconds: 900,
+		ModelSelfCheckMaxConcurrency:         12,
+		ModelSelfCheckMaxTasksPerRound:       1200,
+		ModelSelfCheckSnapshotRetentionDays:  180,
+		DisableKeysOnRateChange:              true,
+	}
+
+	changed := diffSettings(before, after, nil, nil, UpdateSettingsRequest{})
+	for _, key := range []string{
+		"schedule_strategy",
+		"model_self_check_enabled",
+		"self_check_default_interval_seconds",
+		"self_check_max_concurrency",
+		"self_check_max_tasks_per_round",
+		"model_self_check_status_snapshot_retention_days",
+		"disable_keys_on_rate_change",
+	} {
+		require.Contains(t, changed, key)
+	}
+}
+
 func TestEqualNullableFloat(t *testing.T) {
 	five := 5.0
 	five2 := 5.0

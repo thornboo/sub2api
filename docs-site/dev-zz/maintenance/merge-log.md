@@ -10,7 +10,7 @@
 - Base：`e8e23425`
 - 合并前目标：`9b8d19c9`
 - 上游 head：`6dd3274a`
-- 结果提交：本次合并提交
+- 结果提交：`a1b8b657`
 
 上游要点：
 - GPT-5.6 Responses / Chat Completions 路径补充 reasoning effort、usage、cache write 和计费兼容修复，并继续完善 compact、WebSocket 和失败响应处理。
@@ -63,10 +63,16 @@
 - 后端列表 DTO 同时保留 dev-zz tag / disabled reason / deleted audit 字段和上游 `last_used_ip` / current concurrency 排序能力。
 - 上游服务与仓储大文件拆分后，通过 `*_devzz.go` 隔离保留账号归档、owner analytics、模型自检、模型限流配置和成本优先调度，减少未来上游同文件冲突。
 - 分组默认倍率、用户专属倍率发生变化时继续按设置停用受影响 Key，并保持更新与停用的事务边界；上游新增的视频分组计费字段不受影响。
-- 模型自检探针在 Gateway / Antigravity 路径继续禁止 retry、限流写入和账号惩罚。
+- 模型自检探针继续跳过已有 probe guard 覆盖的 Gateway / Antigravity retry、限流写入和账号惩罚分支；Antigravity INTERNAL 500 / credits exhausted 等未覆盖的既存副作用不在本次合并修复范围，后续单独审计。
 - `openai_gateway_usage.go` 保留 API Key / OAuth 不同的 cache-read input 口径；messages fallback 保留 dev-zz 转换后 body 与真实 upstream endpoint。
 - 管理端用量页合入用户 Token 排行，保留路由时间范围、对象下钻和 dev-zz popover；供应商 tab 继续使用专用“添加供应商”操作与 Modal。
 - 版本回退采用上游交互，但仓库与 release 链接固定到 `thornboo/sub2api`，并继续使用 dev-zz 视觉样式。
+
+合并复审修复：
+- 恢复 `schedule_strategy`、模型自检 5 项设置和 `disable_keys_on_rate_change` 的 GET、PUT 省略字段保留、PUT 响应与审计变更检测，避免管理员保存无关设置时静默改写 dev-zz 运行配置。
+- 将 `dev-zz-branch-images.yml` 的 Go 版本校验同步到 `go1.26.5`，与 `backend/go.mod`、其他 CI 和镜像构建入口保持一致。
+- 合并提交已推送到 `origin/dev-zz-develop`；复审修复完成前不提升 `dev-zz`、不打 tag、不发布。
+- 初次推送的 CI `29083279239` 和 dev-zz Branch Images `29083279250` 分别暴露上述设置链路与 Go 版本问题；修复提交推送后以新的远端工作流结果为准。
 
 验证：
 - `go test ./internal/handler/admin ./internal/handler/dto ./internal/repository ./internal/service ./migrations -run '^$' -count=1`
@@ -84,6 +90,17 @@
 - `pnpm --dir docs-site build`
 - `git diff --check`
 - `rg -n '^(<<<<<<<|=======|>>>>>>>)' backend frontend docs-site`
+
+复审修复验证：
+- `go test -tags=unit ./internal/server -run '^TestAPIContracts$' -count=1`
+- `go test -tags=unit ./internal/handler/admin -run '^(TestSettingHandler_UpdateSettings_PreservesOmittedDevZZOperationalSettings|TestDiffSettings_DetectsDevZZOperationalSettingChanges)$' -count=1`
+- `make -C backend test-unit`
+- `golangci-lint run --timeout=30m`（`0 issues`）
+- `make test-frontend`（lint、typecheck、91 条关键 Vitest）
+- `pnpm --dir frontend run test:run`（163 个测试文件、1026 个用例）
+- `pnpm --dir frontend run build`
+- `pnpm --dir docs-site run docs:build`
+- 本机尝试 `make -C backend test-integration`，非容器包通过，repository testcontainers 因本机无 Docker 以 `rootless Docker not found` 退出；该项由修复提交对应的 GitHub Actions integration job 完成验证。
 
 未验证：
 - 浏览器人工 smoke。

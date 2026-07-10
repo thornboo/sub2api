@@ -19,7 +19,7 @@ Browser
 
 - Docker 或兼容的容器运行时
 - pnpm
-- Go 1.26.4，或通过仓库的 mise 配置启动 Go
+- Go 1.26.5，或通过仓库的 mise 配置启动 Go
 - Node 20+ 用于本地前端和文档站构建；GitHub Actions 里额外用 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` 验证 JavaScript actions runtime 的 Node 24 兼容性。
 - 可选：Air，用于后端文件变化后自动重启
 
@@ -86,7 +86,7 @@ TOTP_ENCRYPTION_KEY=abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
 mise x -C backend -- go run ./cmd/server
 ```
 
-如果不使用 mise，需要确保当前 shell 中的 `go` 是 1.26.4，然后改为：
+如果不使用 mise，需要确保当前 shell 中的 `go` 是 1.26.5，然后改为：
 
 ```bash
 cd backend

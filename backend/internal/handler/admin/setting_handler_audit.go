@@ -371,6 +371,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.AllowUngroupedKeyScheduling != after.AllowUngroupedKeyScheduling {
 		changed = append(changed, "allow_ungrouped_key_scheduling")
 	}
+	if service.NormalizeScheduleStrategy(before.ScheduleStrategy) != service.NormalizeScheduleStrategy(after.ScheduleStrategy) {
+		changed = append(changed, "schedule_strategy")
+	}
 	if before.BackendModeEnabled != after.BackendModeEnabled {
 		changed = append(changed, "backend_mode_enabled")
 	}
@@ -501,11 +504,29 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.ChannelMonitorDefaultIntervalSeconds != after.ChannelMonitorDefaultIntervalSeconds {
 		changed = append(changed, "channel_monitor_default_interval_seconds")
 	}
+	if before.ModelSelfCheckEnabled != after.ModelSelfCheckEnabled {
+		changed = append(changed, "model_self_check_enabled")
+	}
+	if before.ModelSelfCheckDefaultIntervalSeconds != after.ModelSelfCheckDefaultIntervalSeconds {
+		changed = append(changed, "self_check_default_interval_seconds")
+	}
+	if before.ModelSelfCheckMaxConcurrency != after.ModelSelfCheckMaxConcurrency {
+		changed = append(changed, "self_check_max_concurrency")
+	}
+	if before.ModelSelfCheckMaxTasksPerRound != after.ModelSelfCheckMaxTasksPerRound {
+		changed = append(changed, "self_check_max_tasks_per_round")
+	}
+	if before.ModelSelfCheckSnapshotRetentionDays != after.ModelSelfCheckSnapshotRetentionDays {
+		changed = append(changed, "model_self_check_status_snapshot_retention_days")
+	}
 	if before.AvailableChannelsEnabled != after.AvailableChannelsEnabled {
 		changed = append(changed, "available_channels_enabled")
 	}
 	if before.AffiliateEnabled != after.AffiliateEnabled {
 		changed = append(changed, "affiliate_enabled")
+	}
+	if before.DisableKeysOnRateChange != after.DisableKeysOnRateChange {
+		changed = append(changed, "disable_keys_on_rate_change")
 	}
 	if before.RiskControlEnabled != after.RiskControlEnabled {
 		changed = append(changed, "risk_control_enabled")

@@ -245,6 +245,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		MinClaudeCodeVersion:                                   settings.MinClaudeCodeVersion,
 		MaxClaudeCodeVersion:                                   settings.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:                            settings.AllowUngroupedKeyScheduling,
+		ScheduleStrategy:                                       settings.ScheduleStrategy,
 		BackendModeEnabled:                                     settings.BackendModeEnabled,
 		EnableFingerprintUnification:                           settings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              settings.EnableMetadataPassthrough,
@@ -323,9 +324,17 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		ChannelMonitorEnabled:                settings.ChannelMonitorEnabled,
 		ChannelMonitorDefaultIntervalSeconds: settings.ChannelMonitorDefaultIntervalSeconds,
 
+		ModelSelfCheckEnabled:                settings.ModelSelfCheckEnabled,
+		ModelSelfCheckDefaultIntervalSeconds: settings.ModelSelfCheckDefaultIntervalSeconds,
+		ModelSelfCheckMaxConcurrency:         settings.ModelSelfCheckMaxConcurrency,
+		ModelSelfCheckMaxTasksPerRound:       settings.ModelSelfCheckMaxTasksPerRound,
+		ModelSelfCheckSnapshotRetentionDays:  settings.ModelSelfCheckSnapshotRetentionDays,
+
 		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
 
 		AffiliateEnabled: settings.AffiliateEnabled,
+
+		DisableKeysOnRateChange: settings.DisableKeysOnRateChange,
 
 		AllowUserViewErrorRequests: settings.AllowUserViewErrorRequests,
 	}

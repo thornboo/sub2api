@@ -6,7 +6,7 @@
 
 | 项 | 当前约定 |
 | --- | --- |
-| Go | `backend/go.mod` 声明 `go 1.26.4`，CI 会校验 `go1.26.4` |
+| Go | `backend/go.mod` 声明 `go 1.26.5`，CI 会校验 `go1.26.5` |
 | 前端构建 Node | GitHub Actions 仍使用 `node-version: '20'` |
 | GitHub JavaScript actions runtime | CI 设置 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`，用于验证 actions runtime 兼容性 |
 | pnpm | 前端和 docs-site 独立 lockfile，CI 前端使用 pnpm 9 |
@@ -122,7 +122,7 @@ GITHUB_RAW_URL=https://raw.githubusercontent.com/thornboo/sub2api/dev-zz/deploy
 
 | 文件 | dev-zz 差异 |
 | --- | --- |
-| `.github/workflows/backend-ci.yml` | actions runtime 走 Node 24 验证；Go 版本校验 1.26.4；前端构建 Node 仍是 20 |
+| `.github/workflows/backend-ci.yml` | actions runtime 走 Node 24 验证；Go 版本校验 1.26.5；前端构建 Node 仍是 20 |
 | `.github/workflows/security-scan.yml` | actions runtime 走 Node 24 验证；前端 audit 仍使用 Node 20 |
 | `.github/workflows/dev-zz-branch-images.yml` | `dev-zz-develop` / `dev-zz` push 构建 GHCR 多架构分支镜像，不更新 `latest` |
 | `.github/workflows/release.yml` | release 产物推送 fork 镜像命名 |

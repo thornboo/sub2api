@@ -209,7 +209,8 @@ type UpdateSettingsRequest struct {
 	MaxClaudeCodeVersion string `json:"max_claude_code_version"`
 
 	// 分组隔离
-	AllowUngroupedKeyScheduling bool `json:"allow_ungrouped_key_scheduling"`
+	AllowUngroupedKeyScheduling bool    `json:"allow_ungrouped_key_scheduling"`
+	ScheduleStrategy            *string `json:"schedule_strategy"`
 
 	// Backend Mode
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
@@ -296,11 +297,20 @@ type UpdateSettingsRequest struct {
 	ChannelMonitorEnabled                *bool `json:"channel_monitor_enabled"`
 	ChannelMonitorDefaultIntervalSeconds *int  `json:"channel_monitor_default_interval_seconds"`
 
+	// Model self-check feature switch
+	ModelSelfCheckEnabled                *bool `json:"model_self_check_enabled"`
+	ModelSelfCheckDefaultIntervalSeconds *int  `json:"self_check_default_interval_seconds"`
+	ModelSelfCheckMaxConcurrency         *int  `json:"self_check_max_concurrency"`
+	ModelSelfCheckMaxTasksPerRound       *int  `json:"self_check_max_tasks_per_round"`
+	ModelSelfCheckSnapshotRetentionDays  *int  `json:"model_self_check_status_snapshot_retention_days"`
+
 	// Available Channels feature switch (user-facing)
 	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
 
 	// Affiliate (邀请返利) feature switch
 	AffiliateEnabled *bool `json:"affiliate_enabled"`
+
+	DisableKeysOnRateChange *bool `json:"disable_keys_on_rate_change"`
 
 	// 风控中心功能开关
 	RiskControlEnabled *bool `json:"risk_control_enabled"`
@@ -1291,7 +1301,13 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		MinClaudeCodeVersion:                   req.MinClaudeCodeVersion,
 		MaxClaudeCodeVersion:                   req.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:            req.AllowUngroupedKeyScheduling,
-		BackendModeEnabled:                     req.BackendModeEnabled,
+		ScheduleStrategy: func() string {
+			if req.ScheduleStrategy != nil {
+				return service.NormalizeScheduleStrategy(*req.ScheduleStrategy)
+			}
+			return previousSettings.ScheduleStrategy
+		}(),
+		BackendModeEnabled: req.BackendModeEnabled,
 		AllowUserViewErrorRequests: func() bool {
 			if req.AllowUserViewErrorRequests != nil {
 				return *req.AllowUserViewErrorRequests
@@ -1499,6 +1515,36 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.ChannelMonitorDefaultIntervalSeconds
 		}(),
+		ModelSelfCheckEnabled: func() bool {
+			if req.ModelSelfCheckEnabled != nil {
+				return *req.ModelSelfCheckEnabled
+			}
+			return previousSettings.ModelSelfCheckEnabled
+		}(),
+		ModelSelfCheckDefaultIntervalSeconds: func() int {
+			if req.ModelSelfCheckDefaultIntervalSeconds != nil {
+				return *req.ModelSelfCheckDefaultIntervalSeconds
+			}
+			return previousSettings.ModelSelfCheckDefaultIntervalSeconds
+		}(),
+		ModelSelfCheckMaxConcurrency: func() int {
+			if req.ModelSelfCheckMaxConcurrency != nil {
+				return *req.ModelSelfCheckMaxConcurrency
+			}
+			return previousSettings.ModelSelfCheckMaxConcurrency
+		}(),
+		ModelSelfCheckMaxTasksPerRound: func() int {
+			if req.ModelSelfCheckMaxTasksPerRound != nil {
+				return *req.ModelSelfCheckMaxTasksPerRound
+			}
+			return previousSettings.ModelSelfCheckMaxTasksPerRound
+		}(),
+		ModelSelfCheckSnapshotRetentionDays: func() int {
+			if req.ModelSelfCheckSnapshotRetentionDays != nil {
+				return *req.ModelSelfCheckSnapshotRetentionDays
+			}
+			return previousSettings.ModelSelfCheckSnapshotRetentionDays
+		}(),
 		AvailableChannelsEnabled: func() bool {
 			if req.AvailableChannelsEnabled != nil {
 				return *req.AvailableChannelsEnabled
@@ -1510,6 +1556,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.AffiliateEnabled
 			}
 			return previousSettings.AffiliateEnabled
+		}(),
+		DisableKeysOnRateChange: func() bool {
+			if req.DisableKeysOnRateChange != nil {
+				return *req.DisableKeysOnRateChange
+			}
+			return previousSettings.DisableKeysOnRateChange
 		}(),
 		RiskControlEnabled: func() bool {
 			if req.RiskControlEnabled != nil {
@@ -1802,6 +1854,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		MinClaudeCodeVersion:                                   updatedSettings.MinClaudeCodeVersion,
 		MaxClaudeCodeVersion:                                   updatedSettings.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:                            updatedSettings.AllowUngroupedKeyScheduling,
+		ScheduleStrategy:                                       updatedSettings.ScheduleStrategy,
 		BackendModeEnabled:                                     updatedSettings.BackendModeEnabled,
 		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,
@@ -1879,9 +1932,17 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ChannelMonitorEnabled:                updatedSettings.ChannelMonitorEnabled,
 		ChannelMonitorDefaultIntervalSeconds: updatedSettings.ChannelMonitorDefaultIntervalSeconds,
 
+		ModelSelfCheckEnabled:                updatedSettings.ModelSelfCheckEnabled,
+		ModelSelfCheckDefaultIntervalSeconds: updatedSettings.ModelSelfCheckDefaultIntervalSeconds,
+		ModelSelfCheckMaxConcurrency:         updatedSettings.ModelSelfCheckMaxConcurrency,
+		ModelSelfCheckMaxTasksPerRound:       updatedSettings.ModelSelfCheckMaxTasksPerRound,
+		ModelSelfCheckSnapshotRetentionDays:  updatedSettings.ModelSelfCheckSnapshotRetentionDays,
+
 		AvailableChannelsEnabled: updatedSettings.AvailableChannelsEnabled,
 
 		AffiliateEnabled: updatedSettings.AffiliateEnabled,
+
+		DisableKeysOnRateChange: updatedSettings.DisableKeysOnRateChange,
 
 		RiskControlEnabled:          updatedSettings.RiskControlEnabled,
 		CyberSessionBlockEnabled:    updatedSettings.CyberSessionBlockEnabled,
