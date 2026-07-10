@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -26,36 +27,62 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 ) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
 
+	if err := apicompat.ValidateResponsesToolPayload(body); err != nil {
+		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, newOpenAIClientRequestError(err.Error(), fmt.Errorf("validate responses tool payload: %w", err))
+	}
+
 	var responsesReq apicompat.ResponsesRequest
 	if err := json.Unmarshal(body, &responsesReq); err != nil {
 		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
-		return nil, fmt.Errorf("parse responses request: %w", err)
+		return nil, newOpenAIClientRequestError("Failed to parse request body", fmt.Errorf("parse responses request: %w", err))
 	}
 	originalModel := strings.TrimSpace(responsesReq.Model)
 	if originalModel == "" {
 		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
-		return nil, fmt.Errorf("missing model in request")
+		return nil, newOpenAIClientRequestError("model is required", fmt.Errorf("missing model in request"))
 	}
 
 	clientStream := responsesReq.Stream
 	serviceTier := extractOpenAIServiceTierFromBody(body)
-	requestTools, err := apicompat.ResponsesRequestTools(&responsesReq)
+	registry, err := apicompat.BuildResponsesToolRegistry(&responsesReq)
 	if err != nil {
+		var capabilityErr *apicompat.ChatCompletionsCapabilityError
+		if errors.As(err, &capabilityErr) {
+			return nil, &AccountCapabilityMismatchError{
+				AccountID: account.ID,
+				Feature:   capabilityErr.Feature,
+				Message:   capabilityErr.Error(),
+			}
+		}
 		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
-		return nil, fmt.Errorf("collect responses request tools: %w", err)
+		return nil, newOpenAIClientRequestError(err.Error(), fmt.Errorf("build responses tool registry: %w", err))
+	}
+	capabilities := apicompat.ChatCompletionsCapabilities{
+		SupportsAllowedTools:          openai_compat.SupportsChatAllowedTools(account.Extra),
+		AllowImplicitClientToolSearch: openai_compat.AllowsImplicitClientToolSearch(account.Extra),
+		AllowLossyCustomToolGrammar:   openai_compat.AllowsLossyCustomToolGrammar(account.Extra),
 	}
 	// custom 工具（如 codex 的 exec）降级为 function 工具转发，回程需按名字还原为
 	// custom_tool_call 项，先记下名字集合；tool_search 工具同理，回程还原为
 	// tool_search_call 项；namespace 子工具（如 MCP 工具）摊平转发，回程按映射还原
 	// 为带 namespace 字段的 function_call 项。
-	customTools := apicompat.CustomToolNames(requestTools)
-	toolSearch := apicompat.HasToolSearchTool(requestTools)
-	namespaceTools := apicompat.NamespaceToolNames(requestTools)
+	customTools := registry.CustomToolNames()
+	toolSearch := registry.HasClientToolSearch(capabilities)
+	namespaceTools := registry.NamespaceToolNames()
 
-	chatReq, err := apicompat.ResponsesToChatCompletionsRequest(&responsesReq)
+	chatReq, err := apicompat.ResponsesToChatCompletionsRequestWithRegistry(&responsesReq, registry, capabilities)
 	if err != nil {
+		var capabilityErr *apicompat.ChatCompletionsCapabilityError
+		if errors.As(err, &capabilityErr) {
+			return nil, &AccountCapabilityMismatchError{
+				AccountID: account.ID,
+				Feature:   capabilityErr.Feature,
+				Message:   capabilityErr.Error(),
+			}
+		}
 		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
-		return nil, fmt.Errorf("convert responses to chat completions: %w", err)
+		return nil, newOpenAIClientRequestError(err.Error(), fmt.Errorf("convert responses to chat completions: %w", err))
 	}
 
 	billingModel := resolveOpenAIForwardModel(account, originalModel, "")
@@ -204,8 +231,9 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		c.Writer.Flush()
 	}
 
-	scan := s.scanCCStream(resp, "openai responses chat fallback", requestID, startTime, func(chunk *apicompat.ChatCompletionsChunk) {
+	scan := s.scanCCStream(resp, "openai responses chat fallback", requestID, startTime, func(chunk *apicompat.ChatCompletionsChunk) error {
 		writeEvents(apicompat.ChatCompletionsChunkToResponsesEvents(chunk, state))
+		return state.StreamError()
 	})
 
 	if scan.Err != nil {

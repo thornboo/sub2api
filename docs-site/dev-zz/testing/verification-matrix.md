@@ -59,6 +59,25 @@
 - WebSocket 会话使用建连时的策略快照；设置变更只影响新连接，已有连接重连后生效。
 - 策略变更的审计只记录设置键，不记录完整用户 ID 列表或规则内容。
 
+## OpenAI Responses → Chat fallback 工具桥
+
+| 场景 | 推荐命令 |
+| --- | --- |
+| Tool Search / deferred / 动态 identity | `cd backend && go test ./internal/pkg/apicompat -run 'ToolSearch|ResponsesToolRegistry|LoadedTopLevel|Deferred|Hosted' -count=1` |
+| capability extra 与 scheduler cache | `cd backend && go test -tags=unit ./internal/pkg/openai_compat ./internal/repository -run 'ChatFallbackCapabilities|SchedulerMetadataAccount' -count=1` |
+| service capability mismatch | `cd backend && go test -tags=unit ./internal/service ./internal/handler -run 'ChatFallback|AccountCapabilityMismatch' -count=1` |
+
+必要人工核对：
+
+- type-only `tool_search` 是 hosted，不得在无显式账号兼容开关时改成 client proxy。
+- 顶层与 namespace 中 `defer_loading: true` 的 function 在 `additional_tools` / client `tool_search_output` 加载前不得出现在 Chat tools。
+- 动态顶层 function 的 Responses 回程必须带 `namespace=name`，且历史、非流式和流式名称一致。
+- 重复 `tool_search_output.call_id` 只生成一个 Chat tool result，替换前的历史调用仍使用当时的 Chat 名；added/done/completed 的 item ID 一致。
+- hosted/server-only 工具与跨来源 identity/flatten 冲突触发 capability mismatch；未知 `execution` 在账号调度前直接返回客户端错误，不遍历账号。
+- capability mismatch 只排除当前账号，不写提前响应、不降低账号健康评分；所有账号均不支持时才返回 `unsupported_feature`。若任一账号已访问上游并失败，最终优先返回 upstream 错误。
+- `allowed_tools` 与有损 custom grammar 只在账号 extra 明确启用时发送，不根据第三方 base URL 猜测。
+- 原始载荷预检必须拒绝关键对象的重复 JSON key，把 `tool_choice.allowed_tools.tools` 与声明/动态工具计入同一资源预算，并拒绝超过 64 个字段的关键/part/嵌套 image URL 对象，或超过 16384 项的 input/content/summary part 数组；历史 identity 必须来自 replay cache，不能在消息转换阶段按 item 回扫全部工具，part 和上游 custom arguments 转换也不得把未知字段解码为通用 map。流式工具 arguments 必须线性累积并执行单调用 16 MiB / 单响应 32 MiB 上限；Responses 超限发 `response.failed`，Messages 超限发 Anthropic `event: error`，两者都停止读取且不生成不完整 done/completed/message_stop。fallback 内其他客户端 400 不得上报账号调度失败。
+
 ## 可用渠道和账号模型
 
 | 场景 | 推荐命令 |

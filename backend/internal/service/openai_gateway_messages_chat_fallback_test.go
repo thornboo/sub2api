@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -344,6 +345,48 @@ func TestForwardAsAnthropic_ForceChatCompletionsStreamReadErrorSkipsFinalize(t *
 	out := rec.Body.String()
 	require.Contains(t, out, `"text":"he"`, "delta emitted before the failure must reach the client")
 	require.NotContains(t, out, "event: message_stop", "no synthetic completion after a broken read")
+}
+
+func TestForwardAsAnthropic_ForceChatCompletionsToolArgumentsLimitEmitsError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.4","max_tokens":8,"messages":[{"role":"user","content":"run tool"}],"stream":true}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	oversizedArguments := strconv.Quote(strings.Repeat("x", (16<<20)+1))
+	upstreamBody := strings.Join([]string{
+		`data: {"id":"chatcmpl_limit","object":"chat.completion.chunk","model":"gpt-5.4","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_limit","type":"function","function":{"name":"exec","arguments":` + oversizedArguments + `}}]},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"chatcmpl_limit","object":"chat.completion.chunk","model":"gpt-5.4","choices":[{"index":0,"delta":{"content":"must_not_be_read"},"finish_reason":null}]}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_msg_chat_limit"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, forceChatMessagesFallbackAccount(), body, "", "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "stream usage incomplete")
+	require.NotNil(t, result)
+	require.True(t, result.Stream)
+
+	out := rec.Body.String()
+	require.Contains(t, out, "event: error")
+	require.Contains(t, out, `"type":"api_error"`)
+	require.NotContains(t, out, "event: message_stop")
+	require.NotContains(t, out, `"type":"tool_use"`)
+	require.NotContains(t, out, "must_not_be_read", "scanner must stop after the conversion error")
 }
 
 // Gate regression: an API-key account whose upstream is confirmed to support

@@ -64,6 +64,20 @@ func TestShouldUseResponsesAPI(t *testing.T) {
 	}
 }
 
+func TestChatFallbackCapabilitiesRequireExplicitOptIn(t *testing.T) {
+	if SupportsChatAllowedTools(nil) || AllowsImplicitClientToolSearch(nil) || AllowsLossyCustomToolGrammar(nil) {
+		t.Fatal("chat fallback capabilities must default to disabled")
+	}
+	extra := map[string]any{
+		ExtraKeyChatAllowedToolsSupported:       true,
+		ExtraKeyImplicitClientToolSearchEnabled: true,
+		ExtraKeyLossyCustomToolGrammarEnabled:   true,
+	}
+	if !SupportsChatAllowedTools(extra) || !AllowsImplicitClientToolSearch(extra) || !AllowsLossyCustomToolGrammar(extra) {
+		t.Fatal("explicit chat fallback capability flags must be honored")
+	}
+}
+
 func TestNormalizeResponsesSupportMode(t *testing.T) {
 	tests := []struct {
 		name string

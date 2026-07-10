@@ -190,9 +190,20 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 
 	// 与 responses 兄弟不同：客户端断开后仍继续做事件转换（喂 anthropicState），
 	// 仅跳过写出，保证 finalize 阶段的 usage 汇总不受断开影响。
-	emitChunk := func(chunk *apicompat.ChatCompletionsChunk) {
+	emitChunk := func(chunk *apicompat.ChatCompletionsChunk) error {
 		// CC chunk → Responses events → Anthropic events
 		responsesEvents := apicompat.ChatCompletionsChunkToResponsesEvents(chunk, ccState)
+		if conversionErr := ccState.StreamError(); conversionErr != nil {
+			if !clientDisconnected {
+				writeStreamHeaders()
+				if _, err := fmt.Fprint(c.Writer, buildAnthropicStreamErrorSSE("api_error", conversionErr.Error())); err != nil {
+					clientDisconnected = true
+				} else {
+					c.Writer.Flush()
+				}
+			}
+			return conversionErr
+		}
 		for _, rEvent := range responsesEvents {
 			anthropicEvents := apicompat.ResponsesEventToAnthropicEvents(&rEvent, anthropicState)
 			if clientDisconnected {
@@ -213,6 +224,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 		if !clientDisconnected && len(responsesEvents) > 0 {
 			c.Writer.Flush()
 		}
+		return ccState.StreamError()
 	}
 
 	scan := s.scanCCStream(resp, "openai messages chat fallback", requestID, startTime, emitChunk)

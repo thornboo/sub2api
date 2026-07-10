@@ -1,10 +1,19 @@
 # 变更记录
 
+## 2026-07-11
+
+- 修正 Responses → Chat Completions 工具发现桥的协议边界：缺省 `execution` 的 type-only `tool_search` 保持官方 hosted 语义，不再静默改写为客户端执行；只有显式 `execution: "client"` 才会生成代理 function，旧客户端缺省行为需账号级兼容开关明确启用。
+- 新增 request-local `ResponsesToolRegistry`，按输入顺序合并顶层、`additional_tools` 和 `tool_search_output`，保留载体来源、加载状态与回程身份；顶层 `defer_loading: true` 工具在真正加载前不再暴露给 Chat 上游。
+- 动态加载的顶层 function 在非流式、流式和下一轮历史中保留官方 namespace 身份；重复 `tool_search_output.call_id` 以后者替换前者，避免旧定义被 union 回当前工具集合。
+- Chat `allowed_tools`、旧式隐式 client tool search 与有损 custom grammar 降级改为账号级显式标记；hosted/server-only 工具、摊平名称冲突或跨来源回程身份冲突统一返回 typed capability mismatch，由 Responses handler 排除当前账户并继续换号，不把 Chat transport 的表达限制记成账号健康故障。
+- 重复 Tool Search output 在 Chat 历史中只保留首个 tool result，后续副本只更新当前 callable set；历史 function call 按其所在输入位置解析身份。流式 added/done/completed 共用同一 output item ID。
+- 工具定义比较改用保留 JSON number 的解码方式，避免超大数值精度折叠；原始载荷预检拒绝重复 JSON key，并把声明工具、动态工具和 `allowed_tools` 引用统一计入数量/字节/深度预算。历史 identity 在输入 replay 时缓存，避免按历史调用重复扫描工具；Responses input 和单项 content/summary parts 各最多 16384 项，根对象、工具对象、tool choice、input item、content/summary part 与嵌套 image URL 对象最多 64 个字段，转换器只解码实际使用的 part 字段；上游 custom arguments 也改为无通用 map 的按字段读取。Chat fallback 流式工具参数使用线性 buffer，单调用最多 16 MiB、单响应合计最多 32 MiB，超限时 Responses 客户端收到 `response.failed`、Anthropic Messages 客户端收到 `event: error`，随后终止上游读取且不伪装成正常完成，防止大请求或异常上游返回造成 CPU / 内存放大。请求本地 400 使用 typed client error，不再污染所选账号健康。本轮只更新 `dev-zz-develop`，不提升 `dev-zz`、不打 tag、不发布。
+
 ## 2026-07-10
 
 - 增量同步上游 `main`（`e316ebf5`）：补齐 Codex custom/freeform 工具、`tool_search` 和 namespace MCP 子工具在 Responses → Chat Completions 降级路径中的请求转换、历史往返、非流式响应与流式事件还原。
-- 合并复审补齐官方 `tool_search_output.tools` 与 `additional_tools.tools` 的下一轮动态加载：客户端自定义搜索 schema 会保留，加载后的 function / namespace 可以继续调用并恢复原始身份。
-- namespace 摊平名采用稳定长度限制与哈希后缀，function/custom、代理名、同名不同完整定义和跨 namespace 撞名显式拒绝；JSON 语义等价的同名定义去重，custom grammar 与未知扩展字段也参与比较。function / custom / tool_search、namespace 与 `allowed_tools` 选择等价转换，无法表达的托管、不存在工具或源类型错配明确失败而不静默退化或重解释。
+- 合并复审补齐 `tool_search_output.tools` 与 `additional_tools.tools` 的下一轮动态加载；2026-07-11 follow-up 进一步按载体来源区分 searchable / loaded / callable，并补齐动态顶层 function 的 namespace 身份。
+- namespace 摊平名采用稳定长度限制与哈希后缀，function/custom、代理名、同名不同完整定义和跨 namespace 撞名显式拒绝；JSON 语义等价的同名定义去重，未知扩展字段也参与比较。2026-07-11 后，`allowed_tools` 和有损 custom grammar 受账号能力门控，无法保真时换号而不再宣称无条件等价。
 - 本轮 10 个上游提交、8 个后端文件自动合入且无冲突；没有迁移、前端、依赖、workflow 或版本变化，继续保留 dev-zz `1.5.1`，不提升正式分支、不打 tag、不发布。
 - 增量同步上游 `main`（`07fac347`）：修复 ops capture writer 释放后晚到访问的 nil panic；合并复审同时阻止被 compact keepalive 包装的 writer 回池复用，确保外层 middleware 仍读取本请求状态且不会跨请求串用 writer。
 - Responses ↔ Anthropic 非流式和流式转换完整保留 `cache_creation_input_tokens`；Anthropic 普通输入扣除 cache read / creation，Responses 总输入加回两类缓存 token，避免缓存写入用量丢失或重复计入输入。

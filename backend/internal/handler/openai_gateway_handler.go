@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -230,6 +231,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return
 	}
+	if err := apicompat.ValidateResponsesToolPayload(body); err != nil {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
 
 	// 使用 gjson 只读提取字段做校验，避免完整 Unmarshal
 	modelResult := gjson.GetBytes(body, "model")
@@ -345,6 +350,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
+	var lastCapabilityErr *service.AccountCapabilityMismatchError
 
 	for {
 		// Select account supporting the requested model
@@ -382,12 +388,18 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			}
 			if lastFailoverErr != nil {
 				h.handleFailoverExhausted(c, lastFailoverErr, streamStarted)
+			} else if lastCapabilityErr != nil {
+				h.handleAccountCapabilityMismatchExhausted(c, lastCapabilityErr, streamStarted)
 			} else {
 				h.handleFailoverExhaustedSimple(c, 502, streamStarted)
 			}
 			return
 		}
 		if selection == nil || selection.Account == nil {
+			if lastFailoverErr != nil || lastCapabilityErr != nil {
+				h.handleOpenAIAccountAttemptsExhausted(c, lastFailoverErr, lastCapabilityErr, streamStarted)
+				return
+			}
 			cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, service.PlatformOpenAI)
 			if !cls.ModelNotFound {
 				markOpsRoutingCapacityLimited(c)
@@ -454,6 +466,40 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					zap.Error(err),
 				)
 			} else {
+				var clientRequestErr *service.OpenAIClientRequestError
+				if errors.As(err, &clientRequestErr) {
+					if service.OpenAICompactKeepaliveAdjustedWrittenSize(c) == writerSizeBeforeForward {
+						message := strings.TrimSpace(clientRequestErr.Message)
+						if message == "" {
+							message = "Invalid request"
+						}
+						h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", message, streamStarted)
+					}
+					reqLog.Info("openai.client_request_rejected", zap.Error(err))
+					return
+				}
+				var capabilityErr *service.AccountCapabilityMismatchError
+				if errors.As(err, &capabilityErr) {
+					if service.OpenAICompactKeepaliveAdjustedWrittenSize(c) != writerSizeBeforeForward {
+						h.handleAccountCapabilityMismatchExhausted(c, capabilityErr, true)
+						return
+					}
+					h.gatewayService.RecordOpenAIAccountSwitch()
+					failedAccountIDs[account.ID] = struct{}{}
+					lastCapabilityErr = capabilityErr
+					if switchCount >= maxAccountSwitches {
+						h.handleOpenAIAccountAttemptsExhausted(c, lastFailoverErr, lastCapabilityErr, streamStarted)
+						return
+					}
+					switchCount++
+					reqLog.Info("openai.account_capability_mismatch_switching",
+						zap.Int64("account_id", account.ID),
+						zap.String("feature", capabilityErr.Feature),
+						zap.Int("switch_count", switchCount),
+						zap.Int("max_switches", maxAccountSwitches),
+					)
+					continue
+				}
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					if service.OpenAICompactKeepaliveAdjustedWrittenSize(c) != writerSizeBeforeForward {
@@ -1944,6 +1990,30 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 	// 使用默认的错误映射
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)
+}
+
+func (h *OpenAIGatewayHandler) handleAccountCapabilityMismatchExhausted(c *gin.Context, capabilityErr *service.AccountCapabilityMismatchError, streamStarted bool) {
+	message := "No available OpenAI account can preserve the requested Responses API features"
+	if capabilityErr != nil && strings.TrimSpace(capabilityErr.Message) != "" {
+		message = capabilityErr.Message
+	}
+	h.handleStreamingAwareError(c, http.StatusBadRequest, "unsupported_feature", message, streamStarted)
+}
+
+func (h *OpenAIGatewayHandler) handleOpenAIAccountAttemptsExhausted(
+	c *gin.Context,
+	lastFailoverErr *service.UpstreamFailoverError,
+	lastCapabilityErr *service.AccountCapabilityMismatchError,
+	streamStarted bool,
+) {
+	// Once any account preserved the request semantics and reached the upstream,
+	// a later capability-only miss must not rewrite that availability failure as
+	// a client-side unsupported_feature response.
+	if lastFailoverErr != nil {
+		h.handleFailoverExhausted(c, lastFailoverErr, streamStarted)
+		return
+	}
+	h.handleAccountCapabilityMismatchExhausted(c, lastCapabilityErr, streamStarted)
 }
 
 // handleFailoverExhaustedSimple 简化版本，用于没有响应体的情况

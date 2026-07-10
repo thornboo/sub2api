@@ -1221,6 +1221,9 @@ export interface OpenAIResponsesState {
   openai_responses_mode?: OpenAIResponsesMode
   openai_responses_supported?: boolean
   openai_cache_token_usage_mode?: OpenAICacheTokenUsageMode
+  openai_chat_allowed_tools_supported?: boolean
+  openai_chat_implicit_client_tool_search_enabled?: boolean
+  openai_chat_lossy_custom_tool_grammar_enabled?: boolean
 }
 
 export interface CreateAccountRequest {

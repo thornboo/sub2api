@@ -5,6 +5,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,168 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func TestForwardResponses_ChatFallbackReturnsCapabilityMismatchForHostedToolSearch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.4","input":"find tools","tools":[{"type":"tool_search"}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+	_, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+	require.Error(t, err)
+	var capabilityErr *AccountCapabilityMismatchError
+	require.True(t, errors.As(err, &capabilityErr))
+	require.Equal(t, "hosted_tool_search", capabilityErr.Feature)
+	require.Empty(t, rec.Body.String(), "capability mismatch must not commit an HTTP response before account failover")
+	require.Nil(t, upstream.lastReq)
+}
+
+func TestForwardResponses_ChatFallbackReturnsCapabilityMismatchForHostedTool(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.4","input":"search the web","tools":[{"type":"web_search"}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+
+	upstream := &httpUpstreamRecorder{}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+	_, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+	require.Error(t, err)
+	var capabilityErr *AccountCapabilityMismatchError
+	require.ErrorAs(t, err, &capabilityErr)
+	require.Equal(t, "responses_hosted_tool", capabilityErr.Feature)
+	require.Empty(t, rec.Body.String())
+	require.Nil(t, upstream.lastReq)
+}
+
+func TestForwardResponses_ChatFallbackReturnsCapabilityMismatchForIdentityCollision(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{
+		"model":"gpt-5.4",
+		"tools":[{"type":"function","name":"foo","parameters":{"type":"object"}}],
+		"input":[
+			{"type":"tool_search_call","execution":"client","call_id":"call_search","arguments":{"goal":"tools"}},
+			{"type":"tool_search_output","execution":"client","call_id":"call_search","tools":[
+				{"type":"function","name":"foo","parameters":{"type":"object"}}
+			]}
+		]
+	}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+
+	upstream := &httpUpstreamRecorder{}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+	_, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+	require.Error(t, err)
+	var capabilityErr *AccountCapabilityMismatchError
+	require.ErrorAs(t, err, &capabilityErr)
+	require.Equal(t, "chat_tool_identity", capabilityErr.Feature)
+	require.Empty(t, rec.Body.String())
+	require.Nil(t, upstream.lastReq)
+}
+
+func TestForwardResponses_ChatFallbackRejectsUnknownExecutionWithoutFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.4","input":"find tools","tools":[{"type":"tool_search","execution":"bogus"}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+
+	upstream := &httpUpstreamRecorder{}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+	_, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+	require.Error(t, err)
+	var capabilityErr *AccountCapabilityMismatchError
+	require.NotErrorAs(t, err, &capabilityErr)
+	var clientRequestErr *OpenAIClientRequestError
+	require.ErrorAs(t, err, &clientRequestErr)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, "invalid_request_error", gjson.Get(rec.Body.String(), "error.type").String())
+	require.Nil(t, upstream.lastReq)
+}
+
+func TestForwardResponses_ChatFallbackAllowsExplicitClientToolSearch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.4","input":"find tools","tools":[{"type":"tool_search","execution":"client"}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl_tool_search","model":"gpt-5.4","choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call_search","type":"function","function":{"name":"tool_search","arguments":"{\"query\":\"crm\"}"}}]},"finish_reason":"tool_calls"}]}`,
+		)),
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+	_, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+	require.NoError(t, err)
+	require.Equal(t, "tool_search", gjson.GetBytes(upstream.lastBody, "tools.0.function.name").String())
+	require.Equal(t, "tool_search_call", gjson.Get(rec.Body.String(), "output.0.type").String())
+	require.Equal(t, "client", gjson.Get(rec.Body.String(), "output.0.execution").String())
+}
+
+func TestForwardResponses_ChatFallbackAllowedToolsRequiresAccountCapability(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{
+		"model":"gpt-5.4",
+		"input":"use browser",
+		"tools":[{"type":"namespace","name":"browser","tools":[
+			{"type":"function","name":"open"},
+			{"type":"function","name":"screenshot"}
+		]}],
+		"tool_choice":{"type":"namespace","name":"browser"}
+	}`)
+
+	t.Run("disabled", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+		upstream := &httpUpstreamRecorder{}
+		svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+
+		_, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+		require.Error(t, err)
+		var capabilityErr *AccountCapabilityMismatchError
+		require.True(t, errors.As(err, &capabilityErr))
+		require.Equal(t, "chat_allowed_tools", capabilityErr.Feature)
+		require.Empty(t, rec.Body.String())
+		require.Nil(t, upstream.lastReq)
+	})
+
+	t.Run("enabled", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+		upstream := &httpUpstreamRecorder{resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(
+				`{"id":"chatcmpl_allowed","model":"gpt-5.4","choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`,
+			)),
+		}}
+		svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+		account := forceChatResponsesFallbackAccount()
+		account.Extra[openai_compat.ExtraKeyChatAllowedToolsSupported] = true
+
+		_, err := svc.Forward(context.Background(), c, account, body)
+		require.NoError(t, err)
+		require.Equal(t, "allowed_tools", gjson.GetBytes(upstream.lastBody, "tool_choice.type").String())
+		require.Equal(t, "required", gjson.GetBytes(upstream.lastBody, "tool_choice.allowed_tools.mode").String())
+	})
+}
 
 func TestForwardResponses_ForceChatCompletionsRoutesNonStreamingToChatCompletions(t *testing.T) {
 	gin.SetMode(gin.TestMode)

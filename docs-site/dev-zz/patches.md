@@ -1,5 +1,36 @@
 # 补丁记录
 
+## 2026-07-11 - Tool Search 状态机与 Chat fallback 能力边界修复
+
+范围：
+- 后端：Responses 工具注册表、Responses → Chat request/history/response/stream bridge、OpenAI Responses force-Chat fallback、账户换号和 scheduler account extra。
+- 前端类型：补齐三项高级 Chat fallback 账号标记，不新增普通用户可见入口。
+- 文档：changelog、patches、merge log、配置索引和验证矩阵。
+
+改动：
+- `BuildResponsesToolRegistry` 单次解析请求工具载体，并按输入顺序 replay 顶层 `tools`、`additional_tools` 和 `tool_search_output.tools`；当前可调用集合与回程 identity map 从同一份 immutable registry 派生，不再由 service 和 converter 各自解析。
+- 顶层 function/custom 的 `defer_loading: true` 和 namespace 内 deferred 子工具在加载前隐藏；`additional_tools` 与 client `tool_search_output` 明确加入的工具在后续当前轮可调用。
+- type-only `tool_search` 按官方 hosted 默认处理，Chat-only 账户不能承载时返回 capability mismatch；显式 `execution: "client"` 才映射为代理。旧客户端若确实省略 execution，只能通过 `openai_chat_implicit_client_tool_search_enabled=true` 明确兼容。
+- `tool_search_output` 动态加载的顶层 function 使用 function 名作为 Chat 名，同时记录 Responses 回程的 `namespace=name`；输入历史、非流式、流式 added/done/completed 使用同一映射。
+- 重复 `tool_search_output.call_id` 视为同一历史输出的更新版本：Chat 历史只保留首个 tool result，后续副本更新最终 callable set；历史 function call 使用所在 input item 之前的 identity 状态，不再被最终 map 反向污染。
+- 普通顶层 function、动态直连 function 与 namespace child 的 Responses identity 全部参与双向冲突检查；同一 Chat 名无法区分两个 Responses identity 时触发 capability 换号。流式 added/done/completed 复用同一 item ID。
+- hosted/server-only 工具不再静默丢弃；非法 `execution` 在账号调度前返回 `invalid_request_error`，合法但 Chat 无法保真的 hosted/identity/allowed_tools/grammar 场景才是 capability mismatch。若 capability 与真实 upstream failover 交错，最终优先返回已经发生的 upstream 失败。
+- 工具定义冲突比较使用 `json.Decoder.UseNumber`；原始 body 在账号调度和完整工具树解码前拒绝重复 JSON key，并把顶层工具、动态载体与 `tool_choice.allowed_tools.tools` 统一纳入数量、单定义字节数、总字节数和 namespace 深度预检，registry 内仍保留第二层防御。`allowed_tools` converter 改为流式解码轻量引用，不再构造完整 `ResponsesTool` 树。
+- 历史 function call 的 Chat 名在 Registry 按 input 顺序 replay 时一次解析并缓存，转换阶段为 O(1) 查询，不再形成“历史项 × 工具节点”的乘法扫描；Responses input 和单项 content/summary parts 各限制为最多 16384 项，关键对象、part 与嵌套 image URL 对象限制为最多 64 个字段，预检只保留安全相关字段值并继续对全部字段做有界重复键检测；reasoning/content part 转换只解码 `type`、`text`、`image_url` 等实际字段，上游 custom arguments 只读取根 `input` 字段，不再把未知字段扩张为通用 Go map。流式工具 arguments 使用 `strings.Builder` 按调用线性累积，单调用上限 16 MiB、单响应总上限 32 MiB；超限不生成不完整的 done/completed，Responses 回退发送稳定 `response.failed`，Anthropic Messages 回退发送标准 `event: error`，两者都立即停止读取上游流。
+- fallback 内仍可能发生的 call ID、定义冲突、tool choice 等客户端校验使用 typed `OpenAIClientRequestError`；handler 在账号健康上报前终止，不把未访问上游的 400 写入 error-rate EWMA。
+- `allowed_tools`、隐式 client tool search 和有损 custom grammar wrapper 均为账号级 opt-in；能力不匹配不提前写 HTTP 400，而是返回 `AccountCapabilityMismatchError`，Responses handler 排除当前账号继续调度。只有全部尝试都在访问上游前能力不匹配时才返回稳定的 `unsupported_feature`。
+
+边界：
+- 普通 custom/freeform 工具仍可用 `input` wrapper 走旧 Chat 兼容路径；带 grammar/format 的 custom 默认拒绝有损转换，只有显式账号开关允许旧行为。
+- `additional_tools` 的当前可调用集合按历史顺序 replay；Chat 顶层 tools 无法复刻 Responses 的 prompt-cache 插入位置，文档不再把缓存布局称为完全可逆。
+- Fast / Flex、billing/upstream model、usage、endpoint、Anthropic Messages fallback 和用户/admin 字段隔离不变。
+- 只更新 `dev-zz-develop`，不提升 `dev-zz`、不打 tag、不发布。
+
+验证：
+- hosted/client execution、deferred-before-load、namespace 混合加载、动态顶层 function 非流/流/历史回程、重复 call ID 替换、allowed_tools capability、custom grammar capability、超大 JSON number、重复 key、历史 identity replay cache、对象字段上限、input/content part 数量上限、嵌套 image URL、最小字段 part 解码、大 unknown-field custom arguments、流式单调用/总参数上限和转换错误停止读取、allowed-tools 总预算与资源上限均有 Go 回归测试。
+- backend `make test-unit`、`go test ./... -count=1`、`golangci-lint run --timeout=30m` 与 repository integration test 编译通过。
+- frontend `pnpm run lint:check`、`pnpm run typecheck` 通过；docs-site `pnpm run docs:build` 通过（仅保留既有的大 chunk warning）。
+
 ## 2026-07-10 - Codex MCP、custom 与 tool_search Chat bridge 增量同步
 
 范围：
@@ -9,11 +40,11 @@
 
 改动：
 - custom / freeform 工具降级为带 `input` 字符串 schema 的 function 工具；历史调用、非流式响应和流式事件回程还原为 Responses `custom_tool_call`，使 Codex `exec` 等工具可在 chat-only 上游工作。
-- `tool_search` 使用同名 function 代理，保留客户端自定义 description / schema，回程恢复 `tool_search_call` 与 `execution=client`；显式 server execution 因 chat-only 无法代执行而拒绝。
-- 真实 `tool_search_output.tools` 与 Responses Lite `additional_tools.tools` 都会进入下一轮工具声明；tool search 历史结果使用官方 `tools` 字段并维持 `call_id` 配对，动态加载的 function / namespace 可以在下一轮正常调用和回程。
+- 显式 `execution=client` 的 `tool_search` 使用同名 function 代理，保留客户端自定义 description / schema，回程恢复 `tool_search_call` 与 `execution=client`；2026-07-11 follow-up 明确 type-only 为 hosted，不能由 chat-only 账户静默改写。
+- `tool_search_output.tools` 与 Responses Lite `additional_tools.tools` 进入后续当前可调用集合；2026-07-11 follow-up 用来源感知 registry 保持 deferred-before-load 和动态顶层 function identity。Chat 顶层 tools 不承诺复刻 Responses 的 prompt-cache 插入位置。
 - namespace 子工具摊平后转发，使用稳定的长度限制/哈希命名并拒绝不可消歧的碰撞；回程恢复 namespace 与原始子工具名，修复 MCP 工具 unsupported call。
 - custom / function 同名、代理名与摊平名碰撞均显式拒绝；同类型同名工具按完整原始定义比较，JSON key 顺序不同但语义等价时去重，schema、custom grammar `format` 或未来未知字段不同时拒绝；namespace arguments delta、added 和 done 使用一致的裸子工具名。
-- `tool_choice` 的 function / custom / tool_search、单子工具 namespace 与 `allowed_tools` 转为等价 Chat 形态；多子工具 namespace 转为 `mode=required` 的 Chat `allowed_tools`。托管工具、不存在工具或 function/custom 源类型不匹配的强制选择显式失败，不再静默降级或改写类型。
+- `tool_choice` 的 function / simple custom、显式 client tool_search 和单子工具 namespace 在可保真时转为 Chat 形态；多子工具 namespace 只有账号声明支持时才转为 Chat `allowed_tools`。托管工具、不存在工具、源类型错配和无能力账号显式失败或换号。
 - custom input、namespace function 和 tool_search 的非流式/流式 wire 字段与生命周期由集中测试覆盖。
 
 边界：

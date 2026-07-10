@@ -4,7 +4,10 @@
 // formats can be served through a unified gateway.
 package apicompat
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // ---------------------------------------------------------------------------
 // Anthropic Messages API types
@@ -270,6 +273,9 @@ type ResponsesTool struct {
 
 // UnmarshalJSON 容忍字符串形式的工具声明：codex 会以 "name" 简写声明 custom 工具，
 func (t *ResponsesTool) UnmarshalJSON(data []byte) error {
+	if len(bytesTrimSpace(data)) > maxResponsesToolDefinitionBytes {
+		return fmt.Errorf("responses tool definition exceeds %d bytes", maxResponsesToolDefinitionBytes)
+	}
 	var name string
 	if err := json.Unmarshal(data, &name); err == nil {
 		*t = ResponsesTool{Type: "custom", Name: name}

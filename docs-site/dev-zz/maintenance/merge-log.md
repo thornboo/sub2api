@@ -2,6 +2,29 @@
 
 这里记录二开分支吸收上游变更的同步工作。
 
+## 2026-07-11 - `e316ebf5` 合并后 Tool Search 协议复审修复
+
+复审结论：
+- 合并结构、dev-zz 边界和 CI 均正常，但第二轮独立复审确认提交 `cca6a16c` 对 Tool Search 的“可逆”描述过强：type-only hosted 请求被改写为 client execution，deferred 工具提前暴露，动态顶层 function 丢失 namespace 身份。
+- 本条 follow-up 在 `dev-zz-develop` 修复上述阻断项；不重写已经推送的合并提交，不提升 `dev-zz`、不打 tag、不发布。
+
+修复策略：
+- 使用 request-local `ResponsesToolRegistry` 保留载体来源、加载状态、输入顺序和 Chat/Responses 双向名称；service 与 converter 共享同一实例。
+- 只有显式 `execution: "client"` 的 tool search 默认可进入 Chat fallback；hosted/server 或无法保真的 custom grammar 返回 typed capability mismatch。
+- capability mismatch 由 handler 排除当前账号继续换号，但不调用账号失败评分；全部候选不支持时向客户端返回 `unsupported_feature`。
+- `allowed_tools`、旧客户端隐式 client 兼容和有损 custom grammar 使用账号 extra 显式声明；默认不假设第三方 OpenAI-compatible Chat 实现支持这些能力。
+- hosted/server-only 工具与 Chat 名称/回程 identity 冲突同样触发 capability 换号；若已有可表达请求的账号真正访问上游并失败，最终优先保留 upstream failover，而不被后续 capability miss 改写成 400。
+- 工具定义比较保留 JSON number，并在账号调度和完整工具树解码前执行重复-key-aware 原始载荷预检；顶层、动态载体与 `tool_choice.allowed_tools` 共享数量、单定义、总定义和 namespace 深度预算。
+- Registry replay 同步缓存每个历史 function call 的 Chat 名，消息转换阶段不再按 item 回扫全部工具；原始载荷预检只保留安全相关字段，并限制 input item、content/summary part 总数及关键/嵌套对象字段数；part 转换改用最小字段结构，上游 custom arguments 改为无 map 的字段读取；流式工具参数改用线性 buffer，并设置单调用 16 MiB / 单响应 32 MiB 上限，超限按 Responses / Anthropic 各自协议发送失败终态、禁止正常 message stop/finalize 并停止读取，封闭大请求和异常上游返回的 CPU / 内存放大路径。
+- fallback 内其余客户端校验错误返回 typed `OpenAIClientRequestError`；handler 不把未访问上游的 400 计入账号调度错误率。
+
+验证重点：
+- type-only hosted 请求不得生成 Chat proxy；显式 client 仍完整恢复 `tool_search_call execution=client`。
+- 顶层和 namespace deferred 工具加载前不可调用，出现在 `additional_tools` / client `tool_search_output` 后才进入当前集合。
+- 动态顶层 function 的历史、非流式、流式 added/done/completed 均恢复 `namespace=name`。
+- 重复 call ID 更新只产生一个 Chat tool result，历史身份按 item 位置解析；流式 added/done/completed 的 item ID 必须一致。
+- 能力换号、hosted 工具拒绝、定义/identity 冲突、非法 execution、重复 JSON key、`allowed_tools` 资源预算、历史 identity replay cache、对象字段上限、input/content part 数量上限、嵌套 image URL、最小字段 part 解码、大 unknown-field custom arguments、流式单调用/总参数上限和转换错误停止读取均有回归覆盖；最终验证命令与未验证范围在本轮交付记录中报告。
+
 ## 2026-07-10 - 增量合并上游 `main`：Codex MCP、custom 与 tool_search bridge 补全
 
 分支：
@@ -14,9 +37,9 @@
 
 上游要点：
 - Responses → Chat Completions bridge 支持 custom / freeform 工具，把自由文本输入降级为单字段 function schema，并在非流式和流式回程中还原为 `custom_tool_call` 与 `custom_tool_call_input.*` 事件，修复 Codex `exec` 等工具在 chat-only 上游丢失的问题。
-- `tool_search` 降级为同名代理 function，历史调用、结果和强制 `tool_choice` 均保持可往返；回程还原为 `execution=client` 的 `tool_search_call`，同名顶层工具会显式拒绝而不是错误劫持调用。
+- 显式 client `tool_search` 降级为同名代理 function，历史调用、结果和强制 `tool_choice` 保持可往返；2026-07-11 follow-up 明确 type-only 为 hosted，chat-only 账户不能把它改写成 client。
 - namespace 子工具按 `<namespace>__<name>` 摊平到 Chat Completions；超长名字使用稳定哈希后缀，顶层/跨 namespace 撞名显式拒绝，回程重新写入原始 `namespace` 和子工具名，避免 Codex 把 MCP 调用判为 unsupported call。
-- `tool_choice` 只指向实际保留下来的工具；custom 和 tool_search 的具名选择转换为 function 选择，namespace 与 `allowed_tools` 在能够等价表达时转换为 Chat 形态，无法等价表达的强制选择显式拒绝。
+- `tool_choice` 只指向实际保留下来的工具；simple custom 和显式 client tool_search 的具名选择转换为 function 选择，namespace / `allowed_tools` 受上游能力门控，无法保真时触发 capability 换号。
 - 流式 wire 补齐 custom tool input 的 zero-value index、done/input 字段，以及 namespace / tool_search 输出项的必需字段。
 
 合并策略：
@@ -31,7 +54,7 @@
 
 合并复审修复：
 - 对照 OpenAI Tool Search 文档补齐真实第二轮形态：`tool_search_output.tools` 与 `additional_tools.tools` 都会并入下一轮可调用工具；`tool_search_output` 同时生成与原 `call_id` 配对的 Chat tool result，不再读取并不存在的 `output` 字段。
-- 客户端 `tool_search` 自带的 `description` / `parameters` 原样用于代理 function；显式 `execution=server` 因 chat-only 上游无法代执行而提前报错，避免伪装成客户端搜索。
+- 客户端 `tool_search` 自带的 `description` / `parameters` 原样用于代理 function；2026-07-11 follow-up 要求显式 `execution=client`，type-only hosted 与显式 server 都由 chat-only 账户提前返回 capability mismatch。
 - namespace 强制选择在单一子工具时映射为具名 function，多子工具时映射为 `mode=required` 的 Chat `allowed_tools`；已丢弃托管工具、不存在的工具名、源类型不匹配（function / custom）和不可转换的 `allowed_tools` 项显式失败，不再静默放宽或重新解释。
 - function / custom 同名、`tool_search` 代理同名、namespace 摊平名碰撞统一拒绝；同类型同名工具只有完整定义等价时去重，schema / description / custom grammar `format` 乃至尚未建模的原始字段存在差异时显式失败。namespace 流式 arguments delta、added 与 done 均使用原始裸子工具名，避免同一调用生命周期内名称不一致。
 - 新增官方第二轮回归：不重复声明顶层 `tool_search`，仅重放 tool search call 与 `tool_search_output.tools`，仍能生成下一轮 function / namespace 工具声明，并在 Chat 回程恢复 namespace 与裸工具名。

@@ -1,6 +1,7 @@
 package apicompat
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -8,24 +9,36 @@ import (
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/tidwall/gjson"
 )
 
 // ResponsesToChatCompletionsRequest converts a Responses API request into a
 // Chat Completions request for upstreams that only implement
 // /v1/chat/completions.
 func ResponsesToChatCompletionsRequest(req *ResponsesRequest) (*ChatCompletionsRequest, error) {
+	registry, err := BuildResponsesToolRegistry(req)
+	if err != nil {
+		return nil, err
+	}
+	return ResponsesToChatCompletionsRequestWithRegistry(req, registry, DefaultChatCompletionsCapabilities())
+}
+
+// ResponsesToChatCompletionsRequestWithRegistry converts a request using the
+// already parsed request-local tool registry and explicit upstream capabilities.
+func ResponsesToChatCompletionsRequestWithRegistry(req *ResponsesRequest, registry *ResponsesToolRegistry, capabilities ChatCompletionsCapabilities) (*ChatCompletionsRequest, error) {
 	if req == nil {
 		return nil, fmt.Errorf("responses request is nil")
 	}
+	if registry == nil {
+		return nil, fmt.Errorf("responses tool registry is nil")
+	}
 
-	messages, err := responsesInputToChatMessages(req.Instructions, req.Input)
+	messages, err := responsesInputToChatMessagesWithRegistry(req.Instructions, registry, capabilities)
 	if err != nil {
 		return nil, err
 	}
-	requestTools, err := ResponsesRequestTools(req)
-	if err != nil {
-		return nil, err
-	}
+	requestTools := registry.Tools()
 
 	out := &ChatCompletionsRequest{
 		Model:               req.Model,
@@ -41,7 +54,7 @@ func ResponsesToChatCompletionsRequest(req *ResponsesRequest) (*ChatCompletionsR
 		out.ReasoningEffort = req.Reasoning.Effort
 	}
 	if len(requestTools) > 0 {
-		tools, err := responsesToolsToChatTools(requestTools)
+		tools, err := responsesToolsToChatTools(requestTools, capabilities)
 		if err != nil {
 			return nil, err
 		}
@@ -54,7 +67,7 @@ func ResponsesToChatCompletionsRequest(req *ResponsesRequest) (*ChatCompletionsR
 				declared[tool.Function.Name] = true
 			}
 		}
-		tc, err := responsesToolChoiceToChatToolChoice(req.ToolChoice, declared, responsesToolSourceTypes(requestTools), requestTools)
+		tc, err := responsesToolChoiceToChatToolChoice(req.ToolChoice, declared, responsesToolSourceTypes(requestTools), requestTools, capabilities)
 		if err != nil {
 			return nil, err
 		}
@@ -72,53 +85,16 @@ func ResponsesToChatCompletionsRequest(req *ResponsesRequest) (*ChatCompletionsR
 	return out, nil
 }
 
-// ResponsesRequestTools returns every tool declaration carried by a Responses
-// request. Codex uses the standard top-level tools field, the Responses Lite
-// input[].type=additional_tools carrier, and client tool_search_output.tools for
-// dynamically loaded tools. The chat-only fallback must treat all three forms
-// identically so request conversion and response-side identity maps stay
-// reversible across turns.
+// ResponsesRequestTools returns the tools callable at the end of the request's
+// input history. BuildResponsesToolRegistry retains the source and loading state
+// needed to keep top-level deferred tools hidden until additional_tools or a
+// client tool_search_output makes them available.
 func ResponsesRequestTools(req *ResponsesRequest) ([]ResponsesTool, error) {
-	if req == nil {
-		return nil, fmt.Errorf("responses request is nil")
+	registry, err := BuildResponsesToolRegistry(req)
+	if err != nil {
+		return nil, err
 	}
-
-	out := append([]ResponsesTool(nil), req.Tools...)
-	inputRaw := bytesTrimSpace(req.Input)
-	if len(inputRaw) == 0 || string(inputRaw) == "null" {
-		return out, nil
-	}
-
-	var inputText string
-	if err := json.Unmarshal(inputRaw, &inputText); err == nil {
-		return out, nil
-	}
-
-	var rawItems []json.RawMessage
-	if err := json.Unmarshal(inputRaw, &rawItems); err != nil {
-		return nil, fmt.Errorf("parse responses input for additional tools: %w", err)
-	}
-	for _, raw := range rawItems {
-		var item map[string]json.RawMessage
-		if err := json.Unmarshal(bytesTrimSpace(raw), &item); err != nil {
-			// Bare string input items are valid user text and cannot carry tools.
-			continue
-		}
-		carrierType := rawString(item["type"])
-		if carrierType != "additional_tools" && carrierType != "tool_search_output" {
-			continue
-		}
-		toolsRaw := bytesTrimSpace(item["tools"])
-		if len(toolsRaw) == 0 || string(toolsRaw) == "null" {
-			continue
-		}
-		var tools []ResponsesTool
-		if err := json.Unmarshal(toolsRaw, &tools); err != nil {
-			return nil, fmt.Errorf("parse responses %s tools: %w", carrierType, err)
-		}
-		out = append(out, tools...)
-	}
-	return out, nil
+	return registry.Tools(), nil
 }
 
 // CustomToolNames 收集 Responses 请求中 custom/freeform 工具的名字。chat 桥回程时
@@ -174,13 +150,12 @@ func NamespaceToolNames(tools []ResponsesTool) map[string]NamespacedToolName {
 	return out
 }
 
-// HasToolSearchTool 判断 Responses 请求是否声明了 tool_search 服务端工具。chat 桥
-// 回程时需据此把模型对代理工具的调用还原为 tool_search_call 项：codex 只在该项类型
-// 且 execution=client 时执行 tool search，同名 function_call 会因 payload 不匹配
-// 触发 fatal 中止整个 turn。
+// HasToolSearchTool reports whether the supplied callable set explicitly
+// declares client-executed tool search. Type-only tool_search is hosted by
+// protocol default and must not be silently reinterpreted as client execution.
 func HasToolSearchTool(tools []ResponsesTool) bool {
 	for _, tool := range tools {
-		if tool.Type == "tool_search" {
+		if tool.Type == "tool_search" && tool.Execution == "client" {
 			return true
 		}
 	}
@@ -226,31 +201,32 @@ func responsesToolSourceTypes(tools []ResponsesTool) map[string]string {
 // scattered across per-item cases, and makes unknown future codex item types
 // fail safe instead of leaking into the upstream request.
 func responsesInputToChatMessages(instructions string, inputRaw json.RawMessage) ([]ChatMessage, error) {
+	registry, err := BuildResponsesToolRegistry(&ResponsesRequest{Input: inputRaw})
+	if err != nil {
+		return nil, err
+	}
+	return responsesInputToChatMessagesWithRegistry(instructions, registry, DefaultChatCompletionsCapabilities())
+}
+
+func responsesInputToChatMessagesWithRegistry(instructions string, registry *ResponsesToolRegistry, capabilities ChatCompletionsCapabilities) ([]ChatMessage, error) {
 	var messages []ChatMessage
 	if strings.TrimSpace(instructions) != "" {
 		content, _ := json.Marshal(instructions)
 		messages = append(messages, ChatMessage{Role: "system", Content: content})
 	}
-
-	inputRaw = bytesTrimSpace(inputRaw)
-	if len(inputRaw) == 0 || string(inputRaw) == "null" {
-		return messages, nil
+	if registry == nil {
+		return nil, fmt.Errorf("responses tool registry is nil")
 	}
-
-	// Bare string input is a single user turn.
-	var inputText string
-	if err := json.Unmarshal(inputRaw, &inputText); err == nil {
-		content, _ := json.Marshal(inputText)
+	if registry.inputIsText {
+		content, _ := json.Marshal(registry.inputText)
 		messages = append(messages, ChatMessage{Role: "user", Content: content})
 		return messages, nil
 	}
-
-	var rawItems []json.RawMessage
-	if err := json.Unmarshal(inputRaw, &rawItems); err != nil {
-		return nil, fmt.Errorf("parse responses input: %w", err)
+	if len(registry.inputItems) == 0 {
+		return messages, nil
 	}
 
-	built, err := buildChatMessagesFromItems(messages, rawItems)
+	built, err := buildChatMessagesFromItems(messages, registry.inputItems, registry, capabilities)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +235,7 @@ func responsesInputToChatMessages(instructions string, inputRaw json.RawMessage)
 
 // buildChatMessagesFromItems walks the Responses input items and appends the
 // corresponding Chat messages.
-func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessage) ([]ChatMessage, error) {
+func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessage, registry *ResponsesToolRegistry, capabilities ChatCompletionsCapabilities) ([]ChatMessage, error) {
 	// pendingReasoning holds the reasoning text from a reasoning item until the
 	// assistant message it belongs to is emitted. DeepSeek's thinking mode
 	// requires the reasoning_content that produced a tool call to be passed back
@@ -268,7 +244,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 	// still receives it); any other role ends the thinking span.
 	var pendingReasoning string
 
-	for _, raw := range rawItems {
+	for inputItemIndex, raw := range rawItems {
 		raw = bytesTrimSpace(raw)
 		if len(raw) == 0 || string(raw) == "null" {
 			continue
@@ -303,7 +279,15 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 			// namespace 子工具的历史调用带 namespace 字段，需与请求方向的摊平
 			// 命名（namespaceChildrenToChatTools）保持一致。
 			if ns := rawString(item["namespace"]); ns != "" {
-				name = flattenNamespaceToolName(ns, name)
+				registeredName, ok, err := registry.chatNameForResponseToolAt(inputItemIndex, ns, name)
+				if err != nil {
+					return nil, err
+				}
+				if ok {
+					name = registeredName
+				} else {
+					name = flattenNamespaceToolName(ns, name)
+				}
 			}
 			toolCall := ChatToolCall{
 				ID:   rawString(item["call_id"]),
@@ -317,6 +301,14 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 			pendingReasoning = ""
 			continue
 		case "tool_search_call":
+			execution := rawString(item["execution"])
+			if err := validateClientToolSearchExecution(execution, capabilities); err != nil {
+				return nil, err
+			}
+			callID := rawString(item["call_id"])
+			if callID == "" {
+				return nil, fmt.Errorf("client tool_search_call is missing call_id")
+			}
 			// tool_search 调用的 arguments 是 JSON 对象（如 {"query": ...}），
 			// 原文即为降级 function 调用的 arguments 字符串。
 			arguments := strings.TrimSpace(string(bytesTrimSpace(item["arguments"])))
@@ -327,7 +319,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 				arguments = "{}"
 			}
 			toolCall := ChatToolCall{
-				ID:   rawString(item["call_id"]),
+				ID:   callID,
 				Type: "function",
 				Function: ChatFunctionCall{
 					Name:      toolSearchProxyName,
@@ -354,6 +346,10 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 			pendingReasoning = ""
 			continue
 		case "tool_search_output":
+			execution := rawString(item["execution"])
+			if err := validateClientToolSearchExecution(execution, capabilities); err != nil {
+				return nil, err
+			}
 			callID := rawString(item["call_id"])
 			if callID == "" {
 				return nil, fmt.Errorf("tool_search_output without call_id cannot be represented as a Chat Completions tool result")
@@ -362,9 +358,12 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 			if len(toolsRaw) == 0 || string(toolsRaw) == "null" {
 				return nil, fmt.Errorf("tool_search_output %q is missing tools", callID)
 			}
-			var tools []ResponsesTool
-			if err := json.Unmarshal(toolsRaw, &tools); err != nil {
-				return nil, fmt.Errorf("parse tool_search_output %q tools: %w", callID, err)
+			// A later copy with the same call_id updates the current tool registry,
+			// but it is not a second Chat tool result for the original call. Keep the
+			// first result in history and suppress repeated copies so Chat receives a
+			// valid one-call/one-result sequence.
+			if registry.isRepeatedToolSearchOutputItem(inputItemIndex) {
+				continue
 			}
 			// Chat Completions requires a tool-role result for every preceding
 			// assistant tool call. Preserve the exact loaded tool definitions as
@@ -398,7 +397,11 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 			pendingReasoning = ""
 			continue
 		case "input_image":
-			content, err := chatContentFromSingleResponsesPart(itemType, item)
+			content, err := chatContentFromResponsesPart(responsesBridgeContentPart{
+				Type:     itemType,
+				Text:     rawString(item["text"]),
+				ImageURL: item["image_url"],
+			})
 			if err != nil {
 				return nil, err
 			}
@@ -543,17 +546,20 @@ func isBlankChatContent(raw json.RawMessage) bool {
 // verbatim into the summary_text parts (see closeChatReasoningItem), so codex
 // round-trips it there; prefer summary[].text and fall back to content.
 func extractResponsesReasoningText(item map[string]json.RawMessage) string {
+	type reasoningPart struct {
+		Text string `json:"text"`
+	}
 	var parts []string
 	collect := func(raw json.RawMessage) {
 		raw = bytesTrimSpace(raw)
 		if len(raw) == 0 || string(raw) == "null" {
 			return
 		}
-		var arr []map[string]json.RawMessage
+		var arr []reasoningPart
 		if err := json.Unmarshal(raw, &arr); err == nil {
 			for _, p := range arr {
-				if t := rawString(p["text"]); t != "" {
-					parts = append(parts, t)
+				if p.Text != "" {
+					parts = append(parts, p.Text)
 				}
 			}
 			return
@@ -597,9 +603,9 @@ func responsesContentToChatContent(raw json.RawMessage, role string) (json.RawMe
 		return responsesContentPartsToChatContent(rawParts, role)
 	}
 
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &obj); err == nil {
-		return chatContentFromSingleResponsesPart(rawString(obj["type"]), obj)
+	var part responsesBridgeContentPart
+	if err := json.Unmarshal(raw, &part); err == nil {
+		return chatContentFromResponsesPart(part)
 	}
 
 	return raw, nil
@@ -611,24 +617,19 @@ func responsesContentPartsToChatContent(rawParts []json.RawMessage, role string)
 	hasNonText := false
 
 	for _, rawPart := range rawParts {
-		var part map[string]json.RawMessage
+		var part responsesBridgeContentPart
 		if err := json.Unmarshal(rawPart, &part); err != nil {
 			continue
 		}
-		partType := rawString(part["type"])
-		switch partType {
+		switch part.Type {
 		case "input_text", "output_text", "text", "":
-			text := rawString(part["text"])
-			if text == "" {
+			if part.Text == "" {
 				continue
 			}
-			textParts = append(textParts, text)
-			chatParts = append(chatParts, ChatContentPart{Type: "text", Text: text})
+			textParts = append(textParts, part.Text)
+			chatParts = append(chatParts, ChatContentPart{Type: "text", Text: part.Text})
 		case "input_image", "image_url":
-			imageURL := rawString(part["image_url"])
-			if imageURL == "" {
-				imageURL = rawNestedString(part["image_url"], "url")
-			}
+			imageURL := responseBridgeImageURL(part.ImageURL)
 			if imageURL == "" {
 				continue
 			}
@@ -655,20 +656,29 @@ func responsesContentPartsToChatContent(rawParts []json.RawMessage, role string)
 	return json.Marshal(chatParts)
 }
 
-func chatContentFromSingleResponsesPart(partType string, part map[string]json.RawMessage) (json.RawMessage, error) {
-	switch partType {
+type responsesBridgeContentPart struct {
+	Type     string          `json:"type"`
+	Text     string          `json:"text"`
+	ImageURL json.RawMessage `json:"image_url"`
+}
+
+func chatContentFromResponsesPart(part responsesBridgeContentPart) (json.RawMessage, error) {
+	switch part.Type {
 	case "input_image", "image_url":
-		imageURL := rawString(part["image_url"])
-		if imageURL == "" {
-			imageURL = rawNestedString(part["image_url"], "url")
-		}
 		return json.Marshal([]ChatContentPart{{
 			Type:     "image_url",
-			ImageURL: &ChatImageURL{URL: imageURL},
+			ImageURL: &ChatImageURL{URL: responseBridgeImageURL(part.ImageURL)},
 		}})
 	default:
-		return json.Marshal(rawString(part["text"]))
+		return json.Marshal(part.Text)
 	}
+}
+
+func responseBridgeImageURL(raw json.RawMessage) string {
+	if imageURL := rawString(raw); imageURL != "" {
+		return imageURL
+	}
+	return rawNestedString(raw, "url")
 }
 
 // customToolInputSchema 是 custom/freeform 工具降级为 function 工具时的参数 schema。
@@ -677,7 +687,7 @@ func chatContentFromSingleResponsesPart(partType string, part map[string]json.Ra
 // extractCustomToolCallInput）。
 const customToolInputSchema = `{"type":"object","properties":{"input":{"type":"string","description":"The raw input for this tool, passed through verbatim."}},"required":["input"]}`
 
-func responsesToolsToChatTools(tools []ResponsesTool) ([]ChatTool, error) {
+func responsesToolsToChatTools(tools []ResponsesTool, capabilities ChatCompletionsCapabilities) ([]ChatTool, error) {
 	// 顶层 function/custom 工具名集合：namespace 子工具摊平后与其撞名时，chat
 	// 上游无法按 namespace 区分调用归属。这类请求在原生 Responses 上游是合法的
 	// （按 namespace+name 路由），歧义由摊平转换制造且无法消除，必须显式拒绝，
@@ -686,7 +696,7 @@ func responsesToolsToChatTools(tools []ResponsesTool) ([]ChatTool, error) {
 	for _, tool := range tools {
 		if (tool.Type == "function" || tool.Type == "custom") && tool.Name != "" {
 			if previousType, exists := topLevel[tool.Name]; exists && previousType != tool.Type {
-				return nil, fmt.Errorf("declared function and custom tools share the name %q; this upstream cannot disambiguate their response type, rename one of the tools", tool.Name)
+				return nil, newChatCompletionsCapabilityError("chat_tool_identity", fmt.Sprintf("declared function and custom tools share the name %q; this upstream cannot disambiguate their response type, rename one of the tools", tool.Name))
 			}
 			topLevel[tool.Name] = tool.Type
 		}
@@ -717,6 +727,9 @@ func responsesToolsToChatTools(tools []ResponsesTool) ([]ChatTool, error) {
 				},
 			})
 		case "custom":
+			if len(bytesTrimSpace(tool.Format)) > 0 && !capabilities.AllowLossyCustomToolGrammar {
+				return nil, newChatCompletionsCapabilityError("chat_custom_tool_grammar", fmt.Sprintf("custom tool %q uses a grammar/format that cannot be preserved by this Chat Completions fallback", tool.Name))
+			}
 			if previous, exists := convertedTopLevel[tool.Name]; exists {
 				if responsesToolDefinitionsEqual(previous, tool) {
 					continue
@@ -735,14 +748,14 @@ func responsesToolsToChatTools(tools []ResponsesTool) ([]ChatTool, error) {
 				},
 			})
 		case "tool_search":
-			if tool.Execution != "" && tool.Execution != "client" {
-				return nil, fmt.Errorf("tool_search execution=%s cannot be represented by a Chat Completions upstream; use execution=client", tool.Execution)
+			if err := validateClientToolSearchExecution(tool.Execution, capabilities); err != nil {
+				return nil, err
 			}
 			// 代理不能改名（codex 的模型侧按 tool_search 这个名字调用），与客户端
 			// 声明的同名工具无法区分——回程会把普通工具的调用劫持成 tool_search_call，
 			// 必须显式拒绝；重复声明 type=tool_search 去重即可。
 			if _, exists := topLevel[toolSearchProxyName]; exists {
-				return nil, fmt.Errorf("built-in tool_search conflicts with a declared tool named %q; this upstream cannot disambiguate them, rename the tool", toolSearchProxyName)
+				return nil, newChatCompletionsCapabilityError("chat_tool_identity", fmt.Sprintf("built-in tool_search conflicts with a declared tool named %q; this upstream cannot disambiguate them, rename the tool", toolSearchProxyName))
 			}
 			if toolSearchDeclared {
 				if responsesToolDefinitionsEqual(toolSearchDefinition, tool) {
@@ -759,9 +772,12 @@ func responsesToolsToChatTools(tools []ResponsesTool) ([]ChatTool, error) {
 				return nil, err
 			}
 			out = append(out, flattened...)
+		default:
+			if tool.Type == "" {
+				return nil, fmt.Errorf("responses tool type is required")
+			}
+			return nil, newChatCompletionsCapabilityError("responses_hosted_tool", fmt.Sprintf("Responses tool type %q cannot be represented by a Chat Completions upstream", tool.Type))
 		}
-		// 其余类型（web_search、image_generation 等服务端工具）在 chat 上游没有
-		// 对应能力，维持丢弃。
 	}
 	return out, nil
 }
@@ -811,7 +827,7 @@ func namespaceChildrenToChatTools(tool ResponsesTool, topLevel map[string]string
 		flat := flattenNamespaceToolName(tool.Name, child.Name)
 		entry := NamespacedToolName{Namespace: tool.Name, Name: child.Name}
 		if _, exists := topLevel[flat]; exists {
-			return nil, fmt.Errorf("namespace tool %q/%q flattens to %q which conflicts with a top-level tool of the same name; this upstream cannot disambiguate them, rename one of the tools", tool.Name, child.Name, flat)
+			return nil, newChatCompletionsCapabilityError("chat_tool_identity", fmt.Sprintf("namespace tool %q/%q flattens to %q which conflicts with a top-level tool of the same name; this upstream cannot disambiguate them, rename one of the tools", tool.Name, child.Name, flat))
 		}
 		if prev, ok := flatOwner[flat]; ok {
 			if prev == entry {
@@ -820,7 +836,7 @@ func namespaceChildrenToChatTools(tool ResponsesTool, topLevel map[string]string
 				}
 				return nil, fmt.Errorf("namespace tool %q/%q has conflicting definitions across Responses tool carriers", tool.Name, child.Name)
 			}
-			return nil, fmt.Errorf("namespace tools %q/%q and %q/%q both flatten to %q; this upstream cannot disambiguate them, rename one of the tools", prev.Namespace, prev.Name, tool.Name, child.Name, flat)
+			return nil, newChatCompletionsCapabilityError("chat_tool_identity", fmt.Sprintf("namespace tools %q/%q and %q/%q both flatten to %q; this upstream cannot disambiguate them, rename one of the tools", prev.Namespace, prev.Name, tool.Name, child.Name, flat))
 		}
 		flatOwner[flat] = entry
 		flatDefinitions[flat] = child
@@ -843,12 +859,22 @@ func responsesToolDefinitionsEqual(left, right ResponsesTool) bool {
 	if leftErr != nil || rightErr != nil {
 		return false
 	}
-	var leftValue any
-	var rightValue any
-	if json.Unmarshal(leftJSON, &leftValue) != nil || json.Unmarshal(rightJSON, &rightValue) != nil {
+	leftValue, leftErr := decodeToolDefinitionForEquality(leftJSON)
+	rightValue, rightErr := decodeToolDefinitionForEquality(rightJSON)
+	if leftErr != nil || rightErr != nil {
 		return false
 	}
 	return reflect.DeepEqual(leftValue, rightValue)
+}
+
+func decodeToolDefinitionForEquality(raw []byte) (any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	return value, nil
 }
 
 func responsesToolDefinitionJSON(tool ResponsesTool) ([]byte, error) {
@@ -884,7 +910,7 @@ func flattenNamespaceToolName(namespace, name string) string {
 // responsesToolChoiceToChatToolChoice 把 Responses 的 tool_choice 转为 chat 形态。
 // declared 是转换后实际声明的 chat 工具名集合。强制选择无法精确表示时必须返回错误，
 // 不能静默丢弃后退化为 auto；只有在没有可转换工具时，auto/none 可以安全省略。
-func responsesToolChoiceToChatToolChoice(raw json.RawMessage, declared map[string]bool, sourceTypes map[string]string, tools []ResponsesTool) (json.RawMessage, error) {
+func responsesToolChoiceToChatToolChoice(raw json.RawMessage, declared map[string]bool, sourceTypes map[string]string, tools []ResponsesTool, capabilities ChatCompletionsCapabilities) (json.RawMessage, error) {
 	raw = bytesTrimSpace(raw)
 	var mode string
 	if err := json.Unmarshal(raw, &mode); err == nil {
@@ -910,7 +936,7 @@ func responsesToolChoiceToChatToolChoice(raw json.RawMessage, declared map[strin
 	}
 	choiceType := rawString(choice["type"])
 	if choiceType == "allowed_tools" {
-		return responsesAllowedToolsChoiceToChat(choice, declared, sourceTypes, tools)
+		return responsesAllowedToolsChoiceToChat(choice, declared, sourceTypes, tools, capabilities)
 	}
 
 	var name string
@@ -947,7 +973,7 @@ func responsesToolChoiceToChatToolChoice(raw json.RawMessage, declared map[strin
 		case 1:
 			name = targets[0]
 		default:
-			return chatAllowedToolsChoice("required", targets)
+			return chatAllowedToolsChoice("required", targets, capabilities)
 		}
 	default:
 		if choiceType == "" {
@@ -973,21 +999,22 @@ func responsesToolChoiceToChatToolChoice(raw json.RawMessage, declared map[strin
 	return out, nil
 }
 
-func responsesAllowedToolsChoiceToChat(choice map[string]json.RawMessage, declared map[string]bool, sourceTypes map[string]string, requestTools []ResponsesTool) (json.RawMessage, error) {
+type responsesAllowedToolRef struct {
+	Type string `json:"type"`
+	Name string `json:"name,omitempty"`
+}
+
+func responsesAllowedToolsChoiceToChat(choice map[string]json.RawMessage, declared map[string]bool, sourceTypes map[string]string, requestTools []ResponsesTool, capabilities ChatCompletionsCapabilities) (json.RawMessage, error) {
 	mode := rawString(choice["mode"])
 	if mode != "auto" && mode != "required" {
 		return nil, fmt.Errorf("allowed_tools tool_choice mode must be auto or required")
 	}
-	var allowed []ResponsesTool
-	if err := json.Unmarshal(bytesTrimSpace(choice["tools"]), &allowed); err != nil {
-		return nil, fmt.Errorf("parse allowed_tools tool_choice tools: %w", err)
+	allowedRaw := bytesTrimSpace(choice["tools"])
+	if len(allowedRaw) > maxResponsesToolTotalBytes {
+		return nil, fmt.Errorf("allowed_tools definitions exceed %d bytes", maxResponsesToolTotalBytes)
 	}
-	if len(allowed) == 0 {
-		return nil, fmt.Errorf("allowed_tools tool_choice must contain at least one tool")
-	}
-
 	seen := make(map[string]bool)
-	chatAllowedNames := make([]string, 0, len(allowed))
+	chatAllowedNames := make([]string, 0)
 	appendName := func(name string) error {
 		if name == "" || !declared[name] {
 			return fmt.Errorf("allowed_tools tool_choice %q does not reference a tool representable by Chat Completions", name)
@@ -1000,41 +1027,74 @@ func responsesAllowedToolsChoiceToChat(choice map[string]json.RawMessage, declar
 		return nil
 	}
 
-	for _, tool := range allowed {
+	appendTool := func(tool responsesAllowedToolRef) error {
 		switch tool.Type {
 		case "function", "custom":
 			if sourceTypes[tool.Name] != tool.Type {
-				return nil, fmt.Errorf("allowed_tools entry %q of type %q does not match declared source type %q", tool.Name, tool.Type, sourceTypes[tool.Name])
+				return fmt.Errorf("allowed_tools entry %q of type %q does not match declared source type %q", tool.Name, tool.Type, sourceTypes[tool.Name])
 			}
 			if err := appendName(tool.Name); err != nil {
-				return nil, err
+				return err
 			}
 		case "tool_search":
 			if sourceTypes[toolSearchProxyName] != "tool_search" {
-				return nil, fmt.Errorf("allowed_tools tool_search entry does not match a declared source tool")
+				return fmt.Errorf("allowed_tools tool_search entry does not match a declared source tool")
 			}
 			if err := appendName(toolSearchProxyName); err != nil {
-				return nil, err
+				return err
 			}
 		case "namespace":
 			targets := namespaceToolChoiceTargets(requestTools, tool.Name, declared)
 			if len(targets) == 0 {
-				return nil, fmt.Errorf("allowed_tools namespace %q has no convertible child tools", tool.Name)
+				return fmt.Errorf("allowed_tools namespace %q has no convertible child tools", tool.Name)
 			}
 			for _, target := range targets {
 				if err := appendName(target); err != nil {
-					return nil, err
+					return err
 				}
 			}
 		default:
-			return nil, fmt.Errorf("allowed_tools entry type %q cannot be represented by Chat Completions", tool.Type)
+			return fmt.Errorf("allowed_tools entry type %q cannot be represented by Chat Completions", tool.Type)
 		}
+		return nil
 	}
 
-	return chatAllowedToolsChoice(mode, chatAllowedNames)
+	decoder := json.NewDecoder(bytes.NewReader(allowedRaw))
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, fmt.Errorf("parse allowed_tools tool_choice tools: %w", err)
+	}
+	if delimiter, ok := token.(json.Delim); !ok || delimiter != '[' {
+		return nil, fmt.Errorf("allowed_tools tool_choice tools must be an array")
+	}
+	allowedCount := 0
+	for decoder.More() {
+		allowedCount++
+		if allowedCount > maxResponsesToolCount {
+			return nil, fmt.Errorf("allowed_tools count exceeds %d", maxResponsesToolCount)
+		}
+		var tool responsesAllowedToolRef
+		if err := decoder.Decode(&tool); err != nil {
+			return nil, fmt.Errorf("parse allowed_tools tool_choice tool: %w", err)
+		}
+		if err := appendTool(tool); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := decoder.Token(); err != nil {
+		return nil, fmt.Errorf("parse allowed_tools tool_choice tools: %w", err)
+	}
+	if allowedCount == 0 {
+		return nil, fmt.Errorf("allowed_tools tool_choice must contain at least one tool")
+	}
+
+	return chatAllowedToolsChoice(mode, chatAllowedNames, capabilities)
 }
 
-func chatAllowedToolsChoice(mode string, names []string) (json.RawMessage, error) {
+func chatAllowedToolsChoice(mode string, names []string, capabilities ChatCompletionsCapabilities) (json.RawMessage, error) {
+	if !capabilities.SupportsAllowedTools {
+		return nil, newChatCompletionsCapabilityError("chat_allowed_tools", "this Chat Completions account has not declared support for tool_choice.allowed_tools")
+	}
 	chatAllowed := make([]map[string]any, 0, len(names))
 	for _, name := range names {
 		chatAllowed = append(chatAllowed, map[string]any{
@@ -1091,18 +1151,28 @@ func extractCustomToolCallInput(arguments string) string {
 	if trimmed == "" {
 		return ""
 	}
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(trimmed), &obj); err != nil {
+	if !gjson.Valid(trimmed) {
 		return trimmed
 	}
-	if raw, ok := obj["input"]; ok {
-		var s string
-		if err := json.Unmarshal(raw, &s); err == nil {
-			return s
+	root := gjson.Parse(trimmed)
+	if !root.IsObject() {
+		if root.Type == gjson.Null {
+			return ""
 		}
 		return trimmed
 	}
-	if len(obj) == 0 {
+	if input := root.Get("input"); input.Exists() {
+		if input.Type == gjson.String {
+			return input.String()
+		}
+		return trimmed
+	}
+	hasFields := false
+	root.ForEach(func(_, _ gjson.Result) bool {
+		hasFields = true
+		return false
+	})
+	if !hasFields {
 		return ""
 	}
 	return trimmed
@@ -1345,9 +1415,14 @@ type ChatCompletionsToResponsesStreamState struct {
 	Reasoning strings.Builder
 
 	// Tool-call lifecycle, keyed by the upstream tool_call index.
-	ToolCalls       map[int]*ChatToolCall
-	ToolItemIDs     map[int]string
-	ToolOutputIndex map[int]int
+	ToolCalls                 map[int]*ChatToolCall
+	ToolItemIDs               map[int]string
+	ToolOutputIndex           map[int]int
+	toolArguments             map[int]*strings.Builder
+	toolArgumentBytes         int
+	maxToolArgumentBytes      int
+	maxTotalToolArgumentBytes int
+	streamError               error
 
 	// CustomTools 是客户端请求中 custom/freeform 工具的名字集合（见
 	// CustomToolNames）。命中的调用按 custom_tool_call 生命周期下发，codex 才能
@@ -1382,20 +1457,94 @@ type ChatCompletionsToResponsesStreamState struct {
 	Usage        *ResponsesUsage
 }
 
+const (
+	defaultMaxChatStreamToolArgumentBytes      = 16 << 20
+	defaultMaxChatStreamTotalToolArgumentBytes = 32 << 20
+)
+
 // NewChatCompletionsToResponsesStreamState returns an initialized stream state.
 func NewChatCompletionsToResponsesStreamState(model string) *ChatCompletionsToResponsesStreamState {
 	return &ChatCompletionsToResponsesStreamState{
-		ResponseID:       generateResponsesID(),
-		Model:            model,
-		Created:          time.Now().Unix(),
-		ToolCalls:        make(map[int]*ChatToolCall),
-		ToolItemIDs:      make(map[int]string),
-		ToolOutputIndex:  make(map[int]int),
-		toolIsCustom:     make(map[int]bool),
-		toolIsToolSearch: make(map[int]bool),
-		toolNamespace:    make(map[int]NamespacedToolName),
-		toolAnnounced:    make(map[int]bool),
+		ResponseID:                generateResponsesID(),
+		Model:                     model,
+		Created:                   time.Now().Unix(),
+		ToolCalls:                 make(map[int]*ChatToolCall),
+		ToolItemIDs:               make(map[int]string),
+		ToolOutputIndex:           make(map[int]int),
+		toolArguments:             make(map[int]*strings.Builder),
+		maxToolArgumentBytes:      defaultMaxChatStreamToolArgumentBytes,
+		maxTotalToolArgumentBytes: defaultMaxChatStreamTotalToolArgumentBytes,
+		toolIsCustom:              make(map[int]bool),
+		toolIsToolSearch:          make(map[int]bool),
+		toolNamespace:             make(map[int]NamespacedToolName),
+		toolAnnounced:             make(map[int]bool),
 	}
+}
+
+// StreamError reports a terminal conversion error detected while consuming an
+// upstream Chat Completions stream. Callers must stop reading and skip normal
+// finalization when it is non-nil.
+func (state *ChatCompletionsToResponsesStreamState) StreamError() error {
+	if state == nil {
+		return nil
+	}
+	return state.streamError
+}
+
+func (state *ChatCompletionsToResponsesStreamState) appendToolArguments(index int, delta string) error {
+	if delta == "" {
+		return nil
+	}
+	buffer := state.toolArguments[index]
+	currentBytes := 0
+	if buffer != nil {
+		currentBytes = buffer.Len()
+	}
+	if len(delta) > state.maxToolArgumentBytes-currentBytes {
+		return fmt.Errorf("chat completions upstream tool arguments exceed %d bytes for one call", state.maxToolArgumentBytes)
+	}
+	if len(delta) > state.maxTotalToolArgumentBytes-state.toolArgumentBytes {
+		return fmt.Errorf("chat completions upstream tool arguments exceed %d total bytes", state.maxTotalToolArgumentBytes)
+	}
+	if buffer == nil {
+		buffer = &strings.Builder{}
+		buffer.Grow(min(state.maxToolArgumentBytes, max(256, len(delta))))
+		state.toolArguments[index] = buffer
+	}
+	_, _ = buffer.WriteString(delta)
+	state.toolArgumentBytes += len(delta)
+	return nil
+}
+
+func (state *ChatCompletionsToResponsesStreamState) toolArgumentsFor(index int) string {
+	if state == nil || state.toolArguments[index] == nil {
+		return ""
+	}
+	return state.toolArguments[index].String()
+}
+
+func failChatCompletionsResponsesStream(state *ChatCompletionsToResponsesStreamState, err error) []ResponsesStreamEvent {
+	if state == nil || err == nil || state.CompletedSent {
+		return nil
+	}
+	state.streamError = err
+	state.CompletedSent = true
+	events := ensureChatToResponsesCreated(state)
+	events = append(events, chatToResponsesEvent(state, "response.failed", &ResponsesStreamEvent{
+		Response: &ResponsesResponse{
+			ID:     state.ResponseID,
+			Object: "response",
+			Model:  state.Model,
+			Status: "failed",
+			Output: []ResponsesOutput{},
+			Usage:  state.Usage,
+			Error: &ResponsesError{
+				Code:    "upstream_response_too_large",
+				Message: err.Error(),
+			},
+		},
+	}))
+	return events
 }
 
 func (state *ChatCompletionsToResponsesStreamState) allocOutputIndex() int {
@@ -1411,6 +1560,9 @@ func ChatCompletionsChunkToResponsesEvents(
 	state *ChatCompletionsToResponsesStreamState,
 ) []ResponsesStreamEvent {
 	if chunk == nil || state == nil {
+		return nil
+	}
+	if state.streamError != nil {
 		return nil
 	}
 	if chunk.ID != "" {
@@ -1488,14 +1640,18 @@ func ChatCompletionsChunkToResponsesEvents(
 					stored.Function.Name = toolCall.Function.Name
 				}
 			}
+			wasAnnounced := state.toolAnnounced[idx]
+			if err := state.appendToolArguments(idx, toolCall.Function.Arguments); err != nil {
+				events = append(events, failChatCompletionsResponsesStream(state, err)...)
+				return events
+			}
 			events = append(events, announceChatToolItem(state, idx, stored, false)...)
 			if toolCall.Function.Arguments != "" {
-				stored.Function.Arguments += toolCall.Function.Arguments
 				// 未宣告（名字未到）时仅累积，宣告时统一补发；custom 调用的
 				// arguments 是包裹 input 的 JSON 片段，无法增量还原为自由文本
 				// 输入，缓冲整份 arguments 收尾时一次性下发（见 closeChatToolItems）；
 				// tool_search 调用同样收尾时随 output_item.done 全量下发。
-				if state.toolAnnounced[idx] && !state.toolIsCustom[idx] && !state.toolIsToolSearch[idx] {
+				if wasAnnounced && state.toolAnnounced[idx] && !state.toolIsCustom[idx] && !state.toolIsToolSearch[idx] {
 					name := stored.Function.Name
 					if ns, ok := state.toolNamespace[idx]; ok {
 						name = ns.Name
@@ -1764,7 +1920,8 @@ func announceChatToolItem(
 		},
 	})}
 	// 迟到宣告时补发已累积的参数增量（custom/tool_search 的输入收尾统一下发，不补发）。
-	if !isCustom && !isToolSearch && stored.Function.Arguments != "" {
+	arguments := state.toolArgumentsFor(idx)
+	if !isCustom && !isToolSearch && arguments != "" {
 		name := stored.Function.Name
 		if ns, ok := state.toolNamespace[idx]; ok {
 			name = ns.Name
@@ -1772,7 +1929,7 @@ func announceChatToolItem(
 		events = append(events, chatToResponsesEvent(state, "response.function_call_arguments.delta", &ResponsesStreamEvent{
 			OutputIndex: state.ToolOutputIndex[idx],
 			ItemID:      state.ToolItemIDs[idx],
-			Delta:       stored.Function.Arguments,
+			Delta:       arguments,
 			CallID:      stored.ID,
 			Name:        name,
 		}))
@@ -1800,10 +1957,11 @@ func closeChatToolItems(state *ChatCompletionsToResponsesStreamState) []Response
 		}
 		// 名字始终未到导致尚未宣告的调用，收尾前按最终名字兜底宣告。
 		events = append(events, announceChatToolItem(state, i, toolCall, true)...)
-		arguments := toolCall.Function.Arguments
+		arguments := state.toolArgumentsFor(i)
 		if strings.TrimSpace(arguments) == "" {
 			arguments = "{}"
 		}
+		toolCall.Function.Arguments = arguments
 		outputIndex := state.ToolOutputIndex[i]
 		if state.toolIsCustom[i] {
 			// custom 调用按 custom_tool_call 生命周期收尾：input 在此处一次性下发
@@ -1888,7 +2046,7 @@ func (state *ChatCompletionsToResponsesStreamState) chatOutput() []ResponsesOutp
 	if state.Reasoning.Len() > 0 {
 		outputs = append(outputs, ResponsesOutput{
 			Type: "reasoning",
-			ID:   generateItemID(),
+			ID:   nonEmpty(state.ReasoningItemID, generateItemID()),
 			Summary: []ResponsesSummary{{
 				Type: "summary_text",
 				Text: state.Reasoning.String(),
@@ -1919,7 +2077,7 @@ func (state *ChatCompletionsToResponsesStreamState) chatOutput() []ResponsesOutp
 		if state.toolIsCustom[i] {
 			outputs = append(outputs, ResponsesOutput{
 				Type:   "custom_tool_call",
-				ID:     generateItemID(),
+				ID:     nonEmpty(state.ToolItemIDs[i], generateItemID()),
 				CallID: toolCall.ID,
 				Name:   toolCall.Function.Name,
 				Input:  extractCustomToolCallInput(arguments),
@@ -1930,7 +2088,7 @@ func (state *ChatCompletionsToResponsesStreamState) chatOutput() []ResponsesOutp
 		if state.toolIsToolSearch[i] {
 			outputs = append(outputs, ResponsesOutput{
 				Type:      "tool_search_call",
-				ID:        generateItemID(),
+				ID:        nonEmpty(state.ToolItemIDs[i], generateItemID()),
 				CallID:    toolCall.ID,
 				Arguments: arguments,
 				Status:    "completed",
@@ -1943,7 +2101,7 @@ func (state *ChatCompletionsToResponsesStreamState) chatOutput() []ResponsesOutp
 		}
 		outputs = append(outputs, ResponsesOutput{
 			Type:      "function_call",
-			ID:        generateItemID(),
+			ID:        nonEmpty(state.ToolItemIDs[i], generateItemID()),
 			CallID:    toolCall.ID,
 			Name:      name,
 			Namespace: namespace,
@@ -1980,11 +2138,23 @@ func rawString(raw json.RawMessage) string {
 }
 
 func rawNestedString(raw json.RawMessage, key string) string {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &obj); err != nil {
-		return ""
+	switch key {
+	case "url":
+		var value struct {
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal(raw, &value); err == nil {
+			return value.URL
+		}
+	case "name":
+		var value struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(raw, &value); err == nil {
+			return value.Name
+		}
 	}
-	return rawString(obj[key])
+	return ""
 }
 
 func bytesTrimSpace(raw json.RawMessage) json.RawMessage {

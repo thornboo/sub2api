@@ -6,6 +6,8 @@ package apicompat
 
 import (
 	"encoding/json"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -34,7 +36,7 @@ func TestResponsesToChatCompletionsRequest_CustomToolBecomesFunctionTool(t *test
 	assert.Equal(t, "wait", out.Tools[1].Function.Name)
 }
 
-func TestResponsesToChatCompletionsRequest_DropsToolChoiceWhenNoConvertibleTools(t *testing.T) {
+func TestResponsesToChatCompletionsRequest_RejectsHostedToolsInsteadOfDroppingThem(t *testing.T) {
 	req := &ResponsesRequest{
 		Model: "glm-5.2",
 		Input: json.RawMessage(`"hi"`),
@@ -45,11 +47,11 @@ func TestResponsesToChatCompletionsRequest_DropsToolChoiceWhenNoConvertibleTools
 		ToolChoice: json.RawMessage(`"auto"`),
 	}
 
-	out, err := ResponsesToChatCompletionsRequest(req)
-	require.NoError(t, err)
-
-	assert.Empty(t, out.Tools)
-	assert.Empty(t, out.ToolChoice, "tools 为空时转发 tool_choice 会被上游 400 拒绝")
+	_, err := ResponsesToChatCompletionsRequest(req)
+	require.Error(t, err)
+	var capabilityErr *ChatCompletionsCapabilityError
+	require.ErrorAs(t, err, &capabilityErr)
+	assert.Equal(t, "responses_hosted_tool", capabilityErr.Feature)
 }
 
 func TestResponsesToChatCompletionsRequest_CustomToolChoiceMapsToFunctionChoice(t *testing.T) {
@@ -122,7 +124,23 @@ func TestExtractCustomToolCallInput_FallsBackToRawArguments(t *testing.T) {
 	assert.Equal(t, "console.log(1)", extractCustomToolCallInput(`console.log(1)`))
 	assert.Equal(t, `{"other": "x"}`, extractCustomToolCallInput(`{"other": "x"}`))
 	assert.Equal(t, "", extractCustomToolCallInput(`{}`))
+	assert.Equal(t, "", extractCustomToolCallInput(`null`))
+	assert.Equal(t, `[]`, extractCustomToolCallInput(`[]`))
 	assert.Equal(t, "", extractCustomToolCallInput(""))
+}
+
+func TestExtractCustomToolCallInput_IgnoresLargeUnknownFieldSet(t *testing.T) {
+	var arguments strings.Builder
+	_ = arguments.WriteByte('{')
+	for i := 0; i < 4096; i++ {
+		if i > 0 {
+			_ = arguments.WriteByte(',')
+		}
+		_, _ = arguments.WriteString(`"unknown_` + strconv.Itoa(i) + `":null`)
+	}
+	_, _ = arguments.WriteString(`,"input":"payload"}`)
+
+	assert.Equal(t, "payload", extractCustomToolCallInput(arguments.String()))
 }
 
 func TestChatCompletionsChunkToResponsesEvents_CustomToolCallStream(t *testing.T) {
@@ -174,6 +192,7 @@ func TestChatCompletionsChunkToResponsesEvents_CustomToolCallStream(t *testing.T
 	assert.Equal(t, "call_1", inputDone.CallID)
 
 	require.NotNil(t, itemDone, "缺少 custom_tool_call 的 output_item.done")
+	assert.Equal(t, added.Item.ID, itemDone.Item.ID)
 	assert.Equal(t, "call_1", itemDone.Item.CallID)
 	assert.Equal(t, "exec", itemDone.Item.Name)
 	assert.Equal(t, "dir", itemDone.Item.Input)
@@ -187,6 +206,7 @@ func TestChatCompletionsChunkToResponsesEvents_CustomToolCallStream(t *testing.T
 	for _, item := range final.Response.Output {
 		if item.Type == "custom_tool_call" {
 			foundCustom = true
+			assert.Equal(t, added.Item.ID, item.ID)
 			assert.Equal(t, "exec", item.Name)
 			assert.Equal(t, "dir", item.Input)
 		}
@@ -322,6 +342,7 @@ func TestChatCompletionsChunkToResponsesEvents_ToolSearchCallStream(t *testing.T
 	assert.Equal(t, "tool_search_call", added.Item.Type)
 
 	require.NotNil(t, itemDone, "缺少 tool_search_call 的 output_item.done")
+	assert.Equal(t, added.Item.ID, itemDone.Item.ID)
 	assert.Equal(t, "call_s", itemDone.Item.CallID)
 
 	// SSE 线上形态经 responsesItemWire 白名单重组，必须单独断言。
@@ -339,6 +360,7 @@ func TestChatCompletionsChunkToResponsesEvents_ToolSearchCallStream(t *testing.T
 	for _, item := range final.Response.Output {
 		if item.Type == "tool_search_call" {
 			found = true
+			assert.Equal(t, added.Item.ID, item.ID)
 			assert.Equal(t, "call_s", item.CallID)
 		}
 	}
@@ -346,7 +368,8 @@ func TestChatCompletionsChunkToResponsesEvents_ToolSearchCallStream(t *testing.T
 }
 
 func TestHasToolSearchTool(t *testing.T) {
-	assert.True(t, HasToolSearchTool([]ResponsesTool{{Type: "tool_search"}}))
+	assert.True(t, HasToolSearchTool([]ResponsesTool{{Type: "tool_search", Execution: "client"}}))
+	assert.False(t, HasToolSearchTool([]ResponsesTool{{Type: "tool_search"}}), "type-only tool_search is hosted, not client executed")
 	assert.False(t, HasToolSearchTool([]ResponsesTool{{Type: "function", Name: "tool_search"}}))
 	assert.False(t, HasToolSearchTool(nil))
 }
@@ -381,7 +404,7 @@ func TestResponsesRequestTools_MergesResponsesLiteAdditionalTools(t *testing.T) 
 			{"type":"additional_tools","role":"developer","tools":[
 				{"type":"namespace","name":"browser","tools":[{"type":"function","name":"open","parameters":{"type":"object"}}]},
 				"exec",
-				{"type":"tool_search"}
+				{"type":"tool_search","execution":"client"}
 			]}
 		]`),
 		Tools: []ResponsesTool{{Type: "function", Name: "wait"}},
@@ -546,7 +569,11 @@ func TestResponsesToChatCompletionsRequest_CustomGrammarParticipatesInDefinition
 			}
 		]
 	}`), &equivalent))
-	out, err := ResponsesToChatCompletionsRequest(&equivalent)
+	registry, err := BuildResponsesToolRegistry(&equivalent)
+	require.NoError(t, err)
+	capabilities := DefaultChatCompletionsCapabilities()
+	capabilities.AllowLossyCustomToolGrammar = true
+	out, err := ResponsesToChatCompletionsRequestWithRegistry(&equivalent, registry, capabilities)
 	require.NoError(t, err)
 	require.Len(t, out.Tools, 1, "equivalent custom grammar definitions should be emitted once")
 
@@ -569,7 +596,9 @@ func TestResponsesToChatCompletionsRequest_CustomGrammarParticipatesInDefinition
 			}
 		]
 	}`), &conflicting))
-	_, err = ResponsesToChatCompletionsRequest(&conflicting)
+	registry, err = BuildResponsesToolRegistry(&conflicting)
+	require.NoError(t, err)
+	_, err = ResponsesToChatCompletionsRequestWithRegistry(&conflicting, registry, capabilities)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "conflicting definitions")
 	assert.Contains(t, err.Error(), "apply_patch")
@@ -604,6 +633,8 @@ func TestChatCompletionsChunkToResponsesEvents_CustomToolNameArrivesLate(t *test
 	var events []ResponsesStreamEvent
 	events = append(events, ChatCompletionsChunkToResponsesEvents(chunk1, state)...)
 	events = append(events, ChatCompletionsChunkToResponsesEvents(chunk2, state)...)
+	assert.Empty(t, state.ToolCalls[idx].Function.Arguments, "分片期间不得通过 string += 重复复制完整参数")
+	assert.Equal(t, `{"input": "dir"}`, state.toolArgumentsFor(idx))
 	events = append(events, FinalizeChatCompletionsResponsesStream(state)...)
 
 	addedCount := 0
@@ -639,6 +670,8 @@ func TestChatCompletionsChunkToResponsesEvents_FunctionToolNameArrivesLate(t *te
 	var events []ResponsesStreamEvent
 	events = append(events, ChatCompletionsChunkToResponsesEvents(chunk1, state)...)
 	events = append(events, ChatCompletionsChunkToResponsesEvents(chunk2, state)...)
+	assert.Empty(t, state.ToolCalls[idx].Function.Arguments, "分片期间不得通过 string += 重复复制完整参数")
+	assert.Equal(t, `{"cell_id": 3}`, state.toolArgumentsFor(idx))
 	events = append(events, FinalizeChatCompletionsResponsesStream(state)...)
 
 	deltas := ""
@@ -655,6 +688,90 @@ func TestChatCompletionsChunkToResponsesEvents_FunctionToolNameArrivesLate(t *te
 	}
 	assert.Equal(t, `{"cell_id": 3}`, deltas, "宣告前累积的参数需在宣告时补发")
 	assert.Equal(t, `{"cell_id": 3}`, argsDone)
+}
+
+func TestChatCompletionsChunkToResponsesEvents_RejectsToolArgumentLimits(t *testing.T) {
+	tests := []struct {
+		name      string
+		toolName  string
+		configure func(*ChatCompletionsToResponsesStreamState)
+	}{
+		{
+			name:     "ordinary function",
+			toolName: "wait",
+		},
+		{
+			name:     "custom tool",
+			toolName: "exec",
+			configure: func(state *ChatCompletionsToResponsesStreamState) {
+				state.CustomTools = map[string]bool{"exec": true}
+			},
+		},
+		{
+			name:     "tool search",
+			toolName: toolSearchProxyName,
+			configure: func(state *ChatCompletionsToResponsesStreamState) {
+				state.ToolSearchDeclared = true
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			state := NewChatCompletionsToResponsesStreamState("glm-5.2")
+			state.maxToolArgumentBytes = 8
+			state.maxTotalToolArgumentBytes = 16
+			if tc.configure != nil {
+				tc.configure(state)
+			}
+			idx := 0
+			events := ChatCompletionsChunkToResponsesEvents(&ChatCompletionsChunk{
+				Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{{
+					Index: &idx,
+					ID:    "call_limit",
+					Function: ChatFunctionCall{
+						Name:      tc.toolName,
+						Arguments: "123456789",
+					},
+				}}}}},
+			}, state)
+
+			require.Error(t, state.StreamError())
+			assert.Contains(t, state.StreamError().Error(), "exceed 8 bytes")
+			assert.True(t, hasResponseStreamEventType(events, "response.failed"))
+			assert.False(t, hasResponseStreamEventType(events, "response.output_item.done"))
+			assert.Empty(t, FinalizeChatCompletionsResponsesStream(state), "超限后不得正常收尾")
+		})
+	}
+}
+
+func TestChatCompletionsChunkToResponsesEvents_RejectsTotalToolArgumentLimit(t *testing.T) {
+	state := NewChatCompletionsToResponsesStreamState("glm-5.2")
+	state.maxToolArgumentBytes = 8
+	state.maxTotalToolArgumentBytes = 10
+	first, second := 0, 1
+	events := ChatCompletionsChunkToResponsesEvents(&ChatCompletionsChunk{
+		Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{
+			{Index: &first, ID: "call_1", Function: ChatFunctionCall{Name: "first", Arguments: "123456"}},
+			{Index: &second, ID: "call_2", Function: ChatFunctionCall{Name: "second", Arguments: "abcdef"}},
+		}}}},
+	}, state)
+
+	require.Error(t, state.StreamError())
+	assert.Contains(t, state.StreamError().Error(), "exceed 10 total bytes")
+	assert.Equal(t, "123456", state.toolArgumentsFor(first))
+	assert.Empty(t, state.toolArgumentsFor(second), "超限分片不得进入累计 buffer")
+	assert.True(t, hasResponseStreamEventType(events, "response.failed"))
+	assert.False(t, hasResponseStreamEventType(events, "response.output_item.done"))
+}
+
+func hasResponseStreamEventType(events []ResponsesStreamEvent, eventType string) bool {
+	for _, event := range events {
+		if event.Type == eventType {
+			return true
+		}
+	}
+	return false
 }
 
 // 序列化层（MarshalJSON → responsesItemWire）单独走白名单重组，事件结构体上的字段
@@ -721,7 +838,7 @@ func TestResponsesToChatCompletionsRequest_RejectsToolSearchNameConflict(t *test
 		Model: "glm-5.2",
 		Input: json.RawMessage(`"hi"`),
 		Tools: []ResponsesTool{
-			{Type: "tool_search"},
+			{Type: "tool_search", Execution: "client"},
 			{Type: "function", Name: "tool_search"},
 		},
 	})
@@ -734,7 +851,7 @@ func TestResponsesToChatCompletionsRequest_RejectsToolSearchNameConflict(t *test
 		Input: json.RawMessage(`"hi"`),
 		Tools: []ResponsesTool{
 			{Type: "custom", Name: "tool_search"},
-			{Type: "tool_search"},
+			{Type: "tool_search", Execution: "client"},
 		},
 	})
 	require.Error(t, err, "与内置 tool_search 代理撞名的 custom 工具必须拒绝")
@@ -743,7 +860,7 @@ func TestResponsesToChatCompletionsRequest_RejectsToolSearchNameConflict(t *test
 	out, err := ResponsesToChatCompletionsRequest(&ResponsesRequest{
 		Model: "glm-5.2",
 		Input: json.RawMessage(`"hi"`),
-		Tools: []ResponsesTool{{Type: "tool_search"}, {Type: "tool_search"}},
+		Tools: []ResponsesTool{{Type: "tool_search", Execution: "client"}, {Type: "tool_search", Execution: "client"}},
 	})
 	require.NoError(t, err)
 	require.Len(t, out.Tools, 1)
@@ -753,8 +870,8 @@ func TestResponsesToChatCompletionsRequest_RejectsToolSearchNameConflict(t *test
 		Model: "glm-5.2",
 		Input: json.RawMessage(`"hi"`),
 		Tools: []ResponsesTool{
-			{Type: "tool_search", Description: "find project tools"},
-			{Type: "tool_search", Description: "find tenant tools"},
+			{Type: "tool_search", Execution: "client", Description: "find project tools"},
+			{Type: "tool_search", Execution: "client", Description: "find tenant tools"},
 		},
 	})
 	require.Error(t, err)
@@ -860,7 +977,7 @@ func TestResponsesToChatCompletionsRequest_ToolSearchToolChoiceMapsToProxy(t *te
 	out, err := ResponsesToChatCompletionsRequest(&ResponsesRequest{
 		Model:      "glm-5.2",
 		Input:      json.RawMessage(`"hi"`),
-		Tools:      []ResponsesTool{{Type: "tool_search"}},
+		Tools:      []ResponsesTool{{Type: "tool_search", Execution: "client"}},
 		ToolChoice: json.RawMessage(`{"type":"tool_search"}`),
 	})
 	require.NoError(t, err)
@@ -920,8 +1037,8 @@ func TestResponsesToChatCompletionsRequest_MapsMultiChildNamespaceToolChoice(t *
 }
 
 // 客户端请求在原生 Responses API 上合法（namespace 子工具按 namespace+name 路由），
-// 是摊平转换让名字产生歧义；歧义无法消除时必须显式拒绝整个请求（400），而不是
-// 静默降级——否则重复声明发给上游、回程还原到错误工具，问题只能靠抓包定位。
+// 是摊平转换让名字产生歧义；歧义无法消除时必须返回 transport capability mismatch
+// 供 handler 换到原生 Responses 账号，而不是静默降级或归因成客户端请求错误。
 func TestResponsesToChatCompletionsRequest_RejectsAmbiguousFlattenedNames(t *testing.T) {
 	// 摊平名与顶层 function 工具撞名。
 	_, err := ResponsesToChatCompletionsRequest(&ResponsesRequest{
@@ -933,6 +1050,9 @@ func TestResponsesToChatCompletionsRequest_RejectsAmbiguousFlattenedNames(t *tes
 		},
 	})
 	require.Error(t, err, "与顶层工具撞名的摊平必须拒绝")
+	var capabilityErr *ChatCompletionsCapabilityError
+	require.ErrorAs(t, err, &capabilityErr)
+	assert.Equal(t, "chat_tool_identity", capabilityErr.Feature)
 	assert.Contains(t, err.Error(), "gmail__send")
 
 	// 不同 namespace 组合产生相同摊平名。
@@ -945,6 +1065,8 @@ func TestResponsesToChatCompletionsRequest_RejectsAmbiguousFlattenedNames(t *tes
 		},
 	})
 	require.Error(t, err, "跨 namespace 撞名的摊平必须拒绝")
+	require.ErrorAs(t, err, &capabilityErr)
+	assert.Equal(t, "chat_tool_identity", capabilityErr.Feature)
 	assert.Contains(t, err.Error(), "a__b__c")
 }
 
@@ -958,6 +1080,9 @@ func TestResponsesToChatCompletionsRequest_RejectsFunctionCustomNameConflict(t *
 		},
 	})
 	require.Error(t, err)
+	var capabilityErr *ChatCompletionsCapabilityError
+	require.ErrorAs(t, err, &capabilityErr)
+	assert.Equal(t, "chat_tool_identity", capabilityErr.Feature)
 	assert.Contains(t, err.Error(), "function")
 	assert.Contains(t, err.Error(), "custom")
 	assert.Contains(t, err.Error(), "exec")

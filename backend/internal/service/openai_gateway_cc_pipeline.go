@@ -226,7 +226,7 @@ func (s *OpenAIGatewayService) scanCCStream(
 	logPrefix string,
 	requestID string,
 	startTime time.Time,
-	emit func(*apicompat.ChatCompletionsChunk),
+	emit func(*apicompat.ChatCompletionsChunk) error,
 ) ccStreamScanState {
 	var st ccStreamScanState
 
@@ -262,10 +262,17 @@ func (s *OpenAIGatewayService) scanCCStream(
 			ms := int(time.Since(startTime).Milliseconds())
 			st.FirstTokenMs = &ms
 		}
-		emit(&chunk)
+		if err := emit(&chunk); err != nil {
+			st.Err = err
+			logger.L().Warn(logPrefix+": stream conversion stopped",
+				zap.Error(err),
+				zap.String("request_id", requestID),
+			)
+			break
+		}
 	}
 
-	if err := scanner.Err(); err != nil {
+	if err := scanner.Err(); err != nil && st.Err == nil {
 		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			logger.L().Warn(logPrefix+": stream read error",
 				zap.Error(err),

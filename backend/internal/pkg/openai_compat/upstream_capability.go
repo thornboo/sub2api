@@ -58,6 +58,14 @@ const ExtraKeyResponsesMode = "openai_responses_mode"
 // 值类型为 bool：true=支持、false=不支持、键缺失=未探测。
 const ExtraKeyResponsesSupported = "openai_responses_supported"
 
+// Chat fallback capability flags are opt-in because APIKey accounts may point
+// at arbitrary OpenAI-compatible implementations with different feature sets.
+const (
+	ExtraKeyChatAllowedToolsSupported       = "openai_chat_allowed_tools_supported"
+	ExtraKeyImplicitClientToolSearchEnabled = "openai_chat_implicit_client_tool_search_enabled"
+	ExtraKeyLossyCustomToolGrammarEnabled   = "openai_chat_lossy_custom_tool_grammar_enabled"
+)
+
 // NormalizeResponsesSupportMode 归一化账号级 Responses API 路由覆盖模式。
 // 缺失或非法值按 auto 处理，以保持存量行为。
 func NormalizeResponsesSupportMode(mode string) ResponsesSupportMode {
@@ -112,4 +120,24 @@ func ResolveResponsesSupport(extra map[string]any) AccountResponsesSupport {
 // （详见 internal/service/openai_gateway_chat_completions_raw.go）。
 func ShouldUseResponsesAPI(extra map[string]any) bool {
 	return ResolveResponsesSupport(extra) != ResponsesSupportNo
+}
+
+func SupportsChatAllowedTools(extra map[string]any) bool {
+	return extraBool(extra, ExtraKeyChatAllowedToolsSupported)
+}
+
+func AllowsImplicitClientToolSearch(extra map[string]any) bool {
+	return extraBool(extra, ExtraKeyImplicitClientToolSearchEnabled)
+}
+
+func AllowsLossyCustomToolGrammar(extra map[string]any) bool {
+	return extraBool(extra, ExtraKeyLossyCustomToolGrammarEnabled)
+}
+
+func extraBool(extra map[string]any, key string) bool {
+	if extra == nil {
+		return false
+	}
+	value, ok := extra[key].(bool)
+	return ok && value
 }
