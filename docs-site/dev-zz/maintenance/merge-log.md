@@ -70,9 +70,11 @@
 
 合并复审修复：
 - 恢复 `schedule_strategy`、模型自检 5 项设置和 `disable_keys_on_rate_change` 的 GET、PUT 省略字段保留、PUT 响应与审计变更检测，避免管理员保存无关设置时静默改写 dev-zz 运行配置。
+- 恢复 usage log hydration 拆分时遗漏的管理员证据 guard：只有显式管理员 evidence context 才可解析已软删除 API Key 和已归档账号，普通 / 用户侧查询继续不穿透软删除边界。
 - 将 `dev-zz-branch-images.yml` 的 Go 版本校验同步到 `go1.26.5`，与 `backend/go.mod`、其他 CI 和镜像构建入口保持一致。
 - 合并提交已推送到 `origin/dev-zz-develop`；复审修复完成前不提升 `dev-zz`、不打 tag、不发布。
 - 初次推送的 CI `29083279239` 和 dev-zz Branch Images `29083279250` 分别暴露上述设置链路与 Go 版本问题；修复提交推送后以新的远端工作流结果为准。
+- 首轮修复提交 `b1d96889` 的 CI `29087638485` 已通过 unit、lint 和前端，但 integration 暴露 usage log hydration guard 漏回；该合并回归随本轮一并修复。
 
 验证：
 - `go test ./internal/handler/admin ./internal/handler/dto ./internal/repository ./internal/service ./migrations -run '^$' -count=1`
@@ -94,6 +96,8 @@
 复审修复验证：
 - `go test -tags=unit ./internal/server -run '^TestAPIContracts$' -count=1`
 - `go test -tags=unit ./internal/handler/admin -run '^(TestSettingHandler_UpdateSettings_PreservesOmittedDevZZOperationalSettings|TestDiffSettings_DetectsDevZZOperationalSettingChanges)$' -count=1`
+- `go test -tags=unit ./internal/repository -count=1`
+- `go test -tags=integration -c -o /tmp/sub2api-repository-integration.test ./internal/repository`（编译 integration 测试二进制，不启动 testcontainers）
 - `make -C backend test-unit`
 - `golangci-lint run --timeout=30m`（`0 issues`）
 - `make test-frontend`（lint、typecheck、91 条关键 Vitest）

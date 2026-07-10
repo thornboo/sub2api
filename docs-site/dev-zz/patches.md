@@ -14,6 +14,7 @@
 - 版本提示增加管理员回退能力，但 release API 与跳转链接继续固定到 fork `thornboo/sub2api`。
 - 接受上游 Go 大文件和 i18n 的按职责拆分；dev-zz 功能以小型补充文件和 locale overlay 保留，减少后续 merge 冲突面。
 - 用量日志新增上游视频分辨率 / 时长字段时，继续完整保存 dev-zz 调度诊断 `schedule_meta`；插入、批处理和扫描列序保持一致。
+- 用量日志关联 hydration 继续按管理员 evidence context 受控解析已删除 Key 和已归档账号；普通 / 用户侧查询不穿透软删除边界。
 - 模型自检继续跳过已有 probe guard 覆盖的 Gateway / Antigravity retry、限流写入和账号惩罚分支；未覆盖的 Antigravity 既存副作用另列专项审计。分组 / 用户倍率变更继续按设置停用受影响 Key。
 - 供应商 Modal、成本事实、账号归档、普通用户字段隔离和 stone / neutral / emerald UI 保持不变。
 

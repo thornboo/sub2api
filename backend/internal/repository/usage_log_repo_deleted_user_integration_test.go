@@ -99,3 +99,37 @@ func TestUsageLog_ListWithFilters_ResolvesSoftDeletedAPIKeyOnlyForAdminEvidenceC
 	require.NotNil(t, logs[0].APIKey.DeletedAt)
 	require.NotEqual(t, "sk-ledger-deleted-key", logs[0].APIKey.Key, "deleted key secret must not remain on the soft-deleted row")
 }
+
+func TestUsageLog_ListWithFilters_ResolvesSoftDeletedAccountOnlyForAdminEvidenceContext(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	client := tx.Client()
+	repo := newUsageLogRepositoryWithSQL(client, tx)
+
+	user := mustCreateUser(t, client, &service.User{Email: "deleted-account-ledger@test.com"})
+	apiKey := mustCreateApiKey(t, client, &service.APIKey{UserID: user.ID, Key: "sk-deleted-account-ledger", Name: "Ledger Key"})
+	account := mustCreateAccount(t, client, &service.Account{Name: "Archived Ledger Account"})
+
+	_, err := repo.Create(ctx, &service.UsageLog{
+		UserID: user.ID, APIKeyID: apiKey.ID, AccountID: account.ID,
+		Model: "claude-3", InputTokens: 10, OutputTokens: 20,
+		TotalCost: 0.25, ActualCost: 0.25, CreatedAt: time.Now().UTC(),
+	})
+	require.NoError(t, err)
+	require.NoError(t, client.Account.DeleteOneID(account.ID).Exec(ctx))
+
+	logs, _, err := repo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 50},
+		usagestats.UsageLogFilters{UserID: user.ID, ExactTotal: true})
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+	require.Nil(t, logs[0].Account, "default/user-facing usage hydration must not resolve archived accounts")
+
+	adminEvidenceCtx := service.WithUsageLogDeletedAccountResolution(ctx)
+	logs, _, err = repo.ListWithFilters(adminEvidenceCtx, pagination.PaginationParams{Page: 1, PageSize: 50},
+		usagestats.UsageLogFilters{UserID: user.ID, ExactTotal: true})
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+	require.NotNil(t, logs[0].Account, "archived account identity must resolve from the immutable usage ledger")
+	require.Equal(t, "Archived Ledger Account", logs[0].Account.Name)
+	require.NotNil(t, logs[0].Account.DeletedAt)
+}

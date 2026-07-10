@@ -368,7 +368,14 @@ func (r *usageLogRepository) loadAPIKeys(ctx context.Context, ids []int64) (map[
 	if len(ids) == 0 {
 		return out, nil
 	}
-	models, err := r.client.APIKey.Query().Where(dbapikey.IDIn(ids...)).All(ctx)
+	queryCtx := ctx
+	if service.ShouldResolveDeletedAPIKeysForUsageLogs(ctx) {
+		// usage_logs is the immutable ledger; API keys are mutable dimensions. IDs here
+		// came from already-authorized usage rows, so admin evidence views may resolve
+		// soft-deleted keys to restore historical labels without exposing key material.
+		queryCtx = mixins.SkipSoftDelete(ctx)
+	}
+	models, err := r.client.APIKey.Query().Where(dbapikey.IDIn(ids...)).All(queryCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -383,7 +390,13 @@ func (r *usageLogRepository) loadAccounts(ctx context.Context, ids []int64) (map
 	if len(ids) == 0 {
 		return out, nil
 	}
-	models, err := r.client.Account.Query().Where(dbaccount.IDIn(ids...)).All(ctx)
+	queryCtx := ctx
+	if service.ShouldResolveDeletedAccountsForUsageLogs(ctx) {
+		// usage_logs keeps account_id as an immutable dimension; admin evidence
+		// views may resolve archived accounts to preserve historical labels.
+		queryCtx = mixins.SkipSoftDelete(ctx)
+	}
+	models, err := r.client.Account.Query().Where(dbaccount.IDIn(ids...)).All(queryCtx)
 	if err != nil {
 		return nil, err
 	}
