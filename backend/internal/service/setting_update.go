@@ -30,24 +30,41 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 
 // UpdateSettingsWithAuthSourceDefaults persists system settings and auth-source defaults in a single write.
 func (s *SettingService) UpdateSettingsWithAuthSourceDefaults(ctx context.Context, settings *SystemSettings, authDefaults *AuthSourceDefaultSettings) error {
+	_, err := s.UpdateSettingsWithAuthSourceDefaultsAndOpenAIFastPolicy(ctx, settings, authDefaults, nil)
+	return err
+}
+
+// UpdateSettingsWithAuthSourceDefaultsAndOpenAIFastPolicy validates and persists
+// the settings handled by the admin settings form in one repository write.
+func (s *SettingService) UpdateSettingsWithAuthSourceDefaultsAndOpenAIFastPolicy(ctx context.Context, settings *SystemSettings, authDefaults *AuthSourceDefaultSettings, fastPolicy *OpenAIFastPolicySettings) (*OpenAIFastPolicySettings, error) {
 	updates, err := s.buildSystemSettingsUpdates(ctx, settings)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	authSourceUpdates, err := s.buildAuthSourceDefaultUpdates(ctx, authDefaults)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for key, value := range authSourceUpdates {
 		updates[key] = value
+	}
+
+	var normalizedFastPolicy *OpenAIFastPolicySettings
+	if fastPolicy != nil {
+		var serialized string
+		normalizedFastPolicy, serialized, err = normalizeAndMarshalOpenAIFastPolicySettings(fastPolicy)
+		if err != nil {
+			return nil, err
+		}
+		updates[SettingKeyOpenAIFastPolicySettings] = serialized
 	}
 
 	err = s.settingRepo.SetMultiple(ctx, updates)
 	if err == nil {
 		s.refreshCachedSettings(settings)
 	}
-	return err
+	return normalizedFastPolicy, err
 }
 
 func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, settings *SystemSettings) (map[string]string, error) {

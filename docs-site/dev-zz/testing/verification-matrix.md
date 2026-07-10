@@ -43,6 +43,22 @@
 - `tags` 聚合不展示总和必须为 100% 的占比。
 - `summary.current_key_snapshot` 在 UI 上与历史时间范围聚合分开展示。
 
+## 管理员设置与 OpenAI Fast / Flex
+
+| 场景 | 推荐命令 |
+| --- | --- |
+| 设置原子写入、策略校验与审计 | `cd backend && go test -tags=unit ./internal/handler/admin -run 'OpenAIFastPolicy|SettingsAuditChanges' -count=1` |
+| Fast / Flex 用户匹配和 fallback 语义 | `cd backend && go test -tags=unit ./internal/service -run 'OpenAIFastPolicy' -count=1` |
+| Codex identity 大小写规范化 | `cd backend && go test -tags=unit ./internal/pkg/openai -run '^TestPairCodexClientIdentity$' -count=1` |
+| 管理端保存与 i18n 契约 | `pnpm --dir frontend exec vitest run src/views/admin/__tests__/SettingsView.spec.ts src/i18n/__tests__/localesNoKeyCollision.spec.ts` |
+
+必要人工核对：
+
+- Fast / Flex 用户 ID 只能是正整数，且同一条规则内不能重复；失败响应不得留下普通设置或认证来源默认值的部分写入。
+- 用户专属规则命中 scope / tier 后，其模型白名单 fallback 是终止结果，不会继续落到全局规则。
+- WebSocket 会话使用建连时的策略快照；设置变更只影响新连接，已有连接重连后生效。
+- 策略变更的审计只记录设置键，不记录完整用户 ID 列表或规则内容。
+
 ## 可用渠道和账号模型
 
 | 场景 | 推荐命令 |

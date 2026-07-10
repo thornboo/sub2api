@@ -178,6 +178,13 @@ vi.mock("vue-i18n", async () => {
     "admin.settings.openaiExperimentalScheduler.quotaHeadroomWeight": "额度余量",
     "admin.settings.openaiExperimentalScheduler.previousResponseWeight": "previous_response 粘性",
     "admin.settings.openaiExperimentalScheduler.sessionStickyWeight": "session_hash 粘性",
+    "admin.settings.openaiFastPolicy.userIds": "指定用户 ID",
+    "admin.settings.openaiFastPolicy.userIdsHint": "留空表示对全部用户生效。",
+    "admin.settings.openaiFastPolicy.userIdPlaceholder": "例如: 1001",
+    "admin.settings.openaiFastPolicy.addUserId": "添加用户 ID",
+    "admin.settings.openaiFastPolicy.removeUserId": "移除用户 ID",
+    "admin.settings.openaiFastPolicy.userIdsValidationError":
+      "用户 ID 必须是大于 0 的整数，且同一规则内不能重复。",
     "admin.settings.site.uploadImage": "上传图片",
     "admin.settings.site.remove": "移除",
     "admin.settings.platformQuota.platform": "平台",
@@ -464,6 +471,9 @@ const baseSettingsResponse = {
     gemini:      { daily: null, weekly: null, monthly: 200 },
     antigravity: { daily: null, weekly: null, monthly: null },
   },
+  openai_fast_policy_settings: {
+    rules: [],
+  },
 };
 
 function mountView() {
@@ -604,6 +614,68 @@ describe("admin SettingsView payment visible method controls", () => {
 
     expect(wrapper.text()).not.toContain("可见方式");
     expect(wrapper.text()).not.toContain("支付来源");
+  });
+
+  it("rejects invalid OpenAI Fast/Flex user IDs before submitting settings", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_fast_policy_settings: {
+        rules: [
+          {
+            service_tier: "priority",
+            action: "pass",
+            scope: "all",
+            user_ids: [0],
+          },
+        ],
+      },
+    });
+
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).not.toHaveBeenCalled();
+    expect(showError).toHaveBeenCalledWith(
+      "用户 ID 必须是大于 0 的整数，且同一规则内不能重复。",
+    );
+  });
+
+  it("submits valid OpenAI Fast/Flex user IDs", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_fast_policy_settings: {
+        rules: [
+          {
+            service_tier: "priority",
+            action: "force_priority",
+            scope: "all",
+            user_ids: [42],
+          },
+        ],
+      },
+    });
+
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        openai_fast_policy_settings: {
+          rules: [
+            expect.objectContaining({
+              service_tier: "priority",
+              action: "force_priority",
+              scope: "all",
+              user_ids: [42],
+            }),
+          ],
+        },
+      }),
+    );
   });
 
   it("links payment guidance to README sections instead of removed payment docs", async () => {

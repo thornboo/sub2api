@@ -10,12 +10,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func (h *SettingHandler) auditSettingsUpdate(c *gin.Context, before *service.SystemSettings, after *service.SystemSettings, beforeAuthSourceDefaults *service.AuthSourceDefaultSettings, afterAuthSourceDefaults *service.AuthSourceDefaultSettings, req UpdateSettingsRequest) {
+func (h *SettingHandler) auditSettingsUpdate(c *gin.Context, before *service.SystemSettings, after *service.SystemSettings, beforeAuthSourceDefaults *service.AuthSourceDefaultSettings, afterAuthSourceDefaults *service.AuthSourceDefaultSettings, req UpdateSettingsRequest, extraChanged ...string) {
 	if before == nil || after == nil {
 		return
 	}
 
-	changed := diffSettings(before, after, beforeAuthSourceDefaults, afterAuthSourceDefaults, req)
+	changed := settingsAuditChanges(before, after, beforeAuthSourceDefaults, afterAuthSourceDefaults, req, extraChanged...)
 	if len(changed) == 0 {
 		return
 	}
@@ -28,6 +28,34 @@ func (h *SettingHandler) auditSettingsUpdate(c *gin.Context, before *service.Sys
 		"role", role,
 		"changed", changed,
 	)
+}
+
+func settingsAuditChanges(before *service.SystemSettings, after *service.SystemSettings, beforeAuthSourceDefaults *service.AuthSourceDefaultSettings, afterAuthSourceDefaults *service.AuthSourceDefaultSettings, req UpdateSettingsRequest, extraChanged ...string) []string {
+	changed := diffSettings(before, after, beforeAuthSourceDefaults, afterAuthSourceDefaults, req)
+	return append(changed, extraChanged...)
+}
+
+func equalOpenAIFastPolicySettings(before, after *service.OpenAIFastPolicySettings) bool {
+	if before == nil || after == nil {
+		return before == after
+	}
+	if len(before.Rules) != len(after.Rules) {
+		return false
+	}
+	for i := range before.Rules {
+		left, right := before.Rules[i], after.Rules[i]
+		if left.ServiceTier != right.ServiceTier ||
+			left.Action != right.Action ||
+			left.Scope != right.Scope ||
+			left.ErrorMessage != right.ErrorMessage ||
+			left.FallbackAction != right.FallbackAction ||
+			left.FallbackErrorMessage != right.FallbackErrorMessage ||
+			!equalInt64Slice(left.UserIDs, right.UserIDs) ||
+			!equalStringSlice(left.ModelWhitelist, right.ModelWhitelist) {
+			return false
+		}
+	}
+	return true
 }
 
 func diffSettings(before *service.SystemSettings, after *service.SystemSettings, beforeAuthSourceDefaults *service.AuthSourceDefaultSettings, afterAuthSourceDefaults *service.AuthSourceDefaultSettings, req UpdateSettingsRequest) []string {
@@ -667,6 +695,18 @@ func platformQuotasValueOrDefault(value, fallback map[string]*service.DefaultPla
 }
 
 func equalStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func equalInt64Slice(a, b []int64) bool {
 	if len(a) != len(b) {
 		return false
 	}

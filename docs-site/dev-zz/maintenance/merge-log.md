@@ -34,17 +34,25 @@
 - Codex 身份配对只收口带 `originator` 的 OAuth 内部接口请求；compat messages bridge 继续不带 `originator`，第三方或不合法身份整体回退到默认官方 Codex CLI 身份。
 - `backend/cmd/server/VERSION` 未被本轮上游改动，继续保留 dev-zz `1.5.1`；本轮不提升 `dev-zz`、不打 tag、不发布。
 
+合并后复审修复：
+- 管理员保存 Fast / Flex 用户规则时，先在服务层完成规则规范化和校验，再把普通系统设置、认证来源默认值与策略 JSON 合并进同一次 `SetMultiple`；无效 `user_ids` 返回 400 时不再留下已保存但未审计的普通设置。
+- Fast / Flex 策略的成功变更进入设置审计字段列表；前端同时拦截非正整数、非整数和单条规则内重复用户 ID。
+- zh/en 用户 ID 文案从误放的 `betaPolicy` 移回页面实际读取的 `openaiFastPolicy` 命名空间，并增加 locale 契约测试。
+- 大小写变体的 `Codex ` 家族前缀统一恢复为上游大小写敏感校验需要的规范前缀；用户规则白名单 fallback 的终止语义和 WebSocket 建连快照边界已补测试及文档。
+
 验证：
 - `go test ./internal/pkg/openai -run '^TestPairCodexClientIdentity$' -count=1`
 - `go test ./internal/server/middleware -run '^(TestAPIKeyAuthForwardsUserScopedOpenAIFastPolicyToUpstream|TestAPIKeyAuthSetsGroupContext)$' -count=1`
-- `go test ./internal/service -run 'OpenAIFastPolicy|CodexIdentity|GrokResponsesReasoningEffort|OAuthPassthrough_CodexTuiIdentity|OAuthOfficialClientOriginatorCompatibility|WSv2_OAuthOriginatorCompatibility' -count=1`
+- `go test -tags=unit ./internal/service -run 'OpenAIFastPolicy|CodexIdentity|GrokResponsesReasoningEffort|OAuthPassthrough_CodexTuiIdentity|OAuthOfficialClientOriginatorCompatibility|WSv2_OAuthOriginatorCompatibility' -count=1`
 - `go test -tags=unit ./internal/server ./internal/handler/admin -run '^(TestAPIContracts|TestSettingHandler_UpdateSettings_PreservesOmittedDevZZOperationalSettings|TestDiffSettings_DetectsDevZZOperationalSettingChanges)$' -count=1`
+- `go test -tags=unit ./internal/handler/admin -run 'OpenAIFastPolicy|SettingsAuditChanges' -count=1`
+- `pnpm --dir frontend exec vitest run src/views/admin/__tests__/SettingsView.spec.ts src/i18n/__tests__/localesNoKeyCollision.spec.ts`
 - `make -C backend test-unit`
 - `go test ./... -count=1`
 - `golangci-lint run --timeout=30m`（`0 issues`）
 - `go test -tags=integration -c -o /tmp/sub2api-repository-integration.test ./internal/repository`
-- `make test-frontend`（ESLint、typecheck、6 个测试文件 / 91 个关键用例）
-- `pnpm --dir frontend run test:run`（163 个测试文件、1026 个用例）
+- `make test-frontend`（ESLint、typecheck、6 个测试文件 / 93 个关键用例）
+- `pnpm --dir frontend run test:run`（163 个测试文件、1030 个用例）
 - `pnpm --dir frontend run build`
 - `pnpm --dir docs-site run docs:build`
 - `git diff --check`、`git diff --cached --check` 和冲突标记扫描。

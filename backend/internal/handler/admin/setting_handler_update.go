@@ -356,6 +356,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	var previousOpenAIFastPolicy *service.OpenAIFastPolicySettings
+	requestedOpenAIFastPolicy := openaiFastPolicySettingsFromDTO(req.OpenAIFastPolicySettings)
+	if requestedOpenAIFastPolicy != nil {
+		previousOpenAIFastPolicy, err = h.settingService.GetOpenAIFastPolicySettings(c.Request.Context())
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
 
 	// 验证参数
 	if req.DefaultConcurrency < 1 {
@@ -1644,18 +1653,21 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		},
 		ForceEmailOnThirdPartySignup: boolValueOrDefault(req.ForceEmailOnThirdPartySignup, previousAuthSourceDefaults.ForceEmailOnThirdPartySignup),
 	}
-	if err := h.settingService.UpdateSettingsWithAuthSourceDefaults(c.Request.Context(), settings, authSourceDefaults); err != nil {
+	normalizedOpenAIFastPolicy, err := h.settingService.UpdateSettingsWithAuthSourceDefaultsAndOpenAIFastPolicy(
+		c.Request.Context(),
+		settings,
+		authSourceDefaults,
+		requestedOpenAIFastPolicy,
+	)
+	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-
-	// Update OpenAI fast policy (stored under dedicated key, only when provided).
-	if req.OpenAIFastPolicySettings != nil {
-		if err := h.settingService.SetOpenAIFastPolicySettings(c.Request.Context(), openaiFastPolicySettingsFromDTO(req.OpenAIFastPolicySettings)); err != nil {
-			response.BadRequest(c, err.Error())
-			return
-		}
+	extraAuditChanges := make([]string, 0, 1)
+	if requestedOpenAIFastPolicy != nil && !equalOpenAIFastPolicySettings(previousOpenAIFastPolicy, normalizedOpenAIFastPolicy) {
+		extraAuditChanges = append(extraAuditChanges, service.SettingKeyOpenAIFastPolicySettings)
 	}
+	h.auditSettingsUpdate(c, previousSettings, settings, previousAuthSourceDefaults, authSourceDefaults, req, extraAuditChanges...)
 
 	// Update payment configuration (integrated into system settings).
 	// Skip if no payment fields were provided (prevents accidental wipe).
@@ -1693,8 +1705,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			h.paymentService.RefreshProviders(c.Request.Context())
 		}
 	}
-
-	h.auditSettingsUpdate(c, previousSettings, settings, previousAuthSourceDefaults, authSourceDefaults, req)
 
 	// 重新获取设置返回
 	updatedSettings, err := h.settingService.GetAllSettings(c.Request.Context())

@@ -80,3 +80,19 @@ describe.each(Object.keys(roots))('locale %s spread assembly', (locale) => {
     expect(collisions(admins[locale])).toEqual([])
   })
 })
+
+describe.each([
+  ['zh', zhAdminSettings],
+  ['en', enAdminSettings]
+] as const)('locale %s OpenAI Fast/Flex settings', (_locale, messages) => {
+  it('keeps user ID labels under the component namespace', () => {
+    const openaiFastPolicy = messages.settings.openaiFastPolicy
+
+    expect(openaiFastPolicy.userIds).toBeTruthy()
+    expect(openaiFastPolicy.userIdsHint).toBeTruthy()
+    expect(openaiFastPolicy.userIdPlaceholder).toBeTruthy()
+    expect(openaiFastPolicy.addUserId).toBeTruthy()
+    expect(openaiFastPolicy.removeUserId).toBeTruthy()
+    expect(openaiFastPolicy.userIdsValidationError).toBeTruthy()
+  })
+})

@@ -1,5 +1,31 @@
 # 补丁记录
 
+## 2026-07-10 - Fast/Flex 设置原子保存与合并后复审加固
+
+范围：
+- 后端：管理员设置写入边界、Fast / Flex 策略校验与审计、Codex 家族身份规范化。
+- 前端：Fast / Flex 用户 ID 校验与 zh/en i18n 命名空间。
+- 文档：策略优先级、WebSocket 快照和合并验证记录。
+
+改动：
+- 无效 Fast / Flex 用户规则在任何设置落库前返回结构化 400；普通设置、认证来源默认值和 Fast / Flex 策略改为同一次批量写入，消除失败响应下的静默部分保存。
+- 策略变更进入管理员设置审计；前端提前拒绝 0、负数、非整数和单条规则内重复用户 ID。
+- 修正 Fast / Flex 用户 ID 文案命名空间，并用组件测试和 locale 契约测试覆盖实际读取路径。
+- `Codex ` 家族身份即使客户端传入大小写变体，也会规范化为上游所需前缀；用户专属规则的白名单 fallback 终止语义由回归测试锁定。
+
+边界：
+- 支付配置仍由通用设置接口中的独立服务更新，不属于普通设置 / 认证默认值 / Fast / Flex 策略的原子批量写入。
+- WebSocket 会话继续使用建连时策略快照；运行中的连接需要重连才读取新设置。
+- 仅加固 `dev-zz-develop`，不提升 `dev-zz`、不打 tag、不发布。
+
+验证：
+- 管理员设置原子写入、审计、Fast / Flex fallback、Codex identity 定向 Go 测试通过。
+- SettingsView Fast / Flex 保存与 locale 命名空间 Vitest 通过。
+
+未验证：
+- 浏览器人工 smoke。
+- 本机 Docker / testcontainers 运行时集成测试；继续由 GitHub Actions integration job 验证。
+
 ## 2026-07-10 - 上游 Fast/Flex 用户范围与 Codex 身份修复增量同步
 
 范围：
@@ -24,7 +50,7 @@
 验证：
 - Fast / Flex 用户匹配、API Key auth context、Codex identity、Grok reasoning 与 dev-zz 管理员设置定向 Go 测试通过。
 - 后端 `make test-unit`、不带 build tag 的 `go test ./... -count=1`、`golangci-lint`（0 issues）和 repository integration 测试二进制编译通过。
-- 前端 ESLint / typecheck / 91 条关键测试、完整 Vitest（163 个文件 / 1026 个用例）和生产构建通过。
+- 前端 ESLint / typecheck / 93 条关键测试、完整 Vitest（163 个文件 / 1030 个用例）和生产构建通过。
 - docs-site VitePress 构建、`git diff --check` 和冲突标记扫描通过；GitHub Actions 在推送最终 head 后检查，运行结果记录在本轮交付报告。
 
 未验证：

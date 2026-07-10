@@ -11,6 +11,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
+
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
 // IsRegistrationEnabled 检查是否开放注册
@@ -771,8 +773,26 @@ func (s *SettingService) GetOpenAIFastPolicySettings(ctx context.Context) (*Open
 
 // SetOpenAIFastPolicySettings 设置 OpenAI fast 策略配置
 func (s *SettingService) SetOpenAIFastPolicySettings(ctx context.Context, settings *OpenAIFastPolicySettings) error {
+	_, data, err := normalizeAndMarshalOpenAIFastPolicySettings(settings)
+	if err != nil {
+		return err
+	}
+
+	return s.settingRepo.Set(ctx, SettingKeyOpenAIFastPolicySettings, data)
+}
+
+func normalizeAndMarshalOpenAIFastPolicySettings(settings *OpenAIFastPolicySettings) (*OpenAIFastPolicySettings, string, error) {
 	if settings == nil {
-		return fmt.Errorf("settings cannot be nil")
+		return nil, "", infraerrors.BadRequest("INVALID_OPENAI_FAST_POLICY_SETTINGS", "settings cannot be nil")
+	}
+
+	normalized := &OpenAIFastPolicySettings{
+		Rules: make([]OpenAIFastPolicyRule, len(settings.Rules)),
+	}
+	for i, rule := range settings.Rules {
+		normalized.Rules[i] = rule
+		normalized.Rules[i].UserIDs = append([]int64(nil), rule.UserIDs...)
+		normalized.Rules[i].ModelWhitelist = append([]string(nil), rule.ModelWhitelist...)
 	}
 
 	validActions := map[string]bool{
@@ -786,49 +806,49 @@ func (s *SettingService) SetOpenAIFastPolicySettings(ctx context.Context, settin
 		OpenAIFastTierAny: true, OpenAIFastTierPriority: true, OpenAIFastTierFlex: true,
 	}
 
-	for i, rule := range settings.Rules {
+	for i, rule := range normalized.Rules {
 		tier := strings.ToLower(strings.TrimSpace(rule.ServiceTier))
 		if tier == "" {
 			tier = OpenAIFastTierAny
 		}
 		if !validTiers[tier] {
-			return fmt.Errorf("rule[%d]: invalid service_tier %q", i, rule.ServiceTier)
+			return nil, "", infraerrors.BadRequest("INVALID_OPENAI_FAST_POLICY_SETTINGS", fmt.Sprintf("rule[%d]: invalid service_tier %q", i, rule.ServiceTier))
 		}
-		settings.Rules[i].ServiceTier = tier
+		normalized.Rules[i].ServiceTier = tier
 		if !validActions[rule.Action] {
-			return fmt.Errorf("rule[%d]: invalid action %q", i, rule.Action)
+			return nil, "", infraerrors.BadRequest("INVALID_OPENAI_FAST_POLICY_SETTINGS", fmt.Sprintf("rule[%d]: invalid action %q", i, rule.Action))
 		}
 		if !validScopes[rule.Scope] {
-			return fmt.Errorf("rule[%d]: invalid scope %q", i, rule.Scope)
+			return nil, "", infraerrors.BadRequest("INVALID_OPENAI_FAST_POLICY_SETTINGS", fmt.Sprintf("rule[%d]: invalid scope %q", i, rule.Scope))
 		}
 		seenUserIDs := make(map[int64]struct{}, len(rule.UserIDs))
 		for j, userID := range rule.UserIDs {
 			if userID <= 0 {
-				return fmt.Errorf("rule[%d]: user_ids[%d] must be positive", i, j)
+				return nil, "", infraerrors.BadRequest("INVALID_OPENAI_FAST_POLICY_SETTINGS", fmt.Sprintf("rule[%d]: user_ids[%d] must be positive", i, j))
 			}
 			if _, exists := seenUserIDs[userID]; exists {
-				return fmt.Errorf("rule[%d]: user_ids[%d] duplicates user_id %d", i, j, userID)
+				return nil, "", infraerrors.BadRequest("INVALID_OPENAI_FAST_POLICY_SETTINGS", fmt.Sprintf("rule[%d]: user_ids[%d] duplicates user_id %d", i, j, userID))
 			}
 			seenUserIDs[userID] = struct{}{}
 		}
 		for j, pattern := range rule.ModelWhitelist {
 			trimmed := strings.TrimSpace(pattern)
 			if trimmed == "" {
-				return fmt.Errorf("rule[%d]: model_whitelist[%d] cannot be empty", i, j)
+				return nil, "", infraerrors.BadRequest("INVALID_OPENAI_FAST_POLICY_SETTINGS", fmt.Sprintf("rule[%d]: model_whitelist[%d] cannot be empty", i, j))
 			}
-			settings.Rules[i].ModelWhitelist[j] = trimmed
+			normalized.Rules[i].ModelWhitelist[j] = trimmed
 		}
 		if rule.FallbackAction != "" && !validActions[rule.FallbackAction] {
-			return fmt.Errorf("rule[%d]: invalid fallback_action %q", i, rule.FallbackAction)
+			return nil, "", infraerrors.BadRequest("INVALID_OPENAI_FAST_POLICY_SETTINGS", fmt.Sprintf("rule[%d]: invalid fallback_action %q", i, rule.FallbackAction))
 		}
 	}
 
-	data, err := json.Marshal(settings)
+	data, err := json.Marshal(normalized)
 	if err != nil {
-		return fmt.Errorf("marshal openai fast policy settings: %w", err)
+		return nil, "", fmt.Errorf("marshal openai fast policy settings: %w", err)
 	}
 
-	return s.settingRepo.Set(ctx, SettingKeyOpenAIFastPolicySettings, string(data))
+	return normalized, string(data), nil
 }
 
 // SetStreamTimeoutSettings 设置流超时处理配置

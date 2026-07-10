@@ -242,6 +242,33 @@ func TestApplyOpenAIFastPolicyToBody_UserScopedRuleOverridesGlobalRule(t *testin
 	require.NotContains(t, string(updated), `"service_tier"`)
 }
 
+func TestEvaluateOpenAIFastPolicy_UserScopedWhitelistFallbackIsTerminal(t *testing.T) {
+	settings := &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{
+			{
+				ServiceTier:    OpenAIFastTierPriority,
+				Action:         BetaPolicyActionFilter,
+				Scope:          BetaPolicyScopeAll,
+				UserIDs:        []int64{42},
+				ModelWhitelist: []string{"gpt-5.5"},
+				FallbackAction: BetaPolicyActionPass,
+			},
+			{
+				ServiceTier: OpenAIFastTierPriority,
+				Action:      BetaPolicyActionBlock,
+				Scope:       BetaPolicyScopeAll,
+			},
+		},
+	}
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	userAction, _ := evaluateOpenAIFastPolicyWithSettings(settings, 42, account, "gpt-5.6", OpenAIFastTierPriority)
+	require.Equal(t, BetaPolicyActionPass, userAction, "the matched user rule's fallback is terminal")
+
+	globalAction, _ := evaluateOpenAIFastPolicyWithSettings(settings, 43, account, "gpt-5.6", OpenAIFastTierPriority)
+	require.Equal(t, BetaPolicyActionBlock, globalAction, "users without a matching user rule still evaluate global rules")
+}
+
 func TestApplyOpenAIFastPolicyToBody_ForcePriorityRewritesKnownTier(t *testing.T) {
 	settings := &OpenAIFastPolicySettings{
 		Rules: []OpenAIFastPolicyRule{{

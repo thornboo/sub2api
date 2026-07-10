@@ -1339,6 +1339,7 @@
                   >
                     <input
                       v-model.number="rule.user_ids![userIDIndex]"
+                      data-testid="openai-fast-policy-user-id"
                       type="number"
                       min="1"
                       step="1"
@@ -1368,6 +1369,7 @@
                   </div>
                   <button
                     type="button"
+                    data-testid="openai-fast-policy-add-user-id"
                     @click="addOpenAIFastPolicyUserID(rule)"
                     class="mb-2 inline-flex items-center gap-1 text-xs text-primary-600 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
                   >
@@ -9630,6 +9632,23 @@ function normalizeNonNegativeIntegerSetting(
 async function saveSettings() {
   saving.value = true;
   try {
+    const invalidOpenAIFastPolicyUserIDs = openaiFastPolicyForm.rules.some(
+      (rule) => {
+        const userIDs = rule.user_ids || [];
+        return (
+          userIDs.some(
+            (userID) => !Number.isInteger(userID) || Number(userID) <= 0,
+          ) || new Set(userIDs).size !== userIDs.length
+        );
+      },
+    );
+    if (invalidOpenAIFastPolicyUserIDs) {
+      appStore.showError(
+        t("admin.settings.openaiFastPolicy.userIdsValidationError"),
+      );
+      return;
+    }
+
     const normalizedTableDefaultPageSize = Math.floor(
       Number(form.table_default_page_size),
     );

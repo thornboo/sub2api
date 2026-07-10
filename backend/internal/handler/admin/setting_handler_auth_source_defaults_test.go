@@ -258,6 +258,114 @@ func TestSettingHandler_UpdateSettings_PreservesOmittedDevZZOperationalSettings(
 	require.Equal(t, true, data["disable_keys_on_rate_change"])
 }
 
+func TestSettingHandler_UpdateSettings_InvalidOpenAIFastPolicyDoesNotPersistPartialSettings(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const existingPolicy = `{"rules":[]}`
+	repo := &settingHandlerRepoStub{
+		values: map[string]string{
+			service.SettingKeyPromoCodeEnabled:         "false",
+			service.SettingKeyOpenAIFastPolicySettings: existingPolicy,
+		},
+	}
+	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
+	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+
+	body := map[string]any{
+		"promo_code_enabled": true,
+		"openai_fast_policy_settings": map[string]any{
+			"rules": []map[string]any{{
+				"service_tier": "priority",
+				"action":       "pass",
+				"scope":        "all",
+				"user_ids":     []int64{0},
+			}},
+		},
+	}
+	rawBody, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.UpdateSettings(c)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Nil(t, repo.lastUpdates)
+	require.Equal(t, "false", repo.values[service.SettingKeyPromoCodeEnabled])
+	require.Equal(t, existingPolicy, repo.values[service.SettingKeyOpenAIFastPolicySettings])
+}
+
+func TestSettingHandler_UpdateSettings_PersistsOpenAIFastPolicyInSameBatch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &settingHandlerRepoStub{
+		values: map[string]string{
+			service.SettingKeyPromoCodeEnabled:         "false",
+			service.SettingKeyOpenAIFastPolicySettings: `{"rules":[]}`,
+		},
+	}
+	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
+	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+
+	body := map[string]any{
+		"promo_code_enabled": true,
+		"openai_fast_policy_settings": map[string]any{
+			"rules": []map[string]any{{
+				"service_tier": "priority",
+				"action":       "force_priority",
+				"scope":        "all",
+				"user_ids":     []int64{42},
+			}},
+		},
+	}
+	rawBody, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.UpdateSettings(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "true", repo.lastUpdates[service.SettingKeyPromoCodeEnabled])
+	require.JSONEq(t, `{"rules":[{"service_tier":"priority","action":"force_priority","scope":"all","user_ids":[42]}]}`, repo.lastUpdates[service.SettingKeyOpenAIFastPolicySettings])
+}
+
+func TestSettingsAuditChanges_IncludesOpenAIFastPolicy(t *testing.T) {
+	settings := &service.SystemSettings{}
+	changed := settingsAuditChanges(
+		settings,
+		settings,
+		nil,
+		nil,
+		UpdateSettingsRequest{},
+		service.SettingKeyOpenAIFastPolicySettings,
+	)
+
+	require.Contains(t, changed, service.SettingKeyOpenAIFastPolicySettings)
+}
+
+func TestEqualOpenAIFastPolicySettings_DetectsUserScopedChanges(t *testing.T) {
+	before := &service.OpenAIFastPolicySettings{Rules: []service.OpenAIFastPolicyRule{{
+		ServiceTier: "priority",
+		Action:      "pass",
+		Scope:       "all",
+		UserIDs:     []int64{42},
+	}}}
+	after := &service.OpenAIFastPolicySettings{Rules: []service.OpenAIFastPolicyRule{{
+		ServiceTier: "priority",
+		Action:      "pass",
+		Scope:       "all",
+		UserIDs:     []int64{43},
+	}}}
+
+	require.False(t, equalOpenAIFastPolicySettings(before, after))
+	require.True(t, equalOpenAIFastPolicySettings(before, before))
+}
+
 func TestSettingHandler_UpdateSettings_PersistsPaymentVisibleMethodsAndAdvancedScheduler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &settingHandlerRepoStub{

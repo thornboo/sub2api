@@ -246,13 +246,17 @@ func isSaneCodexOriginator(name string) bool {
 }
 
 // canonicalizeCodexOriginator 把精确集合的官方 originator 大小写变体归一为规范小写形态
-// （如 CODEX_CLI_RS → codex_cli_rs）；`Codex ` 家族不在精确集合中，保留原大小写
-// （其规范形态本就是混合大小写，上游按大小写敏感 starts_with("Codex ") 判定）。
+// （如 CODEX_CLI_RS → codex_cli_rs），并把大小写变体的 `Codex ` 家族前缀恢复为
+// 上游大小写敏感校验所需的规范形态。
 func canonicalizeCodexOriginator(name string) string {
 	if lower := normalizeCodexClientHeader(name); codexOfficialClientOriginators[lower] {
 		return lower
 	}
-	return name
+	trimmed := strings.TrimSpace(name)
+	if strings.HasPrefix(strings.ToLower(trimmed), codexOfficialClientFamilyPrefix) {
+		return "Codex " + strings.TrimSpace(trimmed[len(codexOfficialClientFamilyPrefix):])
+	}
+	return trimmed
 }
 
 // codexEngineVersionPattern 提取版本段开头的三段数字 X.Y.Z（忽略 -alpha 等后缀）。

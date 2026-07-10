@@ -37,6 +37,13 @@ func TestPairCodexClientIdentity(t *testing.T) {
 			wantOK:         true,
 		},
 		{
+			name:           "Codex 家族小写前缀归一为上游规范形态",
+			ua:             "codex desktop/1.2.3",
+			wantOriginator: "Codex desktop",
+			wantUA:         "Codex desktop/1.2.3",
+			wantOK:         true,
+		},
+		{
 			name:           "originator override 用尾部 name 重写首段",
 			ua:             "cccc/0.142.0 (Ubuntu 22.4.0; x86_64) screen (codex-tui; 0.142.0)",
 			wantOriginator: "codex-tui",
@@ -48,6 +55,13 @@ func TestPairCodexClientIdentity(t *testing.T) {
 			ua:             "cccc/1.2.3 (Ubuntu 22.4.0; x86_64) term (Codex Desktop; 1.2.3)",
 			wantOriginator: "Codex Desktop",
 			wantUA:         "Codex Desktop/1.2.3 (Ubuntu 22.4.0; x86_64) term (Codex Desktop; 1.2.3)",
+			wantOK:         true,
+		},
+		{
+			name:           "override 尾部归一 Codex 家族前缀大小写",
+			ua:             "cccc/1.2.3 (Ubuntu 22.4.0; x86_64) term (cOdEx Desktop; 1.2.3)",
+			wantOriginator: "Codex Desktop",
+			wantUA:         "Codex Desktop/1.2.3 (Ubuntu 22.4.0; x86_64) term (cOdEx Desktop; 1.2.3)",
 			wantOK:         true,
 		},
 		{name: "含斜杠的尾部 name 拒绝配对（防自不一致身份）", ua: "foo/1.0 (Codex Desktop/2; 1.0)", wantOK: false},
