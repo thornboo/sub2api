@@ -2,6 +2,9 @@
 
 ## 2026-07-10
 
+- 增量同步上游 `main`（`07fac347`）：修复 ops capture writer 释放后晚到访问的 nil panic；合并复审同时阻止被 compact keepalive 包装的 writer 回池复用，确保外层 middleware 仍读取本请求状态且不会跨请求串用 writer。
+- Responses ↔ Anthropic 非流式和流式转换完整保留 `cache_creation_input_tokens`；Anthropic 普通输入扣除 cache read / creation，Responses 总输入加回两类缓存 token，避免缓存写入用量丢失或重复计入输入。
+- 本轮 7 个上游提交、6 个文件只涉及后端正确性；唯一版本冲突继续保留 dev-zz `1.5.1`，不提升正式分支、不打 tag、不发布。
 - 合并后复审修正 Fast / Flex 设置的失败原子性：无效用户 ID 在写入前被拒绝，普通设置、认证来源默认值和策略在同一次批量写入中保存；策略变更补入审计，前端和 zh/en 文案同步增加校验与契约覆盖。
 - `Codex ` 家族大小写变体统一规范化为上游接受的前缀；文档明确用户专属规则的模型白名单 fallback 是终止结果，以及 WebSocket 设置在新建会话时生效。
 - 增量同步上游 `main`（`deff3123`）：Fast / Flex 策略新增用户 ID 范围，用户专属规则优先于全局规则且只使用 API Key 认证注入的可信 owner 身份；管理端可维护用户 ID，服务端拒绝非正数和重复值。

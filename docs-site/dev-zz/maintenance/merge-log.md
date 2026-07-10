@@ -2,6 +2,58 @@
 
 这里记录二开分支吸收上游变更的同步工作。
 
+## 2026-07-10 - 增量合并上游 `main`：ops writer 释放安全与 cache creation usage 补全
+
+分支：
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`deff3123`
+- 合并前目标：`a3a3bb5f`
+- 上游 head：`07fac347`
+- 结果提交：本条所在合并提交
+
+上游要点：
+- `opsCaptureWriter` 在内部 writer 已释放时，为 Gin `ResponseWriter` 的状态、header、写入、flush、hijack、close-notify 和 HTTP/2 pusher 委托补齐 nil 守卫，避免 compact keepalive 等释放后访问触发 panic。
+- Responses → Anthropic 非流式和流式转换保留 `cache_creation_input_tokens`，并从 Responses 总输入中同时扣除 cache read 与 cache creation，恢复 Anthropic `input_tokens` 的非缓存输入语义。
+- Anthropic → Responses 非流式和流式转换在总输入中加回 cache creation，同时把该字段显式写入 Responses usage，保证双向转换和后续计费证据不丢缓存写入 token。
+- 上游版本从 `0.1.150` 更新到 `0.1.151`。
+
+合并策略：
+- 合并前阅读 `branch-policy.md`、`maintenance/merge-main.md`、`patches.md`、`maintenance/merge-log.md`、`changelog.md`、`reference/change-map.md` 和 `testing/verification-matrix.md`，刷新远端后确认 `deff3123` 是当前目标与新上游 head 的 merge base。
+- 用 `git merge-tree --write-tree --merge-base deff3123 HEAD origin/main` 做只读预检；预检只发现 `backend/cmd/server/VERSION` 一个文本冲突，真实合并使用 `git merge --no-commit origin/main`。
+- 接受上游 ops writer 释放安全和 cache creation usage 正确性修复；版本冲突继续保留 dev-zz `1.5.1`，不采用上游 `0.1.151`。
+- 本轮上游增量为 7 个提交、6 个文件，不含数据库迁移、依赖、前端、部署或 workflow 变更，不触碰 dev-zz 的供应商成本、账号归档、模型自检、管理员设置原子保存和用户/admin 字段边界。
+
+冲突文件：
+- `backend/cmd/server/VERSION`：保留 dev-zz `1.5.1`。
+
+合并复审修复：
+- 上游 nil guard 只覆盖 writer 已释放但尚未被复用的窗口；compact keepalive 会把 `opsCaptureWriter` 包在下游 writer 中，原实现仍可能把这个已逃逸对象放回 `sync.Pool`，导致外层 Logger 读到状态 `0`，并在并发复用时观察到另一请求的 writer。
+- ops middleware 现在无条件恢复进入时的原始 writer；只有 `c.Writer` 仍等于自身 wrapper 时才允许回池，下游 wrapper 持有时只重置并退役该对象，避免跨请求复用。
+- 已释放 writer 的非空 `Write` / `WriteString` 返回 `io.ErrClosedPipe`，不再用 `(0, nil)` 把丢失写入伪装成成功。
+- 新增真实嵌套回归：外层观察 middleware + `OpsErrorLoggerMiddleware` + compact keepalive 连续两次请求，断言外层读到各自真实状态且被下游持有的 writer 不会进入下一请求；race 定向测试通过。
+
+验证：
+- `go test ./internal/handler -run 'OpsCaptureWriter|OpsErrorLoggerMiddleware_DoesNotBreakOuterMiddlewares' -count=1`
+- `go test -race ./internal/handler -run '^TestOpsErrorLoggerMiddleware_DownstreamWriterDoesNotEscapeIntoPool$' -count=1`
+- `go test ./internal/pkg/apicompat -run 'CacheCreation|CacheTokensUseOpenAIInputSemantics|ResponsesEventToAnthropicEvents_TopLevelTerminalUsage' -count=1`
+- `make -C backend test-unit`
+- `go test ./... -count=1`
+- `golangci-lint run --timeout=30m`
+- `go test -tags=integration -c -o /tmp/sub2api-repository-integration.test ./internal/repository`
+- `pnpm --dir frontend run lint:check`
+- `pnpm --dir frontend run typecheck`
+- `pnpm --dir frontend run test:run`
+- `pnpm --dir frontend run build`
+- `pnpm --dir docs-site run docs:build`
+- `git diff --check`、`git diff --cached --check` 和冲突标记扫描。
+- 远端 `CI`、`Security Scan`、`dev-zz Branch Images` 在推送最终 head 后检查；运行结果记录在本轮交付报告，避免为了回填运行编号再触发一轮 docs-only 工作流。
+
+未验证：
+- 浏览器人工 smoke。
+- 本机 Docker / testcontainers 运行时集成测试；本地只编译 integration 测试二进制，运行由 GitHub Actions integration job 验证。
+- 本轮不提升 `dev-zz`、不打 tag、不发布。
+
 ## 2026-07-10 - 增量合并上游 `main`：用户级 Fast/Flex、Grok reasoning 与 Codex 身份配对
 
 分支：

@@ -1,5 +1,31 @@
 # 补丁记录
 
+## 2026-07-10 - 上游 ops writer 与 cache creation usage 增量同步
+
+范围：
+- 上游：`origin/main` `07fac347` 增量合并到 `dev-zz-develop`，merge base 为 `deff3123`。
+- 后端：ops error capture writer、Responses / Anthropic 双向转换及流式 usage 状态。
+- 文档：changelog、patches 和 merge log。
+
+改动：
+- 为已释放的 `opsCaptureWriter` 补齐 Gin `ResponseWriter` 全部委托方法的 nil 安全行为；合并复审进一步修正对象所有权：ops middleware 无条件恢复原 writer，下游 wrapper 持有时不把对象放回池，避免晚到访问读到状态 `0` 或串到另一请求。
+- 已释放 writer 的非空写入返回 `io.ErrClosedPipe`，遵守 `io.Writer` 的短写错误契约，不再静默丢弃数据。
+- Responses → Anthropic 转换保留缓存写入 token，并从总输入中扣除 cache read / creation，避免把缓存 token 重复计入普通输入。
+- Anthropic → Responses 转换把 cache read / creation 加回 Responses 总输入，同时显式输出 `cache_creation_input_tokens`；非流式、流式完成事件和异常结束兜底使用同一语义。
+
+边界：
+- 唯一冲突是 `backend/cmd/server/VERSION`；继续保留 dev-zz `1.5.1`，不采用上游 `0.1.151`。
+- 本轮没有迁移、依赖、前端、部署或 workflow 变化，不改变供应商成本、账号归档、模型自检、Fast / Flex 设置原子写入和普通用户字段隔离。
+- 仅更新 `dev-zz-develop`，不提升 `dev-zz`、不打 tag、不发布。
+
+验证：
+- ops capture writer 释放安全、真实 compact keepalive 嵌套、pool 隔离、race 和 Responses / Anthropic cache creation 定向测试通过。
+- 后端 unit / 全包测试、golangci-lint、前端 lint / typecheck / 全量测试 / 构建和 docs-site 构建纳入本轮分支验证。
+
+未验证：
+- 浏览器人工 smoke。
+- 本机 Docker / testcontainers 运行时集成测试；该项由 GitHub Actions integration job 验证。
+
 ## 2026-07-10 - Fast/Flex 设置原子保存与合并后复审加固
 
 范围：

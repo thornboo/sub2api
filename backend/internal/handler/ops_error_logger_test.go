@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -137,6 +138,46 @@ func TestOpsErrorLoggerMiddleware_DoesNotBreakOuterMiddlewares(t *testing.T) {
 		r.ServeHTTP(rec, req)
 	})
 	require.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+func TestOpsErrorLoggerMiddleware_DownstreamWriterDoesNotEscapeIntoPool(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var observedStatuses []int
+	var firstWriter, secondWriter *opsCaptureWriter
+	requestCount := 0
+
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Next()
+		observedStatuses = append(observedStatuses, c.Writer.Status())
+	})
+	r.GET("/v1/responses/compact", OpsErrorLoggerMiddleware(nil), func(c *gin.Context) {
+		requestCount++
+		currentWriter, ok := c.Writer.(*opsCaptureWriter)
+		require.True(t, ok)
+		if requestCount == 1 {
+			firstWriter = currentWriter
+			service.MarkOpenAICompactClientStream(c)
+			stop := service.StartOpenAICompactSSEKeepalive(c, time.Hour)
+			defer stop()
+			c.Status(http.StatusNoContent)
+			return
+		}
+
+		secondWriter = currentWriter
+		c.Status(http.StatusAccepted)
+	})
+
+	firstRec := httptest.NewRecorder()
+	r.ServeHTTP(firstRec, httptest.NewRequest(http.MethodGet, "/v1/responses/compact", nil))
+	secondRec := httptest.NewRecorder()
+	r.ServeHTTP(secondRec, httptest.NewRequest(http.MethodGet, "/v1/responses/compact", nil))
+
+	require.Equal(t, []int{http.StatusNoContent, http.StatusAccepted}, observedStatuses)
+	require.NotNil(t, firstWriter)
+	require.NotNil(t, secondWriter)
+	require.NotSame(t, firstWriter, secondWriter, "a writer retained by a downstream wrapper must not be returned to the pool")
 }
 
 // setupOpsErrorLogTestQueue 阻止 enqueueOpsErrorLog 启动真实 worker，改用可检查的测试队列。
