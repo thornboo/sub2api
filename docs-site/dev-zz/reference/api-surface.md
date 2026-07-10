@@ -175,6 +175,29 @@
 - 高峰倍率只叠加到 token 计费倍率；token 模式下的图片 token 同样适用，图片按次计费不受高峰倍率影响。
 - 用户侧可用渠道和订阅展示可返回公开分组的高峰倍率提示，但不得因此暴露上游账号、渠道、内部成本或管理员专属计费字段。
 
+## 管理端 OpenAI Fast / Flex 策略
+
+管理员通过通用设置接口读取和保存 OpenAI Fast / Flex 策略：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/v1/admin/settings` | 返回 `openai_fast_policy_settings` 及其规则 |
+| `PUT` | `/api/v1/admin/settings` | 更新系统设置，可携带 `openai_fast_policy_settings` |
+
+规则的 dev-zz / 上游增量字段：
+
+| 字段 | 说明 |
+| --- | --- |
+| `openai_fast_policy_settings.rules[].user_ids` | 可选用户 ID 数组；为空或省略时是全局规则，非空时只匹配指定 API Key 所属用户 |
+
+匹配和安全语义：
+
+- 用户专属规则整体先于全局规则计算；用户专属组和全局组内部都保持管理员配置顺序，首条命中后停止。
+- 用户 ID 必须为正整数，同一条规则内不能重复；无效设置由服务端拒绝，不会部分写入。
+- 匹配身份来自 API Key 认证中间件写入请求 context 的可信 owner ID，不能用客户端请求体、header 或 query 中的自报用户标识替代。
+- HTTP 与 OpenAI WebSocket 转发使用同一规则语义；没有可信 API Key owner context 时，用户专属规则不匹配，只能进入适用的全局规则。
+- 该配置只存在于管理员设置接口和管理端页面，不向普通用户接口暴露用户 ID 列表或其它管理员策略细节。
+
 ## Owner 用量分析
 
 owner analytics 已落地在用户认证域 `/api/v1/usage/analytics/*`。接口不接受外部 `user_id`，后端始终绑定当前 `subject.UserID`。

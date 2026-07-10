@@ -2,6 +2,9 @@
 
 ## 2026-07-10
 
+- 增量同步上游 `main`（`deff3123`）：Fast / Flex 策略新增用户 ID 范围，用户专属规则优先于全局规则且只使用 API Key 认证注入的可信 owner 身份；管理端可维护用户 ID，服务端拒绝非正数和重复值。
+- Codex OAuth 请求按最终 User-Agent 配对 `originator` 并校正过低版本头，compat messages bridge 继续维持无 `originator` 语义；Grok Responses 同步保留 OpenAI-compatible `reasoning_effort`。
+- 本轮 7 个上游提交、30 个文件自动合入且无冲突；复核确认 dev-zz 管理员 7 项运行设置、管理员用量证据 guard、供应商成本、账号归档、模型自检、用户/admin DTO 隔离和 `1.5.1` 版本线保持不变。
 - 同步上游 `main`（`6dd3274a`）到 `dev-zz-develop`：吸收 GPT-5.6 reasoning / cache write / usage / 计费修复、API Key 最近使用 IP 与当前并发排序、管理端用户 Token 排行、版本回退、Grok 视频计费元数据和 Go 1.26.5。
 - 接受上游 Go 服务 / 仓储和 zh/en i18n 的模块拆分，同时保留 dev-zz 的模型自检无重试边界、用量 `schedule_meta`、cache-read 计费口径、账号归档与倍率变更 Key 失效、成本优先调度、fork release 链接和 stone / emerald 管理端视觉。
 - 管理端供应商新增 / 编辑统一改为 Modal，并在供应商默认资金池维护低频的默认充值换算和默认参考汇率；修改默认值只影响后续流水，不重算历史充值记录或成本快照。

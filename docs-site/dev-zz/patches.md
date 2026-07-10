@@ -1,5 +1,36 @@
 # 补丁记录
 
+## 2026-07-10 - 上游 Fast/Flex 用户范围与 Codex 身份修复增量同步
+
+范围：
+- 上游：`origin/main` `deff3123` 增量合并到 `dev-zz-develop`，merge base 为 `6dd3274a`。
+- 后端：API Key 认证上下文、OpenAI Fast / Flex 策略、Codex OAuth 身份头、Grok reasoning usage。
+- 前端：管理员 Fast / Flex 规则新增用户 ID 范围配置和中英文提示。
+- 文档：管理员设置 API 语义、changelog、patches 和 merge log。
+
+改动：
+- Fast / Flex 规则新增 `user_ids`：非空时仅匹配指定 API Key owner，用户专属规则整体优先于全局规则，每组继续按配置顺序首条命中。
+- 用户身份只来自 API Key 认证中间件写入的可信请求 context；HTTP 与 WebSocket 转发共用该语义，不接受客户端请求体中的用户标识替代。
+- 管理端规则编辑支持添加 / 删除用户 ID；服务端拒绝非正整数和单条规则内重复 ID。
+- Codex OAuth 转发根据最终 User-Agent 生成配套 `originator`，处理客户端 override 后的尾部真实身份，并把不合法或不可识别身份回退到默认官方 Codex CLI。
+- Grok Responses 使用兼容提取逻辑保留 `reasoning_effort`，覆盖标准字段和已支持的模型兼容路径。
+
+边界：
+- 本轮真实合并无冲突；仍按拆分热点复核并保留 dev-zz 管理员 7 项运行设置、管理员用量证据 guard、供应商成本、账号归档、模型自检和用户/admin DTO 隔离。
+- compatibility messages bridge 继续保持无 `originator` 请求，不被新的 Codex 身份收口改写。
+- 继续保留 dev-zz `1.5.1`；仅更新 `dev-zz-develop`，不提升 `dev-zz`、不打 tag、不发布。
+- 合并提交：本次合并提交（提交后回填实际 SHA）。
+
+验证：
+- Fast / Flex 用户匹配、API Key auth context、Codex identity、Grok reasoning 与 dev-zz 管理员设置定向 Go 测试通过。
+- 后端 `make test-unit`、不带 build tag 的 `go test ./... -count=1`、`golangci-lint`（0 issues）和 repository integration 测试二进制编译通过。
+- 前端 ESLint / typecheck / 91 条关键测试、完整 Vitest（163 个文件 / 1026 个用例）和生产构建通过。
+- docs-site VitePress 构建、`git diff --check` 和冲突标记扫描通过；GitHub Actions 在推送最终 head 后检查并回填。
+
+未验证：
+- 浏览器人工 smoke。
+- 本机 Docker / testcontainers 运行时集成测试；该项由 GitHub Actions integration job 验证。
+
 ## 2026-07-10 - 上游 GPT-5.6、排行与结构拆分同步
 
 范围：

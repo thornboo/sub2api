@@ -2,6 +2,58 @@
 
 这里记录二开分支吸收上游变更的同步工作。
 
+## 2026-07-10 - 增量合并上游 `main`：用户级 Fast/Flex、Grok reasoning 与 Codex 身份配对
+
+分支：
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`6dd3274a`
+- 合并前目标：`33c32717`
+- 上游 head：`deff3123`
+- 结果提交：本次合并提交
+
+上游要点：
+- OpenAI Fast / Flex 策略规则新增 `user_ids`，支持先按 API Key 所属 Sub2API 用户匹配专属规则，再回退到全局规则。
+- API Key 认证把可信用户 ID 写入请求 context；HTTP、WebSocket 与预取策略路径统一使用该身份，不读取客户端请求体中的用户标识。
+- Grok Responses 路径保留 OpenAI-compatible `reasoning_effort`，不再只读取补丁后 body 的 `reasoning.effort`。
+- Codex OAuth 上游请求按最终出站 User-Agent 配对 `originator`，校正 override 后的身份错配，并把过低的 `version` 头提升到上游可接受版本。
+
+合并策略：
+- 合并前重读 dev-zz 分支策略、合并流程、变更地图和验证矩阵，刷新远程引用后确认 `6dd3274a` 是当前分支与新上游 head 的 merge base。
+- 用 `git merge-tree --write-tree --merge-base "$(git merge-base HEAD origin/main)" HEAD origin/main` 做只读预检，再用 `git merge --no-commit origin/main` 执行真实合并。
+- 本轮 7 个上游提交、30 个文件自动合入，无文本冲突；随后按大文件拆分回归模式复核管理员设置、用量证据 hydration、认证上下文、OpenAI gateway 和版本边界。
+- 接受上游 Fast / Flex 用户范围、Grok reasoning 与 Codex 身份配对实现，不改变 dev-zz 的供应商成本、账号归档、用户/admin DTO 隔离、模型自检和调度证据边界。
+
+冲突文件：
+- 无。
+
+边界复审：
+- `schedule_strategy`、模型自检 5 项设置和 `disable_keys_on_rate_change` 的 GET、PUT 省略保留、响应与审计检测仍完整存在。
+- usage log 关联 hydration 仍只有显式管理员 evidence context 可以解析已删除 API Key 和已归档账号；普通用户查询不会穿透软删除边界。
+- 用户专属 Fast / Flex 规则只接受 API Key 认证中间件注入的 `ctxkey.UserID`；规则内只允许正整数且不能重复，用户专属规则优先于全局规则，组内保持配置顺序首条命中。
+- Codex 身份配对只收口带 `originator` 的 OAuth 内部接口请求；compat messages bridge 继续不带 `originator`，第三方或不合法身份整体回退到默认官方 Codex CLI 身份。
+- `backend/cmd/server/VERSION` 未被本轮上游改动，继续保留 dev-zz `1.5.1`；本轮不提升 `dev-zz`、不打 tag、不发布。
+
+验证：
+- `go test ./internal/pkg/openai -run '^TestPairCodexClientIdentity$' -count=1`
+- `go test ./internal/server/middleware -run '^(TestAPIKeyAuthForwardsUserScopedOpenAIFastPolicyToUpstream|TestAPIKeyAuthSetsGroupContext)$' -count=1`
+- `go test ./internal/service -run 'OpenAIFastPolicy|CodexIdentity|GrokResponsesReasoningEffort|OAuthPassthrough_CodexTuiIdentity|OAuthOfficialClientOriginatorCompatibility|WSv2_OAuthOriginatorCompatibility' -count=1`
+- `go test -tags=unit ./internal/server ./internal/handler/admin -run '^(TestAPIContracts|TestSettingHandler_UpdateSettings_PreservesOmittedDevZZOperationalSettings|TestDiffSettings_DetectsDevZZOperationalSettingChanges)$' -count=1`
+- `make -C backend test-unit`
+- `go test ./... -count=1`
+- `golangci-lint run --timeout=30m`（`0 issues`）
+- `go test -tags=integration -c -o /tmp/sub2api-repository-integration.test ./internal/repository`
+- `make test-frontend`（ESLint、typecheck、6 个测试文件 / 91 个关键用例）
+- `pnpm --dir frontend run test:run`（163 个测试文件、1026 个用例）
+- `pnpm --dir frontend run build`
+- `pnpm --dir docs-site run docs:build`
+- `git diff --check`、`git diff --cached --check` 和冲突标记扫描。
+- 远端 `CI`、`Security Scan`、`dev-zz Branch Images` 在推送最终 head 后检查并回填。
+
+未验证：
+- 浏览器人工 smoke。
+- 本机 Docker / testcontainers 运行时集成测试；已完成 integration 测试二进制编译，运行由 GitHub Actions integration job 验证。
+
 ## 2026-07-10 - 将上游 `main` 合并到 `dev-zz-develop`：GPT-5.6 计费、用量排行与模块拆分合流
 
 分支：
