@@ -10,7 +10,7 @@
 - Base：`6dd3274a`
 - 合并前目标：`33c32717`
 - 上游 head：`deff3123`
-- 结果提交：本次合并提交
+- 结果提交：`838e4094`
 
 上游要点：
 - OpenAI Fast / Flex 策略规则新增 `user_ids`，支持先按 API Key 所属 Sub2API 用户匹配专属规则，再回退到全局规则。
@@ -48,7 +48,7 @@
 - `pnpm --dir frontend run build`
 - `pnpm --dir docs-site run docs:build`
 - `git diff --check`、`git diff --cached --check` 和冲突标记扫描。
-- 远端 `CI`、`Security Scan`、`dev-zz Branch Images` 在推送最终 head 后检查并回填。
+- 远端 `CI`、`Security Scan`、`dev-zz Branch Images` 在推送最终 head 后检查；运行结果记录在本轮交付报告，避免为了回填运行编号再触发一轮 docs-only 工作流。
 
 未验证：
 - 浏览器人工 smoke。

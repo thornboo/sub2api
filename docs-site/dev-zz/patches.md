@@ -19,13 +19,13 @@
 - 本轮真实合并无冲突；仍按拆分热点复核并保留 dev-zz 管理员 7 项运行设置、管理员用量证据 guard、供应商成本、账号归档、模型自检和用户/admin DTO 隔离。
 - compatibility messages bridge 继续保持无 `originator` 请求，不被新的 Codex 身份收口改写。
 - 继续保留 dev-zz `1.5.1`；仅更新 `dev-zz-develop`，不提升 `dev-zz`、不打 tag、不发布。
-- 合并提交：本次合并提交（提交后回填实际 SHA）。
+- 合并提交：`838e4094`。
 
 验证：
 - Fast / Flex 用户匹配、API Key auth context、Codex identity、Grok reasoning 与 dev-zz 管理员设置定向 Go 测试通过。
 - 后端 `make test-unit`、不带 build tag 的 `go test ./... -count=1`、`golangci-lint`（0 issues）和 repository integration 测试二进制编译通过。
 - 前端 ESLint / typecheck / 91 条关键测试、完整 Vitest（163 个文件 / 1026 个用例）和生产构建通过。
-- docs-site VitePress 构建、`git diff --check` 和冲突标记扫描通过；GitHub Actions 在推送最终 head 后检查并回填。
+- docs-site VitePress 构建、`git diff --check` 和冲突标记扫描通过；GitHub Actions 在推送最终 head 后检查，运行结果记录在本轮交付报告。
 
 未验证：
 - 浏览器人工 smoke。
