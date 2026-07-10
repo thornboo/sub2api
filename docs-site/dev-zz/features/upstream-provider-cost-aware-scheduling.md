@@ -1,6 +1,6 @@
 # 上游供应商成本感知与模型级调度
 
-> 状态：分阶段落地中。模型级错误转移第一版已覆盖 OpenAI / Claude / Gemini；供应商成本配置、综合折扣、余额查询仍是后续设计。
+> 状态：分阶段落地中。模型级错误转移第一版已覆盖 OpenAI / Claude / Gemini；供应商默认配置、真实快照综合折扣和 `strict_priority` / `cost_first` 已落地，余额查询与更高级的 balanced / canary 策略仍是后续设计。
 
 ## 这份设计解决什么
 
@@ -212,12 +212,12 @@ flowchart TD
 | 输入 | 来源 | 说明 |
 | --- | --- | --- |
 | 资金池基础成本 | 资金池当前成本快照 `effective_cny_per_usd` | 该资金池当前每 1 USD 额度的真实人民币成本 |
-| 账号消费倍率 | 账号成本绑定 `default_multiplier` / `model_family_multipliers` | 该账号在此资金池上按什么倍率折算成本，已吸收原「上游分组倍率」语义 |
+| 账号消费倍率 | 账号成本绑定 `upstream_group_multiplier`（兼容存储列 `default_multiplier`）/ `model_family_multipliers` | 该账号对应的上游 key 在此资金池上按什么倍率折算成本 |
 
 两点边界：
 
 - 不要复用现有账号的 `rate_multiplier` 表达上游成本。那个字段已经有对用户扣费和统计的含义，混入上游成本会让历史成本解释不清。
-- 不要再单列账号级「分组倍率」字段。分组差异统一由账号成本绑定的默认倍率和模型族覆盖表达。
+- 上游分组倍率属于账号成本绑定，因为站内账号对应供应商侧的一把 key；数据库兼容存储列仍是 `default_multiplier`，API / UI 使用 `upstream_group_multiplier` 表达业务语义。
 
 如果同一个资金池下不同模型族倍率不同，用账号绑定的模型族覆盖值表达：
 
@@ -508,7 +508,8 @@ ScheduleStrategy string `json:"schedule_strategy"` // "strict_priority" | "cost_
 
 - 在账号快照 / 调度缓存（`backend/internal/repository/scheduler_cache.go`）为每账号预解析并携带 `effectiveDiscount *float64`（`nil` = 未绑定成本池 / 无有效资金池快照）。
 - 复用 `upstream_cost_pool_service.go:findActiveUpstreamCostPoolIDForAccount` + 资金池 `effective_cny_per_usd` 与账号成本绑定倍率，按本文「计算公式」求综合折扣，在快照构建 / 刷新时算一次。
-- 成本数据变更随快照刷新更新（允许秒级延迟，成本折扣非高频变化）。
+- 只有存在 `current_snapshot_id` 的真实成本才进入综合折扣；供应商默认充值配置不会被当成调度成本。
+- 充值新增、修改或删除提交后，主动刷新该资金池所有 active 绑定账号的调度快照；数据库仍是最终事实来源。
 
 **排序语义（`cost_first`，折扣为主、priority 兜底）**
 

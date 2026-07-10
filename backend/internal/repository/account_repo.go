@@ -71,6 +71,7 @@ const postgresParameterBatchSize = 50000
 const (
 	upstreamAccountCostBindingSortAlias = "upstream_account_cost_binding_sort"
 	upstreamCostPoolSortAlias           = "upstream_cost_pool_sort"
+	upstreamSupplierSortAlias           = "upstream_supplier_sort"
 )
 
 // NewAccountRepository 创建账户仓储实例。
@@ -807,6 +808,7 @@ func accountUpstreamCostOrder(sortBy string, sortOrder string) []func(*entsql.Se
 		func(s *entsql.Selector) {
 			binding := entsql.Table("upstream_account_cost_bindings").As(upstreamAccountCostBindingSortAlias)
 			pool := entsql.Table("upstream_cost_pools").As(upstreamCostPoolSortAlias)
+			supplier := entsql.Table("upstream_suppliers").As(upstreamSupplierSortAlias)
 			s.LeftJoin(binding).OnP(entsql.And(
 				entsql.ColumnsEQ(binding.C("account_id"), s.C(dbaccount.FieldID)),
 				entsql.EQ(binding.C("status"), service.StatusActive),
@@ -817,10 +819,14 @@ func accountUpstreamCostOrder(sortBy string, sortOrder string) []func(*entsql.Se
 				entsql.EQ(pool.C("status"), service.StatusActive),
 				entsql.IsNull(pool.C("archived_at")),
 			))
+			s.LeftJoin(supplier).OnP(entsql.And(
+				entsql.ColumnsEQ(supplier.C("id"), pool.C("supplier_id")),
+				entsql.EQ(supplier.C("is_system"), false),
+			))
 
-			orderExpr := binding.C("default_multiplier")
+			orderExpr := "CASE WHEN " + supplier.C("id") + " IS NOT NULL THEN " + binding.C("default_multiplier") + " END"
 			if sortBy == "upstream_effective_discount" {
-				orderExpr = "((" + pool.C("current_effective_cny_per_usd") + " / NULLIF(" + pool.C("reference_fx_rate") + ", 0)) * " + binding.C("default_multiplier") + ")"
+				orderExpr = "CASE WHEN " + supplier.C("id") + " IS NOT NULL AND " + pool.C("current_snapshot_id") + " IS NOT NULL THEN ((" + pool.C("current_effective_cny_per_usd") + " / NULLIF(" + pool.C("reference_fx_rate") + ", 0)) * " + binding.C("default_multiplier") + ") END"
 			}
 			s.OrderExpr(entsql.Expr(orderExpr + " " + direction + " NULLS LAST"))
 			s.OrderBy(tieOrder(s.C(dbaccount.FieldID)))
@@ -2044,11 +2050,14 @@ SELECT binding.account_id,
        ((pool.current_effective_cny_per_usd::double precision / NULLIF(pool.reference_fx_rate::double precision, 0)) * binding.default_multiplier::double precision) AS effective_discount
 FROM upstream_account_cost_bindings binding
 JOIN upstream_cost_pools pool ON pool.id = binding.cost_pool_id
+JOIN upstream_suppliers supplier ON supplier.id = pool.supplier_id
 WHERE binding.account_id = ANY($1)
   AND binding.status = $2
   AND binding.valid_to IS NULL
   AND pool.status = $2
   AND pool.archived_at IS NULL
+  AND supplier.is_system = FALSE
+  AND pool.current_snapshot_id IS NOT NULL
   AND pool.current_effective_cny_per_usd IS NOT NULL
   AND pool.reference_fx_rate > 0
   AND binding.default_multiplier > 0`,

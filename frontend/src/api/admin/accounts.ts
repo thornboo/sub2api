@@ -237,6 +237,7 @@ export interface UpstreamSupplier {
   name: string
   status: string
   note?: string | null
+  is_system?: boolean
   created_at: string
   updated_at: string
   archived_at?: string | null
@@ -245,6 +246,8 @@ export interface UpstreamSupplier {
 export interface UpstreamSupplierPayload {
   name: string
   note?: string | null
+  default_effective_cny_per_usd?: number
+  default_reference_fx_rate?: number
 }
 
 export interface UpstreamCostPool {
@@ -252,10 +255,13 @@ export interface UpstreamCostPool {
   supplier_id: number
   supplier_name: string
   name: string
+  is_default: boolean
   status: string
   base_currency: string
   credit_currency: string
   reference_fx_rate: number
+  default_effective_cny_per_usd: number
+  default_reference_fx_rate: number
   cost_method: string
   current_effective_cny_per_usd?: number | null
   current_snapshot_id?: number | null
@@ -291,6 +297,8 @@ export interface UpstreamAccountCostBinding {
   supplier_name?: string
   status: string
   default_multiplier: number
+  upstream_group_name?: string | null
+  upstream_group_multiplier?: number
   model_family_multipliers: UpstreamCostModelFamilyMultiplier[]
   note?: string | null
   valid_from: string
@@ -303,6 +311,8 @@ export interface UpstreamSupplierBindingPayload {
   supplier_id?: number | null
   supplier_name?: string | null
   cost_pool_id?: number | null
+  upstream_group_name?: string | null
+  upstream_group_multiplier?: number
   default_multiplier?: number
   model_families?: UpstreamCostModelFamilyMultiplier[]
   note?: string | null
@@ -341,6 +351,26 @@ export async function listUpstreamSuppliers(): Promise<UpstreamSupplier[]> {
 export async function createUpstreamSupplier(payload: UpstreamSupplierPayload): Promise<UpstreamSupplier> {
   const { data } = await apiClient.post<UpstreamSupplier>('/admin/upstream-suppliers', payload)
   return data
+}
+
+export interface UpstreamSupplierUpdatePayload {
+  name?: string
+  note?: string | null
+  status?: 'active' | 'archived'
+  default_effective_cny_per_usd?: number
+  default_reference_fx_rate?: number
+}
+
+export async function updateUpstreamSupplier(
+  id: number,
+  payload: UpstreamSupplierUpdatePayload
+): Promise<UpstreamSupplier> {
+  const { data } = await apiClient.patch<UpstreamSupplier>(`/admin/upstream-suppliers/${id}`, payload)
+  return data
+}
+
+export async function deleteUpstreamSupplier(id: number): Promise<void> {
+  await apiClient.delete(`/admin/upstream-suppliers/${id}`)
 }
 
 export async function listUpstreamCostPools(): Promise<UpstreamCostPool[]> {
@@ -1126,6 +1156,8 @@ export const accountsAPI = {
   createUpstreamRechargeRecord,
   listUpstreamSuppliers,
   createUpstreamSupplier,
+  updateUpstreamSupplier,
+  deleteUpstreamSupplier,
   listUpstreamCostPools,
   listUpstreamCostPoolAccounts,
   listUpstreamCostPoolRechargeRecords,

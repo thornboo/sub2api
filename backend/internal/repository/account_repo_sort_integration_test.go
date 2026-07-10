@@ -102,6 +102,31 @@ func (s *AccountRepoSuite) TestListWithFilters_SortByUpstreamMultiplier() {
 	s.Require().Equal(unconfigured.ID, desc[2].ID)
 }
 
+func (s *AccountRepoSuite) TestListWithFilters_UpstreamDiscountRequiresRealNonSystemSnapshot() {
+	systemAccount := mustCreateAccount(s.T(), s.client, &service.Account{Name: "discount-system-supplier"})
+	configuredOnlyAccount := mustCreateAccount(s.T(), s.client, &service.Account{Name: "discount-config-only"})
+	archivedSupplierAccount := mustCreateAccount(s.T(), s.client, &service.Account{Name: "discount-archived-supplier"})
+
+	s.mustBindAccountCostForEligibility(systemAccount.ID, true, "active", true)
+	s.mustBindAccountCostForEligibility(configuredOnlyAccount.ID, false, "active", false)
+	s.mustBindAccountCostForEligibility(archivedSupplierAccount.ID, false, "archived", true)
+
+	accounts, _, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{
+		Page:     1,
+		PageSize: 10,
+	}, "", "", "", "", 0, "")
+	s.Require().NoError(err)
+
+	byID := make(map[int64]service.Account, len(accounts))
+	for _, account := range accounts {
+		byID[account.ID] = account
+	}
+	s.Require().Nil(byID[systemAccount.ID].UpstreamEffectiveDiscount)
+	s.Require().Nil(byID[configuredOnlyAccount.ID].UpstreamEffectiveDiscount)
+	s.Require().NotNil(byID[archivedSupplierAccount.ID].UpstreamEffectiveDiscount)
+	s.Require().InDelta(1, *byID[archivedSupplierAccount.ID].UpstreamEffectiveDiscount, 0.000001)
+}
+
 func (s *AccountRepoSuite) mustBindAccountCostForSort(accountID int64, effectiveCNYPerUSD, referenceFXRate, defaultMultiplier float64) {
 	s.T().Helper()
 
@@ -118,13 +143,67 @@ func (s *AccountRepoSuite) mustBindAccountCostForSort(accountID int64, effective
 		referenceFXRate,
 		effectiveCNYPerUSD,
 	)
+	snapshotID := s.mustInsertIDForAccountSort(
+		`INSERT INTO upstream_cost_snapshots (cost_pool_id, effective_cny_per_usd, reference_fx_rate, calculation_method)
+		 VALUES ($1, $2, $3, 'latest')
+		 RETURNING id`,
+		poolID,
+		effectiveCNYPerUSD,
+		referenceFXRate,
+	)
 	_, err := s.repo.sql.ExecContext(
+		s.ctx,
+		`UPDATE upstream_cost_pools SET current_snapshot_id = $2 WHERE id = $1`,
+		poolID,
+		snapshotID,
+	)
+	s.Require().NoError(err)
+	_, err = s.repo.sql.ExecContext(
 		s.ctx,
 		`INSERT INTO upstream_account_cost_bindings (account_id, cost_pool_id, status, default_multiplier)
 		 VALUES ($1, $2, 'active', $3)`,
 		accountID,
 		poolID,
 		defaultMultiplier,
+	)
+	s.Require().NoError(err)
+}
+
+func (s *AccountRepoSuite) mustBindAccountCostForEligibility(accountID int64, isSystem bool, supplierStatus string, withSnapshot bool) {
+	s.T().Helper()
+
+	supplierID := s.mustInsertIDForAccountSort(
+		`INSERT INTO upstream_suppliers (name, status, is_system, archived_at)
+		 VALUES ($1, $2, $3, CASE WHEN $4 THEN NOW() ELSE NULL END)
+		 RETURNING id`,
+		fmt.Sprintf("account-eligibility-supplier-%d", accountID),
+		supplierStatus,
+		isSystem,
+		supplierStatus == "archived",
+	)
+	poolID := s.mustInsertIDForAccountSort(
+		`INSERT INTO upstream_cost_pools (supplier_id, name, reference_fx_rate, current_effective_cny_per_usd)
+		 VALUES ($1, $2, 7, 7)
+		 RETURNING id`,
+		supplierID,
+		fmt.Sprintf("account-eligibility-pool-%d", accountID),
+	)
+	if withSnapshot {
+		snapshotID := s.mustInsertIDForAccountSort(
+			`INSERT INTO upstream_cost_snapshots (cost_pool_id, effective_cny_per_usd, reference_fx_rate, calculation_method)
+			 VALUES ($1, 7, 7, 'latest')
+			 RETURNING id`,
+			poolID,
+		)
+		_, err := s.repo.sql.ExecContext(s.ctx, `UPDATE upstream_cost_pools SET current_snapshot_id = $2 WHERE id = $1`, poolID, snapshotID)
+		s.Require().NoError(err)
+	}
+	_, err := s.repo.sql.ExecContext(
+		s.ctx,
+		`INSERT INTO upstream_account_cost_bindings (account_id, cost_pool_id, status, default_multiplier)
+		 VALUES ($1, $2, 'active', 1)`,
+		accountID,
+		poolID,
 	)
 	s.Require().NoError(err)
 }

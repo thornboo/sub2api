@@ -47,11 +47,28 @@ func TestNormalizeUpstreamRechargeRecordInput_RejectsUnsupportedCurrency(t *test
 	}
 }
 
+func TestNormalizeUpstreamRechargeRecordInput_BonusDoesNotDefineUnitCost(t *testing.T) {
+	values, err := normalizeUpstreamRechargeRecordInput(UpstreamRechargeRecordInput{
+		Type:                 "bonus",
+		PaidAmount:           7,
+		ReceivedCreditAmount: 2,
+		ReferenceFXRate:      7,
+	})
+	if err != nil {
+		t.Fatalf("normalizeUpstreamRechargeRecordInput() error = %v", err)
+	}
+	if values.EffectiveCNYPerUSD != nil || values.RechargeDiscount != nil {
+		t.Fatalf("bonus cost = (%v, %v), want nil unit cost and discount", values.EffectiveCNYPerUSD, values.RechargeDiscount)
+	}
+}
+
 func TestNormalizeUpstreamCostBindingInput_DefaultsAndDeduplicatesFamilies(t *testing.T) {
 	note := "  fast lane  "
+	groupName := "  claude-sale  "
 	values, err := normalizeUpstreamCostBindingInput(UpstreamCostBindingInput{
 		AccountID:         1,
 		CostPoolID:        2,
+		UpstreamGroupName: &groupName,
 		DefaultMultiplier: 0,
 		ModelFamilyMultipliers: []UpstreamCostModelFamilyMultiplier{
 			{Family: " Sonnet ", GroupMultiplier: 0.7, Note: &note},
@@ -66,6 +83,9 @@ func TestNormalizeUpstreamCostBindingInput_DefaultsAndDeduplicatesFamilies(t *te
 
 	if values.DefaultMultiplier != 1 {
 		t.Fatalf("DefaultMultiplier = %v, want 1", values.DefaultMultiplier)
+	}
+	if values.UpstreamGroupName == nil || *values.UpstreamGroupName != "claude-sale" {
+		t.Fatalf("UpstreamGroupName = %v, want claude-sale", values.UpstreamGroupName)
 	}
 	if len(values.ModelFamilyMultipliers) != 2 {
 		t.Fatalf("len(ModelFamilyMultipliers) = %d, want 2", len(values.ModelFamilyMultipliers))

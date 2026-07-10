@@ -368,7 +368,7 @@ func (s *adminServiceImpl) CreateUpstreamRechargeRecord(ctx context.Context, inp
 		if account == nil {
 			return nil, infraerrors.BadRequest("INVALID_ACCOUNT_ID", "account id is required when cost pool id is not provided")
 		}
-		costPoolID, err = s.ensureDefaultUpstreamCostPoolForAccount(ctx, account)
+		costPoolID, err = s.requireActiveUpstreamCostPoolForAccount(ctx, account)
 		if err != nil {
 			return nil, err
 		}
@@ -443,7 +443,7 @@ closed_snapshot AS (
           SELECT 1
           FROM new_record
           WHERE effective_cny_per_usd IS NOT NULL
-            AND type IN ('recharge', 'bonus')
+			AND type = 'recharge'
       )
     RETURNING id
 ),
@@ -468,7 +468,7 @@ new_snapshot AS (
            '新增资金池账本后生成的最新成本快照。'
     FROM new_record
     WHERE effective_cny_per_usd IS NOT NULL
-      AND type IN ('recharge', 'bonus')
+	  AND type = 'recharge'
       AND (SELECT COUNT(*) FROM closed_snapshot) >= 0
     RETURNING id, cost_pool_id, effective_cny_per_usd::double precision AS effective_cny_per_usd, reference_fx_rate::double precision AS reference_fx_rate
 ),
@@ -524,9 +524,16 @@ FROM new_record`,
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-
-	return scanSingleUpstreamRechargeRecord(rows)
+	record, scanErr := scanSingleUpstreamRechargeRecord(rows)
+	closeErr := rows.Close()
+	if scanErr != nil {
+		return nil, scanErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	s.refreshSchedulerAccountSnapshotsForCostPool(ctx, costPoolID)
+	return record, nil
 }
 
 func (s *adminServiceImpl) UpdateUpstreamRechargeRecord(ctx context.Context, recordID int64, input UpstreamRechargeRecordInput) (*UpstreamRechargeRecord, error) {
@@ -621,6 +628,9 @@ RETURNING id,
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	if record.CostPoolID != nil {
+		s.refreshSchedulerAccountSnapshotsForCostPool(ctx, *record.CostPoolID)
+	}
 	return record, nil
 }
 
@@ -681,6 +691,9 @@ RETURNING cost_pool_id`, recordID, accountID)
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	if costPoolID.Valid {
+		s.refreshSchedulerAccountSnapshotsForCostPool(ctx, costPoolID.Int64)
+	}
 	return nil
 }
 
@@ -697,7 +710,7 @@ latest_record AS (
     WHERE record.cost_pool_id = $1
       AND record.deleted_at IS NULL
       AND record.voided_at IS NULL
-      AND record.type IN ('recharge', 'bonus')
+	  AND record.type = 'recharge'
       AND record.effective_cny_per_usd IS NOT NULL
     ORDER BY record.recorded_at DESC, record.id DESC
     LIMIT 1
@@ -869,7 +882,7 @@ func normalizeUpstreamRechargeRecordInput(input UpstreamRechargeRecordInput) (up
 
 	var effective *float64
 	var discount *float64
-	if paidAmount > 0 && receivedAmount > 0 {
+	if recordType == "recharge" && paidAmount > 0 && receivedAmount > 0 {
 		effectiveValue := paidAmount / receivedAmount
 		discountValue := effectiveValue / referenceFXRate
 		effective = &effectiveValue

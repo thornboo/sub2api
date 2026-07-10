@@ -7,6 +7,7 @@ const {
   listAccounts,
   listWithEtag,
   getBatchTodayStats,
+  listUpstreamSuppliers,
   listUpstreamCostPools,
   listUpstreamCostPoolAccounts,
   getAllProxies,
@@ -15,6 +16,7 @@ const {
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
   getBatchTodayStats: vi.fn(),
+  listUpstreamSuppliers: vi.fn(),
   listUpstreamCostPools: vi.fn(),
   listUpstreamCostPoolAccounts: vi.fn(),
   getAllProxies: vi.fn(),
@@ -27,6 +29,7 @@ vi.mock('@/api/admin', () => ({
       list: listAccounts,
       listWithEtag,
       getBatchTodayStats,
+      listUpstreamSuppliers,
       listUpstreamCostPools,
       listUpstreamCostPoolAccounts,
       delete: vi.fn(),
@@ -106,6 +109,23 @@ function mountView() {
         TLSFingerprintProfilesModal: true,
         CreateAccountModal: true,
         EditAccountModal: true,
+        UpstreamSupplierModal: true,
+        UpstreamCostComparison: {
+          props: ['costPools'],
+          emits: ['refresh', 'recharge-records'],
+          template: `
+            <div data-test="upstream-cost-comparison">
+              <span data-test="upstream-current-cost">{{ costPools[0]?.current_effective_cny_per_usd ?? '-' }}</span>
+              <button data-test="upstream-cost-refresh" @click="$emit('refresh')">refresh costs</button>
+              <button v-if="costPools[0]" data-test="open-recharge-records" @click="$emit('recharge-records', costPools[0])">records</button>
+            </div>
+          `
+        },
+        UpstreamRechargeRecordsModal: {
+          props: ['show'],
+          emits: ['pool-updated'],
+          template: '<button v-if="show" data-test="emit-pool-updated" @click="$emit(\'pool-updated\')">updated</button>'
+        },
         BulkEditAccountModal: true,
         PlatformTypeBadge: true,
         AccountCapacityCell: true,
@@ -141,6 +161,7 @@ describe('admin AccountsView scheduler score column', () => {
     listAccounts.mockReset()
     listWithEtag.mockReset()
     getBatchTodayStats.mockReset()
+    listUpstreamSuppliers.mockReset()
     listUpstreamCostPools.mockReset()
     listUpstreamCostPoolAccounts.mockReset()
     getAllProxies.mockReset()
@@ -196,6 +217,7 @@ describe('admin AccountsView scheduler score column', () => {
       data: null
     })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
+    listUpstreamSuppliers.mockResolvedValue([])
     listUpstreamCostPools.mockResolvedValue([])
     listUpstreamCostPoolAccounts.mockResolvedValue([])
     getAllProxies.mockResolvedValue([])
@@ -230,5 +252,62 @@ describe('admin AccountsView scheduler score column', () => {
     const emptyCell = wrapper.find('[data-test="scheduler-score-3"]')
     expect(emptyCell.exists()).toBe(true)
     expect(emptyCell.text()).toBe('-')
+  })
+
+  it('forces a fresh pool request after recharge updates and ignores the older in-flight response', async () => {
+    const initialPool = {
+      id: 9,
+      supplier_id: 7,
+      supplier_name: 'Supplier A',
+      name: '主余额池',
+      is_default: true,
+      status: 'active',
+      reference_fx_rate: 7,
+      default_effective_cny_per_usd: 7,
+      default_reference_fx_rate: 7,
+      cost_method: 'latest',
+      current_effective_cny_per_usd: 7,
+      current_snapshot_id: 10,
+      binding_count: 1,
+      record_count: 1
+    }
+    const refreshedPool = {
+      ...initialPool,
+      current_effective_cny_per_usd: 5,
+      current_snapshot_id: 11,
+      record_count: 2
+    }
+    listUpstreamSuppliers.mockResolvedValue([
+      { id: 7, name: 'Supplier A', status: 'active', is_system: false }
+    ])
+    listUpstreamCostPools.mockResolvedValue([initialPool])
+
+    const wrapper = mountView()
+    await flushPromises()
+    const costTab = wrapper.findAll('button').find((button) => button.text() === 'admin.accounts.views.upstreamCost')
+    expect(costTab).toBeTruthy()
+    await costTab!.trigger('click')
+    await flushPromises()
+
+    let resolveStaleRequest!: (value: typeof initialPool[]) => void
+    const staleRequest = new Promise<typeof initialPool[]>((resolve) => {
+      resolveStaleRequest = resolve
+    })
+    listUpstreamCostPools.mockImplementationOnce(() => staleRequest)
+    const callsBeforeStaleRefresh = listUpstreamCostPools.mock.calls.length
+    await wrapper.get('[data-test="upstream-cost-refresh"]').trigger('click')
+    await flushPromises()
+    expect(listUpstreamCostPools).toHaveBeenCalledTimes(callsBeforeStaleRefresh + 1)
+
+    listUpstreamCostPools.mockResolvedValueOnce([refreshedPool])
+    await wrapper.get('[data-test="open-recharge-records"]').trigger('click')
+    await wrapper.get('[data-test="emit-pool-updated"]').trigger('click')
+    await flushPromises()
+    expect(listUpstreamCostPools).toHaveBeenCalledTimes(callsBeforeStaleRefresh + 2)
+    expect(wrapper.get('[data-test="upstream-current-cost"]').text()).toBe('5')
+
+    resolveStaleRequest([initialPool])
+    await flushPromises()
+    expect(wrapper.get('[data-test="upstream-current-cost"]').text()).toBe('5')
   })
 })

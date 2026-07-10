@@ -611,8 +611,42 @@
               :placeholder="t('admin.accounts.upstreamCost.supplierPlaceholder')"
               :empty-text="t('admin.accounts.upstreamCost.supplierEmpty')"
               :disabled="upstreamSupplierLoading"
+              data-testid="upstream-supplier-select"
               clearable
             />
+          </div>
+
+          <div
+            v-if="upstreamSupplierID"
+            class="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1.35fr)_minmax(10rem,0.65fr)]"
+          >
+            <div>
+              <label class="input-label">{{ t('admin.accounts.upstreamCost.upstreamGroupName') }}</label>
+              <input
+                v-model="upstreamGroupName"
+                type="text"
+                maxlength="120"
+                class="input"
+                :disabled="upstreamSupplierBindingReadOnly"
+                :placeholder="t('admin.accounts.upstreamCost.upstreamGroupNamePlaceholder')"
+                data-testid="upstream-group-name"
+              />
+              <p class="input-hint">{{ t('admin.accounts.upstreamCost.upstreamGroupNameHint') }}</p>
+            </div>
+
+            <div>
+              <label class="input-label">{{ t('admin.accounts.upstreamCost.upstreamGroupMultiplier') }}</label>
+              <input
+                v-model="upstreamGroupMultiplier"
+                type="number"
+                min="0.000001"
+                step="0.000001"
+                class="input font-mono"
+                :disabled="upstreamSupplierBindingReadOnly"
+                data-testid="upstream-group-multiplier"
+              />
+              <p class="input-hint">{{ t('admin.accounts.upstreamCost.upstreamGroupMultiplierHint') }}</p>
+            </div>
           </div>
 
           <p class="text-xs text-stone-500 dark:text-stone-500">
@@ -2961,6 +2995,9 @@ const editApiKey = ref('')
 const upstreamSuppliers = ref<UpstreamSupplier[]>([])
 const upstreamCostBinding = ref<UpstreamAccountCostBinding | null>(null)
 const upstreamSupplierID = ref<number | null>(null)
+const upstreamSupplierSelectionDirty = ref(false)
+const upstreamGroupName = ref('')
+const upstreamGroupMultiplier = ref('1')
 const upstreamSupplierLoading = ref(false)
 const upstreamSupplierLoadError = ref('')
 // Bedrock credentials
@@ -3077,23 +3114,74 @@ const getAntigravityModelMappingKey = createStableObjectKeyResolver<ModelMapping
 const getTempUnschedRuleKey = createStableObjectKeyResolver<TempUnschedRuleForm>('edit-temp-unsched-rule')
 
 const showUpstreamSupplierBinding = computed(() => props.account?.type === 'apikey')
+const legacySystemUpstreamSupplierName = '未归类供应商'
+const isSelectableUpstreamSupplier = (supplier: UpstreamSupplier) =>
+  supplier.status === 'active' &&
+  !supplier.archived_at &&
+  supplier.is_system !== true &&
+  supplier.name.trim() !== legacySystemUpstreamSupplierName
 const activeUpstreamSuppliers = computed(() =>
-  upstreamSuppliers.value.filter((supplier) => supplier.status === 'active' && !supplier.archived_at)
+  upstreamSuppliers.value.filter(isSelectableUpstreamSupplier)
 )
-const upstreamSupplierSelectOptions = computed(() =>
-  activeUpstreamSuppliers.value.map((supplier) => ({
+const upstreamSupplierSelectOptions = computed(() => {
+  const options = activeUpstreamSuppliers.value.map((supplier) => ({
     value: supplier.id,
     label: supplier.name
   }))
-)
+  const currentSupplierID = upstreamCostBinding.value?.supplier_id
+  if (!currentSupplierID || options.some((option) => option.value === currentSupplierID)) {
+    return options
+  }
+  const currentSupplier = upstreamSuppliers.value.find((supplier) => supplier.id === currentSupplierID)
+  if (!currentSupplier || currentSupplier.is_system === true || currentSupplier.name.trim() === legacySystemUpstreamSupplierName) {
+    return options
+  }
+  return [
+    ...options,
+    {
+      value: currentSupplier.id,
+      label: `${currentSupplier.name} (${t('admin.accounts.upstreamCost.archivedStatus')})`,
+      disabled: true
+    }
+  ]
+})
+const upstreamSupplierBindingReadOnly = computed(() => {
+  const selectedSupplier = upstreamSuppliers.value.find((supplier) => supplier.id === upstreamSupplierID.value)
+  return Boolean(selectedSupplier && !isSelectableUpstreamSupplier(selectedSupplier))
+})
+const formatUpstreamGroupMultiplierValue = (value?: number | null): string => {
+  const numericValue = Number(value)
+  return Number.isFinite(numericValue) && numericValue > 0 ? `${numericValue}` : '1'
+}
+const parseUpstreamGroupMultiplierValue = (): number => {
+  const numericValue = Number(upstreamGroupMultiplier.value)
+  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : 1
+}
 const upstreamSupplierSelectValue = computed<string | number | boolean | null>({
   get: () => upstreamSupplierID.value,
   set: (value) => {
-    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-      upstreamSupplierID.value = value
+    upstreamSupplierSelectionDirty.value = true
+    const numericValue = typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number(value)
+        : NaN
+    if (Number.isFinite(numericValue) && numericValue > 0) {
+      upstreamSupplierID.value = numericValue
+      if (upstreamCostBinding.value?.supplier_id === numericValue) {
+        upstreamGroupName.value = upstreamCostBinding.value.upstream_group_name ?? ''
+        upstreamGroupMultiplier.value = formatUpstreamGroupMultiplierValue(
+          upstreamCostBinding.value.upstream_group_multiplier ?? upstreamCostBinding.value.default_multiplier
+        )
+      } else {
+        upstreamGroupName.value = ''
+        upstreamGroupMultiplier.value = '1'
+      }
       return
     }
     upstreamSupplierID.value = null
+    upstreamGroupName.value = ''
+    upstreamGroupMultiplier.value = '1'
   }
 })
 const showMixedChannelWarning = ref(false)
@@ -3645,6 +3733,9 @@ const resetUpstreamSupplierBindingState = () => {
   upstreamSuppliers.value = []
   upstreamCostBinding.value = null
   upstreamSupplierID.value = null
+  upstreamSupplierSelectionDirty.value = false
+  upstreamGroupName.value = ''
+  upstreamGroupMultiplier.value = '1'
   upstreamSupplierLoadError.value = ''
 }
 
@@ -3652,7 +3743,21 @@ const isNotFoundError = (error: any) => error?.status === 404 || error?.response
 
 const hydrateUpstreamSupplierBinding = (binding: UpstreamAccountCostBinding | null) => {
   upstreamCostBinding.value = binding
-  upstreamSupplierID.value = binding?.supplier_id ?? null
+  const supplierID = binding?.supplier_id ?? null
+  const boundSupplier = supplierID === null
+    ? null
+    : upstreamSuppliers.value.find((supplier) => supplier.id === supplierID) ?? null
+  const bindingCanBePreserved = boundSupplier !== null &&
+    boundSupplier.is_system !== true &&
+    boundSupplier.name.trim() !== legacySystemUpstreamSupplierName
+  upstreamSupplierID.value = bindingCanBePreserved ? supplierID : null
+  upstreamGroupName.value = bindingCanBePreserved ? binding?.upstream_group_name ?? '' : ''
+  upstreamGroupMultiplier.value = formatUpstreamGroupMultiplierValue(
+    bindingCanBePreserved
+      ? binding?.upstream_group_multiplier ?? binding?.default_multiplier
+      : null
+  )
+  upstreamSupplierSelectionDirty.value = false
 }
 
 const loadUpstreamSupplierBinding = async (accountID: number) => {
@@ -3691,7 +3796,7 @@ const buildUpstreamSupplierBindingPayload = (): UpstreamSupplierBindingPayload |
   }
 
   if (!upstreamSupplierID.value || upstreamSupplierID.value <= 0) {
-    if (upstreamCostBinding.value) {
+    if (upstreamCostBinding.value && upstreamSupplierSelectionDirty.value) {
       return { supplier_id: null }
     }
     return null
@@ -3699,9 +3804,12 @@ const buildUpstreamSupplierBindingPayload = (): UpstreamSupplierBindingPayload |
   const currentCostPoolID = upstreamCostBinding.value?.supplier_id === upstreamSupplierID.value
     ? upstreamCostBinding.value.cost_pool_id
     : null
+  const trimmedGroupName = upstreamGroupName.value.trim()
   return {
     supplier_id: upstreamSupplierID.value,
-    cost_pool_id: currentCostPoolID
+    cost_pool_id: currentCostPoolID,
+    upstream_group_name: trimmedGroupName || null,
+    upstream_group_multiplier: parseUpstreamGroupMultiplierValue()
   }
 }
 
@@ -3718,7 +3826,20 @@ const upstreamSupplierBindingChanged = (payload: UpstreamSupplierBindingPayload 
   }
   const currentSupplierID = current.supplier_id ?? 0
   const nextSupplierID = payload.supplier_id ?? 0
-  return currentSupplierID !== nextSupplierID
+  if (currentSupplierID !== nextSupplierID) {
+    return true
+  }
+  const currentGroupName = current.upstream_group_name?.trim() || ''
+  const nextGroupName = payload.upstream_group_name?.trim() || ''
+  if (currentGroupName !== nextGroupName) {
+    return true
+  }
+  const currentMultiplier = Number(current.upstream_group_multiplier ?? current.default_multiplier ?? 1)
+  const nextMultiplier = Number(payload.upstream_group_multiplier ?? payload.default_multiplier ?? 1)
+  if (!Number.isFinite(currentMultiplier) || Math.abs(currentMultiplier - nextMultiplier) > 0.000001) {
+    return true
+  }
+  return false
 }
 
 const persistUpstreamSupplierBindingIfNeeded = async (accountID: number) => {

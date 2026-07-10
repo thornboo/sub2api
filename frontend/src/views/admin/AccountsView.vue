@@ -4,6 +4,7 @@
       <template #filters>
         <div class="flex flex-wrap-reverse items-start justify-between gap-3">
           <AccountTableFilters
+            v-if="activeAccountView !== 'cost'"
             v-model:searchQuery="params.search"
             :filters="params"
             :groups="groups"
@@ -12,13 +13,15 @@
             @update:searchQuery="debouncedReload"
           />
           <AccountTableActions
-            :loading="loading"
+            :loading="activeAccountView === 'cost' ? costComparisonLoading : loading"
+            :create-label="activeAccountView === 'cost' ? t('admin.accounts.upstreamCost.addSupplier') : undefined"
+            :show-create-icon="activeAccountView === 'cost'"
             @refresh="handleManualRefresh"
-            @create="showCreate = true"
+            @create="handlePrimaryCreate"
           >
             <template #after>
               <!-- Auto Refresh Dropdown -->
-              <div class="relative" ref="autoRefreshDropdownRef">
+              <div v-if="activeAccountView !== 'cost'" class="relative" ref="autoRefreshDropdownRef">
                 <button
                   @click="
                     showAutoRefreshDropdown = !showAutoRefreshDropdown;
@@ -63,7 +66,7 @@
               </div>
 
               <!-- More Tools Dropdown -->
-              <div class="relative" ref="accountToolsDropdownRef">
+              <div v-if="activeAccountView !== 'cost'" class="relative" ref="accountToolsDropdownRef">
                 <button
                   @click="
                     showAccountToolsDropdown = !showAccountToolsDropdown;
@@ -320,6 +323,13 @@
                 {{ accountUpstreamSupplierName(row) }}
               </span>
               <span v-else class="text-sm text-gray-400 dark:text-stone-600">-</span>
+              <span
+                v-if="accountUpstreamGroupName(row)"
+                class="inline-flex w-fit max-w-full rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200"
+                :title="accountUpstreamGroupName(row)"
+              >
+                <span class="truncate">{{ accountUpstreamGroupName(row) }}</span>
+              </span>
               <span v-if="accountUpstreamPoolName(row)" class="text-xs text-gray-500 dark:text-gray-400">
                 {{ accountUpstreamPoolName(row) }}
               </span>
@@ -487,12 +497,20 @@
           :loading="costComparisonLoading"
           :error="costComparisonError"
           @refresh="loadSupplierCostView"
+          @edit-supplier="openSupplierEdit"
           @recharge-records="openSupplierRechargeRecords"
         />
       </template>
       <template #pagination><Pagination v-if="activeAccountView !== 'cost' && pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
     <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="handleAccountCreated" />
+    <UpstreamSupplierModal
+      :show="showSupplierModal"
+      :supplier="editingUpstreamSupplier"
+      :cost-pool="editingUpstreamSupplierPool"
+      @close="closeSupplierModal"
+      @saved="handleSupplierSaved"
+    />
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
@@ -557,6 +575,7 @@ import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActions
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import UpstreamCostComparison from '@/components/admin/account/UpstreamCostComparison.vue'
 import UpstreamRechargeRecordsModal from '@/components/admin/account/UpstreamRechargeRecordsModal.vue'
+import UpstreamSupplierModal from '@/components/admin/account/UpstreamSupplierModal.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
@@ -645,6 +664,8 @@ const showReAuth = ref(false)
 const showTest = ref(false)
 const showStats = ref(false)
 const showRechargeRecords = ref(false)
+const showSupplierModal = ref(false)
+const editingUpstreamSupplierID = ref<number | null>(null)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
 const edAcc = ref<Account | null>(null)
@@ -666,6 +687,16 @@ type AccountViewMode = 'list' | 'archived' | 'cost'
 const activeAccountView = ref<AccountViewMode>('list')
 const upstreamSuppliers = ref<UpstreamSupplier[]>([])
 const upstreamCostPools = ref<UpstreamCostPool[]>([])
+const editingUpstreamSupplier = computed(() => (
+  editingUpstreamSupplierID.value === null
+    ? null
+    : upstreamSuppliers.value.find((supplier) => supplier.id === editingUpstreamSupplierID.value) || null
+))
+const editingUpstreamSupplierPool = computed(() => {
+  if (editingUpstreamSupplierID.value === null) return null
+  const supplierPools = upstreamCostPools.value.filter((pool) => pool.supplier_id === editingUpstreamSupplierID.value)
+  return supplierPools.find((pool) => pool.is_default) || supplierPools[0] || null
+})
 const upstreamAccountBindings = ref<Record<number, UpstreamAccountCostBinding>>({})
 const upstreamCostContextLoading = ref(false)
 const costComparisonLoading = ref(false)
@@ -1054,7 +1085,7 @@ const loadCostPoolAccountBindings = async (pools: UpstreamCostPool[]): Promise<R
   return upstreamCostBindingsRequest
 }
 
-const loadVisibleUpstreamCostContext = async () => {
+const loadVisibleUpstreamCostContext = async (options?: { forcePools?: boolean }) => {
   const requestSeq = ++upstreamCostContextRequestSeq
   if (accounts.value.length === 0) {
     if (requestSeq === upstreamCostContextRequestSeq) {
@@ -1064,7 +1095,7 @@ const loadVisibleUpstreamCostContext = async () => {
   }
   upstreamCostContextLoading.value = true
   try {
-    const pools = await fetchUpstreamCostPools()
+    const pools = await fetchUpstreamCostPools(options?.forcePools === true)
     const bindings = await loadCostPoolAccountBindings(pools)
     if (requestSeq !== upstreamCostContextRequestSeq || activeAccountView.value === 'cost') {
       return
@@ -1099,7 +1130,7 @@ const loadSupplierCostView = async (options?: { forcePools?: boolean }) => {
     upstreamSuppliers.value = suppliers
     setUpstreamCostPools(pools)
   } catch (error: any) {
-    if (requestSeq !== supplierCostViewRequestSeq) {
+    if (requestSeq !== supplierCostViewRequestSeq || activeAccountView.value !== 'cost') {
       return
     }
     costComparisonError.value = error?.message || t('admin.accounts.upstreamCost.loadFailed')
@@ -1111,6 +1142,35 @@ const loadSupplierCostView = async (options?: { forcePools?: boolean }) => {
       costComparisonLoading.value = false
     }
   }
+}
+
+const openSupplierCreate = () => {
+  editingUpstreamSupplierID.value = null
+  showSupplierModal.value = true
+}
+
+const handlePrimaryCreate = () => {
+  if (activeAccountView.value === 'cost') {
+    openSupplierCreate()
+    return
+  }
+  showCreate.value = true
+}
+
+const openSupplierEdit = (supplierID: number) => {
+  editingUpstreamSupplierID.value = supplierID
+  showSupplierModal.value = true
+}
+
+const closeSupplierModal = () => {
+  showSupplierModal.value = false
+  editingUpstreamSupplierID.value = null
+}
+
+const handleSupplierSaved = () => {
+  loadSupplierCostView({ forcePools: true }).catch((error) => {
+    console.error('Failed to refresh upstream supplier costs after supplier save:', error)
+  })
 }
 
 const resetAutoRefreshCache = () => {
@@ -1219,6 +1279,7 @@ const isAnyModalOpen = computed(() => {
     showTest.value ||
     showStats.value ||
     showRechargeRecords.value ||
+    showSupplierModal.value ||
     showSchedulePanel.value ||
     showErrorPassthrough.value ||
     showTLSFingerprintProfiles.value
@@ -1561,6 +1622,19 @@ const accountUpstreamPoolName = (account: Account): string => {
   return binding?.cost_pool_name || pool?.name || ''
 }
 
+const accountUpstreamGroupName = (account: Account): string => (
+  accountUpstreamBinding(account)?.upstream_group_name?.trim() || ''
+)
+
+const accountUpstreamGroupMultiplier = (account: Account): number | null => {
+  const binding = accountUpstreamBinding(account)
+  const multiplier = binding?.upstream_group_multiplier ?? binding?.default_multiplier
+  if (!Number.isFinite(Number(multiplier)) || Number(multiplier) <= 0) {
+    return null
+  }
+  return Number(multiplier)
+}
+
 const accountUpstreamRechargeFactor = (account: Account): number | null => {
   const pool = accountUpstreamPool(account)
   const cost = pool?.current_effective_cny_per_usd
@@ -1573,11 +1647,11 @@ const accountUpstreamRechargeFactor = (account: Account): number | null => {
 
 const accountUpstreamEffectiveFactor = (account: Account): number | null => {
   const rechargeFactor = accountUpstreamRechargeFactor(account)
-  const multiplier = accountUpstreamBinding(account)?.default_multiplier
-  if (rechargeFactor === null || !Number.isFinite(Number(multiplier)) || Number(multiplier) <= 0) {
+  const multiplier = accountUpstreamGroupMultiplier(account)
+  if (rechargeFactor === null || multiplier === null) {
     return null
   }
-  return rechargeFactor * Number(multiplier)
+  return rechargeFactor * multiplier
 }
 
 const accountUpstreamEffectiveDiscountLabel = (account: Account): string => {
@@ -1591,14 +1665,18 @@ const accountUpstreamEffectiveDiscountLabel = (account: Account): string => {
 
 const accountUpstreamRechargeRatioLabel = (account: Account): string => {
   const pool = accountUpstreamPool(account)
-  if (!pool?.current_effective_cny_per_usd) return '-'
-  return `${formatUpstreamRatio(pool.current_effective_cny_per_usd)} / ${formatUpstreamRatio(pool.reference_fx_rate)}`
+  const cost = Number(pool?.current_effective_cny_per_usd)
+  if (!Number.isFinite(cost) || cost <= 0) return '-'
+  if (cost >= 1) {
+    return `${formatUpstreamRatio(cost)}:1`
+  }
+  return `1:${formatUpstreamRatio(1 / cost)}`
 }
 
 const accountUpstreamMultiplierLabel = (account: Account): string => {
-  const multiplier = accountUpstreamBinding(account)?.default_multiplier
-  if (!Number.isFinite(Number(multiplier))) return '-'
-  return `${formatUpstreamRatio(Number(multiplier))}x`
+  const multiplier = accountUpstreamGroupMultiplier(account)
+  if (multiplier === null) return '-'
+  return `${formatUpstreamRatio(multiplier)}x`
 }
 
 const accountUpstreamDiscountBadgeClass = (account: Account): string => {
@@ -1908,6 +1986,8 @@ const buildAccountQueryFilters = () => ({
 const setAccountView = (view: AccountViewMode) => {
   if (activeAccountView.value === view) return
   activeAccountView.value = view
+  showAutoRefreshDropdown.value = false
+  showAccountToolsDropdown.value = false
   clearSelection()
   pagination.page = 1
   resetAutoRefreshCache()
@@ -2086,11 +2166,11 @@ const closeRechargeRecords = () => {
   rechargeRecordsPool.value = null
 }
 const handleSupplierRechargeUpdated = () => {
-  loadSupplierCostView().catch((error) => {
+  loadSupplierCostView({ forcePools: true }).catch((error) => {
     console.error('Failed to refresh upstream supplier costs after recharge update:', error)
   })
   if (activeAccountView.value !== 'cost') {
-    loadVisibleUpstreamCostContext().catch((error) => {
+    loadVisibleUpstreamCostContext({ forcePools: true }).catch((error) => {
       console.error('Failed to refresh upstream cost context after recharge update:', error)
     })
   }

@@ -1,5 +1,97 @@
 # 补丁记录
 
+## 2026-07-10 - 供应商默认结算与充值录入简化
+
+范围：
+- 后端：迁移 `174_upstream_cost_pool_defaults.sql`、供应商 create/update、默认资金池创建与成本池 DTO。
+- 前端：账号页顶部操作、供应商列表、供应商新增 / 编辑 Modal、充值记录 Modal、zh/en i18n。
+- 测试：供应商默认配置 service / migration 回归，供应商列表、供应商 Modal、充值 Modal 和账号编辑 Vitest。
+- 文档：成本池功能页、API / 迁移索引、验证矩阵、changelog / patches。
+
+改动：
+- `upstream_cost_pools` 新增 `default_effective_cny_per_usd` / `default_reference_fx_rate` / `is_default`；迁移从当前成本和参考汇率回填稳定默认值，并用数据库唯一索引固定每个供应商至多一个未归档默认池。
+- `POST` / `PATCH /api/v1/admin/upstream-suppliers` 可保存默认充值成本和默认参考汇率，实际存储仍归供应商默认资金池。
+- 默认配置只作为以后新增流水的输入默认值，不再写入 `current_effective_cny_per_usd`；只有真实 `current_snapshot_id` 才进入账号成本展示、排序和 `cost_first` 调度。
+- 新建供应商默认池不再自动生成手工成本快照，避免“只有配置、没有成本事实”的供应商被永久挡在受限硬删除之外。
+- `174` 会清理早期实现留下的配置性初始快照，但只处理精确自动备注、无来源记录且资金池从未产生充值流水的行；真实快照保持不变。
+- 供应商新增 / 编辑统一使用 `BaseDialog` Modal；页面顶部主操作按标签页切换为“添加账号”或“添加供应商”，供应商卡片内部移除重复刷新 / 新增入口。
+- 供应商视图隐藏账号搜索 / 筛选、自动刷新和账号更多操作；顶部手动刷新继续按当前视图刷新供应商和资金池。
+- 普通充值默认按供应商配置自动计算到账额度和参考汇率，只在“本次与默认不同”时展开覆盖字段；赠送只增加额度，不定义独立单位成本，赠送和调整都不刷新当前成本快照。
+- 供应商创建改为严格冲突语义，同名提交不会复用或覆盖已有配置；备注可通过显式空字符串清除。
+- 系统供应商和无真实快照的配置不再进入账号成本 DTO / 排序；充值成本变化会主动刷新绑定账号的调度快照。
+- 归档供应商的现有绑定在账号编辑中以禁用历史项保留，所有新绑定入口拒绝已归档供应商；硬删除要求供应商从未产生任何账号绑定历史。
+- integration 用例不再假设未绑定账号首次充值会自动创建“未归类供应商”，统一先建立真实供应商绑定。
+
+边界：
+- 默认换算是后续流水的输入默认值，不是当前或历史成本事实；每条记录仍固化本次实际支付、实际到账和本次参考汇率。
+- 不把默认成本字段移动到供应商表；多钱包场景仍可在不同资金池维护各自默认值。
+- 不改变普通用户扣费、普通用户 DTO、账号分组倍率或成本感知调度公式。
+
+验证：
+- `go test ./internal/service -run 'Test(ApplyUpstreamSupplierUpdate|EnsureUpstreamSupplierDeletable|UpdateDefaultUpstreamCostPoolConfig|NormalizeUpstreamCostPoolDefault)' -count=1`
+- `go test ./migrations -run 'TestMigration(166|172|173|174)' -count=1`
+- `go test ./internal/server ./internal/service`
+- `go test ./... -count=1`
+- `go test -tags=integration ./internal/service -run TestUpstream -count=1`
+- `go test -tags=integration ./internal/repository -run 'TestAccountRepoSuite/TestListWithFilters_(SortByUpstreamEffectiveDiscount|UpstreamDiscountRequiresRealNonSystemSnapshot)$' -count=1`
+- `go build ./...`
+- `go vet ./internal/service ./internal/server`
+- `pnpm exec vitest run src/components/admin/account/__tests__/UpstreamCostComparison.spec.ts src/components/admin/account/__tests__/UpstreamSupplierModal.spec.ts src/components/admin/account/__tests__/UpstreamRechargeRecordsModal.spec.ts src/components/account/__tests__/EditAccountModal.spec.ts`
+- `pnpm run test:run`（154 个测试文件、969 个测试全部通过）
+- `pnpm run typecheck`
+- `pnpm exec eslint`（目标改动文件）
+- `pnpm run build`
+- `pnpm --dir docs-site docs:build`
+- `git diff --check`
+
+未验证：
+- 浏览器人工 smoke。
+
+## 2026-07-09 - 供应商编辑 / 删除与账号编辑边界收敛
+
+范围：
+- 后端：迁移 `172_upstream_suppliers_system_flag.sql` / `173_upstream_account_binding_group_name.sql`、`upstream_cost_pool_service`、管理端 supplier handler、管理端路由。
+- 前端：管理端供应商标签页、账号编辑弹窗供应商绑定边界、管理端账号 API、zh/en i18n。
+- 测试：供应商 service 单测、`UpstreamCostComparison` 和 `EditAccountModal` Vitest。
+- 文档：`docs-site/dev-zz/features/upstream-cost-pools-and-ledger.md`、`changelog.md`、`patches.md`、`reference/api-surface.md`、`testing/verification-matrix.md`。
+
+改动：
+- 新增 `PATCH /api/v1/admin/upstream-suppliers/:supplier_id`，支持供应商改名、备注和 `active` / `archived` 状态切换。
+- 新增 `DELETE /api/v1/admin/upstream-suppliers/:supplier_id`，只允许硬删除完全干净的供应商。
+- 新增 `upstream_suppliers.is_system`，API 下发 `is_system`；后端 update/delete 和前端按钮显隐都读该稳定标志，不再用供应商名称字面量判断旧迁移系统供应商。
+- `is_system=true` 的旧迁移系统供应商退出正常业务路径：供应商 / 资金池列表、账号绑定候选、active 绑定查询和按账号新增充值记录都不再把它作为兜底来源；未绑定真实供应商的账号新增充值记录会提示先绑定供应商。
+- 2026-07-10 复审后，删除前置校验收紧为无任何账号绑定历史；active 绑定和已归档绑定分别返回明确冲突，曾被使用的供应商改用归档。
+- 删除事务不再为硬删除清理历史绑定行，避免破坏供应商归属审计链。
+- 删除仍会拦截非默认资金池、任意充值记录和任意成本快照；已有成本事实的供应商应归档保留历史。
+- 前端供应商列表新增编辑、归档 / 恢复、删除按钮；删除使用二次确认，并优先提示 active 绑定数量；归档仍有 active 绑定的供应商时会先确认“存量绑定继续生效，新绑定候选隐藏”。
+- 账号编辑弹窗仍不挂回旧 `UpstreamCostSettings`，不编辑真实充值比例、参考汇率或资金池基础成本。
+- 账号编辑弹窗保留供应商归属选择，并新增这把上游 key 的供应商侧分组名与分组倍率；综合折扣按 `current_effective_cny_per_usd / reference_fx_rate * upstream_group_multiplier` 展示。
+- `default_multiplier` 继续作为兼容存储列承载上游分组倍率；`model_family_multipliers` 不进入本轮账号编辑主流程。
+- 账号列表成本上下文列把「充值/汇率」改为「充值比例」，只展示 `current_effective_cny_per_usd` 换算出的 CNY:USD 额度比例；参考汇率留在供应商 / 资金池详情查看。
+- 既有 `PATCH /api/v1/admin/accounts/:id/upstream-cost-profile` 保留为兼容接口，不作为新版账号编辑成本入口。
+
+边界：
+- 新增幂等迁移 `172_upstream_suppliers_system_flag.sql` 和 `173_upstream_account_binding_group_name.sql`；不改普通用户侧表和 DTO。
+- 不改变普通用户扣费、调度逻辑、资金池成本快照算法或用户侧 DTO。
+- 不把账号 `extra` 成本参数继续扩成新版主流程；历史字段迁移到资金池 / 绑定 / 快照仍是后续专项。
+- `is_system=true` 的旧迁移系统供应商不进入正常列表；若通过历史 ID 直接请求，禁止编辑、归档和删除。
+
+验证：
+- `go test ./internal/service -run 'Test(ApplyUpstreamSupplierUpdate|EnsureUpstreamSupplierDeletable)'`
+- `go test ./migrations -run 'TestMigration(166|172|173)'`
+- `go test ./internal/server ./internal/service`
+- `go build ./...`
+- `go vet ./internal/service ./internal/server`
+- `pnpm exec vitest run src/components/account/__tests__/EditAccountModal.spec.ts src/components/admin/account/__tests__/UpstreamCostComparison.spec.ts`
+- `pnpm run typecheck`
+- `pnpm exec eslint src/components/account/EditAccountModal.vue src/components/account/__tests__/EditAccountModal.spec.ts src/components/admin/account/UpstreamCostComparison.vue src/components/admin/account/__tests__/UpstreamCostComparison.spec.ts src/views/admin/AccountsView.vue src/api/admin/accounts.ts src/i18n/locales/zh.ts src/i18n/locales/en.ts`
+- `pnpm --dir docs-site docs:build`
+- `git diff --check`
+
+未验证：
+- `staticcheck ./...`：当前 shell 找不到 `staticcheck` 可执行文件，`/Users/thornboo/go/bin/staticcheck` 和 `/Users/thornboo/.local/share/go/bin/staticcheck` 也不存在。
+- 浏览器人工 smoke。
+
 ## 2026-07-08 - v1.4.10 上游 main 同步发布
 
 范围：
@@ -136,13 +228,13 @@
 改动：
 - 新增 `upstream_suppliers`、`upstream_cost_pools`、`upstream_account_cost_bindings`、`upstream_cost_snapshots`。
 - `upstream_recharge_records` 新增 `cost_pool_id`、`source_account_id_snapshot`、`merged_from_pool_id`、作废字段和来源字段。
-- 迁移为每个现有账号创建“未归类供应商”下的账号默认资金池和 active 绑定，并把旧账号充值记录回填到资金池。
+- 历史等价迁移为每个现有账号创建“未归类供应商”下的账号默认资金池和 active 绑定，并把旧账号充值记录回填到资金池；后续正常业务已不再使用该兜底。
 - 旧账号级充值记录接口继续兼容；账号有 active 成本绑定时读取/写入对应资金池账本，并返回 `deprecated` / `cost_pool_id`。
 - 新增账号成本绑定接口，替换绑定时归档旧 active 绑定，保留绑定历史。
 - 新增充值记录后会生成最新成本快照并更新资金池当前基础成本。
-- `adjustment` 账本不再刷新资金池当前成本；成本快照只从 `recharge` / `bonus` 生成。
+- 2026-07-10 复审后，只有具有有效单位成本的 `recharge` 生成资金池当前成本快照；`bonus` 和 `adjustment` 都不单独刷新当前成本。
 - 账号默认资金池创建改为事务内账号级 advisory lock，避免并发首次创建留下孤儿资金池。
-- 供应商补 active 名称唯一索引，未归类供应商创建改为唯一约束驱动。
+- 供应商补 active 名称唯一索引；历史未归类供应商创建改为唯一约束驱动，后续正常业务不再自动创建或使用该兜底供应商。
 - 页面设计方向修正为“供应商优先，资金池后置”：账号编辑页应支持选择 / 新建供应商，并在供应商只有一个资金池时自动绑定默认资金池；资金池选择器只在多钱包或高级运营场景展示。
 
 边界：

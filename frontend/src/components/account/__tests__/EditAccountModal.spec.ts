@@ -1,9 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 
-const { updateAccountMock, checkMixedChannelRiskMock, authIsSimpleMode } = vi.hoisted(() => ({
+const {
+  updateAccountMock,
+  listUpstreamSuppliersMock,
+  getAccountUpstreamCostBindingMock,
+  updateAccountUpstreamSupplierBindingMock,
+  checkMixedChannelRiskMock,
+  authIsSimpleMode
+} = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
+  listUpstreamSuppliersMock: vi.fn(),
+  getAccountUpstreamCostBindingMock: vi.fn(),
+  updateAccountUpstreamSupplierBindingMock: vi.fn(),
   checkMixedChannelRiskMock: vi.fn(),
   authIsSimpleMode: { value: true }
 }))
@@ -28,6 +38,9 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
       update: updateAccountMock,
+      listUpstreamSuppliers: listUpstreamSuppliersMock,
+      getAccountUpstreamCostBinding: getAccountUpstreamCostBindingMock,
+      updateAccountUpstreamSupplierBinding: updateAccountUpstreamSupplierBindingMock,
       checkMixedChannelRisk: checkMixedChannelRiskMock
     },
     settings: {
@@ -114,7 +127,7 @@ const SelectStub = defineComponent({
       :value="modelValue"
       @change="$emit('update:modelValue', $event.target.value)"
     >
-      <option v-for="option in options" :key="option.value" :value="option.value">
+      <option v-for="option in options" :key="option.value" :value="option.value" :disabled="option.disabled">
         {{ option.label }}
       </option>
     </select>
@@ -305,6 +318,12 @@ function mountModal(account = buildAccount()) {
 describe('EditAccountModal', () => {
   beforeEach(() => {
     authIsSimpleMode.value = true
+    listUpstreamSuppliersMock.mockReset()
+    listUpstreamSuppliersMock.mockResolvedValue([])
+    getAccountUpstreamCostBindingMock.mockReset()
+    getAccountUpstreamCostBindingMock.mockRejectedValue({ status: 404 })
+    updateAccountUpstreamSupplierBindingMock.mockReset()
+    updateAccountUpstreamSupplierBindingMock.mockResolvedValue({})
   })
 
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {
@@ -356,6 +375,169 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.model_mapping).toEqual({
       'gpt-5.2-2025-12-11': 'gpt-5.2-2025-12-11',
       'gpt-latest': 'gpt-5.2'
+    })
+  })
+
+  it('keeps upstream cost profile editing out of account editing', async () => {
+    const account = buildAccount()
+    account.extra = {
+      upstream_recharge_cny_per_usd: 4,
+      upstream_reference_fx_rate: 7,
+      upstream_group_multiplier: 0.8
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    expect(wrapper.find('[data-testid="upstream-cost-settings"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('admin.accounts.upstreamCost.settingsTitle')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountUpstreamSupplierBindingMock).not.toHaveBeenCalled()
+    expect(wrapper.emitted('updated')?.[0]?.[0]).toEqual(account)
+  })
+
+  it('excludes system and legacy uncategorized suppliers from account choices', async () => {
+    const account = buildAccount()
+    updateAccountMock.mockReset()
+    updateAccountMock.mockResolvedValue(account)
+    listUpstreamSuppliersMock.mockResolvedValue([
+      { id: 8, name: 'System placeholder', status: 'active', is_system: true },
+      { id: 9, name: '未归类供应商', status: 'active' },
+      { id: 10, name: 'Supplier A', status: 'active', is_system: false }
+    ])
+    getAccountUpstreamCostBindingMock.mockResolvedValue({
+      id: 30,
+      account_id: account.id,
+      account_name: account.name,
+      account_platform: account.platform,
+      cost_pool_id: 20,
+      cost_pool_name: '未归类供应商默认池',
+      supplier_id: 9,
+      supplier_name: '未归类供应商',
+      status: 'active',
+      default_multiplier: 1,
+      upstream_group_name: 'legacy-group',
+      upstream_group_multiplier: 1,
+      model_family_multipliers: [],
+      valid_from: '2026-07-09T00:00:00Z',
+      created_at: '2026-07-09T00:00:00Z',
+      updated_at: '2026-07-09T00:00:00Z'
+    })
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+
+    const supplierSelect = wrapper.get('[data-testid="upstream-supplier-select"]')
+    expect(supplierSelect.findAll('option').map((option) => option.text())).toEqual(['Supplier A'])
+    expect((supplierSelect.element as HTMLSelectElement).value).toBe('')
+    expect(wrapper.find('[data-testid="upstream-group-name"]').exists()).toBe(false)
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountUpstreamSupplierBindingMock).not.toHaveBeenCalled()
+  })
+
+  it('preserves an archived supplier binding until the user explicitly clears it', async () => {
+    const account = buildAccount()
+    updateAccountMock.mockReset()
+    updateAccountMock.mockResolvedValue(account)
+    listUpstreamSuppliersMock.mockResolvedValue([
+      { id: 11, name: 'Archived Supplier', status: 'archived', archived_at: '2026-07-09T00:00:00Z', is_system: false },
+      { id: 12, name: 'Active Supplier', status: 'active', is_system: false }
+    ])
+    getAccountUpstreamCostBindingMock.mockResolvedValue({
+      id: 31,
+      account_id: account.id,
+      account_name: account.name,
+      account_platform: account.platform,
+      cost_pool_id: 21,
+      cost_pool_name: 'Archived Supplier 主余额池',
+      supplier_id: 11,
+      supplier_name: 'Archived Supplier',
+      status: 'active',
+      default_multiplier: 1,
+      upstream_group_name: 'legacy-group',
+      upstream_group_multiplier: 1,
+      model_family_multipliers: [],
+      valid_from: '2026-07-09T00:00:00Z',
+      created_at: '2026-07-09T00:00:00Z',
+      updated_at: '2026-07-09T00:00:00Z'
+    })
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+
+    const supplierSelect = wrapper.get('[data-testid="upstream-supplier-select"]')
+    const options = supplierSelect.findAll('option')
+    expect(options.map((option) => option.text())).toEqual([
+      'Active Supplier',
+      'Archived Supplier (admin.accounts.upstreamCost.archivedStatus)'
+    ])
+    expect(options[1].attributes('disabled')).toBeDefined()
+    expect((supplierSelect.element as HTMLSelectElement).value).toBe('11')
+    expect(wrapper.get('[data-testid="upstream-group-name"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="upstream-group-multiplier"]').attributes('disabled')).toBeDefined()
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountUpstreamSupplierBindingMock).not.toHaveBeenCalled()
+
+    await supplierSelect.setValue('')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountUpstreamSupplierBindingMock).toHaveBeenCalledWith(account.id, { supplier_id: null })
+  })
+
+  it('submits upstream supplier group metadata from account editing', async () => {
+    const account = buildAccount()
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+    listUpstreamSuppliersMock.mockResolvedValue([
+      { id: 10, name: 'Supplier A', status: 'active', is_system: false }
+    ])
+    getAccountUpstreamCostBindingMock.mockResolvedValue({
+      id: 30,
+      account_id: account.id,
+      account_name: account.name,
+      account_platform: account.platform,
+      cost_pool_id: 20,
+      cost_pool_name: 'Supplier A 主余额池',
+      supplier_id: 10,
+      supplier_name: 'Supplier A',
+      status: 'active',
+      default_multiplier: 1,
+      upstream_group_name: 'claude-sale',
+      upstream_group_multiplier: 1,
+      model_family_multipliers: [],
+      valid_from: '2026-07-09T00:00:00Z',
+      created_at: '2026-07-09T00:00:00Z',
+      updated_at: '2026-07-09T00:00:00Z'
+    })
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="upstream-group-name"]').setValue('claude-premium')
+    await wrapper.get('[data-testid="upstream-group-multiplier"]').setValue('1.4')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountUpstreamSupplierBindingMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountUpstreamSupplierBindingMock).toHaveBeenCalledWith(account.id, {
+      supplier_id: 10,
+      cost_pool_id: 20,
+      upstream_group_name: 'claude-premium',
+      upstream_group_multiplier: 1.4
     })
   })
 

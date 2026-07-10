@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import type { AdminUser, ApiKey } from '@/types'
@@ -109,6 +109,8 @@ const mountModal = (props: { apiKey: ApiKey | null }) => mount(AdminApiKeyUsageM
 
 describe('AdminApiKeyUsageModal', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-10T12:00:00Z'))
     getStats.mockReset()
     getUsageTrend.mockReset()
     getModelStats.mockReset()
@@ -128,6 +130,10 @@ describe('AdminApiKeyUsageModal', () => {
     getUsageTrend.mockResolvedValue({ trend: [] })
     getModelStats.mockResolvedValue({ models: [] })
     listUsage.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 10, pages: 0 })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('loads user-wide usage without an api_key_id filter', async () => {

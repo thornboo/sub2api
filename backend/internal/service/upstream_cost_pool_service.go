@@ -4,15 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"strings"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+
+	"github.com/lib/pq"
 )
 
 const (
-	upstreamUncategorizedSupplierName        = "未归类供应商"
 	upstreamDefaultCostPoolName              = "主余额池"
 	upstreamCostPoolAccountAdvisoryLockBase  = int64(1660000000000)
 	upstreamCostPoolSnapshotAdvisoryLockBase = int64(1661000000000)
@@ -20,9 +21,14 @@ const (
 )
 
 var (
-	ErrUpstreamCostPoolNotFound    = infraerrors.NotFound("UPSTREAM_COST_POOL_NOT_FOUND", "upstream cost pool not found")
-	ErrUpstreamSupplierNotFound    = infraerrors.NotFound("UPSTREAM_SUPPLIER_NOT_FOUND", "upstream supplier not found")
-	ErrUpstreamCostBindingNotFound = infraerrors.NotFound("UPSTREAM_COST_BINDING_NOT_FOUND", "upstream cost binding not found")
+	ErrUpstreamCostPoolNotFound          = infraerrors.NotFound("UPSTREAM_COST_POOL_NOT_FOUND", "upstream cost pool not found")
+	ErrUpstreamSupplierNotFound          = infraerrors.NotFound("UPSTREAM_SUPPLIER_NOT_FOUND", "upstream supplier not found")
+	ErrUpstreamCostBindingNotFound       = infraerrors.NotFound("UPSTREAM_COST_BINDING_NOT_FOUND", "upstream cost binding not found")
+	ErrUpstreamSupplierNameConflict      = infraerrors.Conflict("SUPPLIER_NAME_CONFLICT", "another active upstream supplier already uses this name")
+	ErrUpstreamSupplierReserved          = infraerrors.Forbidden("SUPPLIER_RESERVED", "system suppliers cannot be modified or deleted")
+	ErrUpstreamSupplierHasBoundAccounts  = infraerrors.Conflict("SUPPLIER_HAS_BOUND_ACCOUNTS", "the supplier still has bound accounts; unbind them or archive the supplier instead")
+	ErrUpstreamSupplierHasBindingHistory = infraerrors.Conflict("SUPPLIER_HAS_BINDING_HISTORY", "the supplier has account binding history; archive the supplier instead")
+	ErrUpstreamSupplierHasCostData       = infraerrors.Conflict("SUPPLIER_HAS_COST_DATA", "the supplier still has cost pools, recharge records or snapshots; archive the supplier instead")
 )
 
 type upstreamCostPoolSQLExecutor interface {
@@ -40,11 +46,47 @@ func refreshSchedulerAccountSnapshot(ctx context.Context, repo AccountRepository
 	}
 }
 
+// refreshSchedulerAccountSnapshotsForCostPool is intentionally best-effort,
+// matching the existing single-account cache refresh contract. The database is
+// already authoritative; this closes the normal stale-cache window after a
+// pool's real recharge snapshot changes.
+func (s *adminServiceImpl) refreshSchedulerAccountSnapshotsForCostPool(ctx context.Context, poolID int64) {
+	if s == nil || s.entClient == nil || poolID <= 0 {
+		return
+	}
+	rows, err := s.entClient.QueryContext(ctx, `
+SELECT DISTINCT account_id
+FROM upstream_account_cost_bindings
+WHERE cost_pool_id = $1
+  AND status = 'active'
+  AND valid_to IS NULL`, poolID)
+	if err != nil {
+		return
+	}
+	defer func() { _ = rows.Close() }()
+
+	accountIDs := make([]int64, 0)
+	for rows.Next() {
+		var accountID int64
+		if err := rows.Scan(&accountID); err != nil {
+			return
+		}
+		accountIDs = append(accountIDs, accountID)
+	}
+	if rows.Err() != nil {
+		return
+	}
+	for _, accountID := range accountIDs {
+		refreshSchedulerAccountSnapshot(ctx, s.accountRepo, accountID)
+	}
+}
+
 type UpstreamSupplier struct {
 	ID         int64      `json:"id"`
 	Name       string     `json:"name"`
 	Status     string     `json:"status"`
 	Note       *string    `json:"note,omitempty"`
+	IsSystem   bool       `json:"is_system"`
 	CreatedAt  time.Time  `json:"created_at"`
 	UpdatedAt  time.Time  `json:"updated_at"`
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
@@ -55,10 +97,13 @@ type UpstreamCostPool struct {
 	SupplierID                int64          `json:"supplier_id"`
 	SupplierName              string         `json:"supplier_name"`
 	Name                      string         `json:"name"`
+	IsDefault                 bool           `json:"is_default"`
 	Status                    string         `json:"status"`
 	BaseCurrency              string         `json:"base_currency"`
 	CreditCurrency            string         `json:"credit_currency"`
 	ReferenceFXRate           float64        `json:"reference_fx_rate"`
+	DefaultEffectiveCNYPerUSD float64        `json:"default_effective_cny_per_usd"`
+	DefaultReferenceFXRate    float64        `json:"default_reference_fx_rate"`
 	CostMethod                string         `json:"cost_method"`
 	CurrentEffectiveCNYPerUSD *float64       `json:"current_effective_cny_per_usd,omitempty"`
 	CurrentSnapshotID         *int64         `json:"current_snapshot_id,omitempty"`
@@ -84,27 +129,30 @@ type UpstreamCostModelFamilyMultiplier struct {
 }
 
 type UpstreamAccountCostBinding struct {
-	ID                     int64                               `json:"id"`
-	AccountID              int64                               `json:"account_id"`
-	AccountName            string                              `json:"account_name,omitempty"`
-	AccountPlatform        string                              `json:"account_platform,omitempty"`
-	CostPoolID             int64                               `json:"cost_pool_id"`
-	CostPoolName           string                              `json:"cost_pool_name,omitempty"`
-	SupplierID             int64                               `json:"supplier_id,omitempty"`
-	SupplierName           string                              `json:"supplier_name,omitempty"`
-	Status                 string                              `json:"status"`
-	DefaultMultiplier      float64                             `json:"default_multiplier"`
-	ModelFamilyMultipliers []UpstreamCostModelFamilyMultiplier `json:"model_family_multipliers"`
-	Note                   *string                             `json:"note,omitempty"`
-	ValidFrom              time.Time                           `json:"valid_from"`
-	ValidTo                *time.Time                          `json:"valid_to,omitempty"`
-	CreatedAt              time.Time                           `json:"created_at"`
-	UpdatedAt              time.Time                           `json:"updated_at"`
+	ID                      int64                               `json:"id"`
+	AccountID               int64                               `json:"account_id"`
+	AccountName             string                              `json:"account_name,omitempty"`
+	AccountPlatform         string                              `json:"account_platform,omitempty"`
+	CostPoolID              int64                               `json:"cost_pool_id"`
+	CostPoolName            string                              `json:"cost_pool_name,omitempty"`
+	SupplierID              int64                               `json:"supplier_id,omitempty"`
+	SupplierName            string                              `json:"supplier_name,omitempty"`
+	Status                  string                              `json:"status"`
+	DefaultMultiplier       float64                             `json:"default_multiplier"`
+	UpstreamGroupName       *string                             `json:"upstream_group_name,omitempty"`
+	UpstreamGroupMultiplier float64                             `json:"upstream_group_multiplier"`
+	ModelFamilyMultipliers  []UpstreamCostModelFamilyMultiplier `json:"model_family_multipliers"`
+	Note                    *string                             `json:"note,omitempty"`
+	ValidFrom               time.Time                           `json:"valid_from"`
+	ValidTo                 *time.Time                          `json:"valid_to,omitempty"`
+	CreatedAt               time.Time                           `json:"created_at"`
+	UpdatedAt               time.Time                           `json:"updated_at"`
 }
 
 type UpstreamCostBindingInput struct {
 	AccountID              int64
 	CostPoolID             int64
+	UpstreamGroupName      *string
 	DefaultMultiplier      float64
 	ModelFamilyMultipliers []UpstreamCostModelFamilyMultiplier
 	Note                   *string
@@ -117,6 +165,7 @@ type UpstreamSupplierBindingInput struct {
 	SupplierName           string
 	CostPoolID             int64
 	Clear                  bool
+	UpstreamGroupName      *string
 	DefaultMultiplier      float64
 	ModelFamilyMultipliers []UpstreamCostModelFamilyMultiplier
 	Note                   *string
@@ -124,9 +173,11 @@ type UpstreamSupplierBindingInput struct {
 }
 
 type CreateUpstreamSupplierInput struct {
-	Name      string
-	Note      *string
-	CreatedBy *int64
+	Name                      string
+	Note                      *string
+	DefaultEffectiveCNYPerUSD float64
+	DefaultReferenceFXRate    float64
+	CreatedBy                 *int64
 }
 
 func (s *adminServiceImpl) ListUpstreamSuppliers(ctx context.Context) ([]UpstreamSupplier, error) {
@@ -134,8 +185,9 @@ func (s *adminServiceImpl) ListUpstreamSuppliers(ctx context.Context) ([]Upstrea
 		return nil, err
 	}
 	rows, err := s.entClient.QueryContext(ctx, `
-SELECT id, name, status, note, created_at, updated_at, archived_at
+SELECT id, name, status, note, is_system, created_at, updated_at, archived_at
 FROM upstream_suppliers
+WHERE is_system = FALSE
 ORDER BY status ASC, name ASC, id ASC`)
 	if err != nil {
 		return nil, err
@@ -172,19 +224,45 @@ func (s *adminServiceImpl) CreateUpstreamSupplier(ctx context.Context, input Cre
 	if note == nil {
 		note = upstreamCostPoolStringPtr("通过管理端新增到供应商列表。")
 	}
-	supplierID, err := ensureNamedUpstreamSupplier(ctx, txClient, input.Name, note, input.CreatedBy)
+	supplierID, err := createUpstreamSupplier(ctx, txClient, input.Name, note, input.CreatedBy)
 	if err != nil {
 		return nil, err
 	}
 	if err := acquireUpstreamCostPoolAdvisoryLock(ctx, txClient, upstreamCostPoolSupplierAdvisoryLockBase+supplierID); err != nil {
 		return nil, err
 	}
-	if _, err := ensureDefaultUpstreamCostPoolForSupplier(ctx, txClient, supplierID, input.CreatedBy); err != nil {
+	poolID, err := ensureDefaultUpstreamCostPoolForSupplier(ctx, txClient, supplierID, input.CreatedBy)
+	if err != nil {
+		return nil, err
+	}
+	if input.DefaultEffectiveCNYPerUSD == 0 {
+		input.DefaultEffectiveCNYPerUSD = UpstreamRechargeDefaultReferenceFXRate
+	}
+	if input.DefaultReferenceFXRate == 0 {
+		input.DefaultReferenceFXRate = UpstreamRechargeDefaultReferenceFXRate
+	}
+	defaultEffective, err := normalizeUpstreamCostPoolDefault(
+		input.DefaultEffectiveCNYPerUSD,
+		"INVALID_UPSTREAM_DEFAULT_EFFECTIVE_COST",
+		"default effective CNY per USD must be greater than 0",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defaultReferenceFX, err := normalizeUpstreamCostPoolDefault(
+		input.DefaultReferenceFXRate,
+		"INVALID_UPSTREAM_DEFAULT_REFERENCE_FX_RATE",
+		"default reference FX rate must be greater than 0",
+	)
+	if err != nil {
+		return nil, err
+	}
+	if err := updateDefaultUpstreamCostPoolConfig(ctx, txClient, poolID, &defaultEffective, &defaultReferenceFX); err != nil {
 		return nil, err
 	}
 
 	rows, err := txClient.QueryContext(ctx, `
-SELECT id, name, status, note, created_at, updated_at, archived_at
+SELECT id, name, status, note, is_system, created_at, updated_at, archived_at
 FROM upstream_suppliers
 WHERE id = $1`, supplierID)
 	if err != nil {
@@ -213,11 +291,142 @@ WHERE id = $1`, supplierID)
 	return supplier, nil
 }
 
+// UpdateUpstreamSupplierInput carries optional edits for an upstream supplier.
+type UpdateUpstreamSupplierInput struct {
+	SupplierID                int64
+	Name                      *string
+	Note                      *string
+	Status                    *string
+	DefaultEffectiveCNYPerUSD *float64
+	DefaultReferenceFXRate    *float64
+}
+
+// UpdateUpstreamSupplier renames, re-notes or archives an upstream supplier.
+func (s *adminServiceImpl) UpdateUpstreamSupplier(ctx context.Context, input UpdateUpstreamSupplierInput) (*UpstreamSupplier, error) {
+	if err := s.ensureUpstreamCostPoolServiceAvailable(); err != nil {
+		return nil, err
+	}
+	if input.SupplierID <= 0 {
+		return nil, infraerrors.BadRequest("INVALID_UPSTREAM_SUPPLIER_ID", "invalid upstream supplier id")
+	}
+
+	tx, err := s.entClient.Tx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	txClient := tx.Client()
+
+	if err := acquireUpstreamCostPoolAdvisoryLock(ctx, txClient, upstreamCostPoolSupplierAdvisoryLockBase+input.SupplierID); err != nil {
+		return nil, err
+	}
+
+	current, err := loadUpstreamSupplierForUpdate(ctx, txClient, input.SupplierID)
+	if err != nil {
+		return nil, err
+	}
+	if isReservedUpstreamSupplier(current) {
+		return nil, ErrUpstreamSupplierReserved
+	}
+
+	if err := applyUpstreamSupplierUpdate(ctx, txClient, current, input); err != nil {
+		return nil, err
+	}
+	if input.DefaultEffectiveCNYPerUSD != nil || input.DefaultReferenceFXRate != nil {
+		poolID, poolErr := ensureDefaultUpstreamCostPoolForSupplier(ctx, txClient, input.SupplierID, nil)
+		if poolErr != nil {
+			return nil, poolErr
+		}
+		var defaultEffective *float64
+		if input.DefaultEffectiveCNYPerUSD != nil {
+			value, normalizeErr := normalizeUpstreamCostPoolDefault(
+				*input.DefaultEffectiveCNYPerUSD,
+				"INVALID_UPSTREAM_DEFAULT_EFFECTIVE_COST",
+				"default effective CNY per USD must be greater than 0",
+			)
+			if normalizeErr != nil {
+				return nil, normalizeErr
+			}
+			defaultEffective = &value
+		}
+		var defaultReferenceFX *float64
+		if input.DefaultReferenceFXRate != nil {
+			value, normalizeErr := normalizeUpstreamCostPoolDefault(
+				*input.DefaultReferenceFXRate,
+				"INVALID_UPSTREAM_DEFAULT_REFERENCE_FX_RATE",
+				"default reference FX rate must be greater than 0",
+			)
+			if normalizeErr != nil {
+				return nil, normalizeErr
+			}
+			defaultReferenceFX = &value
+		}
+		if err := updateDefaultUpstreamCostPoolConfig(ctx, txClient, poolID, defaultEffective, defaultReferenceFX); err != nil {
+			return nil, err
+		}
+	}
+
+	supplier, err := fetchUpstreamSupplierByID(ctx, txClient, input.SupplierID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return supplier, nil
+}
+
+// DeleteUpstreamSupplier hard-deletes a supplier only when it has never been
+// used: no account binding history, recharge records, snapshots, or explicit
+// non-default pools. Used suppliers must be archived so audit history remains
+// explainable.
+func (s *adminServiceImpl) DeleteUpstreamSupplier(ctx context.Context, supplierID int64) error {
+	if err := s.ensureUpstreamCostPoolServiceAvailable(); err != nil {
+		return err
+	}
+	if supplierID <= 0 {
+		return infraerrors.BadRequest("INVALID_UPSTREAM_SUPPLIER_ID", "invalid upstream supplier id")
+	}
+
+	tx, err := s.entClient.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	txClient := tx.Client()
+
+	if err := acquireUpstreamCostPoolAdvisoryLock(ctx, txClient, upstreamCostPoolSupplierAdvisoryLockBase+supplierID); err != nil {
+		return err
+	}
+
+	current, err := loadUpstreamSupplierForUpdate(ctx, txClient, supplierID)
+	if err != nil {
+		return err
+	}
+	if isReservedUpstreamSupplier(current) {
+		return ErrUpstreamSupplierReserved
+	}
+	if err := ensureUpstreamSupplierDeletable(ctx, txClient, supplierID); err != nil {
+		return err
+	}
+
+	if _, err := txClient.ExecContext(ctx,
+		`DELETE FROM upstream_cost_pools WHERE supplier_id = $1`, supplierID); err != nil {
+		return err
+	}
+	if _, err := txClient.ExecContext(ctx,
+		`DELETE FROM upstream_suppliers WHERE id = $1`, supplierID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *adminServiceImpl) ListUpstreamCostPools(ctx context.Context) ([]UpstreamCostPool, error) {
 	if err := s.ensureUpstreamCostPoolServiceAvailable(); err != nil {
 		return nil, err
 	}
 	rows, err := s.entClient.QueryContext(ctx, upstreamCostPoolSelectSQL()+`
+WHERE supplier.is_system = FALSE
 GROUP BY p.id, supplier.id, supplier.name
 ORDER BY p.status ASC, supplier.name ASC, p.name ASC, p.id ASC`)
 	if err != nil {
@@ -248,6 +457,7 @@ func (s *adminServiceImpl) GetUpstreamCostPool(ctx context.Context, poolID int64
 	}
 	rows, err := s.entClient.QueryContext(ctx, upstreamCostPoolSelectSQL()+`
 WHERE p.id = $1
+  AND supplier.is_system = FALSE
 GROUP BY p.id, supplier.id, supplier.name`, poolID)
 	if err != nil {
 		return nil, err
@@ -384,6 +594,7 @@ RETURNING id,
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	s.refreshSchedulerAccountSnapshotsForCostPool(ctx, poolID)
 	return record, nil
 }
 
@@ -446,6 +657,7 @@ RETURNING id`, recordID, poolID)
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	s.refreshSchedulerAccountSnapshotsForCostPool(ctx, poolID)
 	return nil
 }
 
@@ -473,10 +685,6 @@ func (s *adminServiceImpl) UpdateAccountUpstreamCostBinding(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	if err := s.ensureUpstreamCostPoolExists(ctx, normalized.CostPoolID); err != nil {
-		return nil, err
-	}
-
 	modelFamiliesJSON, err := json.Marshal(normalized.ModelFamilyMultipliers)
 	if err != nil {
 		return nil, err
@@ -490,6 +698,17 @@ func (s *adminServiceImpl) UpdateAccountUpstreamCostBinding(ctx context.Context,
 	txClient := tx.Client()
 
 	if err := acquireUpstreamCostPoolAdvisoryLock(ctx, txClient, upstreamCostPoolAccountAdvisoryLockBase+normalized.AccountID); err != nil {
+		return nil, err
+	}
+
+	supplierID, err := requireBindableUpstreamCostPool(ctx, txClient, normalized.CostPoolID)
+	if err != nil {
+		return nil, err
+	}
+	if err := acquireUpstreamCostPoolAdvisoryLock(ctx, txClient, upstreamCostPoolSupplierAdvisoryLockBase+supplierID); err != nil {
+		return nil, err
+	}
+	if _, err := requireBindableUpstreamCostPool(ctx, txClient, normalized.CostPoolID); err != nil {
 		return nil, err
 	}
 
@@ -507,17 +726,19 @@ inserted AS (
     INSERT INTO upstream_account_cost_bindings (
         account_id,
         cost_pool_id,
+        upstream_group_name,
         default_multiplier,
         model_family_multipliers,
         note,
         created_by
     )
-	    SELECT $1, $2, $3, $4::jsonb, $5, $6
+	    SELECT $1, $2, $3, $4, $5::jsonb, $6, $7
 	    WHERE (SELECT COUNT(*) FROM archived) >= 0
 	    RETURNING id,
 	              account_id,
 	              cost_pool_id,
 	              status,
+	              upstream_group_name,
 	              default_multiplier,
 	              model_family_multipliers,
 	              note,
@@ -529,6 +750,7 @@ inserted AS (
 	`+upstreamCostBindingSelectSQLFrom("inserted"),
 		normalized.AccountID,
 		normalized.CostPoolID,
+		nullableString(normalized.UpstreamGroupName),
 		normalized.DefaultMultiplier,
 		string(modelFamiliesJSON),
 		nullableString(normalized.Note),
@@ -616,11 +838,12 @@ WHERE account_id = $1
 		if err != nil {
 			return nil, err
 		}
-	} else if err := ensureUpstreamSupplierExists(ctx, txClient, supplierID); err != nil {
-		return nil, err
 	}
 
 	if err := acquireUpstreamCostPoolAdvisoryLock(ctx, txClient, upstreamCostPoolSupplierAdvisoryLockBase+supplierID); err != nil {
+		return nil, err
+	}
+	if err := ensureUpstreamSupplierExists(ctx, txClient, supplierID); err != nil {
 		return nil, err
 	}
 
@@ -650,17 +873,19 @@ inserted AS (
     INSERT INTO upstream_account_cost_bindings (
         account_id,
         cost_pool_id,
+        upstream_group_name,
         default_multiplier,
         model_family_multipliers,
         note,
         created_by
     )
-	    SELECT $1, $2, $3, $4::jsonb, $5, $6
+	    SELECT $1, $2, $3, $4, $5::jsonb, $6, $7
 	    WHERE (SELECT COUNT(*) FROM archived) >= 0
 	    RETURNING id,
 	              account_id,
 	              cost_pool_id,
 	              status,
+	              upstream_group_name,
 	              default_multiplier,
 	              model_family_multipliers,
 	              note,
@@ -672,6 +897,7 @@ inserted AS (
 	`+upstreamCostBindingSelectSQLFrom("inserted"),
 		normalized.AccountID,
 		costPoolID,
+		nullableString(normalized.UpstreamGroupName),
 		normalized.DefaultMultiplier,
 		string(modelFamiliesJSON),
 		nullableString(normalized.Note),
@@ -712,6 +938,7 @@ func (s *adminServiceImpl) ListUpstreamCostPoolAccounts(ctx context.Context, poo
 	rows, err := s.entClient.QueryContext(ctx, upstreamCostBindingSelectSQL()+`
 WHERE binding.cost_pool_id = $1
   AND binding.status = 'active'
+  AND supplier.is_system = FALSE
 ORDER BY account.name ASC, binding.id ASC`, poolID)
 	if err != nil {
 		return nil, err
@@ -741,11 +968,14 @@ func (s *adminServiceImpl) findActiveUpstreamCostPoolIDForAccount(ctx context.Co
 
 func findActiveUpstreamCostPoolIDForAccount(ctx context.Context, exec upstreamCostPoolSQLExecutor, accountID int64) (*int64, error) {
 	rows, err := exec.QueryContext(ctx, `
-SELECT cost_pool_id
-FROM upstream_account_cost_bindings
-WHERE account_id = $1
-  AND status = 'active'
-ORDER BY id DESC
+SELECT binding.cost_pool_id
+FROM upstream_account_cost_bindings binding
+JOIN upstream_cost_pools pool ON pool.id = binding.cost_pool_id
+JOIN upstream_suppliers supplier ON supplier.id = pool.supplier_id
+WHERE binding.account_id = $1
+  AND binding.status = 'active'
+  AND supplier.is_system = FALSE
+ORDER BY binding.id DESC
 LIMIT 1`, accountID)
 	if err != nil {
 		return nil, err
@@ -764,7 +994,7 @@ LIMIT 1`, accountID)
 	return &value, nil
 }
 
-func (s *adminServiceImpl) ensureDefaultUpstreamCostPoolForAccount(ctx context.Context, account *Account) (int64, error) {
+func (s *adminServiceImpl) requireActiveUpstreamCostPoolForAccount(ctx context.Context, account *Account) (int64, error) {
 	if account == nil || account.ID <= 0 {
 		return 0, infraerrors.BadRequest("INVALID_ACCOUNT_ID", "invalid account id")
 	}
@@ -775,158 +1005,7 @@ func (s *adminServiceImpl) ensureDefaultUpstreamCostPoolForAccount(ctx context.C
 	if existing != nil {
 		return *existing, nil
 	}
-
-	referenceFX := positiveFloatFromExtra(account.Extra, "upstream_reference_fx_rate", UpstreamRechargeDefaultReferenceFXRate)
-	currentCost := optionalPositiveFloatFromExtra(account.Extra, "upstream_recharge_cny_per_usd")
-	if currentCost == nil {
-		currentCost = &referenceFX
-	}
-
-	modelFamiliesJSON, err := json.Marshal(modelFamilyMultipliersFromExtra(account.Extra))
-	if err != nil {
-		return 0, err
-	}
-
-	tx, err := s.entClient.Tx(ctx)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	txClient := tx.Client()
-
-	lockRows, err := txClient.QueryContext(ctx, `SELECT pg_advisory_xact_lock($1)`, upstreamCostPoolAccountAdvisoryLockBase+account.ID)
-	if err != nil {
-		return 0, err
-	}
-	if !lockRows.Next() {
-		if err := lockRows.Err(); err != nil {
-			_ = lockRows.Close()
-			return 0, err
-		}
-		_ = lockRows.Close()
-		return 0, sql.ErrNoRows
-	}
-	if err := lockRows.Err(); err != nil {
-		_ = lockRows.Close()
-		return 0, err
-	}
-	_ = lockRows.Close()
-
-	existing, err = findActiveUpstreamCostPoolIDForAccount(ctx, txClient, account.ID)
-	if err != nil {
-		return 0, err
-	}
-	if existing != nil {
-		if err := tx.Commit(); err != nil {
-			return 0, err
-		}
-		return *existing, nil
-	}
-
-	supplierID, err := ensureUncategorizedUpstreamSupplier(ctx, txClient)
-	if err != nil {
-		return 0, err
-	}
-	rows, err := txClient.QueryContext(ctx, `
-INSERT INTO upstream_cost_pools (
-    supplier_id,
-    name,
-    reference_fx_rate,
-    current_effective_cny_per_usd,
-    cost_method,
-    note
-) VALUES ($1, $2, $3, $4, 'latest', $5)
-RETURNING id`,
-		supplierID,
-		defaultUpstreamCostPoolName(account),
-		referenceFX,
-		*currentCost,
-		fmt.Sprintf("账号 %d 首次使用上游成本池时自动创建。", account.ID),
-	)
-	if err != nil {
-		return 0, err
-	}
-	var poolID int64
-	if rows.Next() {
-		if err := rows.Scan(&poolID); err != nil {
-			_ = rows.Close()
-			return 0, err
-		}
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return 0, err
-	}
-	_ = rows.Close()
-	if poolID <= 0 {
-		return 0, ErrUpstreamCostPoolNotFound
-	}
-
-	if _, err := txClient.ExecContext(ctx, `
-INSERT INTO upstream_account_cost_bindings (
-    account_id,
-    cost_pool_id,
-    default_multiplier,
-    model_family_multipliers,
-    note
-) VALUES ($1, $2, $3, $4::jsonb, $5)`,
-		account.ID,
-		poolID,
-		positiveFloatFromExtra(account.Extra, "upstream_group_multiplier", 1),
-		string(modelFamiliesJSON),
-		"自动创建的账号默认成本绑定。",
-	); err != nil {
-		return 0, err
-	}
-
-	rows, err = txClient.QueryContext(ctx, `
-INSERT INTO upstream_cost_snapshots (
-    cost_pool_id,
-    effective_cny_per_usd,
-    reference_fx_rate,
-    calculation_method,
-    note
-) VALUES ($1, $2, $3, 'manual', $4)
-RETURNING id`,
-		poolID,
-		*currentCost,
-		referenceFX,
-		"账号默认资金池创建时生成的初始成本快照。",
-	)
-	if err != nil {
-		return 0, err
-	}
-	var snapshotID int64
-	if rows.Next() {
-		if err := rows.Scan(&snapshotID); err != nil {
-			_ = rows.Close()
-			return 0, err
-		}
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return 0, err
-	}
-	_ = rows.Close()
-	if snapshotID <= 0 {
-		return 0, infraerrors.InternalServer("UPSTREAM_COST_SNAPSHOT_UNAVAILABLE", "upstream cost snapshot is unavailable")
-	}
-	if _, err := txClient.ExecContext(ctx, `
-UPDATE upstream_cost_pools
-SET current_snapshot_id = $1,
-    current_effective_cny_per_usd = $2,
-    updated_at = NOW()
-WHERE id = $3`, snapshotID, *currentCost, poolID); err != nil {
-		return 0, err
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return poolID, nil
-}
-
-func ensureUncategorizedUpstreamSupplier(ctx context.Context, exec upstreamCostPoolSQLExecutor) (int64, error) {
-	return ensureNamedUpstreamSupplier(ctx, exec, upstreamUncategorizedSupplierName, upstreamCostPoolStringPtr("账号默认成本池自动创建的未归类供应商。"), nil)
+	return 0, infraerrors.BadRequest("UPSTREAM_SUPPLIER_BINDING_REQUIRED", "bind the account to an upstream supplier before recording recharge")
 }
 
 func ensureNamedUpstreamSupplier(ctx context.Context, exec upstreamCostPoolSQLExecutor, name string, note *string, createdBy *int64) (int64, error) {
@@ -941,10 +1020,8 @@ func ensureNamedUpstreamSupplier(ctx context.Context, exec upstreamCostPoolSQLEx
 	INSERT INTO upstream_suppliers (name, note, created_by)
 	VALUES ($1, $2, $3)
 	ON CONFLICT (name) WHERE archived_at IS NULL
-	DO UPDATE SET
-	    note = COALESCE(upstream_suppliers.note, EXCLUDED.note),
-	    updated_at = upstream_suppliers.updated_at
-	RETURNING id`,
+	DO NOTHING
+	RETURNING id, is_system`,
 		name,
 		nullableString(note),
 		nullableInt64(createdBy),
@@ -955,15 +1032,218 @@ func ensureNamedUpstreamSupplier(ctx context.Context, exec upstreamCostPoolSQLEx
 	defer func() { _ = rows.Close() }()
 	if rows.Next() {
 		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var isSystem bool
+		if err := rows.Scan(&id, &isSystem); err != nil {
 			return 0, err
+		}
+		if isSystem {
+			return 0, ErrUpstreamSupplierReserved
 		}
 		return id, nil
 	}
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+
+	existingRows, err := exec.QueryContext(ctx, `
+	SELECT id, is_system
+	FROM upstream_suppliers
+	WHERE name = $1
+	  AND archived_at IS NULL`, name)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = existingRows.Close() }()
+	if existingRows.Next() {
+		var id int64
+		var isSystem bool
+		if err := existingRows.Scan(&id, &isSystem); err != nil {
+			return 0, err
+		}
+		if isSystem {
+			return 0, ErrUpstreamSupplierReserved
+		}
+		return id, nil
+	}
+	if err := existingRows.Err(); err != nil {
+		return 0, err
+	}
 	return 0, infraerrors.InternalServer("UPSTREAM_SUPPLIER_UNAVAILABLE", "upstream supplier is unavailable")
+}
+
+// createUpstreamSupplier is the strict user-facing create path. Unlike the
+// internal ensure helper, it never reuses or mutates an existing supplier.
+func createUpstreamSupplier(ctx context.Context, exec upstreamCostPoolSQLExecutor, name string, note *string, createdBy *int64) (int64, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return 0, infraerrors.BadRequest("INVALID_UPSTREAM_SUPPLIER_NAME", "upstream supplier name is required")
+	}
+	if len([]rune(name)) > 120 {
+		return 0, infraerrors.BadRequest("INVALID_UPSTREAM_SUPPLIER_NAME", "upstream supplier name is too long")
+	}
+
+	rows, err := exec.QueryContext(ctx, `
+INSERT INTO upstream_suppliers (name, note, created_by)
+VALUES ($1, $2, $3)
+RETURNING id`, name, nullableString(note), nullableInt64(createdBy))
+	if err != nil {
+		if isUniqueViolation(err) {
+			return 0, ErrUpstreamSupplierNameConflict
+		}
+		return 0, err
+	}
+	defer func() { _ = rows.Close() }()
+	if rows.Next() {
+		var supplierID int64
+		if err := rows.Scan(&supplierID); err != nil {
+			return 0, err
+		}
+		return supplierID, rows.Err()
+	}
+	if err := rows.Err(); err != nil {
+		if isUniqueViolation(err) {
+			return 0, ErrUpstreamSupplierNameConflict
+		}
+		return 0, err
+	}
+	return 0, infraerrors.InternalServer("UPSTREAM_SUPPLIER_UNAVAILABLE", "upstream supplier is unavailable")
+}
+
+// loadUpstreamSupplierForUpdate fetches a supplier row (any status) or returns
+// ErrUpstreamSupplierNotFound.
+func loadUpstreamSupplierForUpdate(ctx context.Context, exec upstreamCostPoolSQLExecutor, supplierID int64) (*UpstreamSupplier, error) {
+	rows, err := exec.QueryContext(ctx, `
+SELECT id, name, status, note, is_system, created_at, updated_at, archived_at
+FROM upstream_suppliers
+WHERE id = $1`, supplierID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	if rows.Next() {
+		supplier, scanErr := scanUpstreamSupplier(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		return supplier, rows.Err()
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return nil, ErrUpstreamSupplierNotFound
+}
+
+func fetchUpstreamSupplierByID(ctx context.Context, exec upstreamCostPoolSQLExecutor, supplierID int64) (*UpstreamSupplier, error) {
+	return loadUpstreamSupplierForUpdate(ctx, exec, supplierID)
+}
+
+func isReservedUpstreamSupplier(supplier *UpstreamSupplier) bool {
+	return supplier != nil && supplier.IsSystem
+}
+
+// applyUpstreamSupplierUpdate mutates only the provided fields. Name changes are
+// validated against the active-name unique index; status toggles archived_at.
+func applyUpstreamSupplierUpdate(ctx context.Context, exec upstreamCostPoolSQLExecutor, current *UpstreamSupplier, input UpdateUpstreamSupplierInput) error {
+	name := current.Name
+	if input.Name != nil {
+		trimmed := strings.TrimSpace(*input.Name)
+		if trimmed == "" {
+			return infraerrors.BadRequest("INVALID_UPSTREAM_SUPPLIER_NAME", "upstream supplier name is required")
+		}
+		if len([]rune(trimmed)) > 120 {
+			return infraerrors.BadRequest("INVALID_UPSTREAM_SUPPLIER_NAME", "upstream supplier name is too long")
+		}
+		name = trimmed
+	}
+
+	status := current.Status
+	var archivedAt any = current.ArchivedAt
+	if input.Status != nil {
+		switch *input.Status {
+		case "active":
+			status, archivedAt = "active", nil
+		case "archived":
+			status = "archived"
+			archivedAt = time.Now()
+		default:
+			return infraerrors.BadRequest("INVALID_UPSTREAM_SUPPLIER_STATUS", "invalid upstream supplier status")
+		}
+	}
+
+	note := current.Note
+	if input.Note != nil {
+		note = normalizeOptionalString(input.Note)
+	}
+
+	_, err := exec.ExecContext(ctx, `
+UPDATE upstream_suppliers
+SET name = $2, note = $3, status = $4, archived_at = $5, updated_at = NOW()
+WHERE id = $1`, current.ID, name, nullableString(note), status, archivedAt)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return ErrUpstreamSupplierNameConflict
+		}
+		return err
+	}
+	return nil
+}
+
+// isUniqueViolation reports whether err is a Postgres unique_violation (23505).
+func isUniqueViolation(err error) bool {
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return pqErr.Code == "23505"
+	}
+	return false
+}
+
+// ensureUpstreamSupplierDeletable returns a typed conflict error when the
+// supplier still has active account bindings or any cost data beyond an empty
+// default pool.
+func ensureUpstreamSupplierDeletable(ctx context.Context, exec upstreamCostPoolSQLExecutor, supplierID int64) error {
+	var activeBindings, bindingHistory, records, snapshots, nonDefaultPools int
+	row := `
+SELECT
+  (SELECT COUNT(*) FROM upstream_account_cost_bindings b
+     JOIN upstream_cost_pools p ON p.id = b.cost_pool_id
+    WHERE p.supplier_id = $1 AND b.status = 'active'),
+  (SELECT COUNT(*) FROM upstream_account_cost_bindings b
+     JOIN upstream_cost_pools p ON p.id = b.cost_pool_id
+    WHERE p.supplier_id = $1),
+  (SELECT COUNT(*) FROM upstream_recharge_records r
+     JOIN upstream_cost_pools p ON p.id = r.cost_pool_id
+    WHERE p.supplier_id = $1),
+  (SELECT COUNT(*) FROM upstream_cost_snapshots s
+     JOIN upstream_cost_pools p ON p.id = s.cost_pool_id
+    WHERE p.supplier_id = $1),
+  (SELECT COUNT(*) FROM upstream_cost_pools p
+    WHERE p.supplier_id = $1 AND p.is_default = FALSE)`
+	rows, err := exec.QueryContext(ctx, row, supplierID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	if rows.Next() {
+		if err := rows.Scan(&activeBindings, &bindingHistory, &records, &snapshots, &nonDefaultPools); err != nil {
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if activeBindings > 0 {
+		return ErrUpstreamSupplierHasBoundAccounts
+	}
+	if bindingHistory > 0 {
+		return ErrUpstreamSupplierHasBindingHistory
+	}
+	if records > 0 || snapshots > 0 || nonDefaultPools > 0 {
+		return ErrUpstreamSupplierHasCostData
+	}
+	return nil
 }
 
 func ensureUpstreamSupplierExists(ctx context.Context, exec upstreamCostPoolSQLExecutor, supplierID int64) error {
@@ -975,7 +1255,8 @@ func ensureUpstreamSupplierExists(ctx context.Context, exec upstreamCostPoolSQLE
 	FROM upstream_suppliers
 	WHERE id = $1
 	  AND status = 'active'
-	  AND archived_at IS NULL`, supplierID)
+	  AND archived_at IS NULL
+	  AND is_system = FALSE`, supplierID)
 	if err != nil {
 		return err
 	}
@@ -997,12 +1278,16 @@ func ensureUpstreamCostPoolBelongsToSupplier(ctx context.Context, exec upstreamC
 		return infraerrors.BadRequest("INVALID_UPSTREAM_SUPPLIER_ID", "invalid upstream supplier id")
 	}
 	rows, err := exec.QueryContext(ctx, `
-	SELECT id
-	FROM upstream_cost_pools
-	WHERE id = $1
-	  AND supplier_id = $2
-	  AND status = 'active'
-	  AND archived_at IS NULL`, poolID, supplierID)
+	SELECT p.id
+	FROM upstream_cost_pools p
+	JOIN upstream_suppliers supplier ON supplier.id = p.supplier_id
+	WHERE p.id = $1
+	  AND p.supplier_id = $2
+	  AND p.status = 'active'
+	  AND p.archived_at IS NULL
+	  AND supplier.status = 'active'
+	  AND supplier.archived_at IS NULL
+	  AND supplier.is_system = FALSE`, poolID, supplierID)
 	if err != nil {
 		return err
 	}
@@ -1024,11 +1309,11 @@ func ensureDefaultUpstreamCostPoolForSupplier(ctx context.Context, exec upstream
 	SELECT id
 	FROM upstream_cost_pools
 	WHERE supplier_id = $1
-	  AND name = $2
+	  AND is_default = TRUE
 	  AND status = 'active'
 	  AND archived_at IS NULL
 	ORDER BY id ASC
-	LIMIT 1`, supplierID, upstreamDefaultCostPoolName)
+	LIMIT 1`, supplierID)
 	if err != nil {
 		return 0, err
 	}
@@ -1052,15 +1337,18 @@ func ensureDefaultUpstreamCostPoolForSupplier(ctx context.Context, exec upstream
 	INSERT INTO upstream_cost_pools (
 	    supplier_id,
 	    name,
+	    is_default,
 	    reference_fx_rate,
-	    current_effective_cny_per_usd,
+	    default_effective_cny_per_usd,
+	    default_reference_fx_rate,
 	    cost_method,
 	    note,
 	    created_by
-	) VALUES ($1, $2, $3, $4, 'latest', $5, $6)
+	) VALUES ($1, $2, TRUE, $3, $4, $5, 'latest', $6, $7)
 	RETURNING id`,
 		supplierID,
 		upstreamDefaultCostPoolName,
+		referenceFX,
 		referenceFX,
 		referenceFX,
 		"供应商默认资金池。可在资金池管理里继续拆分余额池。",
@@ -1084,50 +1372,65 @@ func ensureDefaultUpstreamCostPoolForSupplier(ctx context.Context, exec upstream
 	if poolID <= 0 {
 		return 0, ErrUpstreamCostPoolNotFound
 	}
+	return poolID, nil
+}
 
-	rows, err = exec.QueryContext(ctx, `
-	INSERT INTO upstream_cost_snapshots (
-	    cost_pool_id,
-	    effective_cny_per_usd,
-	    reference_fx_rate,
-	    calculation_method,
-	    note,
-	    created_by
-	) VALUES ($1, $2, $3, 'manual', $4, $5)
-	RETURNING id`,
-		poolID,
-		referenceFX,
-		referenceFX,
-		"供应商默认资金池创建时生成的初始成本快照。",
-		nullableInt64(createdBy),
-	)
+func normalizeUpstreamCostPoolDefault(value float64, code, message string) (float64, error) {
+	value = normalizeMoney(value)
+	if !isPositiveFinite(value) {
+		return 0, infraerrors.BadRequest(code, message)
+	}
+	return value, nil
+}
+
+func updateDefaultUpstreamCostPoolConfig(
+	ctx context.Context,
+	exec upstreamCostPoolSQLExecutor,
+	poolID int64,
+	defaultEffectiveCNYPerUSD *float64,
+	defaultReferenceFXRate *float64,
+) error {
+	if poolID <= 0 {
+		return infraerrors.BadRequest("INVALID_UPSTREAM_COST_POOL_ID", "invalid upstream cost pool id")
+	}
+	_, err := exec.ExecContext(ctx, `
+UPDATE upstream_cost_pools
+SET default_effective_cny_per_usd = COALESCE($2, default_effective_cny_per_usd),
+    default_reference_fx_rate = COALESCE($3, default_reference_fx_rate),
+    updated_at = NOW()
+WHERE id = $1`, poolID, nullableFloat(defaultEffectiveCNYPerUSD), nullableFloat(defaultReferenceFXRate))
+	return err
+}
+
+func requireBindableUpstreamCostPool(ctx context.Context, exec upstreamCostPoolSQLExecutor, poolID int64) (int64, error) {
+	if poolID <= 0 {
+		return 0, infraerrors.BadRequest("INVALID_UPSTREAM_COST_POOL_ID", "invalid upstream cost pool id")
+	}
+	rows, err := exec.QueryContext(ctx, `
+SELECT supplier.id
+FROM upstream_cost_pools p
+JOIN upstream_suppliers supplier ON supplier.id = p.supplier_id
+WHERE p.id = $1
+  AND p.status = 'active'
+  AND p.archived_at IS NULL
+  AND supplier.status = 'active'
+  AND supplier.archived_at IS NULL
+  AND supplier.is_system = FALSE`, poolID)
 	if err != nil {
 		return 0, err
 	}
-	var snapshotID int64
+	defer func() { _ = rows.Close() }()
 	if rows.Next() {
-		if err := rows.Scan(&snapshotID); err != nil {
-			_ = rows.Close()
+		var supplierID int64
+		if err := rows.Scan(&supplierID); err != nil {
 			return 0, err
 		}
+		return supplierID, rows.Err()
 	}
 	if err := rows.Err(); err != nil {
-		_ = rows.Close()
 		return 0, err
 	}
-	_ = rows.Close()
-	if snapshotID <= 0 {
-		return 0, infraerrors.InternalServer("UPSTREAM_COST_SNAPSHOT_UNAVAILABLE", "upstream cost snapshot is unavailable")
-	}
-	if _, err := exec.ExecContext(ctx, `
-	UPDATE upstream_cost_pools
-	SET current_snapshot_id = $1,
-	    current_effective_cny_per_usd = $2,
-	    updated_at = NOW()
-	WHERE id = $3`, snapshotID, referenceFX, poolID); err != nil {
-		return 0, err
-	}
-	return poolID, nil
+	return 0, ErrUpstreamCostPoolNotFound
 }
 
 func (s *adminServiceImpl) ensureUpstreamCostPoolExists(ctx context.Context, poolID int64) error {
@@ -1135,11 +1438,13 @@ func (s *adminServiceImpl) ensureUpstreamCostPoolExists(ctx context.Context, poo
 		return infraerrors.BadRequest("INVALID_UPSTREAM_COST_POOL_ID", "invalid upstream cost pool id")
 	}
 	rows, err := s.entClient.QueryContext(ctx, `
-SELECT id
-FROM upstream_cost_pools
-WHERE id = $1
-  AND status = 'active'
-  AND archived_at IS NULL`, poolID)
+SELECT p.id
+FROM upstream_cost_pools p
+JOIN upstream_suppliers supplier ON supplier.id = p.supplier_id
+WHERE p.id = $1
+  AND p.status = 'active'
+  AND p.archived_at IS NULL
+  AND supplier.is_system = FALSE`, poolID)
 	if err != nil {
 		return err
 	}
@@ -1157,6 +1462,7 @@ func (s *adminServiceImpl) loadActiveUpstreamCostBinding(ctx context.Context, ac
 	rows, err := s.entClient.QueryContext(ctx, upstreamCostBindingSelectSQL()+`
 WHERE binding.account_id = $1
   AND binding.status = 'active'
+  AND supplier.is_system = FALSE
 ORDER BY binding.id DESC
 LIMIT 1`, accountID)
 	if err != nil {
@@ -1180,6 +1486,10 @@ func (s *adminServiceImpl) ensureUpstreamCostPoolServiceAvailable() error {
 }
 
 func normalizeUpstreamCostBindingInput(input UpstreamCostBindingInput) (UpstreamCostBindingInput, error) {
+	input.UpstreamGroupName = normalizeOptionalString(input.UpstreamGroupName)
+	if input.UpstreamGroupName != nil && len([]rune(*input.UpstreamGroupName)) > 120 {
+		return UpstreamCostBindingInput{}, infraerrors.BadRequest("INVALID_UPSTREAM_GROUP_NAME", "upstream group name is too long")
+	}
 	input.DefaultMultiplier = normalizeMoney(input.DefaultMultiplier)
 	if input.DefaultMultiplier <= 0 {
 		input.DefaultMultiplier = 1
@@ -1220,6 +1530,7 @@ func normalizeUpstreamSupplierBindingInput(input UpstreamSupplierBindingInput) (
 		input.SupplierID = 0
 		input.SupplierName = ""
 		input.CostPoolID = 0
+		input.UpstreamGroupName = nil
 		input.ModelFamilyMultipliers = nil
 		input.Note = nil
 		return input, nil
@@ -1233,6 +1544,7 @@ func normalizeUpstreamSupplierBindingInput(input UpstreamSupplierBindingInput) (
 	costBinding, err := normalizeUpstreamCostBindingInput(UpstreamCostBindingInput{
 		AccountID:              input.AccountID,
 		CostPoolID:             1,
+		UpstreamGroupName:      input.UpstreamGroupName,
 		DefaultMultiplier:      input.DefaultMultiplier,
 		ModelFamilyMultipliers: input.ModelFamilyMultipliers,
 		Note:                   input.Note,
@@ -1241,6 +1553,7 @@ func normalizeUpstreamSupplierBindingInput(input UpstreamSupplierBindingInput) (
 	if err != nil {
 		return UpstreamSupplierBindingInput{}, err
 	}
+	input.UpstreamGroupName = costBinding.UpstreamGroupName
 	input.DefaultMultiplier = costBinding.DefaultMultiplier
 	input.ModelFamilyMultipliers = costBinding.ModelFamilyMultipliers
 	input.Note = costBinding.Note
@@ -1272,10 +1585,13 @@ SELECT p.id,
        p.supplier_id,
        supplier.name AS supplier_name,
        p.name,
+	   p.is_default,
        p.status,
        p.base_currency,
        p.credit_currency,
        p.reference_fx_rate::double precision,
+	   p.default_effective_cny_per_usd::double precision,
+	   p.default_reference_fx_rate::double precision,
        p.cost_method,
        p.current_effective_cny_per_usd::double precision,
        p.current_snapshot_id,
@@ -1319,6 +1635,7 @@ SELECT binding.id,
        pool.supplier_id,
        supplier.name AS supplier_name,
        binding.status,
+       binding.upstream_group_name,
        binding.default_multiplier::double precision,
        binding.model_family_multipliers::text,
        binding.note,
@@ -1344,6 +1661,7 @@ func scanUpstreamSupplier(scanner upstreamRechargeScanner) (*UpstreamSupplier, e
 		&item.Name,
 		&item.Status,
 		&note,
+		&item.IsSystem,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 		&archivedAt,
@@ -1378,10 +1696,13 @@ func scanUpstreamCostPool(scanner upstreamRechargeScanner) (*UpstreamCostPool, e
 		&item.SupplierID,
 		&item.SupplierName,
 		&item.Name,
+		&item.IsDefault,
 		&item.Status,
 		&item.BaseCurrency,
 		&item.CreditCurrency,
 		&item.ReferenceFXRate,
+		&item.DefaultEffectiveCNYPerUSD,
+		&item.DefaultReferenceFXRate,
 		&item.CostMethod,
 		&currentCost,
 		&currentSnapID,
@@ -1440,6 +1761,7 @@ func scanUpstreamCostPool(scanner upstreamRechargeScanner) (*UpstreamCostPool, e
 func scanUpstreamAccountCostBinding(scanner upstreamRechargeScanner) (*UpstreamAccountCostBinding, error) {
 	var (
 		item          UpstreamAccountCostBinding
+		upstreamGroup sql.NullString
 		modelFamilies sql.NullString
 		note          sql.NullString
 		validTo       sql.NullTime
@@ -1454,6 +1776,7 @@ func scanUpstreamAccountCostBinding(scanner upstreamRechargeScanner) (*UpstreamA
 		&item.SupplierID,
 		&item.SupplierName,
 		&item.Status,
+		&upstreamGroup,
 		&item.DefaultMultiplier,
 		&modelFamilies,
 		&note,
@@ -1467,6 +1790,10 @@ func scanUpstreamAccountCostBinding(scanner upstreamRechargeScanner) (*UpstreamA
 	if modelFamilies.Valid && modelFamilies.String != "" {
 		_ = json.Unmarshal([]byte(modelFamilies.String), &item.ModelFamilyMultipliers)
 	}
+	if upstreamGroup.Valid {
+		item.UpstreamGroupName = &upstreamGroup.String
+	}
+	item.UpstreamGroupMultiplier = item.DefaultMultiplier
 	if item.ModelFamilyMultipliers == nil {
 		item.ModelFamilyMultipliers = []UpstreamCostModelFamilyMultiplier{}
 	}
@@ -1477,17 +1804,6 @@ func scanUpstreamAccountCostBinding(scanner upstreamRechargeScanner) (*UpstreamA
 		item.ValidTo = &validTo.Time
 	}
 	return &item, nil
-}
-
-func defaultUpstreamCostPoolName(account *Account) string {
-	name := "未命名账号"
-	if account != nil && strings.TrimSpace(account.Name) != "" {
-		name = strings.TrimSpace(account.Name)
-	}
-	if account == nil {
-		return "账号默认资金池"
-	}
-	return fmt.Sprintf("账号默认资金池 #%d: %s", account.ID, name)
 }
 
 func positiveFloatFromExtra(extra map[string]any, key string, fallback float64) float64 {

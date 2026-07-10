@@ -1,107 +1,5 @@
 <template>
   <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-stone-200/80 bg-white shadow-sm shadow-stone-950/5 dark:border-white/10 dark:bg-stone-950/70 dark:shadow-black/20">
-    <div class="border-b border-stone-200/80 bg-white px-4 py-3 dark:border-white/10 dark:bg-stone-950">
-      <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div class="min-w-0">
-          <h3 class="truncate text-base font-semibold text-stone-950 dark:text-white">
-            {{ t('admin.accounts.upstreamCost.supplierListTitle') }}
-          </h3>
-          <p class="mt-1 text-sm text-stone-500 dark:text-stone-400">
-            {{ t('admin.accounts.upstreamCost.supplierListDescription') }}
-          </p>
-        </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            class="btn btn-secondary h-10 justify-center px-3"
-            :disabled="loading || supplierCreating"
-            @click="emit('refresh')"
-          >
-            <Icon name="refresh" size="sm" :class="{ 'animate-spin': loading }" />
-            {{ t('common.refresh') }}
-          </button>
-          <button
-            type="button"
-            class="btn btn-primary h-10 justify-center px-3"
-            :disabled="loading || supplierCreating"
-            @click="openSupplierCreate"
-          >
-            <Icon name="plus" size="sm" />
-            {{ t('admin.accounts.upstreamCost.addSupplier') }}
-          </button>
-        </div>
-      </div>
-      <form
-        v-if="supplierCreateOpen"
-        class="mt-3 rounded-xl border border-stone-200 bg-stone-50/80 p-3 dark:border-white/10 dark:bg-white/[0.04]"
-        @submit.prevent="createSupplier"
-      >
-        <label class="input-label mb-2 block">
-          {{ t('admin.accounts.upstreamCost.newSupplierName') }}
-        </label>
-        <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <input
-            v-model="supplierNameDraft"
-            type="text"
-            class="input h-10 min-w-0 flex-1 rounded-lg py-2"
-            :placeholder="t('admin.accounts.upstreamCost.newSupplierNamePlaceholder')"
-            :disabled="supplierCreating"
-            autofocus
-          />
-          <div class="flex shrink-0 gap-2">
-            <button
-              type="submit"
-              class="btn btn-primary h-10 rounded-lg px-3 py-0"
-              :disabled="supplierCreating"
-            >
-              <Icon name="check" size="sm" />
-              {{ t('admin.accounts.upstreamCost.saveSupplier') }}
-            </button>
-            <button
-              type="button"
-              class="btn btn-secondary h-10 rounded-lg px-3 py-0"
-              :disabled="supplierCreating"
-              @click="cancelSupplierCreate"
-            >
-              {{ t('common.cancel') }}
-            </button>
-          </div>
-        </div>
-        <p class="mt-2 text-xs text-stone-500 dark:text-stone-500">
-          {{ t('admin.accounts.upstreamCost.supplierCreateHint') }}
-        </p>
-      </form>
-    </div>
-
-    <div class="grid border-b border-stone-200 bg-stone-50/70 dark:border-white/10 dark:bg-white/[0.025] md:grid-cols-3">
-      <div class="min-w-0 border-b border-stone-200 px-4 py-3 dark:border-white/10 md:border-b-0 md:border-r">
-        <div class="text-xs font-medium text-stone-500 dark:text-stone-400">
-          {{ t('admin.accounts.upstreamCost.supplierCount') }}
-        </div>
-        <div class="mt-1 font-mono text-2xl font-semibold leading-none text-stone-950 dark:text-white">
-          {{ rows.length }}
-        </div>
-      </div>
-      <div class="min-w-0 border-b border-stone-200 px-4 py-3 dark:border-white/10 md:border-b-0 md:border-r">
-        <div class="text-xs font-medium text-stone-500 dark:text-stone-400">
-          {{ t('admin.accounts.upstreamCost.configuredSuppliers') }}
-        </div>
-        <div class="mt-1 flex items-baseline gap-2">
-          <span class="font-mono text-2xl font-semibold leading-none text-stone-950 dark:text-white">{{ configuredRows.length }}</span>
-          <span class="text-sm text-stone-500 dark:text-stone-400">/ {{ rows.length }}</span>
-        </div>
-      </div>
-      <div class="min-w-0 px-4 py-3">
-        <div class="text-xs font-medium text-stone-500 dark:text-stone-400">
-          {{ t('admin.accounts.upstreamCost.bestSupplier') }}
-        </div>
-        <div class="mt-1 flex min-w-0 items-baseline gap-2">
-          <span class="font-mono text-2xl font-semibold leading-none text-stone-950 dark:text-white">{{ bestRow ? discountLabel(bestRow) : '-' }}</span>
-          <span class="truncate text-sm text-stone-500 dark:text-stone-400">{{ bestRow?.supplierName || '-' }}</span>
-        </div>
-      </div>
-    </div>
-
     <div v-if="error" class="m-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300">
       {{ error }}
     </div>
@@ -157,13 +55,13 @@
                 <span class="font-mono text-stone-700 dark:text-stone-300">{{ row.bindingCount }}</span>
               </td>
               <td class="px-4 py-4 font-mono text-stone-700 dark:text-stone-300">
-                {{ formatCost(row.pool?.current_effective_cny_per_usd) }}
+                {{ formatCost(currentEffectiveCost(row)) }}
               </td>
               <td class="px-4 py-4 font-mono text-stone-700 dark:text-stone-300">
-                <span v-if="row.pool?.current_effective_cny_per_usd">
-                  {{ formatRatio(row.pool.current_effective_cny_per_usd) }}
+                <span v-if="hasCurrentCost(row)">
+                  {{ formatRatio(row.pool?.current_effective_cny_per_usd) }}
                   <span class="text-stone-400">/</span>
-                  {{ formatRatio(row.pool.reference_fx_rate) }}
+                  {{ formatRatio(row.pool?.reference_fx_rate) }}
                 </span>
                 <span v-else class="text-stone-400 dark:text-stone-500">-</span>
               </td>
@@ -180,22 +78,71 @@
                   {{ statusText(row) }}
                 </span>
               </td>
-              <td class="px-4 py-4 text-right">
-                <button
-                  type="button"
-                  class="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 transition-colors hover:border-emerald-300 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-stone-200 dark:hover:border-emerald-500/40 dark:hover:text-emerald-300"
-                  :disabled="!row.pool"
-                  @click="row.pool && $emit('recharge-records', row.pool)"
-                >
-                  <Icon name="creditCard" size="xs" />
-                  {{ t('admin.accounts.upstreamCost.rechargeRecords.action') }}
-                </button>
+              <td class="px-4 py-4">
+                <div class="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-3 text-xs font-medium text-stone-700 transition-colors hover:border-emerald-300 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-stone-200 dark:hover:border-emerald-500/40 dark:hover:text-emerald-300"
+                    :disabled="!row.pool"
+                    @click="row.pool && $emit('recharge-records', row.pool)"
+                  >
+                    <Icon name="creditCard" size="xs" />
+                    {{ t('admin.accounts.upstreamCost.rechargeRecords.action') }}
+                  </button>
+                  <button
+                    v-if="!isReserved(row)"
+                    type="button"
+                    class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-3 text-xs font-medium text-stone-700 transition-colors hover:border-sky-300 hover:text-sky-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-stone-200 dark:hover:border-sky-500/40 dark:hover:text-sky-300"
+                    :disabled="supplierMutating"
+                    @click="emit('edit-supplier', row.supplierID)"
+                  >
+                    <Icon name="edit" size="xs" />
+                    {{ t('common.edit') }}
+                  </button>
+                  <button
+                    v-if="!isReserved(row)"
+                    type="button"
+                    class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-3 text-xs font-medium text-stone-700 transition-colors hover:border-amber-300 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-stone-200 dark:hover:border-amber-500/40 dark:hover:text-amber-300"
+                    :disabled="supplierMutating"
+                    @click="toggleArchive(row)"
+                  >
+                    <Icon :name="row.supplierStatus === 'archived' ? 'refresh' : 'inbox'" size="xs" />
+                    {{ row.supplierStatus === 'archived' ? t('admin.accounts.upstreamCost.unarchive') : t('admin.accounts.upstreamCost.archive') }}
+                  </button>
+                  <button
+                    v-if="!isReserved(row)"
+                    type="button"
+                    class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-3 text-xs font-medium text-stone-700 transition-colors hover:border-red-300 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-stone-200 dark:hover:border-red-500/40 dark:hover:text-red-300"
+                    :disabled="supplierMutating"
+                    @click="openSupplierDelete(row)"
+                  >
+                    <Icon name="trash" size="xs" />
+                    {{ t('common.delete') }}
+                  </button>
+                </div>
               </td>
             </tr>
           </template>
         </tbody>
       </table>
     </div>
+    <ConfirmDialog
+      :show="archiveTarget !== null"
+      :title="t('admin.accounts.upstreamCost.archiveSupplierTitle')"
+      :message="archiveMessage"
+      :confirm-text="t('admin.accounts.upstreamCost.archive')"
+      @confirm="confirmSupplierArchive"
+      @cancel="archiveTarget = null"
+    />
+    <ConfirmDialog
+      :show="deleteTarget !== null"
+      danger
+      :title="t('admin.accounts.upstreamCost.deleteSupplierTitle')"
+      :message="deleteMessage"
+      :confirm-text="t('common.delete')"
+      @confirm="confirmSupplierDelete"
+      @cancel="deleteTarget = null"
+    />
   </div>
 </template>
 
@@ -206,6 +153,8 @@ import { adminAPI } from '@/api/admin'
 import type { UpstreamCostPool, UpstreamSupplier } from '@/api/admin/accounts'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores/app'
+import { ConfirmDialog } from '@/components/common'
+import { extractApiErrorCode } from '@/utils/apiError'
 import { formatUpstreamDiscountLabel, formatUpstreamRatio } from '@/utils/upstreamCost'
 
 interface SupplierCostRow {
@@ -213,6 +162,7 @@ interface SupplierCostRow {
   supplierName: string
   supplierStatus: string
   supplierNote?: string | null
+  isSystem: boolean
   pools: UpstreamCostPool[]
   pool: UpstreamCostPool | null
   bindingCount: number
@@ -229,55 +179,125 @@ const props = defineProps<{
 const emit = defineEmits<{
   refresh: [options?: { forcePools?: boolean }]
   'recharge-records': [pool: UpstreamCostPool]
+  'edit-supplier': [supplierID: number]
 }>()
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const supplierCreateOpen = ref(false)
-const supplierNameDraft = ref('')
-const supplierCreating = ref(false)
+const supplierMutating = ref(false)
+const archiveTarget = ref<SupplierCostRow | null>(null)
+const deleteTarget = ref<SupplierCostRow | null>(null)
 
-const openSupplierCreate = () => {
-  supplierCreateOpen.value = true
-}
+const isReserved = (row: SupplierCostRow) => row.isSystem
 
-const cancelSupplierCreate = () => {
-  if (supplierCreating.value) {
+const toggleArchive = async (row: SupplierCostRow) => {
+  const nextStatus = row.supplierStatus === 'archived' ? 'active' : 'archived'
+  if (nextStatus === 'archived' && row.bindingCount > 0) {
+    archiveTarget.value = row
     return
   }
-  supplierCreateOpen.value = false
-  supplierNameDraft.value = ''
+  await archiveSupplier(row, nextStatus)
 }
 
-const createSupplier = async () => {
-  const name = supplierNameDraft.value.trim()
-  if (!name) {
-    appStore.showWarning(t('admin.accounts.upstreamCost.supplierNameRequired'))
-    return
-  }
-  supplierCreating.value = true
+const archiveMessage = computed(() => {
+  const row = archiveTarget.value
+  if (!row) return ''
+  return t('admin.accounts.upstreamCost.archiveSupplierConfirm', {
+    name: row.supplierName,
+    count: row.bindingCount
+  })
+})
+
+const confirmSupplierArchive = async () => {
+  const row = archiveTarget.value
+  if (!row) return
+  archiveTarget.value = null
+  await archiveSupplier(row, 'archived')
+}
+
+const archiveSupplier = async (row: SupplierCostRow, nextStatus: 'active' | 'archived') => {
+  supplierMutating.value = true
   try {
-    await adminAPI.accounts.createUpstreamSupplier({ name })
-    appStore.showSuccess(t('admin.accounts.upstreamCost.supplierCreated'))
-    supplierCreateOpen.value = false
-    supplierNameDraft.value = ''
+    await adminAPI.accounts.updateUpstreamSupplier(row.supplierID, { status: nextStatus })
+    appStore.showSuccess(
+      nextStatus === 'archived'
+        ? t('admin.accounts.upstreamCost.supplierArchived')
+        : t('admin.accounts.upstreamCost.supplierUnarchived')
+    )
     emit('refresh', { forcePools: true })
   } catch (error: any) {
-    appStore.showError(error?.message || t('admin.accounts.upstreamCost.supplierCreateFailed'))
+    appStore.showError(mapSupplierError(error, 'supplierUpdateFailed'))
   } finally {
-    supplierCreating.value = false
+    supplierMutating.value = false
+  }
+}
+
+const openSupplierDelete = (row: SupplierCostRow) => {
+  if (row.bindingCount > 0) {
+    appStore.showWarning(t('admin.accounts.upstreamCost.errors.hasBoundAccounts'))
+    return
+  }
+  deleteTarget.value = row
+}
+
+const deleteMessage = computed(() => {
+  const row = deleteTarget.value
+  if (!row) return ''
+  return t('admin.accounts.upstreamCost.deleteSupplierConfirm', { name: row.supplierName })
+})
+
+const confirmSupplierDelete = async () => {
+  const row = deleteTarget.value
+  if (!row) return
+  supplierMutating.value = true
+  try {
+    await adminAPI.accounts.deleteUpstreamSupplier(row.supplierID)
+    appStore.showSuccess(t('admin.accounts.upstreamCost.supplierDeleted'))
+    deleteTarget.value = null
+    emit('refresh', { forcePools: true })
+  } catch (error: any) {
+    appStore.showError(mapSupplierError(error, 'supplierDeleteFailed'))
+  } finally {
+    supplierMutating.value = false
+  }
+}
+
+const mapSupplierError = (error: any, fallbackKey: string): string => {
+  const code = extractApiErrorCode(error)
+  switch (code) {
+    case 'SUPPLIER_NAME_CONFLICT':
+      return t('admin.accounts.upstreamCost.errors.nameConflict')
+    case 'SUPPLIER_RESERVED':
+      return t('admin.accounts.upstreamCost.errors.reserved')
+    case 'SUPPLIER_HAS_BOUND_ACCOUNTS':
+      return t('admin.accounts.upstreamCost.errors.hasBoundAccounts')
+    case 'SUPPLIER_HAS_BINDING_HISTORY':
+      return t('admin.accounts.upstreamCost.errors.hasBindingHistory')
+    case 'SUPPLIER_HAS_COST_DATA':
+      return t('admin.accounts.upstreamCost.errors.hasCostData')
+    default:
+      return error?.message || t(`admin.accounts.upstreamCost.${fallbackKey}`)
   }
 }
 
 const rows = computed<SupplierCostRow[]>(() => {
   const bySupplier = new Map<number, SupplierCostRow>()
+  const systemSupplierIDs = new Set(
+    props.suppliers
+      .filter((supplier) => supplier.is_system === true)
+      .map((supplier) => supplier.id)
+  )
 
   for (const supplier of props.suppliers) {
+    if (systemSupplierIDs.has(supplier.id)) {
+      continue
+    }
     bySupplier.set(supplier.id, {
       supplierID: supplier.id,
       supplierName: supplier.name,
       supplierStatus: supplier.status,
       supplierNote: supplier.note,
+      isSystem: supplier.is_system === true,
       pools: [],
       pool: null,
       bindingCount: 0,
@@ -286,11 +306,15 @@ const rows = computed<SupplierCostRow[]>(() => {
   }
 
   for (const pool of props.costPools) {
+    if (systemSupplierIDs.has(pool.supplier_id)) {
+      continue
+    }
     if (!bySupplier.has(pool.supplier_id)) {
       bySupplier.set(pool.supplier_id, {
         supplierID: pool.supplier_id,
         supplierName: pool.supplier_name,
         supplierStatus: pool.archived_at ? 'archived' : pool.status,
+        isSystem: false,
         pools: [],
         pool: null,
         bindingCount: 0,
@@ -303,9 +327,12 @@ const rows = computed<SupplierCostRow[]>(() => {
   return [...bySupplier.values()]
     .map((row) => {
       const pools = [...row.pools].sort((a, b) => {
+        const defaultDelta = Number(Boolean(b.is_default)) - Number(Boolean(a.is_default))
+        if (defaultDelta !== 0) return defaultDelta
         const activeDelta = Number(b.status === 'active') - Number(a.status === 'active')
         if (activeDelta !== 0) return activeDelta
-        const costDelta = Number(Boolean(b.current_effective_cny_per_usd)) - Number(Boolean(a.current_effective_cny_per_usd))
+        const costDelta = Number(Boolean(b.current_snapshot_id && b.current_effective_cny_per_usd)) -
+          Number(Boolean(a.current_snapshot_id && a.current_effective_cny_per_usd))
         if (costDelta !== 0) return costDelta
         if (b.binding_count !== a.binding_count) return b.binding_count - a.binding_count
         return a.id - b.id
@@ -324,12 +351,8 @@ const rows = computed<SupplierCostRow[]>(() => {
     })
 })
 
-const configuredRows = computed(() => rows.value.filter(row => Boolean(row.pool?.current_effective_cny_per_usd)))
-const bestRow = computed(() => {
-  return [...configuredRows.value].sort((a, b) => discountFactor(a) - discountFactor(b))[0] || null
-})
-
 const discountFactor = (row: SupplierCostRow) => {
+  if (!row.pool?.current_snapshot_id) return Number.POSITIVE_INFINITY
   const cost = row.pool?.current_effective_cny_per_usd
   const fx = row.pool?.reference_fx_rate
   if (!Number.isFinite(Number(cost)) || !Number.isFinite(Number(fx)) || Number(fx) <= 0) {
@@ -337,6 +360,14 @@ const discountFactor = (row: SupplierCostRow) => {
   }
   return Number(cost) / Number(fx)
 }
+
+const hasCurrentCost = (row: SupplierCostRow) => Boolean(
+  row.pool?.current_snapshot_id && Number.isFinite(Number(row.pool.current_effective_cny_per_usd))
+)
+
+const currentEffectiveCost = (row: SupplierCostRow) => (
+  hasCurrentCost(row) ? row.pool?.current_effective_cny_per_usd : null
+)
 
 const discountLabel = (row: SupplierCostRow) => {
   const factor = discountFactor(row)
@@ -357,13 +388,13 @@ const formatCost = (value?: number | null) => {
 const statusText = (row: SupplierCostRow) => {
   if (!row.pool) return t('admin.accounts.upstreamCost.supplierNoPool')
   if (row.supplierStatus === 'archived' || row.pool.archived_at) return t('admin.accounts.upstreamCost.archivedStatus')
-  if (row.pool.current_effective_cny_per_usd) return t('admin.accounts.upstreamCost.completeStatus')
+  if (hasCurrentCost(row)) return t('admin.accounts.upstreamCost.completeStatus')
   return t('admin.accounts.upstreamCost.needsConfig')
 }
 
 const statusBadgeClass = (row: SupplierCostRow) => {
   const base = 'rounded-md px-2 py-1 text-xs font-medium'
-  if (row.pool?.current_effective_cny_per_usd) {
+  if (hasCurrentCost(row)) {
     return `${base} bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300`
   }
   if (!row.pool) {
@@ -388,7 +419,7 @@ const discountBadgeClass = (row: SupplierCostRow) => {
 }
 
 const rowDotClass = (row: SupplierCostRow) => {
-  if (row.pool?.current_effective_cny_per_usd) return 'bg-emerald-500'
+  if (hasCurrentCost(row)) return 'bg-emerald-500'
   if (row.pool) return 'bg-amber-500'
   return 'bg-stone-300 dark:bg-stone-600'
 }

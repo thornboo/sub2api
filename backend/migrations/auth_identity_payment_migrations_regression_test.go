@@ -253,3 +253,47 @@ func TestMigration166CreatesUpstreamCostPoolsAndBackfillsLegacyRechargeRecords(t
 	require.Contains(t, sql, "VALIDATE CONSTRAINT fk_upstream_recharge_records_merged_from_pool_id")
 	require.NotContains(t, sql, "ALTER TABLE upstream_recharge_records DROP COLUMN")
 }
+
+func TestMigration172MarksSystemUpstreamSupplier(t *testing.T) {
+	content, err := FS.ReadFile("172_upstream_suppliers_system_flag.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS is_system BOOLEAN NOT NULL DEFAULT FALSE")
+	require.Contains(t, sql, "SET is_system = TRUE")
+	require.Contains(t, sql, "WHERE name = '未归类供应商'")
+	require.Contains(t, sql, "idx_upstream_suppliers_system")
+}
+
+func TestMigration173AddsUpstreamAccountBindingGroupName(t *testing.T) {
+	content, err := FS.ReadFile("173_upstream_account_binding_group_name.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS upstream_group_name VARCHAR(120)")
+	require.Contains(t, sql, "idx_upstream_account_cost_bindings_group")
+	require.Contains(t, sql, "ON upstream_account_cost_bindings(cost_pool_id, upstream_group_name)")
+	require.Contains(t, sql, "WHERE status = 'active'")
+}
+
+func TestMigration174AddsStableUpstreamCostPoolDefaults(t *testing.T) {
+	content, err := FS.ReadFile("174_upstream_cost_pool_defaults.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS default_effective_cny_per_usd NUMERIC(18,6)")
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS default_reference_fx_rate NUMERIC(18,6)")
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT FALSE")
+	require.Contains(t, sql, "JOIN upstream_suppliers supplier")
+	require.Contains(t, sql, "supplier.is_system = FALSE")
+	require.Contains(t, sql, "named_default_count = 0 AND active_pool_count = 1")
+	require.Contains(t, sql, "upstream_cost_pools_one_default_per_supplier")
+	require.Contains(t, sql, "NULLIF(current_effective_cny_per_usd, 0)")
+	require.Contains(t, sql, "current_effective_cny_per_usd = NULL")
+	require.Contains(t, sql, "pool.is_default = TRUE")
+	require.Contains(t, sql, "pool.current_snapshot_id IS NULL")
+	require.Contains(t, sql, "供应商默认资金池创建时生成的初始成本快照。")
+	require.Contains(t, sql, "NOT EXISTS")
+	require.Contains(t, sql, "upstream_cost_pools_default_effective_cost_check")
+	require.Contains(t, sql, "upstream_cost_pools_default_reference_fx_rate_check")
+}

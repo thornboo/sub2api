@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/stretchr/testify/require"
 )
 
@@ -155,6 +156,67 @@ func TestMigrationsRunner_AuthIdentityAndPaymentSchemaStayAligned(t *testing.T) 
 	requireIndex(t, tx, "payment_orders", "paymentorder_out_trade_no")
 	requirePartialUniqueIndexDefinition(t, tx, "payment_orders", "paymentorder_out_trade_no", "out_trade_no", "WHERE")
 	requireIndexAbsent(t, tx, "payment_orders", "paymentorder_out_trade_no_unique")
+}
+
+func TestMigration174BackfillsOnlyUnambiguousRealSupplierDefaults(t *testing.T) {
+	ctx := context.Background()
+	tx := testTx(t)
+
+	insertSupplier := func(name string, isSystem bool) int64 {
+		t.Helper()
+		var supplierID int64
+		require.NoError(t, tx.QueryRowContext(ctx, `
+INSERT INTO upstream_suppliers (name, is_system)
+VALUES ($1, $2)
+RETURNING id`, name, isSystem).Scan(&supplierID))
+		return supplierID
+	}
+	insertPool := func(supplierID int64, name string) int64 {
+		t.Helper()
+		var poolID int64
+		require.NoError(t, tx.QueryRowContext(ctx, `
+INSERT INTO upstream_cost_pools (supplier_id, name, is_default)
+VALUES ($1, $2, FALSE)
+RETURNING id`, supplierID, name).Scan(&poolID))
+		return poolID
+	}
+	loadDefault := func(poolID int64) bool {
+		t.Helper()
+		var isDefault bool
+		require.NoError(t, tx.QueryRowContext(ctx, `
+SELECT is_default
+FROM upstream_cost_pools
+WHERE id = $1`, poolID).Scan(&isDefault))
+		return isDefault
+	}
+
+	canonicalSupplierID := insertSupplier("migration-174-canonical", false)
+	canonicalPoolID := insertPool(canonicalSupplierID, "主余额池")
+	secondaryPoolID := insertPool(canonicalSupplierID, "活动备用池")
+
+	renamedSupplierID := insertSupplier("migration-174-renamed", false)
+	renamedOnlyPoolID := insertPool(renamedSupplierID, "历史改名资金池")
+
+	ambiguousSupplierID := insertSupplier("migration-174-ambiguous", false)
+	ambiguousPoolAID := insertPool(ambiguousSupplierID, "历史资金池 A")
+	ambiguousPoolBID := insertPool(ambiguousSupplierID, "历史资金池 B")
+
+	systemSupplierID := insertSupplier("migration-174-system", true)
+	systemCanonicalPoolID := insertPool(systemSupplierID, "主余额池")
+	systemAccountPoolID := insertPool(systemSupplierID, "账号默认资金池 #174: migration")
+
+	migrationSQL, err := migrations.FS.ReadFile("174_upstream_cost_pool_defaults.sql")
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, string(migrationSQL))
+	require.NoError(t, err)
+
+	require.True(t, loadDefault(canonicalPoolID), "canonical real-supplier pool should be the default")
+	require.False(t, loadDefault(secondaryPoolID), "secondary pool must not replace the canonical default")
+	require.True(t, loadDefault(renamedOnlyPoolID), "a real supplier's sole active pool should recover as default")
+	require.False(t, loadDefault(ambiguousPoolAID), "multiple renamed pools are ambiguous")
+	require.False(t, loadDefault(ambiguousPoolBID), "multiple renamed pools are ambiguous")
+	require.False(t, loadDefault(systemCanonicalPoolID), "system suppliers must never receive a default pool")
+	require.False(t, loadDefault(systemAccountPoolID), "phase-1 account pools must remain non-default")
 }
 
 func requireIndex(t *testing.T, tx *sql.Tx, table, index string) {

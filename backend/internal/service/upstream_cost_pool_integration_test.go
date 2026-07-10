@@ -38,10 +38,50 @@ type upstreamRechargeAdmin interface {
 	CreateUpstreamRechargeRecord(context.Context, svc.UpstreamRechargeRecordInput) (*svc.UpstreamRechargeRecord, error)
 	UpdateUpstreamRechargeRecord(context.Context, int64, svc.UpstreamRechargeRecordInput) (*svc.UpstreamRechargeRecord, error)
 	DeleteUpstreamRechargeRecord(context.Context, int64, int64) error
+	UpdateAccountUpstreamSupplierBinding(context.Context, svc.UpstreamSupplierBindingInput) (*svc.UpstreamAccountCostBinding, error)
 }
 
 type upstreamSupplierBindingAdmin interface {
 	UpdateAccountUpstreamSupplierBinding(context.Context, svc.UpstreamSupplierBindingInput) (*svc.UpstreamAccountCostBinding, error)
+}
+
+type upstreamSupplierAdmin interface {
+	CreateUpstreamSupplier(context.Context, svc.CreateUpstreamSupplierInput) (*svc.UpstreamSupplier, error)
+	UpdateUpstreamSupplier(context.Context, svc.UpdateUpstreamSupplierInput) (*svc.UpstreamSupplier, error)
+	DeleteUpstreamSupplier(context.Context, int64) error
+	ListUpstreamCostPools(context.Context) ([]svc.UpstreamCostPool, error)
+	UpdateAccountUpstreamSupplierBinding(context.Context, svc.UpstreamSupplierBindingInput) (*svc.UpstreamAccountCostBinding, error)
+	UpdateAccountUpstreamCostBinding(context.Context, svc.UpstreamCostBindingInput) (*svc.UpstreamAccountCostBinding, error)
+}
+
+type recordingSchedulerCache struct {
+	svc.SchedulerCache
+	mu       sync.Mutex
+	accounts []*svc.Account
+}
+
+func (c *recordingSchedulerCache) SetAccount(_ context.Context, account *svc.Account) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	copyValue := *account
+	c.accounts = append(c.accounts, &copyValue)
+	return nil
+}
+
+func (c *recordingSchedulerCache) reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.accounts = nil
+}
+
+func (c *recordingSchedulerCache) lastAccount() *svc.Account {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.accounts) == 0 {
+		return nil
+	}
+	copyValue := *c.accounts[len(c.accounts)-1]
+	return &copyValue
 }
 
 func TestMain(m *testing.M) {
@@ -107,6 +147,7 @@ func TestUpstreamCostPoolRechargeSnapshotIgnoresAdjustment(t *testing.T) {
 		"upstream_reference_fx_rate":    7.0,
 		"upstream_recharge_cny_per_usd": 6.5,
 	})
+	bindUpstreamRechargeAccount(t, admin, account)
 
 	record, err := admin.CreateUpstreamRechargeRecord(ctx, svc.UpstreamRechargeRecordInput{
 		AccountID:            account.ID,
@@ -121,7 +162,7 @@ func TestUpstreamCostPoolRechargeSnapshotIgnoresAdjustment(t *testing.T) {
 	currentCost, activeSnapshotID := requireUpstreamPoolCurrentCost(t, poolID)
 	require.InDelta(t, 7.0, currentCost, 0.000001)
 	totalSnapshots, activeSnapshots := requireUpstreamSnapshotCounts(t, poolID)
-	require.Equal(t, 2, totalSnapshots)
+	require.Equal(t, 1, totalSnapshots)
 	require.Equal(t, 1, activeSnapshots)
 
 	_, err = admin.CreateUpstreamRechargeRecord(ctx, svc.UpstreamRechargeRecordInput{
@@ -138,6 +179,21 @@ func TestUpstreamCostPoolRechargeSnapshotIgnoresAdjustment(t *testing.T) {
 	totalAfterAdjustment, activeAfterAdjustment := requireUpstreamSnapshotCounts(t, poolID)
 	require.Equal(t, totalSnapshots, totalAfterAdjustment)
 	require.Equal(t, 1, activeAfterAdjustment)
+
+	_, err = admin.CreateUpstreamRechargeRecord(ctx, svc.UpstreamRechargeRecordInput{
+		AccountID:            account.ID,
+		Type:                 "bonus",
+		PaidAmount:           7,
+		ReceivedCreditAmount: 2,
+	})
+	require.NoError(t, err)
+
+	currentCost, snapshotAfterBonus := requireUpstreamPoolCurrentCost(t, poolID)
+	require.InDelta(t, 7.0, currentCost, 0.000001)
+	require.Equal(t, activeSnapshotID, snapshotAfterBonus)
+	totalAfterBonus, activeAfterBonus := requireUpstreamSnapshotCounts(t, poolID)
+	require.Equal(t, totalSnapshots, totalAfterBonus)
+	require.Equal(t, 1, activeAfterBonus)
 
 	_, err = admin.CreateUpstreamRechargeRecord(ctx, svc.UpstreamRechargeRecordInput{
 		AccountID:            account.ID,
@@ -163,6 +219,7 @@ func TestUpstreamRechargeUpdateDeleteRefreshesCurrentSnapshot(t *testing.T) {
 		"upstream_reference_fx_rate":    7.0,
 		"upstream_recharge_cny_per_usd": 7.0,
 	})
+	bindUpstreamRechargeAccount(t, admin, account)
 	recordedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
 	first, err := admin.CreateUpstreamRechargeRecord(ctx, svc.UpstreamRechargeRecordInput{
@@ -225,13 +282,63 @@ func TestUpstreamRechargeUpdateDeleteRefreshesCurrentSnapshot(t *testing.T) {
 	require.Equal(t, 0, activeSnapshots)
 }
 
-func TestUpstreamCostPoolConcurrentFirstUseConverges(t *testing.T) {
+func TestUpstreamRechargeMutationRefreshesBoundSchedulerAccount(t *testing.T) {
+	ctx := context.Background()
+	cache := &recordingSchedulerCache{}
+	admin := newUpstreamRechargeAdminWithCache(t, cache)
+	account := createUpstreamCostPoolAccount(t, nil)
+	binding := bindUpstreamRechargeAccount(t, admin, account)
+	cache.reset()
+
+	record, err := admin.CreateUpstreamRechargeRecord(ctx, svc.UpstreamRechargeRecordInput{
+		AccountID:            account.ID,
+		Type:                 "recharge",
+		PaidAmount:           7,
+		ReceivedCreditAmount: 1,
+	})
+	require.NoError(t, err)
+	refreshed := cache.lastAccount()
+	require.NotNil(t, refreshed)
+	require.Equal(t, account.ID, refreshed.ID)
+	require.NotNil(t, refreshed.UpstreamEffectiveDiscount)
+	require.InDelta(t, 1, *refreshed.UpstreamEffectiveDiscount, 0.000001)
+
+	cache.reset()
+	_, err = admin.UpdateUpstreamRechargeRecord(ctx, record.ID, svc.UpstreamRechargeRecordInput{
+		AccountID:            account.ID,
+		Type:                 "recharge",
+		PaidAmount:           3.5,
+		ReceivedCreditAmount: 1,
+	})
+	require.NoError(t, err)
+	refreshed = cache.lastAccount()
+	require.NotNil(t, refreshed)
+	require.NotNil(t, refreshed.UpstreamEffectiveDiscount)
+	require.InDelta(t, 0.5, *refreshed.UpstreamEffectiveDiscount, 0.000001)
+
+	cache.reset()
+	require.NoError(t, admin.DeleteUpstreamRechargeRecord(ctx, account.ID, record.ID))
+	refreshed = cache.lastAccount()
+	require.NotNil(t, refreshed)
+	require.Nil(t, refreshed.UpstreamEffectiveDiscount)
+
+	var activeBindings int
+	require.NoError(t, serviceIntegrationDB.QueryRowContext(ctx, `
+SELECT COUNT(*)::int
+FROM upstream_account_cost_bindings
+WHERE cost_pool_id = $1
+  AND status = 'active'`, binding.CostPoolID).Scan(&activeBindings))
+	require.Equal(t, 1, activeBindings)
+}
+
+func TestUpstreamCostPoolConcurrentRechargeUsesExistingSupplierBinding(t *testing.T) {
 	ctx := context.Background()
 	admin := newUpstreamRechargeAdmin(t)
 	account := createUpstreamCostPoolAccount(t, map[string]any{
 		"upstream_reference_fx_rate":    7.0,
 		"upstream_recharge_cny_per_usd": 7.0,
 	})
+	binding := bindUpstreamRechargeAccount(t, admin, account)
 
 	var wg sync.WaitGroup
 	start := make(chan struct{})
@@ -261,6 +368,7 @@ func TestUpstreamCostPoolConcurrentFirstUseConverges(t *testing.T) {
 	require.NoError(t, errs[1])
 	require.NotZero(t, poolIDs[0])
 	require.Equal(t, poolIDs[0], poolIDs[1])
+	require.Equal(t, binding.CostPoolID, poolIDs[0])
 
 	var activeBindings int
 	require.NoError(t, serviceIntegrationDB.QueryRowContext(ctx, `
@@ -269,26 +377,6 @@ FROM upstream_account_cost_bindings
 WHERE account_id = $1
   AND status = 'active'`, account.ID).Scan(&activeBindings))
 	require.Equal(t, 1, activeBindings)
-
-	defaultPoolNote := fmt.Sprintf("账号 %d 首次使用上游成本池时自动创建。", account.ID)
-	var defaultPools int
-	require.NoError(t, serviceIntegrationDB.QueryRowContext(ctx, `
-SELECT COUNT(*)::int
-FROM upstream_cost_pools
-WHERE note = $1`, defaultPoolNote).Scan(&defaultPools))
-	require.Equal(t, 1, defaultPools)
-
-	var orphanPools int
-	require.NoError(t, serviceIntegrationDB.QueryRowContext(ctx, `
-SELECT COUNT(*)::int
-FROM upstream_cost_pools pool
-WHERE pool.note = $1
-  AND NOT EXISTS (
-      SELECT 1
-      FROM upstream_account_cost_bindings binding
-      WHERE binding.cost_pool_id = pool.id
-  )`, defaultPoolNote).Scan(&orphanPools))
-	require.Equal(t, 0, orphanPools)
 
 	var recordCount, distinctPools int
 	require.NoError(t, serviceIntegrationDB.QueryRowContext(ctx, `
@@ -362,6 +450,9 @@ func TestUpstreamSupplierBindingConcurrentCreateConverges(t *testing.T) {
 	  AND archived_at IS NULL`, bindings[0].SupplierID, "主余额池").Scan(&defaultPoolCount))
 	require.Equal(t, 1, defaultPoolCount)
 
+	initialSnapshotCount, _ := requireUpstreamSnapshotCounts(t, bindings[0].CostPoolID)
+	require.Equal(t, 0, initialSnapshotCount)
+
 	var activeBindingCount int
 	require.NoError(t, serviceIntegrationDB.QueryRowContext(ctx, `
 	SELECT COUNT(*)::int
@@ -394,9 +485,128 @@ func TestUpstreamSupplierBindingConcurrentCreateConverges(t *testing.T) {
 	require.Equal(t, len(accounts)-1, remainingActiveBindings)
 }
 
+func TestUpstreamSupplierDefaultsStaySeparateAndDuplicateCreateConflicts(t *testing.T) {
+	ctx := context.Background()
+	admin := newUpstreamSupplierAdmin(t)
+	name := fmt.Sprintf("strict-supplier-%d", time.Now().UnixNano())
+
+	supplier, err := admin.CreateUpstreamSupplier(ctx, svc.CreateUpstreamSupplierInput{
+		Name:                      name,
+		DefaultEffectiveCNYPerUSD: 1.25,
+		DefaultReferenceFXRate:    7.2,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, supplier)
+
+	pools, err := admin.ListUpstreamCostPools(ctx)
+	require.NoError(t, err)
+	var defaultPool *svc.UpstreamCostPool
+	for i := range pools {
+		if pools[i].SupplierID == supplier.ID && pools[i].IsDefault {
+			defaultPool = &pools[i]
+			break
+		}
+	}
+	require.NotNil(t, defaultPool)
+	require.InDelta(t, 1.25, defaultPool.DefaultEffectiveCNYPerUSD, 0.000001)
+	require.InDelta(t, 7.2, defaultPool.DefaultReferenceFXRate, 0.000001)
+	require.Nil(t, defaultPool.CurrentEffectiveCNYPerUSD)
+	require.Nil(t, defaultPool.CurrentSnapshotID)
+
+	_, err = admin.CreateUpstreamSupplier(ctx, svc.CreateUpstreamSupplierInput{
+		Name:                      name,
+		DefaultEffectiveCNYPerUSD: 0.5,
+		DefaultReferenceFXRate:    6.8,
+	})
+	require.ErrorIs(t, err, svc.ErrUpstreamSupplierNameConflict)
+
+	var persistedEffective, persistedReference float64
+	require.NoError(t, serviceIntegrationDB.QueryRowContext(ctx, `
+SELECT default_effective_cny_per_usd::double precision,
+       default_reference_fx_rate::double precision
+FROM upstream_cost_pools
+WHERE supplier_id = $1
+  AND is_default = TRUE`, supplier.ID).Scan(&persistedEffective, &persistedReference))
+	require.InDelta(t, 1.25, persistedEffective, 0.000001)
+	require.InDelta(t, 7.2, persistedReference, 0.000001)
+}
+
+func TestArchivedUpstreamSupplierRejectsNewBinding(t *testing.T) {
+	ctx := context.Background()
+	admin := newUpstreamSupplierAdmin(t)
+	account := createUpstreamCostPoolAccount(t, nil)
+	name := fmt.Sprintf("archived-supplier-%d", time.Now().UnixNano())
+	supplier, err := admin.CreateUpstreamSupplier(ctx, svc.CreateUpstreamSupplierInput{Name: name})
+	require.NoError(t, err)
+	pools, err := admin.ListUpstreamCostPools(ctx)
+	require.NoError(t, err)
+	var defaultPoolID int64
+	for _, pool := range pools {
+		if pool.SupplierID == supplier.ID && pool.IsDefault {
+			defaultPoolID = pool.ID
+			break
+		}
+	}
+	require.Positive(t, defaultPoolID)
+
+	archived := "archived"
+	_, err = admin.UpdateUpstreamSupplier(ctx, svc.UpdateUpstreamSupplierInput{
+		SupplierID: supplier.ID,
+		Status:     &archived,
+	})
+	require.NoError(t, err)
+
+	binding, err := admin.UpdateAccountUpstreamSupplierBinding(ctx, svc.UpstreamSupplierBindingInput{
+		AccountID:         account.ID,
+		SupplierID:        supplier.ID,
+		DefaultMultiplier: 1,
+	})
+	require.Nil(t, binding)
+	require.ErrorIs(t, err, svc.ErrUpstreamSupplierNotFound)
+
+	binding, err = admin.UpdateAccountUpstreamCostBinding(ctx, svc.UpstreamCostBindingInput{
+		AccountID:         account.ID,
+		CostPoolID:        defaultPoolID,
+		DefaultMultiplier: 1,
+	})
+	require.Nil(t, binding)
+	require.ErrorIs(t, err, svc.ErrUpstreamCostPoolNotFound)
+}
+
+func TestUsedUpstreamSupplierMustBeArchivedInsteadOfDeleted(t *testing.T) {
+	ctx := context.Background()
+	admin := newUpstreamSupplierAdmin(t)
+	account := createUpstreamCostPoolAccount(t, nil)
+	supplier, err := admin.CreateUpstreamSupplier(ctx, svc.CreateUpstreamSupplierInput{
+		Name: fmt.Sprintf("used-supplier-%d", time.Now().UnixNano()),
+	})
+	require.NoError(t, err)
+
+	binding, err := admin.UpdateAccountUpstreamSupplierBinding(ctx, svc.UpstreamSupplierBindingInput{
+		AccountID:         account.ID,
+		SupplierID:        supplier.ID,
+		DefaultMultiplier: 1,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, binding)
+
+	cleared, err := admin.UpdateAccountUpstreamSupplierBinding(ctx, svc.UpstreamSupplierBindingInput{
+		AccountID: account.ID,
+		Clear:     true,
+	})
+	require.NoError(t, err)
+	require.Nil(t, cleared)
+	require.ErrorIs(t, admin.DeleteUpstreamSupplier(ctx, supplier.ID), svc.ErrUpstreamSupplierHasBindingHistory)
+}
+
 func newUpstreamRechargeAdmin(t *testing.T) upstreamRechargeAdmin {
 	t.Helper()
-	accountRepo := repository.NewAccountRepository(serviceIntegrationEntClient, serviceIntegrationDB, nil)
+	return newUpstreamRechargeAdminWithCache(t, nil)
+}
+
+func newUpstreamRechargeAdminWithCache(t *testing.T, cache svc.SchedulerCache) upstreamRechargeAdmin {
+	t.Helper()
+	accountRepo := repository.NewAccountRepository(serviceIntegrationEntClient, serviceIntegrationDB, cache)
 	adminService := svc.NewAdminService(
 		nil,
 		nil,
@@ -420,6 +630,19 @@ func newUpstreamRechargeAdmin(t *testing.T) upstreamRechargeAdmin {
 	admin, ok := adminService.(upstreamRechargeAdmin)
 	require.True(t, ok)
 	return admin
+}
+
+func bindUpstreamRechargeAccount(t *testing.T, admin upstreamRechargeAdmin, account *svc.Account) *svc.UpstreamAccountCostBinding {
+	t.Helper()
+	require.NotNil(t, account)
+	binding, err := admin.UpdateAccountUpstreamSupplierBinding(context.Background(), svc.UpstreamSupplierBindingInput{
+		AccountID:         account.ID,
+		SupplierName:      fmt.Sprintf("recharge-supplier-%d", account.ID),
+		DefaultMultiplier: 1,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, binding)
+	return binding
 }
 
 func newUpstreamSupplierBindingAdmin(t *testing.T) upstreamSupplierBindingAdmin {
@@ -446,6 +669,19 @@ func newUpstreamSupplierBindingAdmin(t *testing.T) upstreamSupplierBindingAdmin 
 		nil,
 	)
 	admin, ok := adminService.(upstreamSupplierBindingAdmin)
+	require.True(t, ok)
+	return admin
+}
+
+func newUpstreamSupplierAdmin(t *testing.T) upstreamSupplierAdmin {
+	t.Helper()
+	accountRepo := repository.NewAccountRepository(serviceIntegrationEntClient, serviceIntegrationDB, nil)
+	adminService := svc.NewAdminService(
+		nil, nil, accountRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		serviceIntegrationEntClient,
+		nil, nil, nil, nil, nil,
+	)
+	admin, ok := adminService.(upstreamSupplierAdmin)
 	require.True(t, ok)
 	return admin
 }

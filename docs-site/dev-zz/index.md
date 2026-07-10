@@ -38,8 +38,8 @@
 | 部分落地 | [企业用量分析中心](./features/enterprise-usage-analytics.md) | owner 用量分析第一版已实现；管理员全站增强、异常治理和多分组 Key 仍是后续阶段。 |
 | 部分落地 | [用量账本与已删除 Key 证据完整性](./features/usage-ledger-evidence-integrity.md) | 阶段 1 管理员证据视图已实现；快照字段和外键约束仍是方案。 |
 | 方案稿 | [上游账号生命周期与数据保留策略](./features/account-lifecycle-data-retention.md) | 定义账号停用、归档和永久删除/Purge 的数据保留、统计变化、权限和验收口径。 |
-| 部分落地 | [上游供应商资金池与成本账本](./features/upstream-cost-pools-and-ledger.md) | 阶段 1 后端兼容层已落地：新增供应商/资金池/账号绑定/成本快照表，旧账号充值接口会写入账号默认资金池；本期仅支持正向账本子集，资金池管理页、合池、余额迁移和 usage 成本证据仍是后续阶段。 |
-| 方案稿 | [上游供应商成本感知与模型级调度](./features/upstream-provider-cost-aware-scheduling.md) | 尚未实现，只记录调度、成本配置、综合折扣和余额查询的设计方向。 |
+| 部分落地 | [上游供应商资金池与成本账本](./features/upstream-cost-pools-and-ledger.md) | 阶段 1 后端兼容层、供应商生命周期、严格创建 / 审计保留、默认结算 Modal、真实快照隔离、简化充值录入和账号供应商归属已落地；本期仍仅支持正向账本子集，资金池高级管理、合池、余额迁移和 usage 成本证据仍是后续阶段。 |
+| 部分落地 | [上游供应商成本感知与模型级调度](./features/upstream-provider-cost-aware-scheduling.md) | 模型级错误转移、真实快照综合折扣和 `strict_priority` / `cost_first` 已落地；余额查询及 balanced / canary 仍是后续设计。 |
 | 部分落地 | [运维监控客户可见错误排障](./features/ops-customer-visible-error-triage.md) | 第一版已拆分客户可见失败、SLA 错误、客户侧限制和上游 429/529 明细入口；流式 200 后失败仍是后续阶段。 |
 | 已落地 | [定价驱动的站点自检模型监控](./features/pricing-driven-self-check-monitoring-design.md) | 用户侧 `/monitor` 按分组/模型展示健康状态，由渠道定价的「自检」开关驱动站点自检探针（走真实网关链路但不计费、不影响生产调度），并撤下旧用户侧探针接口；上游渠道监控保持现状、仅管理员排障。 |
 | 部分落地 | [模型状态时间线与无可用账号证据保留](./features/model-status-timeline-evidence-retention.md) | 阶段 1 已实现：为 (分组, 模型) 持久化脱敏状态快照，详情时间线和详情指标优先读快照；列表状态切快照和时间桶化仍是后续阶段。 |

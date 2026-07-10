@@ -110,7 +110,14 @@
               </Select>
             </label>
 
-            <div class="grid grid-cols-[minmax(0,1fr)_72px] gap-2">
+            <div class="rounded-lg border border-sky-200 bg-sky-50/70 px-3 py-2 text-xs leading-5 text-sky-800 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-200">
+              {{ t('admin.accounts.upstreamCost.rechargeRecords.defaultConfigApplied', {
+                conversion: defaultConversionLabel,
+                fx: formatUpstreamRatio(defaultReferenceFXRate)
+              }) }}
+            </div>
+
+            <div v-if="form.type !== 'bonus'" class="grid grid-cols-[minmax(0,1fr)_72px] gap-2">
               <label class="block">
                 <span class="input-label">{{ t('admin.accounts.upstreamCost.rechargeRecords.paidAmount') }}</span>
                 <input v-model="form.paidAmount" type="number" min="0" step="0.000001" class="input" placeholder="0" />
@@ -128,15 +135,16 @@
                 <span class="input-label flex items-center justify-between gap-2">
                   <span>{{ t('admin.accounts.upstreamCost.rechargeRecords.receivedCredit') }}</span>
                   <button
-                    v-if="autoReceivedCreditAvailable"
+                    v-if="form.type === 'recharge' && autoReceivedCreditAvailable"
                     type="button"
                     class="rounded-md px-1.5 py-0.5 text-[11px] font-medium text-sky-600 transition-colors hover:bg-sky-50 hover:text-sky-700 dark:text-sky-300 dark:hover:bg-sky-500/10"
-                    @click="applyAutoReceivedCredit"
+                    @click="toggleReceivedCreditOverride"
                   >
-                    {{ receivedCreditManual ? t('admin.accounts.upstreamCost.rechargeRecords.recalculateCredit') : t('admin.accounts.upstreamCost.rechargeRecords.autoCalculated') }}
+                    {{ receivedCreditManual ? t('admin.accounts.upstreamCost.rechargeRecords.useDefaultCalculation') : t('admin.accounts.upstreamCost.rechargeRecords.overrideThisRecord') }}
                   </button>
                 </span>
                 <input
+                  v-if="showReceivedCreditInput"
                   v-model="form.receivedCreditAmount"
                   type="number"
                   min="0"
@@ -145,6 +153,13 @@
                   placeholder="0"
                   @input="markReceivedCreditManual"
                 />
+                <div
+                  v-else
+                  class="flex h-[42px] items-center rounded-xl border border-emerald-200 bg-emerald-50 px-3 font-mono text-sm font-semibold text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200"
+                  data-testid="auto-received-credit"
+                >
+                  {{ form.receivedCreditAmount || '0' }}
+                </div>
               </label>
               <div>
                 <span class="input-label">{{ t('admin.accounts.upstreamCost.rechargeRecords.currency') }}</span>
@@ -154,8 +169,8 @@
               </div>
             </div>
 
-            <div class="grid grid-cols-2 gap-2">
-              <label class="block">
+            <div :class="showReferenceFXInput ? 'grid grid-cols-2 gap-2' : ''">
+              <label v-if="showReferenceFXInput" class="block">
                 <span class="input-label">{{ t('admin.accounts.upstreamCost.referenceFxRate') }}</span>
                 <input v-model="form.referenceFXRate" type="number" min="0.000001" step="0.000001" class="input" />
               </label>
@@ -314,6 +329,7 @@ import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores/app'
 import type { Account } from '@/types'
+import { extractI18nErrorMessage } from '@/utils/apiError'
 import {
   DEFAULT_UPSTREAM_REFERENCE_FX_RATE,
   formatUpstreamDiscountLabel,
@@ -337,7 +353,13 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const paidCurrency = 'CNY'
 const receivedCreditCurrency = 'USD'
-const defaultReferenceFXRate = computed(() => props.costPool?.reference_fx_rate || DEFAULT_UPSTREAM_REFERENCE_FX_RATE)
+const defaultReferenceFXRate = computed(() => (
+  props.costPool?.default_reference_fx_rate ||
+  props.costPool?.reference_fx_rate ||
+  DEFAULT_UPSTREAM_REFERENCE_FX_RATE
+))
+const formatRechargeError = (err: unknown, fallback: string) =>
+  extractI18nErrorMessage(err, t, 'admin.accounts.upstreamCost.errors', fallback)
 
 const emptySummary = (): UpstreamRechargeSummary => ({
   record_count: 0,
@@ -387,14 +409,29 @@ const canSubmit = computed(() => {
   const paid = numberFromInput(form.paidAmount)
   const received = numberFromInput(form.receivedCreditAmount)
   const fx = numberFromInput(form.referenceFXRate)
-  return paid >= 0 && received >= 0 && paid + received > 0 && fx > 0
+  if (paid < 0 || received < 0 || fx <= 0) return false
+  if (form.type === 'recharge') return paid > 0 && received > 0
+  if (form.type === 'bonus') return received > 0
+  return paid + received > 0
 })
 
 const primaryPaidCurrency = computed(() => records.value[0]?.paid_currency || form.paidCurrency || 'CNY')
 const primaryCreditCurrency = computed(() => records.value[0]?.received_credit_currency || form.receivedCreditCurrency || 'USD')
 const accountCostProfile = computed(() => readUpstreamCostProfile(props.account?.extra as Record<string, unknown> | undefined))
 const configuredRechargeCNYPerUSD = computed(() => (
-  props.costPool?.current_effective_cny_per_usd || accountCostProfile.value.recharge_cny_per_usd
+  props.costPool?.default_effective_cny_per_usd ||
+  props.costPool?.current_effective_cny_per_usd ||
+  accountCostProfile.value.recharge_cny_per_usd
+))
+const defaultConversionLabel = computed(() => {
+  const rate = Number(configuredRechargeCNYPerUSD.value)
+  if (!Number.isFinite(rate) || rate <= 0) return '-'
+  return `1 CNY = ${formatUpstreamRatio(1 / rate)} USD`
+})
+const showReceivedCreditInput = computed(() => form.type !== 'recharge' || receivedCreditManual.value)
+const showReferenceFXInput = computed(() => (
+  editingRecordId.value !== null ||
+  (form.type === 'recharge' && receivedCreditManual.value)
 ))
 const autoReceivedCreditAvailable = computed(() => {
   const rate = configuredRechargeCNYPerUSD.value
@@ -417,6 +454,26 @@ watch(
       error.value = null
       deleteTarget.value = null
     }
+  }
+)
+
+watch(
+  () => form.type,
+  (type) => {
+    if (editingRecordId.value !== null) return
+    if (type === 'bonus') {
+      form.paidAmount = '0'
+      receivedCreditManual.value = true
+      return
+    }
+    if (type === 'adjustment') {
+      if (form.paidAmount === '0') form.paidAmount = ''
+      receivedCreditManual.value = true
+      return
+    }
+    if (form.paidAmount === '0') form.paidAmount = ''
+    receivedCreditManual.value = false
+    applyAutoReceivedCredit()
   }
 )
 
@@ -445,8 +502,8 @@ const loadRecords = async () => {
       : await adminAPI.accounts.listUpstreamRechargeRecords(props.account!.id)
     records.value = result.items || []
     summary.value = result.summary || emptySummary()
-  } catch (err: any) {
-    error.value = err?.message || t('admin.accounts.upstreamCost.rechargeRecords.loadFailed')
+  } catch (err: unknown) {
+    error.value = formatRechargeError(err, t('admin.accounts.upstreamCost.rechargeRecords.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -478,8 +535,8 @@ const submitRecord = async () => {
     if (props.costPool) {
       emit('pool-updated')
     }
-  } catch (err: any) {
-    error.value = err?.message || t('admin.accounts.upstreamCost.rechargeRecords.saveFailed')
+  } catch (err: unknown) {
+    error.value = formatRechargeError(err, t('admin.accounts.upstreamCost.rechargeRecords.saveFailed'))
   } finally {
     saving.value = false
   }
@@ -545,8 +602,8 @@ const confirmDelete = async () => {
     if (props.costPool) {
       emit('pool-updated')
     }
-  } catch (err: any) {
-    error.value = err?.message || t('admin.accounts.upstreamCost.rechargeRecords.deleteFailed')
+  } catch (err: unknown) {
+    error.value = formatRechargeError(err, t('admin.accounts.upstreamCost.rechargeRecords.deleteFailed'))
   }
 }
 
@@ -568,8 +625,8 @@ const applyCost = async (mode: 'latest' | 'weighted') => {
     })
     emit('updated', updated)
     appStore.showSuccess(t('admin.accounts.upstreamCost.rechargeRecords.applied'))
-  } catch (err: any) {
-    error.value = err?.message || t('admin.accounts.upstreamCost.rechargeRecords.applyFailed')
+  } catch (err: unknown) {
+    error.value = formatRechargeError(err, t('admin.accounts.upstreamCost.rechargeRecords.applyFailed'))
   } finally {
     applying.value = false
   }
@@ -580,6 +637,16 @@ const handleClose = () => {
 }
 
 const markReceivedCreditManual = () => {
+  receivedCreditManual.value = true
+}
+
+const toggleReceivedCreditOverride = () => {
+  if (receivedCreditManual.value) {
+    receivedCreditManual.value = false
+    form.referenceFXRate = String(defaultReferenceFXRate.value)
+    applyAutoReceivedCredit()
+    return
+  }
   receivedCreditManual.value = true
 }
 

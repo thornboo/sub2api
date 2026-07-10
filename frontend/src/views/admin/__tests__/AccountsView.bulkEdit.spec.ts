@@ -7,12 +7,16 @@ const {
   listAccounts,
   listWithEtag,
   getBatchTodayStats,
+  listUpstreamCostPools,
+  listUpstreamCostPoolAccounts,
   getAllProxies,
   getAllGroups
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
   getBatchTodayStats: vi.fn(),
+  listUpstreamCostPools: vi.fn(),
+  listUpstreamCostPoolAccounts: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn()
 }))
@@ -23,6 +27,8 @@ vi.mock('@/api/admin', () => ({
       list: listAccounts,
       listWithEtag,
       getBatchTodayStats,
+      listUpstreamCostPools,
+      listUpstreamCostPoolAccounts,
       delete: vi.fn(),
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
@@ -91,6 +97,8 @@ describe('admin AccountsView bulk edit scope', () => {
     listAccounts.mockReset()
     listWithEtag.mockReset()
     getBatchTodayStats.mockReset()
+    listUpstreamCostPools.mockReset()
+    listUpstreamCostPoolAccounts.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
 
@@ -107,6 +115,8 @@ describe('admin AccountsView bulk edit scope', () => {
       data: null
     })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
+    listUpstreamCostPools.mockResolvedValue([])
+    listUpstreamCostPoolAccounts.mockResolvedValue([])
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
   })
