@@ -2,6 +2,64 @@
 
 这里记录二开分支吸收上游变更的同步工作。
 
+## 2026-07-10 - 增量合并上游 `main`：Codex MCP、custom 与 tool_search bridge 补全
+
+分支：
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`07fac347`
+- 合并前目标：`fb9a3324`
+- 上游 head：`e316ebf5`
+- 结果提交：本条所在合并提交
+
+上游要点：
+- Responses → Chat Completions bridge 支持 custom / freeform 工具，把自由文本输入降级为单字段 function schema，并在非流式和流式回程中还原为 `custom_tool_call` 与 `custom_tool_call_input.*` 事件，修复 Codex `exec` 等工具在 chat-only 上游丢失的问题。
+- `tool_search` 降级为同名代理 function，历史调用、结果和强制 `tool_choice` 均保持可往返；回程还原为 `execution=client` 的 `tool_search_call`，同名顶层工具会显式拒绝而不是错误劫持调用。
+- namespace 子工具按 `<namespace>__<name>` 摊平到 Chat Completions；超长名字使用稳定哈希后缀，顶层/跨 namespace 撞名显式拒绝，回程重新写入原始 `namespace` 和子工具名，避免 Codex 把 MCP 调用判为 unsupported call。
+- `tool_choice` 只指向实际保留下来的工具；custom 和 tool_search 的具名选择转换为 function 选择，namespace 与 `allowed_tools` 在能够等价表达时转换为 Chat 形态，无法等价表达的强制选择显式拒绝。
+- 流式 wire 补齐 custom tool input 的 zero-value index、done/input 字段，以及 namespace / tool_search 输出项的必需字段。
+
+合并策略：
+- 合并前完整阅读 `branch-policy.md`、`maintenance/merge-main.md`、`patches.md`、`maintenance/merge-log.md`、`changelog.md`、`reference/change-map.md` 和 `testing/verification-matrix.md`；刷新远端后确认本地 `main` 与 `origin/main` 同为 `e316ebf5`。
+- 用 `git merge-tree --write-tree --merge-base 07fac347 HEAD origin/main` 做只读预检，结果为干净合并树；真实合并使用 `git merge --no-commit origin/main`，无文本冲突。
+- 本轮上游增量为 10 个提交、8 个后端文件，仅涉及 `internal/pkg/apicompat` 与两个 OpenAI chat fallback 文件；不含迁移、依赖、前端、部署、workflow 或版本变化。
+- 接受上游 Codex MCP/custom/tool_search 正确性修复；继续保留 dev-zz 的 Responses Fast / Flex 策略、billing/upstream model 归一化、真实 usage 与 endpoint 证据、messages fallback 顺序、用户/admin 字段隔离和模型自检边界。
+- Anthropic Messages fallback 调用新的 converter 签名时显式传入空 custom/tool_search/namespace 元数据，保持既有 Anthropic 工具和 usage 转换语义；Responses fallback 才携带原请求工具映射完成回程还原。
+
+冲突文件：
+- 无。
+
+合并复审修复：
+- 对照 OpenAI Tool Search 文档补齐真实第二轮形态：`tool_search_output.tools` 与 `additional_tools.tools` 都会并入下一轮可调用工具；`tool_search_output` 同时生成与原 `call_id` 配对的 Chat tool result，不再读取并不存在的 `output` 字段。
+- 客户端 `tool_search` 自带的 `description` / `parameters` 原样用于代理 function；显式 `execution=server` 因 chat-only 上游无法代执行而提前报错，避免伪装成客户端搜索。
+- namespace 强制选择在单一子工具时映射为具名 function，多子工具时映射为 `mode=required` 的 Chat `allowed_tools`；已丢弃托管工具、不存在的工具名、源类型不匹配（function / custom）和不可转换的 `allowed_tools` 项显式失败，不再静默放宽或重新解释。
+- function / custom 同名、`tool_search` 代理同名、namespace 摊平名碰撞统一拒绝；同类型同名工具只有完整定义等价时去重，schema / description / custom grammar `format` 乃至尚未建模的原始字段存在差异时显式失败。namespace 流式 arguments delta、added 与 done 均使用原始裸子工具名，避免同一调用生命周期内名称不一致。
+- 新增官方第二轮回归：不重复声明顶层 `tool_search`，仅重放 tool search call 与 `tool_search_output.tools`，仍能生成下一轮 function / namespace 工具声明，并在 Chat 回程恢复 namespace 与裸工具名。
+
+边界复审：
+- `backend/cmd/server/VERSION` 未被上游修改；继续保留 dev-zz `1.5.1`，上游仍为 `0.1.151`。
+- 供应商成本、账号归档、管理员设置原子保存、管理员用量证据 guard、模型自检和普通用户 DTO 均不在本轮变更范围。
+- 本轮只更新 `dev-zz-develop`，不提升 `dev-zz`、不打 tag、不发布。
+
+验证：
+- `go test ./internal/pkg/apicompat -run 'ToolSearch|AllowedTools|UnrepresentableToolChoice|NamespaceToolChoice|FunctionCustomNameConflict|NamespacedTool(CallStream|NameArrivesLate)|ResponsesRequestTools' -count=1`
+- `go test ./internal/pkg/apicompat -count=1`
+- `go test -tags=unit ./internal/pkg/apicompat ./internal/service -count=1`
+- `make -C backend test-unit`
+- `go test ./... -count=1`
+- `golangci-lint run --timeout=30m`
+- `go test -tags=integration -c -o /tmp/sub2api-repository-integration.test ./internal/repository`
+- `pnpm --dir frontend run lint:check`
+- `pnpm --dir frontend run typecheck`
+- `pnpm --dir docs-site run docs:build`
+- `git diff --check`、`git diff --cached --check` 和冲突标记扫描。
+- 远端 `CI`、`Security Scan`、`dev-zz Branch Images` 在推送最终 head 后检查；运行结果记录在本轮交付报告。
+
+未验证：
+- 浏览器人工 smoke。
+- 本机 Docker / testcontainers 运行时集成测试；本地只编译 integration 测试二进制，运行由 GitHub Actions integration job 验证。
+- 本机既有开发数据库的后端启动仍受先前已诊断的 `174_upstream_cost_pool_defaults.sql` 中间版本 checksum 不一致阻断；该本地数据库历史状态不是本轮上游增量引入，且本轮不修改迁移或数据库。
+
 ## 2026-07-10 - 增量合并上游 `main`：ops writer 释放安全与 cache creation usage 补全
 
 分支：

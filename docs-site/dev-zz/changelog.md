@@ -2,6 +2,10 @@
 
 ## 2026-07-10
 
+- 增量同步上游 `main`（`e316ebf5`）：补齐 Codex custom/freeform 工具、`tool_search` 和 namespace MCP 子工具在 Responses → Chat Completions 降级路径中的请求转换、历史往返、非流式响应与流式事件还原。
+- 合并复审补齐官方 `tool_search_output.tools` 与 `additional_tools.tools` 的下一轮动态加载：客户端自定义搜索 schema 会保留，加载后的 function / namespace 可以继续调用并恢复原始身份。
+- namespace 摊平名采用稳定长度限制与哈希后缀，function/custom、代理名、同名不同完整定义和跨 namespace 撞名显式拒绝；JSON 语义等价的同名定义去重，custom grammar 与未知扩展字段也参与比较。function / custom / tool_search、namespace 与 `allowed_tools` 选择等价转换，无法表达的托管、不存在工具或源类型错配明确失败而不静默退化或重解释。
+- 本轮 10 个上游提交、8 个后端文件自动合入且无冲突；没有迁移、前端、依赖、workflow 或版本变化，继续保留 dev-zz `1.5.1`，不提升正式分支、不打 tag、不发布。
 - 增量同步上游 `main`（`07fac347`）：修复 ops capture writer 释放后晚到访问的 nil panic；合并复审同时阻止被 compact keepalive 包装的 writer 回池复用，确保外层 middleware 仍读取本请求状态且不会跨请求串用 writer。
 - Responses ↔ Anthropic 非流式和流式转换完整保留 `cache_creation_input_tokens`；Anthropic 普通输入扣除 cache read / creation，Responses 总输入加回两类缓存 token，避免缓存写入用量丢失或重复计入输入。
 - 本轮 7 个上游提交、6 个文件只涉及后端正确性；唯一版本冲突继续保留 dev-zz `1.5.1`，不提升正式分支、不打 tag、不发布。

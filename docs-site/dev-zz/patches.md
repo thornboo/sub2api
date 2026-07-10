@@ -1,5 +1,34 @@
 # 补丁记录
 
+## 2026-07-10 - Codex MCP、custom 与 tool_search Chat bridge 增量同步
+
+范围：
+- 上游：`origin/main` `e316ebf5` 增量合并到 `dev-zz-develop`，merge base 为 `07fac347`。
+- 后端：Responses ↔ Chat Completions bridge、Responses stream wire、OpenAI Responses / Messages chat-only fallback。
+- 文档：changelog、patches 和 merge log。
+
+改动：
+- custom / freeform 工具降级为带 `input` 字符串 schema 的 function 工具；历史调用、非流式响应和流式事件回程还原为 Responses `custom_tool_call`，使 Codex `exec` 等工具可在 chat-only 上游工作。
+- `tool_search` 使用同名 function 代理，保留客户端自定义 description / schema，回程恢复 `tool_search_call` 与 `execution=client`；显式 server execution 因 chat-only 无法代执行而拒绝。
+- 真实 `tool_search_output.tools` 与 Responses Lite `additional_tools.tools` 都会进入下一轮工具声明；tool search 历史结果使用官方 `tools` 字段并维持 `call_id` 配对，动态加载的 function / namespace 可以在下一轮正常调用和回程。
+- namespace 子工具摊平后转发，使用稳定的长度限制/哈希命名并拒绝不可消歧的碰撞；回程恢复 namespace 与原始子工具名，修复 MCP 工具 unsupported call。
+- custom / function 同名、代理名与摊平名碰撞均显式拒绝；同类型同名工具按完整原始定义比较，JSON key 顺序不同但语义等价时去重，schema、custom grammar `format` 或未来未知字段不同时拒绝；namespace arguments delta、added 和 done 使用一致的裸子工具名。
+- `tool_choice` 的 function / custom / tool_search、单子工具 namespace 与 `allowed_tools` 转为等价 Chat 形态；多子工具 namespace 转为 `mode=required` 的 Chat `allowed_tools`。托管工具、不存在工具或 function/custom 源类型不匹配的强制选择显式失败，不再静默降级或改写类型。
+- custom input、namespace function 和 tool_search 的非流式/流式 wire 字段与生命周期由集中测试覆盖。
+
+边界：
+- 本轮 10 个提交、8 个文件均为后端兼容性改动；无迁移、依赖、前端、部署、workflow 或版本变化。
+- Responses fallback 保留 dev-zz 的 Fast / Flex、billing/upstream model、usage、endpoint 和故障转移链路；Anthropic Messages fallback 不启用 Responses 专属工具回程映射。
+- 继续保留 dev-zz `1.5.1`，只更新 `dev-zz-develop`，不提升 `dev-zz`、不打 tag、不发布。
+
+验证：
+- `internal/pkg/apicompat` custom、官方 tool search 第二轮、Responses Lite additional tools、namespace、allowed tool choice、碰撞边界、历史消息、非流式和流式定向测试。
+- backend unit / 全包测试、golangci-lint、docs-site 构建、补丁检查和冲突标记扫描纳入本轮分支验证。
+
+未验证：
+- 浏览器人工 smoke。
+- 本机后端启动仍受既有开发数据库的迁移 174 checksum 历史不一致阻断；本轮没有修改迁移或数据库。
+
 ## 2026-07-10 - 上游 ops writer 与 cache creation usage 增量同步
 
 范围：
