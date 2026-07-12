@@ -206,6 +206,19 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/enterprise/members',
+    name: 'EnterpriseMembers',
+    component: () => import('@/views/user/EnterpriseMembersView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      requiresEnterprise: true,
+      title: 'Enterprise Members',
+      titleKey: 'enterpriseMembers.title',
+      descriptionKey: 'enterpriseMembers.description'
+    }
+  },
+  {
     path: '/batch-image',
     name: 'BatchImageGuide',
     alias: '/docs/batch-image',
@@ -807,6 +820,11 @@ router.beforeEach(async (to, _from, next) => {
   // Check admin requirement
   if (requiresAdmin && !authStore.isAdmin) {
     // User is authenticated but not admin, redirect to user dashboard
+    next('/dashboard')
+    return
+  }
+
+  if (to.meta.requiresEnterprise && (authStore.user?.role !== 'user' || authStore.user?.account_type !== 'enterprise' || Boolean(authStore.user?.enterprise_disabled_at))) {
     next('/dashboard')
     return
   }

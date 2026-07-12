@@ -84,7 +84,9 @@ export interface User {
   linuxdo_bound?: boolean
   oidc_bound?: boolean
   wechat_bound?: boolean
-  role: 'admin' | 'user' // User role for authorization
+	role: 'admin' | 'user' // User role for authorization
+	account_type: 'individual' | 'enterprise'
+	enterprise_disabled_at?: string | null
   balance: number // User balance for API usage
   frozen_balance?: number // Balance currently held by async batch jobs
   concurrency: number // Allowed concurrent requests
@@ -590,7 +592,8 @@ export interface ApiKey {
   key: string
   name: string
   tags: string[]
-  group_id: number | null
+	group_id: number | null
+	member_id?: number | null
   status: 'active' | 'disabled' | 'quota_exhausted' | 'expired'
   disabled_reason?: '' | 'rate_changed' | string
   ip_whitelist: string[]
@@ -1780,7 +1783,9 @@ export interface UpdateUserRequest {
   password?: string
   username?: string
   notes?: string
-  role?: 'admin' | 'user'
+	role?: 'admin' | 'user'
+	account_type?: 'individual' | 'enterprise'
+	enterprise_enabled?: boolean
   balance?: number
   concurrency?: number
   status?: 'active' | 'disabled'

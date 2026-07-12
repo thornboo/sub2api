@@ -57,7 +57,8 @@ export async function list(
   pageSize: number = 20,
   filters?: {
     status?: 'active' | 'disabled'
-    role?: 'admin' | 'user'
+	role?: 'admin' | 'user'
+	account_type?: 'individual' | 'enterprise'
     search?: string
     group_name?: string         // fuzzy filter by allowed group name
     api_key_group_id?: number   // filter users by the group their API keys are bound to
@@ -76,6 +77,7 @@ export async function list(
     page_size: pageSize,
     status: filters?.status,
     role: filters?.role,
+	account_type: filters?.account_type,
     search: filters?.search,
     group_name: filters?.group_name,
     api_key_group_id: filters?.api_key_group_id,

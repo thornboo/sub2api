@@ -19,6 +19,9 @@ declare module 'vue-router' {
      */
     requiresAdmin?: boolean
 
+	/** Whether this route requires an enabled enterprise user account. */
+	requiresEnterprise?: boolean
+
     /**
      * Page title for this route
      */

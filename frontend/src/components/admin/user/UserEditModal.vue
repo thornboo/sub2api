@@ -10,6 +10,23 @@
         <label class="input-label">{{ t('admin.users.email') }}</label>
         <input v-model="form.email" type="email" class="input" />
       </div>
+	  <div v-if="form.role === 'user'">
+		<label class="input-label">{{ t('admin.users.form.accountType') }}</label>
+		<select v-model="form.account_type" class="input">
+		  <option value="individual">{{ t('admin.users.form.accountTypes.individual') }}</option>
+		  <option value="enterprise">{{ t('admin.users.form.accountTypes.enterprise') }}</option>
+		</select>
+		<p class="input-hint">{{ t('admin.users.form.accountTypeHint') }}</p>
+	  </div>
+	  <div v-if="form.role === 'user' && form.account_type === 'enterprise'" class="rounded-xl border border-gray-200 p-4 dark:border-dark-700">
+		<label class="flex items-start justify-between gap-4">
+		  <span>
+			<span class="block text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('admin.users.form.enterpriseCapability') }}</span>
+			<span class="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.users.form.enterpriseCapabilityHint') }}</span>
+		  </span>
+		  <input v-model="form.enterprise_enabled" type="checkbox" class="mt-0.5 h-5 w-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+		</label>
+	  </div>
       <div>
         <label class="input-label">{{ t('admin.users.password') }}</label>
         <div class="flex gap-2">
@@ -85,11 +102,11 @@ const emit = defineEmits(['close', 'success'])
 const { t } = useI18n(); const appStore = useAppStore(); const { copyToClipboard } = useClipboard()
 
 const submitting = ref(false); const passwordCopied = ref(false)
-const form = reactive({ email: '', password: '', username: '', notes: '', role: 'user', concurrency: 1, rpm_limit: 0, customAttributes: {} as UserAttributeValuesMap })
+const form = reactive({ email: '', password: '', username: '', notes: '', role: 'user', account_type: 'individual' as 'individual' | 'enterprise', enterprise_enabled: true, concurrency: 1, rpm_limit: 0, customAttributes: {} as UserAttributeValuesMap })
 
 watch(() => props.user, (u) => {
   if (u) {
-    Object.assign(form, { email: u.email, password: '', username: u.username || '', notes: u.notes || '', role: u.role || 'user', concurrency: u.concurrency, rpm_limit: u.rpm_limit ?? 0, customAttributes: {} })
+    Object.assign(form, { email: u.email, password: '', username: u.username || '', notes: u.notes || '', role: u.role || 'user', account_type: u.account_type || 'individual', enterprise_enabled: !u.enterprise_disabled_at, concurrency: u.concurrency, rpm_limit: u.rpm_limit ?? 0, customAttributes: {} })
     passwordCopied.value = false
   }
 }, { immediate: true })
@@ -116,7 +133,8 @@ const handleUpdateUser = async () => {
   }
   submitting.value = true
   try {
-    const data: any = { email: form.email, username: form.username, notes: form.notes, role: form.role, concurrency: form.concurrency, rpm_limit: form.rpm_limit }
+    const data: any = { email: form.email, username: form.username, notes: form.notes, role: form.role, account_type: form.role === 'user' ? form.account_type : 'individual', concurrency: form.concurrency, rpm_limit: form.rpm_limit }
+    if (data.account_type === 'enterprise') data.enterprise_enabled = form.enterprise_enabled
     if (form.password.trim()) data.password = form.password.trim()
     await adminAPI.users.update(props.user.id, data)
     if (Object.keys(form.customAttributes).length > 0) await adminAPI.userAttributes.updateUserAttributeValues(props.user.id, form.customAttributes)

@@ -150,6 +150,7 @@ export default {
     dashboard: '仪表盘',
     announcements: '公告',
     apiKeys: 'API 密钥',
+	enterpriseMembers: '企业成员',
     batchImage: '批量生图',
     usage: '使用记录',
     redeem: '兑换',
@@ -411,6 +412,11 @@ export default {
     requestNewResetLink: '请求新的重置链接',
     invalidOrExpiredToken: '密码重置链接无效或已过期。请重新请求一个新链接。'
   },
+
+	enterpriseMembers: {
+	  title: '企业成员',
+	  description: '管理非登录成员、成员密钥、有序分组和自然月预算'
+	},
 
   // Dashboard
 }

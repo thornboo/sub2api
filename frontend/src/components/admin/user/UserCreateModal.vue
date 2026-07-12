@@ -10,6 +10,14 @@
         <label class="input-label">{{ t('admin.users.email') }}</label>
         <input v-model="form.email" type="email" required class="input" :placeholder="t('admin.users.enterEmail')" />
       </div>
+	  <div v-if="form.role === 'user'">
+		<label class="input-label">{{ t('admin.users.form.accountType') }}</label>
+		<select v-model="form.account_type" class="input">
+		  <option value="individual">{{ t('admin.users.form.accountTypes.individual') }}</option>
+		  <option value="enterprise">{{ t('admin.users.form.accountTypes.enterprise') }}</option>
+		</select>
+		<p class="input-hint">{{ t('admin.users.form.accountTypeHint') }}</p>
+	  </div>
       <div>
         <label class="input-label">{{ t('admin.users.password') }}</label>
         <div class="flex gap-2">
@@ -76,7 +84,7 @@ import Icon from '@/components/icons/Icon.vue'
 const props = defineProps<{ show: boolean }>()
 const emit = defineEmits(['close', 'success']); const { t } = useI18n()
 
-const form = reactive({ email: '', password: '', username: '', notes: '', role: 'user' as 'user' | 'admin', balance: '', concurrency: 1, rpm_limit: 0 })
+const form = reactive({ email: '', password: '', username: '', notes: '', role: 'user' as 'user' | 'admin', account_type: 'individual' as 'individual' | 'enterprise', balance: '', concurrency: 1, rpm_limit: 0 })
 
 const { loading, submit } = useForm({
   form,
@@ -93,7 +101,9 @@ const { loading, submit } = useForm({
   successMsg: t('admin.users.userCreated')
 })
 
-watch(() => props.show, (v) => { if(v) Object.assign(form, { email: '', password: '', username: '', notes: '', role: 'user', balance: '', concurrency: 1, rpm_limit: 0 }) })
+watch(() => props.show, (v) => { if(v) Object.assign(form, { email: '', password: '', username: '', notes: '', role: 'user', account_type: 'individual', balance: '', concurrency: 1, rpm_limit: 0 }) })
+
+watch(() => form.role, (role) => { if (role === 'admin') form.account_type = 'individual' })
 
 const generateRandomPassword = () => {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%^&*'

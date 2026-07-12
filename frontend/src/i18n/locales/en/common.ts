@@ -150,6 +150,7 @@ export default {
     dashboard: 'Dashboard',
     announcements: 'Announcements',
     apiKeys: 'API Keys',
+	enterpriseMembers: 'Enterprise Members',
     batchImage: 'Batch Images',
     usage: 'Usage',
     redeem: 'Redeem',
@@ -412,6 +413,11 @@ export default {
     requestNewResetLink: 'Request New Reset Link',
     invalidOrExpiredToken: 'The password reset link is invalid or has expired. Please request a new one.'
   },
+
+	enterpriseMembers: {
+	  title: 'Enterprise Members',
+	  description: 'Manage non-login members, member keys, ordered groups, and calendar-month budgets'
+	},
 
   // Dashboard
 }
