@@ -18,7 +18,7 @@
 | 前端视觉 | 保留 stone / neutral / emerald 控制台方向，除非明确决定跟随上游重做 |
 | 认证展示 | 前端隐藏 LinuxDo / 微信入口；后端能力不因此删除 |
 | 数据保留 | usage 和 ops 自动清理默认关闭，由管理员显式清理 |
-| 企业 Key | API Key 作为企业员工席位，不引入子账号登录实体 |
+| 企业成员 | 保留普通 Key 批量/标签/分析能力；企业长期模型采用独立但不可登录的成员实体、`account_type=enterprise`、成员聚合 Key 与请求级多分组路由，见 ADR-0003 |
 | Key 状态 | `disabled` 是禁用持久化值，`inactive` 仅作为旧别名 |
 | 标签与批量 | `api_keys.tags` 是 jsonb 数组，批量操作必须保持所有权、事务和上限 |
 | 用量分析 | owner 只能看自己的 Key 和 `actual_cost`；admin-only 成本字段不外泄 |

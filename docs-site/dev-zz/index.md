@@ -34,8 +34,8 @@
 | 已落地 | [可用渠道模型广场与报价导出](./features/available-channels-model-marketplace.md) | 用户侧模型表格、当前可见报价导出和管理员全量目录导出已实现。 |
 | 已落地 | [API Key 用量下钻](./features/api-key-usage-drilldown.md) | 用户侧单 Key 趋势、模型分布和请求记录下钻已实现。 |
 | 已落地 | [管理员用量分析下钻](./features/admin-usage-profile-drilldown.md) | 管理员侧用户 / API Key 下钻入口、日期回写和月粒度趋势已实现。 |
-| 部分落地 | [企业客户 Key 成员管理](./features/enterprise-key-member-management.md) | 批量创建、标签、筛选批量操作和公共 Key 状态查询已实现；多分组访问范围仍是后续设计。 |
-| 部分落地 | [企业用量分析中心](./features/enterprise-usage-analytics.md) | owner 用量分析第一版已实现；管理员全站增强、异常治理和多分组 Key 仍是后续阶段。 |
+| 已落地 + 目标设计 | [企业用量分析中心](./features/enterprise-usage-analytics.md) | 现有 owner Key analytics 已落地；成员 → Key → 实际分组的完整分析合同已确认、待实现。 |
+| 目标设计 | [企业用户成员管理](./features/enterprise-member-management.md) | 不可登录成员、聚合 Key、请求级 ActiveGroup、强成员预算、导入账本和权限撤销传播的完整目标架构。 |
 | 部分落地 | [用量账本与已删除 Key 证据完整性](./features/usage-ledger-evidence-integrity.md) | 阶段 1 管理员证据视图已实现；快照字段和外键约束仍是方案。 |
 | 方案稿 | [上游账号生命周期与数据保留策略](./features/account-lifecycle-data-retention.md) | 定义账号停用、归档和永久删除/Purge 的数据保留、统计变化、权限和验收口径。 |
 | 部分落地 | [上游供应商资金池与成本账本](./features/upstream-cost-pools-and-ledger.md) | 阶段 1 后端兼容层、供应商生命周期、严格创建 / 审计保留、默认结算 Modal、真实快照隔离、简化充值录入和账号供应商归属已落地；本期仍仅支持正向账本子集，资金池高级管理、合池、余额迁移和 usage 成本证据仍是后续阶段。 |
@@ -47,7 +47,8 @@
 ## 设计取舍
 
 - [设计取舍 0001：docs-site 作为 dev-zz 文档中心](./decisions/adr-0001-docs-site-as-dev-zz-doc-hub.md)
-- [设计取舍 0002：用 Key 承载企业成员管理，不引入子账号实体](./decisions/adr-0002-key-as-enterprise-member.md)
+- [设计取舍 0002：用 Key 承载企业成员管理，不引入子账号实体（已被 0003 取代）](./decisions/adr-0002-key-as-enterprise-member.md)
+- [设计取舍 0003：不可登录成员实体、聚合 Key 与成员预算](./decisions/adr-0003-enterprise-member-entity.md)
 
 ## 记录规则
 

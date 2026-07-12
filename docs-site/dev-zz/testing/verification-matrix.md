@@ -28,6 +28,39 @@
 - 编辑标签或额度时，如果 `group_id` 没变，不应重新检查当前用户是否仍可绑定该历史分组。
 - `quota_exhausted` / `expired` 是系统状态，普通保存不应把它们覆盖成 `disabled`，除非用户显式切换禁用。
 
+## 企业成员
+
+| 场景 | 推荐命令 |
+| --- | --- |
+| 成员、预算、导入、审计和 Grok 身份 schema | `cd backend && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test -tags=integration ./internal/repository -run '^TestMigrationsRunner_EnterpriseMemberSchemaStaysAligned$' -count=1 -v` |
+| 导入多 worker 唯一领取、续租、接管和 fencing | `cd backend && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test -tags=integration ./internal/repository -run '^TestEnterpriseMemberImport(ClaimIsUniqueAcrossWorkers\|LeaseTakeoverFencesStaleWorker\|ClaimRecoversProcessingJobWithoutLeaseTimestamp\|LeaseRenewalPreventsPrematureTakeover)$' -count=1 -v` |
+| 导入心跳状态机和 5000 行解析边界 | `cd backend && go test -tags=unit ./internal/service -run 'TestEnterpriseMemberImportWorker\|TestParseEnterpriseMemberImportCSVEnforces5000RowCapacityBoundary' -count=1` |
+| 5000 行解析 benchmark | `cd backend && go test -tags=unit ./internal/service -run '^$' -bench '^BenchmarkParseEnterpriseMemberImportCSV5000Rows$' -benchmem -count=1` |
+| 5000 成员真实事务与逐成员审计 | `cd backend && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test -tags=integration ./internal/repository -run '^TestEnterpriseMemberImportCommitHandlesMaximum5000Rows$' -count=1 -v` |
+| 软删除历史 Key 防复用 | `cd backend && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test -tags=integration ./internal/repository -run '^TestEnterpriseMemberImportReferenceValidationRejectsSoftDeletedKeyReuse$' -count=1 -v` |
+| Redis 跨实例认证 L1 失效 | `cd backend && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test -tags=integration ./internal/service -run '^TestAPIKeyAuthCacheInvalidationPropagatesAcrossServiceInstances$' -count=1 -v` |
+| Redis 重启后的 Pub/Sub 订阅恢复 | `cd backend && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test -tags=integration ./internal/service -run '^TestAPIKeyAuthCacheInvalidationSubscriberRecoversAfterRedisRestart$' -count=1 -v` |
+| PostgreSQL 事务连接强杀、整体回滚和接管 | `cd backend && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test -tags=integration ./internal/repository -run '^TestEnterpriseMemberImportCommitConnectionLossRollsBackAndAllowsTakeover$' -count=1 -v` |
+| worker Stop、处理 timeout 与 goroutine 生命周期 | `cd backend && go test -tags=unit ./internal/service -run '^TestEnterpriseMemberImportWorker(StopCancelsActiveProcessingAndWaitsForExit\|ProcessingTimeoutUsesFreshFailureContext)$' -count=1 -v` |
+| 普通 Key 显式迁移事务 | `cd backend && go test ./internal/repository -run 'TestEnterpriseMemberRepositoryAdoptKey' -count=1` |
+| 成员请求记录字段隔离 | `cd backend && go test ./internal/repository -run 'TestEnterpriseMemberRepositoryListUsageRecords' -count=1` |
+| 成员多窗口限额预留与无预留结算拒绝 | `cd backend && go test ./internal/repository -run 'TestReserveEnterpriseMemberSpendingLimits\|TestSettleEnterpriseMemberBudgetRejectsRateLimitedMemberWithoutReservation' -count=1` |
+| 企业成员 zh/en 文案键和页面引用 | `pnpm --dir frontend exec vitest run src/i18n/__tests__/enterpriseMembersLocales.spec.ts` |
+| 企业成员控制台布局和交互入口 | `pnpm --dir frontend exec vitest run src/views/user/__tests__/EnterpriseMembersView.layout.spec.ts` |
+
+必要人工核对：
+
+- 普通 Key 迁移前必须展示原分组如何进入成员路由；提交后 Key 固定 `group_id` 清空，但成员绑定不得静默丢失。
+- owner 请求记录不得包含上游 account、channel、provider endpoint、account cost、供应商成本或利润字段。
+- 企业成员页面必须继续位于 `AppLayout` 和现有侧边栏内，不得恢复为孤立页面。
+- 企业成员主体在桌面必须是一行一个成员的紧凑数据表，不得恢复为卡片网格；成员名与成员编号、Key 数与分组数必须拆为独立列，不得纵向堆叠抬高行高；桌面数据单元格使用紧凑垂直内边距，月预算和本月已用金额不得以省略号截断，操作按钮不得折到第二行；表头、桌面行和窄屏行必须复用共享表格选择样式并支持勾选、半选、Space 键与 `aria-checked`，不得使用浏览器原生白色 checkbox；窄屏使用同一容器内的连续紧凑行。
+- 编辑成员时成员编号必须只读；5h/1d/7d/月限额和已用值必须成组展示，不展示额外的调整原因字段，已用值变化由后端写入带稳定系统来源的不可变审计。“成员可访问的分组”候选必须来自 owner 当前可访问分组，勾选表达授权，排序表达调用优先级。
+- 企业成员状态、预算风险和排序筛选必须使用共享 `Select.vue`，不得回退为浏览器原生 `<select>`；打开态、下拉浮层、选中勾号、方向键、Enter、Escape 和 Tab 语义沿用共享控件。
+- 归档可见性必须是共享 Select 的成员范围筛选，不使用眼睛按钮；仅“包含已归档”时状态筛选才出现“已归档”，切回“仅当前成员”必须清除归档状态并重新加载，不能留下无结果的互斥组合。
+- 旧 worker 租约被接管后，其迟到 commit 和失败回写都不得改变新 worker 的 job；跨实例缓存测试必须先证明远端 L1 确实持有旧快照，再证明 Pub/Sub 后读到新状态。
+- 单次续租错误不得立即中断仍在有效租约内的任务；确认失租或持续错误超过租约期限后必须取消处理，并由 commit fencing 防止迟到写入。
+- Redis 重启测试必须先观察真实 outage，再等待 `PUBSUB NUMSUB` 证明订阅恢复，最后只发布一次失效消息；PostgreSQL 故障测试必须在 `pg_stat_activity` 证明事务正在执行成员 INSERT 时终止连接。
+
 ## 用量分析
 
 | 场景 | 推荐命令 |

@@ -185,6 +185,28 @@ mise x -C backend -- go test ./internal/service ./internal/handler ./internal/se
 pnpm --dir frontend test:run src/utils/__tests__/availableChannelsCatalog.spec.ts
 ```
 
+企业成员 migration 175–178 的真实 PostgreSQL/Redis schema 合同使用 Testcontainers 验证：
+
+```bash
+cd backend
+go test -tags=integration ./internal/repository \
+  -run '^TestMigrationsRunner_EnterpriseMemberSchemaStaysAligned$' \
+  -count=1 -v
+```
+
+macOS 使用 Colima 时，Docker CLI 能工作但 Testcontainers 仍可能提示 `rootless Docker not found`。不要修改全局 Docker 配置，给单次测试显式传递当前 context socket：
+
+```bash
+cd backend
+DOCKER_HOST="$(docker context inspect --format '{{.Endpoints.docker.Host}}')" \
+TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock \
+go test -tags=integration ./internal/repository \
+  -run '^TestMigrationsRunner_EnterpriseMemberSchemaStaysAligned$' \
+  -count=1 -v
+```
+
+测试容器和数据由 Testcontainers/Ryuk 创建并回收，不复用上面的本地开发数据库。
+
 文档站本地查看：
 
 ```bash

@@ -1,5 +1,54 @@
 # 补丁记录
 
+## 2026-07-12 - 企业成员完整目标架构
+
+范围：
+- 文档与长期决策：ADR-0003、企业成员设计、企业用量分析、旧 Key 成员方案退役说明、dev-zz 首页/侧边栏/分支策略/变更地图。
+- 后端与迁移：企业账号生命周期、成员实体/分组/Key、ActiveGroup、预算预留/账本/恢复/对账、CSV/XLSX 导入、Grok 异步视频任务路由身份、append-only 操作审计与企业成员 Ops 指标。
+- 前端：企业成员控制台、导航、成员/分组/Key/预算/用量/导入、全企业与单成员审计视图，以及管理员企业能力停用/恢复开关。
+
+决策：
+- `users.role` 保持 `admin/user`；企业能力使用独立 `users.account_type=enterprise`，避免把产品类型混入授权角色。
+- 企业成员是不可登录的稳定主体，聚合多把成员 Key、有序分组、成员预算和用量证据；普通 Key 批量/标签/analytics 继续保留。
+- 成员 Key 使用请求级 `ActiveGroup`，由统一 orchestrator 在协议 handler 之前完成入口/模型解析、候选资格、跨平台分派和受控 fallback。
+- 成员月预算使用持久化 reservation、不可变预算账本、幂等结算、恢复与对账；请求 usage、迁移开账和人工调整分开记录。
+- 导入以 member code 为稳定键，支持一成员多 Key、多分组、CSV 与受限 XLSX；服务器保存权威 preview，commit 在事务内重新校验并防重复。
+
+新增稳定性修复：
+- 已产生成员事实的企业账号禁止破坏性降级；管理员改用 `enterprise_enabled` 停用/恢复能力，并立即失效认证缓存。
+- 不限成员预算不创建 reservation，但成功请求仍幂等写入预算账本；Batch image 不再把不限预算误判为预算耗尽。
+- 后台 reconciliation 修复 usage/reservation/ledger 证据关联，并从账本和在途 reservation 重建月度投影。
+- migration 176 持久化 Grok 视频上游任务 ID 对应的 owner/member/Key/group/account；查询只使用原任务 account。
+- migration 177 使用同事务数据库触发器记录账号能力、成员、分组、成员 Key、非用量预算账本和导入任务变更；审计表禁止 update/delete，载荷按字段白名单生成，不复制明文 Key、导入 preview/result 或上传原文件。
+- 企业 owner 可读取 owner-scoped 全局审计和 member-scoped 审计；前端在现有控制台的全局审计弹窗和成员预算详情内展示，不新增脱离 AppLayout 的页面。
+- 管理员 Ops 新增无 tenant/member 高基数标签的进程内快照，覆盖成员鉴权、候选/跨组路由、预算预留/结算/释放/恢复/对账与导入解析/回滚。
+- 导入 commit 改为持久化 `queued/processing/completed/failed` job；多实例 worker 用 `SKIP LOCKED` 和超时租约领取，进程退出进入统一 Stop 生命周期。前端轮询 job，失败可下载无敏感字段的 CSV 报告。
+- 导入租约增加 `lock_owner` fencing：接管后旧 worker 不能再提交或标记失败；缺失 `locked_at` 的异常 processing 记录也可恢复领取。真实 PostgreSQL 并发测试覆盖唯一领取、超时接管、迟到写入隔离和无时间戳恢复。
+- 导入 worker 将领取 timeout 与处理 timeout 分离，默认处理窗口提升为 15 分钟，并按租约三分之一间隔续租；短暂数据库错误继续重试，确认失租或续租错误持续超过租约期限时取消当前处理。Ops 快照新增续租成功、续租错误和失租三个无租户标签计数。
+- 5000 行 CSV 解析边界和 benchmark 已固定；真实 PostgreSQL 可在约 7.9 秒内事务创建 5000 成员并生成 5000 条 append-only 审计。本轮容量测试同时修复了导入校验误引用不存在的 `deleted_api_keys`：软删除 Key 本就在 `api_keys` 原表，继续作为不可复用的历史凭证参与冲突检查。
+- 进程级故障注入覆盖 Redis Stop/Start 和 PostgreSQL `pg_terminate_backend`：远端认证实例在 Redis 恢复后重新建立 Pub/Sub 订阅，恢复后的单次广播清除重启前旧 L1；导入事务在成员 INSERT 期间被终止后零部分写入，原 Job 可在租约过期后由新 worker 接管。
+- worker 生命周期测试证明 Stop 会取消活跃 commit/heartbeat 并等待 goroutine 退出；处理 timeout 后使用新的 failure context 写状态，不再复用已过期 context。
+- 两个独立 APIKeyService 实例以各自 L1、共享 Redis 和真实 PostgreSQL 状态验证用户级认证缓存失效：发布实例删除 L2 并广播后，订阅实例会清除旧 L1 并重新加载当前用户状态。
+- 导入结果 Key 以应用加密密文短暂保存，owner 使用 preview token 一次性消费后原子清除；失败任务立即清除 preview Key 密文，未消费成功密文 24 小时后由 cleanup 清除。
+- 历史普通 Key 新增显式成员迁移：UI 预览原分组的路由影响，后端用成员/Key 行锁、expected version 和提交时分组授权复检保证原子性；原分组只会追加或复用，不会静默丢失，迁移审计不包含 Key 明文。
+- 成员预算详情新增独立请求记录分页投影，只返回 Key 名称、对客模型、公开分组、token、耗时和对客费用，不复用含上游账号/渠道字段的管理员 DTO。
+- 企业成员控制台 264 组静态文案和 12 组动态插值全部迁移到独立 zh/en locale namespace；新增语言键对称、页面引用完整性和“禁止恢复页面内双语 helper”的回归测试，并显式合并原有导航 title/description，避免 namespace 覆盖。
+- 成员主体从低密度卡片墙修正为桌面数据表和窄屏连续紧凑行：金额不再省略，成员名、稳定编号、Key 数、分组数、有序路由、更新时间与全部操作可横向比较；名称/编号和 Key/分组分别拆为独立列，桌面行压缩为 `py-2` 并同步收紧状态、预算条与路由胶囊，操作组固定单行。表头、桌面行和移动行的选择控件统一复用二开 `tableSelectionCheckboxClasses`，提供 emerald 勾选、半选横线、键盘和读屏语义，不再显示浏览器原生白色 checkbox。布局契约测试禁止恢复旧卡片网格、指标纵向堆叠、原生选择框或操作按钮折行。
+- 成员筛选栏的状态、预算风险和排序从浏览器原生 select 迁移到二开共享 `Select.vue`，统一暗色触发器、emerald 打开态、旋转箭头、Teleport 浮层、选中勾号和键盘导航；筛选值与原有查询逻辑保持不变。
+- “查看归档”眼睛按钮改为共享 Select 的成员范围筛选（仅当前成员 / 包含已归档）；归档状态选项只在范围允许时出现，切回当前成员会自动清除已归档状态并重新加载，避免两个控件组合出无结果的矛盾状态。
+
+边界：
+- 这是完整最终状态的设计合同，不是 MVP；实现可以按依赖顺序拆分，但完成口径不缩减。
+- 平台管理员仍按企业 user 查看总量，默认不读取成员明细；企业 owner 不接触 account/channel/provider/account_cost 等管理员字段。
+- 已产生成员事实后不允许直接降回 individual；成员、Key、预算和 usage 有历史事实时优先归档，不硬删除。
+- 本记录不表示功能已经上线；浏览器 E2E、指标跨实例聚合、包含分组/Key/开账的混合负载容量测试，以及网络分区/长时间数据库不可用等持续性故障验证仍未完成。
+
+验证：
+- 后端完整 `go test ./...`，包含审计仓储/迁移、Ops 指标、慢导入队列规范化、worker 生命周期、handler、route、middleware 与 Wire cleanup 覆盖。
+- 企业成员 migration 175–178 新增真实 schema integration 合同；本机 Colima 上以 PostgreSQL 18.1、Redis 8.4 Testcontainers 验证复合外键、约束、索引、审计 trigger、导入多 worker fencing/心跳续租、5000 成员事务、Redis 重启订阅恢复、PostgreSQL 中断回滚和跨实例认证缓存失效全部通过。
+- 前端完整 ESLint、typecheck、166 个 Vitest 文件/1044 项测试和生产构建。
+- `git diff --check`、文档交叉引用与 VitePress build。
+
 ## 2026-07-11 - Tool Search 状态机与 Chat fallback 能力边界修复
 
 范围：

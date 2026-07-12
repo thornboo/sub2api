@@ -49,6 +49,7 @@ export default defineConfig({
           { text: '上游合并记录', link: '/dev-zz/maintenance/merge-log' },
           { text: '前端白屏复盘', link: '/dev-zz/maintenance/frontend-white-screen-2026-06-17' },
           { text: '删除 Key 用量排查', link: '/dev-zz/maintenance/deleted-key-usage-ledger-triage-2026-06-22' },
+          { text: '企业 Key 成员管理（历史方案）', link: '/dev-zz/features/enterprise-key-member-management' },
           { text: 'dev-zz-apipool 分支清单', link: '/dev-zz/maintenance/dev-zz-apipool-branch-inventory' },
           { text: 'DEV_SEED stash 设计清单', link: '/dev-zz/maintenance/stash-dev-seed-design' },
           { text: '维度化计费 stash 设计清单', link: '/dev-zz/maintenance/stash-billing-dimensional-pricing' }
@@ -73,7 +74,6 @@ export default defineConfig({
       {
         text: '部分落地功能',
         items: [
-          { text: '企业 Key 成员管理', link: '/dev-zz/features/enterprise-key-member-management' },
           { text: '企业用量分析中心', link: '/dev-zz/features/enterprise-usage-analytics' },
           { text: '用量账本与已删除 Key 证据', link: '/dev-zz/features/usage-ledger-evidence-integrity' },
           { text: '客户可见错误排障', link: '/dev-zz/features/ops-customer-visible-error-triage' },
@@ -84,6 +84,7 @@ export default defineConfig({
       {
         text: '方案稿（未实现）',
         items: [
+          { text: '企业用户成员管理（完整目标设计）', link: '/dev-zz/features/enterprise-member-management' },
           { text: '上游成本感知调度', link: '/dev-zz/features/upstream-provider-cost-aware-scheduling' },
           { text: '模型自检 Token 消耗统计', link: '/dev-zz/features/self-check-token-usage-stats' },
           { text: '改倍率停用受影响 Key', link: '/dev-zz/features/disable-keys-on-group-rate-change' }
@@ -93,7 +94,8 @@ export default defineConfig({
         text: '设计取舍',
         items: [
           { text: '0001：文档中心', link: '/dev-zz/decisions/adr-0001-docs-site-as-dev-zz-doc-hub' },
-          { text: '0002：Key 作为成员', link: '/dev-zz/decisions/adr-0002-key-as-enterprise-member' }
+          { text: '0002：Key 作为成员（已取代）', link: '/dev-zz/decisions/adr-0002-key-as-enterprise-member' },
+          { text: '0003：不可登录成员实体', link: '/dev-zz/decisions/adr-0003-enterprise-member-entity' }
         ]
       }
     ],

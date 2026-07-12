@@ -2,16 +2,19 @@
 
 ## Source of truth
 
-- Status: Draft
-- Last refreshed: 2026-06-14
+- Status: Active
+- Last refreshed: 2026-07-13
 - Primary product surfaces:
   - User console: `frontend/src/views/user/**`
   - User API Key management: `frontend/src/views/user/KeysView.vue`, `frontend/src/components/keys/**`
+  - Enterprise member control plane: `frontend/src/views/user/EnterpriseMembersView.vue`
   - User usage records: `frontend/src/views/user/UsageView.vue`
   - Admin usage and dashboard: `frontend/src/views/admin/UsageView.vue`, `frontend/src/api/admin/dashboard.ts`
   - dev-zz product records: `docs-site/dev-zz/**`
 - Evidence reviewed:
   - `docs-site/dev-zz/decisions/adr-0002-key-as-enterprise-member.md`
+  - `docs-site/dev-zz/decisions/adr-0003-enterprise-member-entity.md`
+  - `docs-site/dev-zz/features/enterprise-member-management.md`
   - `docs-site/dev-zz/features/enterprise-key-member-management.md`
   - `docs-site/dev-zz/features/api-key-usage-drilldown.md`
   - `backend/ent/schema/api_key.go`
@@ -35,7 +38,8 @@
 
 - Goals:
   - Make AI gateway usage observable at the right level: platform admin, enterprise owner, employee Key, group, model, and request.
-  - Let enterprise owners manage API Keys as employee seats without introducing employee login accounts.
+  - Let enterprise owners manage durable, non-login member identities that may each own multiple API Keys.
+  - Give each member one shared set of 5h, 1d, 7d, and calendar-month spending limits across all assigned Keys.
   - Preserve platform administrator-only visibility into upstream account cost, routing, and operational internals.
   - Keep future feature work grounded in small, reviewable slices that fit the dev-zz branch discipline.
 - Non-goals:
@@ -52,11 +56,11 @@
 
 - Primary personas:
   - Platform administrator: operates the whole site, upstream accounts, channels, groups, pricing, abuse, and profitability.
-  - Enterprise owner: a normal user who manages many API Keys as employee seats.
+  - Enterprise owner: a normal enterprise user who manages non-login member identities, their Keys, access groups, and aggregate limits.
   - Employee with a Key only: has no site account and can only inspect that Key's limited status.
 - User jobs:
   - Platform administrator: troubleshoot global usage, cost, routing, failed requests, and user behavior.
-  - Enterprise owner: issue Keys, limit employees, compare employee usage, allocate internal cost, and audit suspicious usage.
+  - Enterprise owner: create members, issue multiple Keys per member, delegate accessible groups, set aggregate limits, correct consumed projections with immutable audit evidence, and inspect usage evidence.
   - Employee with a Key only: confirm whether the Key is active, expired, rate limited, or out of quota.
 - Key contexts of use:
   - Dense admin console on desktop.
@@ -71,6 +75,7 @@
 - Core routes/screens:
   - User API Keys remain the owner workspace for employee-seat Key management.
   - User Usage Records remain the owner request-log surface.
+  - Enterprise Members is the owner workspace for member identity, shared spending limits, group delegation/order, Keys, usage, and audit.
   - Admin Usage remains the platform-wide request-log and analytics surface.
   - Admin Dashboard remains the platform-wide aggregate surface.
 - Content hierarchy:
@@ -88,6 +93,9 @@
 - Principle 3: Prefer drilldown over overloaded lists.
   - Keep Key lists scan-friendly.
   - Put historical trends, model distributions, and request logs in panels or dedicated analytics views.
+- Principle 4: Product language must describe owner intent before routing mechanics.
+  - Say "成员可访问的分组" for delegation; present ordering as the routing priority of the selected subset.
+  - Say "成员编号" for the immutable import/audit identity; do not expose the internal adjective "stable" as the field name.
 - Tradeoffs:
   - First versions may use raw `usage_logs` with strict date limits.
   - Add pre-aggregation only when a measured query path needs it.
@@ -110,6 +118,7 @@
   - Admin-only analytics components should stay under `frontend/src/components/admin`.
 - Variants and states:
   - Every analytics panel needs loading, empty, error, and stale-data states.
+  - Member limit editing shows limit and consumed amount together for 5h, 1d, 7d, and calendar month; consumed changes write system-attributed before/after audit evidence without requiring extra operator input.
   - Tables need compact numeric formatting with full values available in tooltip/title.
 - Token/component ownership:
   - Extend existing Tailwind utility style and local component patterns.
@@ -163,7 +172,9 @@
 - Terminology:
   - "实际扣除" for user-billed amount.
   - "账号成本" only on admin surfaces.
-  - "员工 Key" or "员工席位" for enterprise-owner managed API Keys.
+  - "企业成员" for the durable non-login identity and "成员 Key" for a Key assigned to that member.
+  - "成员编号" for the immutable import/audit identifier.
+  - "成员可访问的分组" for owner-delegated access; "调用优先级" for the selected order.
   - "分组" for routing/billing group.
 - Microcopy rules:
   - Avoid explaining the UI in visible product copy.
@@ -180,9 +191,12 @@
   - Avoid loading full per-Key time series for every Key in a list.
   - Use pre-aggregation only after the raw query path is measured or clearly bounded.
 - Compatibility constraints:
-  - Preserve ADR 0002: API Keys carry employee seats; do not add employee login entities by default.
-  - Preserve existing `api_keys.group_id` behavior until a multi-group Key design is explicitly implemented.
-  - Future multi-group Key work must reuse current group authorization semantics: public vs exclusive groups, `users.AllowedGroups`, subscription eligibility, and group fallback behavior.
+  - Preserve ADR 0003: enterprise members are non-login entities; member Keys inherit the member's ordered group delegation.
+  - `member_code` is immutable after creation and remains globally unique within the enterprise, including archived members.
+  - Member 5h/1d/7d/month limits are aggregate controls shared by all member Keys and use durable reservations; per-Key quota/rate limits remain an additional stricter layer.
+  - Consumed-amount corrections must be auditable. Calendar-month corrections are immutable ledger deltas; window projections retain before/after evidence plus a stable system source and note.
+  - Member creation may establish non-zero current-period usage for 5h/1d/7d/month without an extra reason field, while the backend commits the member, group bindings, opening ledger/projections, and system-attributed audit evidence atomically. Calendar-month opening usage is `migration_opening`, not fabricated request usage.
+  - Member group delegation must reuse current group authorization semantics: public vs exclusive groups, `users.AllowedGroups`, subscription eligibility, and group fallback behavior.
   - Admin DTOs must not be reused for user-facing analytics if they include admin-only fields.
   - Owner tag analytics must not present repeated multi-tag attribution as a 100% cost split unless the API contract defines an explicit denominator.
   - Owner summary cards must distinguish selected-range historical aggregates from current realtime governance snapshots such as quota and rate-limit proximity.
@@ -194,6 +208,6 @@
 ## Open questions
 
 - [ ] Whether owner analytics should be a tab inside API Keys or a dedicated user route / owner / impact: product owner / route and navigation scope.
-- [ ] Whether a Key should gain multi-group access bindings or whether an access-profile abstraction should own those bindings; the answer must account for `AllowedGroups`, subscription eligibility, and fallback group semantics / owner / impact: schema and gateway auth cache.
+- [ ] Whether the public Key-status surface should expose member aggregate remaining limits in addition to the Key's own limits / owner / impact: privacy and support expectations.
 - [ ] Whether owner-visible model analytics should include mapped model names or only requested model names / owner / impact: privacy and debugging usefulness.
 - [ ] Whether owner analytics needs CSV export in the first implementation phase / owner / impact: scope and data volume.
