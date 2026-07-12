@@ -42,6 +42,16 @@ type Tx struct {
 	ChannelMonitorHistory *ChannelMonitorHistoryClient
 	// ChannelMonitorRequestTemplate is the client for interacting with the ChannelMonitorRequestTemplate builders.
 	ChannelMonitorRequestTemplate *ChannelMonitorRequestTemplateClient
+	// EnterpriseMember is the client for interacting with the EnterpriseMember builders.
+	EnterpriseMember *EnterpriseMemberClient
+	// EnterpriseMemberBudgetEntry is the client for interacting with the EnterpriseMemberBudgetEntry builders.
+	EnterpriseMemberBudgetEntry *EnterpriseMemberBudgetEntryClient
+	// EnterpriseMemberBudgetPeriod is the client for interacting with the EnterpriseMemberBudgetPeriod builders.
+	EnterpriseMemberBudgetPeriod *EnterpriseMemberBudgetPeriodClient
+	// EnterpriseMemberBudgetReservation is the client for interacting with the EnterpriseMemberBudgetReservation builders.
+	EnterpriseMemberBudgetReservation *EnterpriseMemberBudgetReservationClient
+	// EnterpriseMemberGroupBinding is the client for interacting with the EnterpriseMemberGroupBinding builders.
+	EnterpriseMemberGroupBinding *EnterpriseMemberGroupBindingClient
 	// ErrorPassthroughRule is the client for interacting with the ErrorPassthroughRule builders.
 	ErrorPassthroughRule *ErrorPassthroughRuleClient
 	// Group is the client for interacting with the Group builders.
@@ -235,6 +245,11 @@ func (tx *Tx) init() {
 	tx.ChannelMonitorDailyRollup = NewChannelMonitorDailyRollupClient(tx.config)
 	tx.ChannelMonitorHistory = NewChannelMonitorHistoryClient(tx.config)
 	tx.ChannelMonitorRequestTemplate = NewChannelMonitorRequestTemplateClient(tx.config)
+	tx.EnterpriseMember = NewEnterpriseMemberClient(tx.config)
+	tx.EnterpriseMemberBudgetEntry = NewEnterpriseMemberBudgetEntryClient(tx.config)
+	tx.EnterpriseMemberBudgetPeriod = NewEnterpriseMemberBudgetPeriodClient(tx.config)
+	tx.EnterpriseMemberBudgetReservation = NewEnterpriseMemberBudgetReservationClient(tx.config)
+	tx.EnterpriseMemberGroupBinding = NewEnterpriseMemberGroupBindingClient(tx.config)
 	tx.ErrorPassthroughRule = NewErrorPassthroughRuleClient(tx.config)
 	tx.Group = NewGroupClient(tx.config)
 	tx.IdempotencyRecord = NewIdempotencyRecordClient(tx.config)

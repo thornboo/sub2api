@@ -78,6 +78,43 @@ func RegisterUserRoutes(
 			groups.GET("/rates", h.APIKey.GetUserGroupRates)
 		}
 
+		// 企业成员、成员分组与成员 Key 管理
+		enterpriseMembers := authenticated.Group("/enterprise/members")
+		{
+			enterpriseMembers.GET("/import/template", h.EnterpriseMember.ImportTemplate)
+			enterpriseMembers.POST("/import/preview", h.EnterpriseMember.ImportPreview)
+			enterpriseMembers.POST("/import/commit", h.EnterpriseMember.ImportCommit)
+			enterpriseMembers.GET("/import/jobs/:job_id", h.EnterpriseMember.GetImportJob)
+			enterpriseMembers.POST("/import/jobs/:job_id/result-secrets", h.EnterpriseMember.ConsumeImportResultSecrets)
+			enterpriseMembers.GET("/import/jobs/:job_id/error-report", h.EnterpriseMember.DownloadImportErrorReport)
+			enterpriseMembers.GET("/usage/summary", h.EnterpriseMember.GetOwnerUsageSummary)
+			enterpriseMembers.GET("/usage/trend", h.EnterpriseMember.GetOwnerUsageTrend)
+			enterpriseMembers.GET("/audit", h.EnterpriseMember.ListOwnerAuditEvents)
+			enterpriseMembers.GET("", h.EnterpriseMember.List)
+			enterpriseMembers.POST("", h.EnterpriseMember.Create)
+			enterpriseMembers.GET("/:id", h.EnterpriseMember.Get)
+			enterpriseMembers.PATCH("/:id", h.EnterpriseMember.Update)
+			enterpriseMembers.POST("/:id/disable", h.EnterpriseMember.Disable)
+			enterpriseMembers.POST("/:id/enable", h.EnterpriseMember.Enable)
+			enterpriseMembers.DELETE("/:id", h.EnterpriseMember.Delete)
+			enterpriseMembers.GET("/:id/groups", h.EnterpriseMember.GetGroups)
+			enterpriseMembers.PUT("/:id/groups", h.EnterpriseMember.ReplaceGroups)
+			enterpriseMembers.GET("/:id/adoptable-keys", h.EnterpriseMember.ListAdoptableKeys)
+			enterpriseMembers.GET("/:id/keys", h.EnterpriseMember.ListKeys)
+			enterpriseMembers.POST("/:id/keys", h.EnterpriseMember.CreateKey)
+			enterpriseMembers.POST("/:id/keys/:key_id/adopt", h.EnterpriseMember.AdoptKey)
+			enterpriseMembers.PATCH("/:id/keys/:key_id", h.EnterpriseMember.UpdateKey)
+			enterpriseMembers.DELETE("/:id/keys/:key_id", h.EnterpriseMember.DeleteKey)
+			enterpriseMembers.GET("/:id/budget", h.EnterpriseMember.GetBudget)
+			enterpriseMembers.GET("/:id/budget/entries", h.EnterpriseMember.ListBudgetEntries)
+			enterpriseMembers.GET("/:id/audit", h.EnterpriseMember.ListAuditEvents)
+			enterpriseMembers.POST("/:id/budget/adjustments", h.EnterpriseMember.CreateBudgetAdjustment)
+			enterpriseMembers.PUT("/:id/usage", h.EnterpriseMember.SetUsage)
+			enterpriseMembers.GET("/:id/usage/records", h.EnterpriseMember.ListUsageRecords)
+			enterpriseMembers.GET("/:id/usage/analytics", h.EnterpriseMember.GetUsageAnalytics)
+			enterpriseMembers.GET("/:id/usage", h.EnterpriseMember.GetUsageAnalytics)
+		}
+
 		// 用户可用渠道（非管理员接口）
 		channels := authenticated.Group("/channels")
 		{

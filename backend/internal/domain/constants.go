@@ -16,6 +16,13 @@ const (
 	RoleUser  = "user"
 )
 
+// User account type constants. Account type is orthogonal to role: enterprise
+// owners remain role=user and gain enterprise member-management capabilities.
+const (
+	UserAccountTypeIndividual = "individual"
+	UserAccountTypeEnterprise = "enterprise"
+)
+
 // Platform constants
 const (
 	PlatformAnthropic   = "anthropic"

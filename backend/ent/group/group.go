@@ -122,10 +122,14 @@ const (
 	EdgeAccounts = "accounts"
 	// EdgeAllowedUsers holds the string denoting the allowed_users edge name in mutations.
 	EdgeAllowedUsers = "allowed_users"
+	// EdgeEnterpriseMembers holds the string denoting the enterprise_members edge name in mutations.
+	EdgeEnterpriseMembers = "enterprise_members"
 	// EdgeAccountGroups holds the string denoting the account_groups edge name in mutations.
 	EdgeAccountGroups = "account_groups"
 	// EdgeUserAllowedGroups holds the string denoting the user_allowed_groups edge name in mutations.
 	EdgeUserAllowedGroups = "user_allowed_groups"
+	// EdgeEnterpriseMemberGroupBindings holds the string denoting the enterprise_member_group_bindings edge name in mutations.
+	EdgeEnterpriseMemberGroupBindings = "enterprise_member_group_bindings"
 	// Table holds the table name of the group in the database.
 	Table = "groups"
 	// APIKeysTable is the table that holds the api_keys relation/edge.
@@ -166,6 +170,11 @@ const (
 	// AllowedUsersInverseTable is the table name for the User entity.
 	// It exists in this package in order to avoid circular dependency with the "user" package.
 	AllowedUsersInverseTable = "users"
+	// EnterpriseMembersTable is the table that holds the enterprise_members relation/edge. The primary key declared below.
+	EnterpriseMembersTable = "enterprise_member_group_bindings"
+	// EnterpriseMembersInverseTable is the table name for the EnterpriseMember entity.
+	// It exists in this package in order to avoid circular dependency with the "enterprisemember" package.
+	EnterpriseMembersInverseTable = "enterprise_members"
 	// AccountGroupsTable is the table that holds the account_groups relation/edge.
 	AccountGroupsTable = "account_groups"
 	// AccountGroupsInverseTable is the table name for the AccountGroup entity.
@@ -180,6 +189,13 @@ const (
 	UserAllowedGroupsInverseTable = "user_allowed_groups"
 	// UserAllowedGroupsColumn is the table column denoting the user_allowed_groups relation/edge.
 	UserAllowedGroupsColumn = "group_id"
+	// EnterpriseMemberGroupBindingsTable is the table that holds the enterprise_member_group_bindings relation/edge.
+	EnterpriseMemberGroupBindingsTable = "enterprise_member_group_bindings"
+	// EnterpriseMemberGroupBindingsInverseTable is the table name for the EnterpriseMemberGroupBinding entity.
+	// It exists in this package in order to avoid circular dependency with the "enterprisemembergroupbinding" package.
+	EnterpriseMemberGroupBindingsInverseTable = "enterprise_member_group_bindings"
+	// EnterpriseMemberGroupBindingsColumn is the table column denoting the enterprise_member_group_bindings relation/edge.
+	EnterpriseMemberGroupBindingsColumn = "group_id"
 )
 
 // Columns holds all SQL columns for group fields.
@@ -241,6 +257,9 @@ var (
 	// AllowedUsersPrimaryKey and AllowedUsersColumn2 are the table columns denoting the
 	// primary key for the allowed_users relation (M2M).
 	AllowedUsersPrimaryKey = []string{"user_id", "group_id"}
+	// EnterpriseMembersPrimaryKey and EnterpriseMembersColumn2 are the table columns denoting the
+	// primary key for the enterprise_members relation (M2M).
+	EnterpriseMembersPrimaryKey = []string{"member_id", "group_id"}
 )
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -650,6 +669,20 @@ func ByAllowedUsers(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByEnterpriseMembersCount orders the results by enterprise_members count.
+func ByEnterpriseMembersCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newEnterpriseMembersStep(), opts...)
+	}
+}
+
+// ByEnterpriseMembers orders the results by enterprise_members terms.
+func ByEnterpriseMembers(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newEnterpriseMembersStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByAccountGroupsCount orders the results by account_groups count.
 func ByAccountGroupsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -675,6 +708,20 @@ func ByUserAllowedGroupsCount(opts ...sql.OrderTermOption) OrderOption {
 func ByUserAllowedGroups(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newUserAllowedGroupsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByEnterpriseMemberGroupBindingsCount orders the results by enterprise_member_group_bindings count.
+func ByEnterpriseMemberGroupBindingsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newEnterpriseMemberGroupBindingsStep(), opts...)
+	}
+}
+
+// ByEnterpriseMemberGroupBindings orders the results by enterprise_member_group_bindings terms.
+func ByEnterpriseMemberGroupBindings(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newEnterpriseMemberGroupBindingsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
 func newAPIKeysStep() *sqlgraph.Step {
@@ -719,6 +766,13 @@ func newAllowedUsersStep() *sqlgraph.Step {
 		sqlgraph.Edge(sqlgraph.M2M, true, AllowedUsersTable, AllowedUsersPrimaryKey...),
 	)
 }
+func newEnterpriseMembersStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(EnterpriseMembersInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2M, true, EnterpriseMembersTable, EnterpriseMembersPrimaryKey...),
+	)
+}
 func newAccountGroupsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -731,5 +785,12 @@ func newUserAllowedGroupsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(UserAllowedGroupsInverseTable, UserAllowedGroupsColumn),
 		sqlgraph.Edge(sqlgraph.O2M, true, UserAllowedGroupsTable, UserAllowedGroupsColumn),
+	)
+}
+func newEnterpriseMemberGroupBindingsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(EnterpriseMemberGroupBindingsInverseTable, EnterpriseMemberGroupBindingsColumn),
+		sqlgraph.Edge(sqlgraph.O2M, true, EnterpriseMemberGroupBindingsTable, EnterpriseMemberGroupBindingsColumn),
 	)
 }

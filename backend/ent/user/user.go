@@ -27,6 +27,10 @@ const (
 	FieldPasswordHash = "password_hash"
 	// FieldRole holds the string denoting the role field in the database.
 	FieldRole = "role"
+	// FieldAccountType holds the string denoting the account_type field in the database.
+	FieldAccountType = "account_type"
+	// FieldEnterpriseDisabledAt holds the string denoting the enterprise_disabled_at field in the database.
+	FieldEnterpriseDisabledAt = "enterprise_disabled_at"
 	// FieldBalance holds the string denoting the balance field in the database.
 	FieldBalance = "balance"
 	// FieldFrozenBalance holds the string denoting the frozen_balance field in the database.
@@ -89,6 +93,8 @@ const (
 	EdgePendingAuthSessions = "pending_auth_sessions"
 	// EdgePlatformQuotas holds the string denoting the platform_quotas edge name in mutations.
 	EdgePlatformQuotas = "platform_quotas"
+	// EdgeEnterpriseMembers holds the string denoting the enterprise_members edge name in mutations.
+	EdgeEnterpriseMembers = "enterprise_members"
 	// EdgeUserAllowedGroups holds the string denoting the user_allowed_groups edge name in mutations.
 	EdgeUserAllowedGroups = "user_allowed_groups"
 	// Table holds the table name of the user in the database.
@@ -182,6 +188,13 @@ const (
 	PlatformQuotasInverseTable = "user_platform_quotas"
 	// PlatformQuotasColumn is the table column denoting the platform_quotas relation/edge.
 	PlatformQuotasColumn = "user_id"
+	// EnterpriseMembersTable is the table that holds the enterprise_members relation/edge.
+	EnterpriseMembersTable = "enterprise_members"
+	// EnterpriseMembersInverseTable is the table name for the EnterpriseMember entity.
+	// It exists in this package in order to avoid circular dependency with the "enterprisemember" package.
+	EnterpriseMembersInverseTable = "enterprise_members"
+	// EnterpriseMembersColumn is the table column denoting the enterprise_members relation/edge.
+	EnterpriseMembersColumn = "enterprise_user_id"
 	// UserAllowedGroupsTable is the table that holds the user_allowed_groups relation/edge.
 	UserAllowedGroupsTable = "user_allowed_groups"
 	// UserAllowedGroupsInverseTable is the table name for the UserAllowedGroup entity.
@@ -200,6 +213,8 @@ var Columns = []string{
 	FieldEmail,
 	FieldPasswordHash,
 	FieldRole,
+	FieldAccountType,
+	FieldEnterpriseDisabledAt,
 	FieldBalance,
 	FieldFrozenBalance,
 	FieldConcurrency,
@@ -258,6 +273,10 @@ var (
 	DefaultRole string
 	// RoleValidator is a validator for the "role" field. It is called by the builders before save.
 	RoleValidator func(string) error
+	// DefaultAccountType holds the default value on creation for the "account_type" field.
+	DefaultAccountType string
+	// AccountTypeValidator is a validator for the "account_type" field. It is called by the builders before save.
+	AccountTypeValidator func(string) error
 	// DefaultBalance holds the default value on creation for the "balance" field.
 	DefaultBalance float64
 	// DefaultFrozenBalance holds the default value on creation for the "frozen_balance" field.
@@ -328,6 +347,16 @@ func ByPasswordHash(opts ...sql.OrderTermOption) OrderOption {
 // ByRole orders the results by the role field.
 func ByRole(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRole, opts...).ToFunc()
+}
+
+// ByAccountType orders the results by the account_type field.
+func ByAccountType(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAccountType, opts...).ToFunc()
+}
+
+// ByEnterpriseDisabledAt orders the results by the enterprise_disabled_at field.
+func ByEnterpriseDisabledAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldEnterpriseDisabledAt, opts...).ToFunc()
 }
 
 // ByBalance orders the results by the balance field.
@@ -602,6 +631,20 @@ func ByPlatformQuotas(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByEnterpriseMembersCount orders the results by enterprise_members count.
+func ByEnterpriseMembersCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newEnterpriseMembersStep(), opts...)
+	}
+}
+
+// ByEnterpriseMembers orders the results by enterprise_members terms.
+func ByEnterpriseMembers(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newEnterpriseMembersStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByUserAllowedGroupsCount orders the results by user_allowed_groups count.
 func ByUserAllowedGroupsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -704,6 +747,13 @@ func newPlatformQuotasStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(PlatformQuotasInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, PlatformQuotasTable, PlatformQuotasColumn),
+	)
+}
+func newEnterpriseMembersStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(EnterpriseMembersInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, EnterpriseMembersTable, EnterpriseMembersColumn),
 	)
 }
 func newUserAllowedGroupsStep() *sqlgraph.Step {

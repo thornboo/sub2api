@@ -12,11 +12,17 @@ func UserFromServiceShallow(u *service.User) *User {
 	if u == nil {
 		return nil
 	}
+	accountType := u.AccountType
+	if accountType == "" {
+		accountType = service.UserAccountTypeIndividual
+	}
 	return &User{
 		ID:                         u.ID,
 		Email:                      u.Email,
 		Username:                   u.Username,
 		Role:                       u.Role,
+		AccountType:                accountType,
+		EnterpriseDisabledAt:       u.EnterpriseDisabledAt,
 		Balance:                    u.Balance,
 		FrozenBalance:              u.FrozenBalance,
 		Concurrency:                u.Concurrency,
@@ -86,6 +92,7 @@ func APIKeyFromService(k *service.APIKey) *APIKey {
 		Name:               k.Name,
 		Tags:               append([]string(nil), k.Tags...),
 		GroupID:            k.GroupID,
+		MemberID:           k.MemberID,
 		Status:             k.Status,
 		DisabledReason:     k.DisabledReason,
 		IPWhitelist:        k.IPWhitelist,

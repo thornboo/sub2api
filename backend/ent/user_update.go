@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/announcementread"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
+	"github.com/Wei-Shaw/sub2api/ent/enterprisemember"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
@@ -105,6 +106,40 @@ func (_u *UserUpdate) SetNillableRole(v *string) *UserUpdate {
 	if v != nil {
 		_u.SetRole(*v)
 	}
+	return _u
+}
+
+// SetAccountType sets the "account_type" field.
+func (_u *UserUpdate) SetAccountType(v string) *UserUpdate {
+	_u.mutation.SetAccountType(v)
+	return _u
+}
+
+// SetNillableAccountType sets the "account_type" field if the given value is not nil.
+func (_u *UserUpdate) SetNillableAccountType(v *string) *UserUpdate {
+	if v != nil {
+		_u.SetAccountType(*v)
+	}
+	return _u
+}
+
+// SetEnterpriseDisabledAt sets the "enterprise_disabled_at" field.
+func (_u *UserUpdate) SetEnterpriseDisabledAt(v time.Time) *UserUpdate {
+	_u.mutation.SetEnterpriseDisabledAt(v)
+	return _u
+}
+
+// SetNillableEnterpriseDisabledAt sets the "enterprise_disabled_at" field if the given value is not nil.
+func (_u *UserUpdate) SetNillableEnterpriseDisabledAt(v *time.Time) *UserUpdate {
+	if v != nil {
+		_u.SetEnterpriseDisabledAt(*v)
+	}
+	return _u
+}
+
+// ClearEnterpriseDisabledAt clears the value of the "enterprise_disabled_at" field.
+func (_u *UserUpdate) ClearEnterpriseDisabledAt() *UserUpdate {
+	_u.mutation.ClearEnterpriseDisabledAt()
 	return _u
 }
 
@@ -627,6 +662,21 @@ func (_u *UserUpdate) AddPlatformQuotas(v ...*UserPlatformQuota) *UserUpdate {
 	return _u.AddPlatformQuotaIDs(ids...)
 }
 
+// AddEnterpriseMemberIDs adds the "enterprise_members" edge to the EnterpriseMember entity by IDs.
+func (_u *UserUpdate) AddEnterpriseMemberIDs(ids ...int64) *UserUpdate {
+	_u.mutation.AddEnterpriseMemberIDs(ids...)
+	return _u
+}
+
+// AddEnterpriseMembers adds the "enterprise_members" edges to the EnterpriseMember entity.
+func (_u *UserUpdate) AddEnterpriseMembers(v ...*EnterpriseMember) *UserUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddEnterpriseMemberIDs(ids...)
+}
+
 // Mutation returns the UserMutation object of the builder.
 func (_u *UserUpdate) Mutation() *UserMutation {
 	return _u.mutation
@@ -905,6 +955,27 @@ func (_u *UserUpdate) RemovePlatformQuotas(v ...*UserPlatformQuota) *UserUpdate 
 	return _u.RemovePlatformQuotaIDs(ids...)
 }
 
+// ClearEnterpriseMembers clears all "enterprise_members" edges to the EnterpriseMember entity.
+func (_u *UserUpdate) ClearEnterpriseMembers() *UserUpdate {
+	_u.mutation.ClearEnterpriseMembers()
+	return _u
+}
+
+// RemoveEnterpriseMemberIDs removes the "enterprise_members" edge to EnterpriseMember entities by IDs.
+func (_u *UserUpdate) RemoveEnterpriseMemberIDs(ids ...int64) *UserUpdate {
+	_u.mutation.RemoveEnterpriseMemberIDs(ids...)
+	return _u
+}
+
+// RemoveEnterpriseMembers removes "enterprise_members" edges to EnterpriseMember entities.
+func (_u *UserUpdate) RemoveEnterpriseMembers(v ...*EnterpriseMember) *UserUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveEnterpriseMemberIDs(ids...)
+}
+
 // Save executes the query and returns the number of nodes affected by the update operation.
 func (_u *UserUpdate) Save(ctx context.Context) (int, error) {
 	if err := _u.defaults(); err != nil {
@@ -964,6 +1035,11 @@ func (_u *UserUpdate) check() error {
 			return &ValidationError{Name: "role", err: fmt.Errorf(`ent: validator failed for field "User.role": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.AccountType(); ok {
+		if err := user.AccountTypeValidator(v); err != nil {
+			return &ValidationError{Name: "account_type", err: fmt.Errorf(`ent: validator failed for field "User.account_type": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Status(); ok {
 		if err := user.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "User.status": %w`, err)}
@@ -1011,6 +1087,15 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.Role(); ok {
 		_spec.SetField(user.FieldRole, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.AccountType(); ok {
+		_spec.SetField(user.FieldAccountType, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.EnterpriseDisabledAt(); ok {
+		_spec.SetField(user.FieldEnterpriseDisabledAt, field.TypeTime, value)
+	}
+	if _u.mutation.EnterpriseDisabledAtCleared() {
+		_spec.ClearField(user.FieldEnterpriseDisabledAt, field.TypeTime)
 	}
 	if value, ok := _u.mutation.Balance(); ok {
 		_spec.SetField(user.FieldBalance, field.TypeFloat64, value)
@@ -1696,6 +1781,51 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.EnterpriseMembersCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.EnterpriseMembersTable,
+			Columns: []string{user.EnterpriseMembersColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedEnterpriseMembersIDs(); len(nodes) > 0 && !_u.mutation.EnterpriseMembersCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.EnterpriseMembersTable,
+			Columns: []string{user.EnterpriseMembersColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.EnterpriseMembersIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.EnterpriseMembersTable,
+			Columns: []string{user.EnterpriseMembersColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{user.Label}
@@ -1781,6 +1911,40 @@ func (_u *UserUpdateOne) SetNillableRole(v *string) *UserUpdateOne {
 	if v != nil {
 		_u.SetRole(*v)
 	}
+	return _u
+}
+
+// SetAccountType sets the "account_type" field.
+func (_u *UserUpdateOne) SetAccountType(v string) *UserUpdateOne {
+	_u.mutation.SetAccountType(v)
+	return _u
+}
+
+// SetNillableAccountType sets the "account_type" field if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableAccountType(v *string) *UserUpdateOne {
+	if v != nil {
+		_u.SetAccountType(*v)
+	}
+	return _u
+}
+
+// SetEnterpriseDisabledAt sets the "enterprise_disabled_at" field.
+func (_u *UserUpdateOne) SetEnterpriseDisabledAt(v time.Time) *UserUpdateOne {
+	_u.mutation.SetEnterpriseDisabledAt(v)
+	return _u
+}
+
+// SetNillableEnterpriseDisabledAt sets the "enterprise_disabled_at" field if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableEnterpriseDisabledAt(v *time.Time) *UserUpdateOne {
+	if v != nil {
+		_u.SetEnterpriseDisabledAt(*v)
+	}
+	return _u
+}
+
+// ClearEnterpriseDisabledAt clears the value of the "enterprise_disabled_at" field.
+func (_u *UserUpdateOne) ClearEnterpriseDisabledAt() *UserUpdateOne {
+	_u.mutation.ClearEnterpriseDisabledAt()
 	return _u
 }
 
@@ -2303,6 +2467,21 @@ func (_u *UserUpdateOne) AddPlatformQuotas(v ...*UserPlatformQuota) *UserUpdateO
 	return _u.AddPlatformQuotaIDs(ids...)
 }
 
+// AddEnterpriseMemberIDs adds the "enterprise_members" edge to the EnterpriseMember entity by IDs.
+func (_u *UserUpdateOne) AddEnterpriseMemberIDs(ids ...int64) *UserUpdateOne {
+	_u.mutation.AddEnterpriseMemberIDs(ids...)
+	return _u
+}
+
+// AddEnterpriseMembers adds the "enterprise_members" edges to the EnterpriseMember entity.
+func (_u *UserUpdateOne) AddEnterpriseMembers(v ...*EnterpriseMember) *UserUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddEnterpriseMemberIDs(ids...)
+}
+
 // Mutation returns the UserMutation object of the builder.
 func (_u *UserUpdateOne) Mutation() *UserMutation {
 	return _u.mutation
@@ -2581,6 +2760,27 @@ func (_u *UserUpdateOne) RemovePlatformQuotas(v ...*UserPlatformQuota) *UserUpda
 	return _u.RemovePlatformQuotaIDs(ids...)
 }
 
+// ClearEnterpriseMembers clears all "enterprise_members" edges to the EnterpriseMember entity.
+func (_u *UserUpdateOne) ClearEnterpriseMembers() *UserUpdateOne {
+	_u.mutation.ClearEnterpriseMembers()
+	return _u
+}
+
+// RemoveEnterpriseMemberIDs removes the "enterprise_members" edge to EnterpriseMember entities by IDs.
+func (_u *UserUpdateOne) RemoveEnterpriseMemberIDs(ids ...int64) *UserUpdateOne {
+	_u.mutation.RemoveEnterpriseMemberIDs(ids...)
+	return _u
+}
+
+// RemoveEnterpriseMembers removes "enterprise_members" edges to EnterpriseMember entities.
+func (_u *UserUpdateOne) RemoveEnterpriseMembers(v ...*EnterpriseMember) *UserUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveEnterpriseMemberIDs(ids...)
+}
+
 // Where appends a list predicates to the UserUpdate builder.
 func (_u *UserUpdateOne) Where(ps ...predicate.User) *UserUpdateOne {
 	_u.mutation.Where(ps...)
@@ -2653,6 +2853,11 @@ func (_u *UserUpdateOne) check() error {
 			return &ValidationError{Name: "role", err: fmt.Errorf(`ent: validator failed for field "User.role": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.AccountType(); ok {
+		if err := user.AccountTypeValidator(v); err != nil {
+			return &ValidationError{Name: "account_type", err: fmt.Errorf(`ent: validator failed for field "User.account_type": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Status(); ok {
 		if err := user.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "User.status": %w`, err)}
@@ -2717,6 +2922,15 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 	}
 	if value, ok := _u.mutation.Role(); ok {
 		_spec.SetField(user.FieldRole, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.AccountType(); ok {
+		_spec.SetField(user.FieldAccountType, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.EnterpriseDisabledAt(); ok {
+		_spec.SetField(user.FieldEnterpriseDisabledAt, field.TypeTime, value)
+	}
+	if _u.mutation.EnterpriseDisabledAtCleared() {
+		_spec.ClearField(user.FieldEnterpriseDisabledAt, field.TypeTime)
 	}
 	if value, ok := _u.mutation.Balance(); ok {
 		_spec.SetField(user.FieldBalance, field.TypeFloat64, value)
@@ -3395,6 +3609,51 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(userplatformquota.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.EnterpriseMembersCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.EnterpriseMembersTable,
+			Columns: []string{user.EnterpriseMembersColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedEnterpriseMembersIDs(); len(nodes) > 0 && !_u.mutation.EnterpriseMembersCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.EnterpriseMembersTable,
+			Columns: []string{user.EnterpriseMembersColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.EnterpriseMembersIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.EnterpriseMembersTable,
+			Columns: []string{user.EnterpriseMembersColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

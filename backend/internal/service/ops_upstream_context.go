@@ -51,6 +51,11 @@ const (
 	OpsClientBusinessLimitedReasonAPIKeyGroupUnassigned  = "api_key_group_unassigned"
 	OpsClientBusinessLimitedReasonLocalFeatureGate       = "local_feature_gate"
 	OpsClientBusinessLimitedReasonLocalPolicyDenied      = "local_policy_denied"
+
+	// OpsGroupFailoverEligibleKey marks a terminal group-local routing failure
+	// that may be retried against the next ordered enterprise-member group, but
+	// only while the HTTP response is still uncommitted.
+	OpsGroupFailoverEligibleKey = "ops_group_failover_eligible"
 )
 
 func MarkResponseCommitted(c *gin.Context) { c.Set(ResponseCommittedKey, true) }
@@ -62,6 +67,24 @@ func IsResponseCommitted(c *gin.Context) bool {
 	}
 	b, _ := v.(bool)
 	return b
+}
+
+func MarkOpsGroupFailoverEligible(c *gin.Context) {
+	if c != nil {
+		c.Set(OpsGroupFailoverEligibleKey, true)
+	}
+}
+
+func IsOpsGroupFailoverEligible(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	v, ok := c.Get(OpsGroupFailoverEligibleKey)
+	if !ok {
+		return false
+	}
+	marked, _ := v.(bool)
+	return marked
 }
 
 func SetOpsLatencyMs(c *gin.Context, key string, value int64) {
@@ -171,9 +194,11 @@ type OpsUpstreamErrorEvent struct {
 	Passthrough bool `json:"passthrough,omitempty"`
 
 	// Context
-	Platform    string `json:"platform,omitempty"`
-	AccountID   int64  `json:"account_id,omitempty"`
-	AccountName string `json:"account_name,omitempty"`
+	Platform     string `json:"platform,omitempty"`
+	GroupID      int64  `json:"group_id,omitempty"`
+	GroupAttempt int    `json:"group_attempt,omitempty"`
+	AccountID    int64  `json:"account_id,omitempty"`
+	AccountName  string `json:"account_name,omitempty"`
 
 	// Outcome
 	UpstreamStatusCode int    `json:"upstream_status_code,omitempty"`
@@ -199,6 +224,12 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 	}
 	if ev.AtUnixMs <= 0 {
 		ev.AtUnixMs = time.Now().UnixMilli()
+	}
+	if c.Request != nil {
+		if active, ok := ActiveGroupFromContext(c.Request.Context()); ok {
+			ev.GroupID = active.GroupID
+			ev.GroupAttempt = active.AttemptNumber
+		}
 	}
 	ev.Platform = strings.TrimSpace(ev.Platform)
 	ev.UpstreamRequestID = strings.TrimSpace(ev.UpstreamRequestID)

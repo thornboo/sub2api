@@ -48,6 +48,21 @@ type ChannelMonitorHistory func(*sql.Selector)
 // ChannelMonitorRequestTemplate is the predicate function for channelmonitorrequesttemplate builders.
 type ChannelMonitorRequestTemplate func(*sql.Selector)
 
+// EnterpriseMember is the predicate function for enterprisemember builders.
+type EnterpriseMember func(*sql.Selector)
+
+// EnterpriseMemberBudgetEntry is the predicate function for enterprisememberbudgetentry builders.
+type EnterpriseMemberBudgetEntry func(*sql.Selector)
+
+// EnterpriseMemberBudgetPeriod is the predicate function for enterprisememberbudgetperiod builders.
+type EnterpriseMemberBudgetPeriod func(*sql.Selector)
+
+// EnterpriseMemberBudgetReservation is the predicate function for enterprisememberbudgetreservation builders.
+type EnterpriseMemberBudgetReservation func(*sql.Selector)
+
+// EnterpriseMemberGroupBinding is the predicate function for enterprisemembergroupbinding builders.
+type EnterpriseMemberGroupBinding func(*sql.Selector)
+
 // ErrorPassthroughRule is the predicate function for errorpassthroughrule builders.
 type ErrorPassthroughRule func(*sql.Selector)
 

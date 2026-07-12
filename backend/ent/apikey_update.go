@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/enterprisemember"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
@@ -129,6 +130,26 @@ func (_u *APIKeyUpdate) SetNillableGroupID(v *int64) *APIKeyUpdate {
 // ClearGroupID clears the value of the "group_id" field.
 func (_u *APIKeyUpdate) ClearGroupID() *APIKeyUpdate {
 	_u.mutation.ClearGroupID()
+	return _u
+}
+
+// SetMemberID sets the "member_id" field.
+func (_u *APIKeyUpdate) SetMemberID(v int64) *APIKeyUpdate {
+	_u.mutation.SetMemberID(v)
+	return _u
+}
+
+// SetNillableMemberID sets the "member_id" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableMemberID(v *int64) *APIKeyUpdate {
+	if v != nil {
+		_u.SetMemberID(*v)
+	}
+	return _u
+}
+
+// ClearMemberID clears the value of the "member_id" field.
+func (_u *APIKeyUpdate) ClearMemberID() *APIKeyUpdate {
+	_u.mutation.ClearMemberID()
 	return _u
 }
 
@@ -474,6 +495,11 @@ func (_u *APIKeyUpdate) SetGroup(v *Group) *APIKeyUpdate {
 	return _u.SetGroupID(v.ID)
 }
 
+// SetMember sets the "member" edge to the EnterpriseMember entity.
+func (_u *APIKeyUpdate) SetMember(v *EnterpriseMember) *APIKeyUpdate {
+	return _u.SetMemberID(v.ID)
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
 func (_u *APIKeyUpdate) AddUsageLogIDs(ids ...int64) *APIKeyUpdate {
 	_u.mutation.AddUsageLogIDs(ids...)
@@ -503,6 +529,12 @@ func (_u *APIKeyUpdate) ClearUser() *APIKeyUpdate {
 // ClearGroup clears the "group" edge to the Group entity.
 func (_u *APIKeyUpdate) ClearGroup() *APIKeyUpdate {
 	_u.mutation.ClearGroup()
+	return _u
+}
+
+// ClearMember clears the "member" edge to the EnterpriseMember entity.
+func (_u *APIKeyUpdate) ClearMember() *APIKeyUpdate {
+	_u.mutation.ClearMember()
 	return _u
 }
 
@@ -796,6 +828,35 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.MemberCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   apikey.MemberTable,
+			Columns: []string{apikey.MemberColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.MemberIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   apikey.MemberTable,
+			Columns: []string{apikey.MemberColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _u.mutation.UsageLogsCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
@@ -958,6 +1019,26 @@ func (_u *APIKeyUpdateOne) SetNillableGroupID(v *int64) *APIKeyUpdateOne {
 // ClearGroupID clears the value of the "group_id" field.
 func (_u *APIKeyUpdateOne) ClearGroupID() *APIKeyUpdateOne {
 	_u.mutation.ClearGroupID()
+	return _u
+}
+
+// SetMemberID sets the "member_id" field.
+func (_u *APIKeyUpdateOne) SetMemberID(v int64) *APIKeyUpdateOne {
+	_u.mutation.SetMemberID(v)
+	return _u
+}
+
+// SetNillableMemberID sets the "member_id" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableMemberID(v *int64) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetMemberID(*v)
+	}
+	return _u
+}
+
+// ClearMemberID clears the value of the "member_id" field.
+func (_u *APIKeyUpdateOne) ClearMemberID() *APIKeyUpdateOne {
+	_u.mutation.ClearMemberID()
 	return _u
 }
 
@@ -1303,6 +1384,11 @@ func (_u *APIKeyUpdateOne) SetGroup(v *Group) *APIKeyUpdateOne {
 	return _u.SetGroupID(v.ID)
 }
 
+// SetMember sets the "member" edge to the EnterpriseMember entity.
+func (_u *APIKeyUpdateOne) SetMember(v *EnterpriseMember) *APIKeyUpdateOne {
+	return _u.SetMemberID(v.ID)
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
 func (_u *APIKeyUpdateOne) AddUsageLogIDs(ids ...int64) *APIKeyUpdateOne {
 	_u.mutation.AddUsageLogIDs(ids...)
@@ -1332,6 +1418,12 @@ func (_u *APIKeyUpdateOne) ClearUser() *APIKeyUpdateOne {
 // ClearGroup clears the "group" edge to the Group entity.
 func (_u *APIKeyUpdateOne) ClearGroup() *APIKeyUpdateOne {
 	_u.mutation.ClearGroup()
+	return _u
+}
+
+// ClearMember clears the "member" edge to the EnterpriseMember entity.
+func (_u *APIKeyUpdateOne) ClearMember() *APIKeyUpdateOne {
+	_u.mutation.ClearMember()
 	return _u
 }
 
@@ -1648,6 +1740,35 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.MemberCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   apikey.MemberTable,
+			Columns: []string{apikey.MemberColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.MemberIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   apikey.MemberTable,
+			Columns: []string{apikey.MemberColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

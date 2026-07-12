@@ -177,6 +177,66 @@ func (f ChannelMonitorRequestTemplateFunc) Mutate(ctx context.Context, m ent.Mut
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ChannelMonitorRequestTemplateMutation", m)
 }
 
+// The EnterpriseMemberFunc type is an adapter to allow the use of ordinary
+// function as EnterpriseMember mutator.
+type EnterpriseMemberFunc func(context.Context, *ent.EnterpriseMemberMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f EnterpriseMemberFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.EnterpriseMemberMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.EnterpriseMemberMutation", m)
+}
+
+// The EnterpriseMemberBudgetEntryFunc type is an adapter to allow the use of ordinary
+// function as EnterpriseMemberBudgetEntry mutator.
+type EnterpriseMemberBudgetEntryFunc func(context.Context, *ent.EnterpriseMemberBudgetEntryMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f EnterpriseMemberBudgetEntryFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.EnterpriseMemberBudgetEntryMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.EnterpriseMemberBudgetEntryMutation", m)
+}
+
+// The EnterpriseMemberBudgetPeriodFunc type is an adapter to allow the use of ordinary
+// function as EnterpriseMemberBudgetPeriod mutator.
+type EnterpriseMemberBudgetPeriodFunc func(context.Context, *ent.EnterpriseMemberBudgetPeriodMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f EnterpriseMemberBudgetPeriodFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.EnterpriseMemberBudgetPeriodMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.EnterpriseMemberBudgetPeriodMutation", m)
+}
+
+// The EnterpriseMemberBudgetReservationFunc type is an adapter to allow the use of ordinary
+// function as EnterpriseMemberBudgetReservation mutator.
+type EnterpriseMemberBudgetReservationFunc func(context.Context, *ent.EnterpriseMemberBudgetReservationMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f EnterpriseMemberBudgetReservationFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.EnterpriseMemberBudgetReservationMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.EnterpriseMemberBudgetReservationMutation", m)
+}
+
+// The EnterpriseMemberGroupBindingFunc type is an adapter to allow the use of ordinary
+// function as EnterpriseMemberGroupBinding mutator.
+type EnterpriseMemberGroupBindingFunc func(context.Context, *ent.EnterpriseMemberGroupBindingMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f EnterpriseMemberGroupBindingFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.EnterpriseMemberGroupBindingMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.EnterpriseMemberGroupBindingMutation", m)
+}
+
 // The ErrorPassthroughRuleFunc type is an adapter to allow the use of ordinary
 // function as ErrorPassthroughRule mutator.
 type ErrorPassthroughRuleFunc func(context.Context, *ent.ErrorPassthroughRuleMutation) (ent.Value, error)

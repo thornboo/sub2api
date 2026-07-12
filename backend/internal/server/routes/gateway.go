@@ -17,6 +17,7 @@ func RegisterGatewayRoutes(
 	h *handler.Handlers,
 	apiKeyAuth middleware.APIKeyAuthMiddleware,
 	apiKeyService *service.APIKeyService,
+	memberBudgetService *service.EnterpriseMemberBudgetService,
 	subscriptionService *service.SubscriptionService,
 	opsService *service.OpsService,
 	settingService *service.SettingService,
@@ -30,6 +31,11 @@ func RegisterGatewayRoutes(
 	// 未分组 Key 拦截中间件（按协议格式区分错误响应）
 	requireGroupAnthropic := middleware.RequireGroupAssignment(settingService, middleware.AnthropicErrorWriter)
 	requireGroupGoogle := middleware.RequireGroupAssignment(settingService, middleware.GoogleErrorWriter)
+	resolveMemberGroupAnthropic := middleware.ResolveEnterpriseMemberGroup(subscriptionService, cfg, middleware.AnthropicErrorWriter)
+	resolveMemberGroupGoogle := middleware.ResolveEnterpriseMemberGroup(subscriptionService, cfg, middleware.GoogleErrorWriter)
+	enforceMemberBudgetAnthropic := middleware.EnforceEnterpriseMemberBudget(memberBudgetService, middleware.AnthropicErrorWriter)
+	enforceMemberBudgetGoogle := middleware.EnforceEnterpriseMemberBudget(memberBudgetService, middleware.GoogleErrorWriter)
+	orchestrateMemberGroups := middleware.OrchestrateEnterpriseMemberGroups
 
 	isOpenAIResponsesCompatibleGatewayPlatform := func(c *gin.Context) bool {
 		switch getGroupPlatform(c) {
@@ -91,19 +97,21 @@ func RegisterGatewayRoutes(
 	gateway.Use(opsErrorLogger)
 	gateway.Use(endpointNorm)
 	gateway.Use(gin.HandlerFunc(apiKeyAuth))
+	gateway.Use(resolveMemberGroupAnthropic)
+	gateway.Use(enforceMemberBudgetAnthropic)
 	gateway.Use(requireGroupAnthropic)
 	{
 		// /v1/messages: auto-route based on group platform
-		gateway.POST("/messages", func(c *gin.Context) {
+		gateway.POST("/messages", orchestrateMemberGroups(func(c *gin.Context) {
 			if isOpenAIResponsesCompatibleGatewayPlatform(c) {
 				h.OpenAIGateway.Messages(c)
 				return
 			}
 			h.Gateway.Messages(c)
-		})
+		}))
 		// /v1/messages/count_tokens: OpenAI uses Anthropic-compat bridge; other
 		// OpenAI-compatible platforms keep the prior unsupported response.
-		gateway.POST("/messages/count_tokens", func(c *gin.Context) {
+		gateway.POST("/messages/count_tokens", orchestrateMemberGroups(func(c *gin.Context) {
 			if isOpenAIGatewayPlatform(c) {
 				h.OpenAIGateway.CountTokens(c)
 				return
@@ -120,45 +128,45 @@ func RegisterGatewayRoutes(
 				return
 			}
 			h.Gateway.CountTokens(c)
-		})
+		}))
 		// Codex CLI / Codex app refresh their model picker from the provider's
 		// /models endpoint with a client_version query and expect the ChatGPT
 		// Codex manifest format; other clients keep the OpenAI-style list.
-		gateway.GET("/models", func(c *gin.Context) {
+		gateway.GET("/models", orchestrateMemberGroups(func(c *gin.Context) {
 			if isOpenAIGatewayPlatform(c) && c.Query("client_version") != "" {
 				h.OpenAIGateway.CodexModels(c)
 				return
 			}
 			h.Gateway.Models(c)
-		})
+		}))
 		gateway.GET("/usage", h.Gateway.Usage)
 		// OpenAI Responses API: auto-route based on group platform
-		gateway.POST("/responses", func(c *gin.Context) {
+		gateway.POST("/responses", orchestrateMemberGroups(func(c *gin.Context) {
 			if isOpenAIResponsesCompatibleGatewayPlatform(c) {
 				h.OpenAIGateway.Responses(c)
 				return
 			}
 			h.Gateway.Responses(c)
-		})
-		gateway.POST("/responses/*subpath", func(c *gin.Context) {
+		}))
+		gateway.POST("/responses/*subpath", orchestrateMemberGroups(func(c *gin.Context) {
 			if isOpenAIResponsesCompatibleGatewayPlatform(c) {
 				h.OpenAIGateway.Responses(c)
 				return
 			}
 			h.Gateway.Responses(c)
-		})
+		}))
 		gateway.GET("/responses", func(c *gin.Context) {
 			h.OpenAIGateway.ResponsesWebSocket(c)
 		})
 		// OpenAI Chat Completions API: auto-route based on group platform
-		gateway.POST("/chat/completions", func(c *gin.Context) {
+		gateway.POST("/chat/completions", orchestrateMemberGroups(func(c *gin.Context) {
 			if isOpenAIResponsesCompatibleGatewayPlatform(c) {
 				h.OpenAIGateway.ChatCompletions(c)
 				return
 			}
 			h.Gateway.ChatCompletions(c)
-		})
-		gateway.POST("/embeddings", func(c *gin.Context) {
+		}))
+		gateway.POST("/embeddings", orchestrateMemberGroups(func(c *gin.Context) {
 			if getGroupPlatform(c) != service.PlatformOpenAI {
 				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 				c.JSON(http.StatusNotFound, gin.H{
@@ -170,10 +178,10 @@ func RegisterGatewayRoutes(
 				return
 			}
 			h.OpenAIGateway.Embeddings(c)
-		})
-		gateway.POST("/images/generations", imagesHandler)
-		gateway.POST("/images/edits", imagesHandler)
-		gateway.POST("/images/batches", h.BatchImage.Submit)
+		}))
+		gateway.POST("/images/generations", orchestrateMemberGroups(imagesHandler))
+		gateway.POST("/images/edits", orchestrateMemberGroups(imagesHandler))
+		gateway.POST("/images/batches", orchestrateMemberGroups(h.BatchImage.Submit))
 		gateway.GET("/images/batches", h.BatchImage.List)
 		gateway.GET("/images/batches/models", h.BatchImage.Models)
 		gateway.GET("/images/batches/:id", h.BatchImage.Get)
@@ -183,7 +191,7 @@ func RegisterGatewayRoutes(
 		gateway.POST("/images/batches/:id/cancel", h.BatchImage.Cancel)
 		gateway.DELETE("/images/batches/:id", h.BatchImage.DeleteRecord)
 		gateway.DELETE("/images/batches/:id/outputs", h.BatchImage.DeleteOutputs)
-		gateway.POST("/videos/generations", videoGenerationHandler)
+		gateway.POST("/videos/generations", orchestrateMemberGroups(videoGenerationHandler))
 		gateway.GET("/videos/:request_id", videoStatusHandler)
 	}
 
@@ -194,12 +202,14 @@ func RegisterGatewayRoutes(
 	gemini.Use(opsErrorLogger)
 	gemini.Use(endpointNorm)
 	gemini.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg))
+	gemini.Use(resolveMemberGroupGoogle)
+	gemini.Use(enforceMemberBudgetGoogle)
 	gemini.Use(requireGroupGoogle)
 	{
-		gemini.GET("/models", h.Gateway.GeminiV1BetaListModels)
-		gemini.GET("/models/:model", h.Gateway.GeminiV1BetaGetModel)
+		gemini.GET("/models", orchestrateMemberGroups(h.Gateway.GeminiV1BetaListModels))
+		gemini.GET("/models/:model", orchestrateMemberGroups(h.Gateway.GeminiV1BetaGetModel))
 		// Gin treats ":" as a param marker, but Gemini uses "{model}:{action}" in the same segment.
-		gemini.POST("/models/*modelAction", h.Gateway.GeminiV1BetaModels)
+		gemini.POST("/models/*modelAction", orchestrateMemberGroups(h.Gateway.GeminiV1BetaModels))
 	}
 
 	// OpenAI Responses API（不带v1前缀的别名）— auto-route based on group platform
@@ -210,30 +220,30 @@ func RegisterGatewayRoutes(
 		}
 		h.Gateway.Responses(c)
 	}
-	r.POST("/responses", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, responsesHandler)
-	r.POST("/responses/*subpath", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, responsesHandler)
-	r.GET("/responses", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, func(c *gin.Context) {
+	r.POST("/responses", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, orchestrateMemberGroups(responsesHandler))
+	r.POST("/responses/*subpath", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, orchestrateMemberGroups(responsesHandler))
+	r.GET("/responses", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, func(c *gin.Context) {
 		h.OpenAIGateway.ResponsesWebSocket(c)
 	})
 	codexDirect := r.Group("/backend-api/codex")
-	codexDirect.Use(bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)
+	codexDirect.Use(bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic)
 	{
-		codexDirect.POST("/responses", responsesHandler)
-		codexDirect.POST("/responses/*subpath", responsesHandler)
+		codexDirect.POST("/responses", orchestrateMemberGroups(responsesHandler))
+		codexDirect.POST("/responses/*subpath", orchestrateMemberGroups(responsesHandler))
 		codexDirect.GET("/responses", func(c *gin.Context) {
 			h.OpenAIGateway.ResponsesWebSocket(c)
 		})
-		codexDirect.GET("/models", h.OpenAIGateway.CodexModels)
+		codexDirect.GET("/models", orchestrateMemberGroups(h.OpenAIGateway.CodexModels))
 	}
 	// OpenAI Chat Completions API（不带v1前缀的别名）— auto-route based on group platform
-	r.POST("/chat/completions", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, func(c *gin.Context) {
+	r.POST("/chat/completions", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, orchestrateMemberGroups(func(c *gin.Context) {
 		if isOpenAIResponsesCompatibleGatewayPlatform(c) {
 			h.OpenAIGateway.ChatCompletions(c)
 			return
 		}
 		h.Gateway.ChatCompletions(c)
-	})
-	r.POST("/embeddings", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, func(c *gin.Context) {
+	}))
+	r.POST("/embeddings", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, orchestrateMemberGroups(func(c *gin.Context) {
 		if getGroupPlatform(c) != service.PlatformOpenAI {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{
@@ -245,14 +255,14 @@ func RegisterGatewayRoutes(
 			return
 		}
 		h.OpenAIGateway.Embeddings(c)
-	})
-	r.POST("/images/generations", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, imagesHandler)
-	r.POST("/images/edits", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, imagesHandler)
-	r.POST("/videos/generations", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, videoGenerationHandler)
-	r.GET("/videos/:request_id", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, videoStatusHandler)
+	}))
+	r.POST("/images/generations", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, orchestrateMemberGroups(imagesHandler))
+	r.POST("/images/edits", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, orchestrateMemberGroups(imagesHandler))
+	r.POST("/videos/generations", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, orchestrateMemberGroups(videoGenerationHandler))
+	r.GET("/videos/:request_id", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, videoStatusHandler)
 
 	// Antigravity 模型列表
-	r.GET("/antigravity/models", gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.Gateway.AntigravityModels)
+	r.GET("/antigravity/models", gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, h.Gateway.AntigravityModels)
 
 	// Antigravity 专用路由（仅使用 antigravity 账户，不混合调度）
 	antigravityV1 := r.Group("/antigravity/v1")
@@ -262,10 +272,12 @@ func RegisterGatewayRoutes(
 	antigravityV1.Use(endpointNorm)
 	antigravityV1.Use(middleware.ForcePlatform(service.PlatformAntigravity))
 	antigravityV1.Use(gin.HandlerFunc(apiKeyAuth))
+	antigravityV1.Use(resolveMemberGroupAnthropic)
+	antigravityV1.Use(enforceMemberBudgetAnthropic)
 	antigravityV1.Use(requireGroupAnthropic)
 	{
-		antigravityV1.POST("/messages", h.Gateway.Messages)
-		antigravityV1.POST("/messages/count_tokens", h.Gateway.CountTokens)
+		antigravityV1.POST("/messages", orchestrateMemberGroups(h.Gateway.Messages))
+		antigravityV1.POST("/messages/count_tokens", orchestrateMemberGroups(h.Gateway.CountTokens))
 		antigravityV1.GET("/models", h.Gateway.AntigravityModels)
 		antigravityV1.GET("/usage", h.Gateway.Usage)
 	}
@@ -277,11 +289,13 @@ func RegisterGatewayRoutes(
 	antigravityV1Beta.Use(endpointNorm)
 	antigravityV1Beta.Use(middleware.ForcePlatform(service.PlatformAntigravity))
 	antigravityV1Beta.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg))
+	antigravityV1Beta.Use(resolveMemberGroupGoogle)
+	antigravityV1Beta.Use(enforceMemberBudgetGoogle)
 	antigravityV1Beta.Use(requireGroupGoogle)
 	{
-		antigravityV1Beta.GET("/models", h.Gateway.GeminiV1BetaListModels)
-		antigravityV1Beta.GET("/models/:model", h.Gateway.GeminiV1BetaGetModel)
-		antigravityV1Beta.POST("/models/*modelAction", h.Gateway.GeminiV1BetaModels)
+		antigravityV1Beta.GET("/models", orchestrateMemberGroups(h.Gateway.GeminiV1BetaListModels))
+		antigravityV1Beta.GET("/models/:model", orchestrateMemberGroups(h.Gateway.GeminiV1BetaGetModel))
+		antigravityV1Beta.POST("/models/*modelAction", orchestrateMemberGroups(h.Gateway.GeminiV1BetaModels))
 	}
 
 }

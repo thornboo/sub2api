@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/enterprisemember"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
@@ -266,6 +267,66 @@ func (_u *UsageLogUpdate) SetNillableSubscriptionID(v *int64) *UsageLogUpdate {
 // ClearSubscriptionID clears the value of the "subscription_id" field.
 func (_u *UsageLogUpdate) ClearSubscriptionID() *UsageLogUpdate {
 	_u.mutation.ClearSubscriptionID()
+	return _u
+}
+
+// SetMemberID sets the "member_id" field.
+func (_u *UsageLogUpdate) SetMemberID(v int64) *UsageLogUpdate {
+	_u.mutation.SetMemberID(v)
+	return _u
+}
+
+// SetNillableMemberID sets the "member_id" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableMemberID(v *int64) *UsageLogUpdate {
+	if v != nil {
+		_u.SetMemberID(*v)
+	}
+	return _u
+}
+
+// ClearMemberID clears the value of the "member_id" field.
+func (_u *UsageLogUpdate) ClearMemberID() *UsageLogUpdate {
+	_u.mutation.ClearMemberID()
+	return _u
+}
+
+// SetMemberCodeSnapshot sets the "member_code_snapshot" field.
+func (_u *UsageLogUpdate) SetMemberCodeSnapshot(v string) *UsageLogUpdate {
+	_u.mutation.SetMemberCodeSnapshot(v)
+	return _u
+}
+
+// SetNillableMemberCodeSnapshot sets the "member_code_snapshot" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableMemberCodeSnapshot(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetMemberCodeSnapshot(*v)
+	}
+	return _u
+}
+
+// ClearMemberCodeSnapshot clears the value of the "member_code_snapshot" field.
+func (_u *UsageLogUpdate) ClearMemberCodeSnapshot() *UsageLogUpdate {
+	_u.mutation.ClearMemberCodeSnapshot()
+	return _u
+}
+
+// SetMemberNameSnapshot sets the "member_name_snapshot" field.
+func (_u *UsageLogUpdate) SetMemberNameSnapshot(v string) *UsageLogUpdate {
+	_u.mutation.SetMemberNameSnapshot(v)
+	return _u
+}
+
+// SetNillableMemberNameSnapshot sets the "member_name_snapshot" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableMemberNameSnapshot(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetMemberNameSnapshot(*v)
+	}
+	return _u
+}
+
+// ClearMemberNameSnapshot clears the value of the "member_name_snapshot" field.
+func (_u *UsageLogUpdate) ClearMemberNameSnapshot() *UsageLogUpdate {
+	_u.mutation.ClearMemberNameSnapshot()
 	return _u
 }
 
@@ -918,6 +979,11 @@ func (_u *UsageLogUpdate) SetSubscription(v *UserSubscription) *UsageLogUpdate {
 	return _u.SetSubscriptionID(v.ID)
 }
 
+// SetMember sets the "member" edge to the EnterpriseMember entity.
+func (_u *UsageLogUpdate) SetMember(v *EnterpriseMember) *UsageLogUpdate {
+	return _u.SetMemberID(v.ID)
+}
+
 // Mutation returns the UsageLogMutation object of the builder.
 func (_u *UsageLogUpdate) Mutation() *UsageLogMutation {
 	return _u.mutation
@@ -950,6 +1016,12 @@ func (_u *UsageLogUpdate) ClearGroup() *UsageLogUpdate {
 // ClearSubscription clears the "subscription" edge to the UserSubscription entity.
 func (_u *UsageLogUpdate) ClearSubscription() *UsageLogUpdate {
 	_u.mutation.ClearSubscription()
+	return _u
+}
+
+// ClearMember clears the "member" edge to the EnterpriseMember entity.
+func (_u *UsageLogUpdate) ClearMember() *UsageLogUpdate {
+	_u.mutation.ClearMember()
 	return _u
 }
 
@@ -1015,6 +1087,16 @@ func (_u *UsageLogUpdate) check() error {
 	if v, ok := _u.mutation.BillingMode(); ok {
 		if err := usagelog.BillingModeValidator(v); err != nil {
 			return &ValidationError{Name: "billing_mode", err: fmt.Errorf(`ent: validator failed for field "UsageLog.billing_mode": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.MemberCodeSnapshot(); ok {
+		if err := usagelog.MemberCodeSnapshotValidator(v); err != nil {
+			return &ValidationError{Name: "member_code_snapshot", err: fmt.Errorf(`ent: validator failed for field "UsageLog.member_code_snapshot": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.MemberNameSnapshot(); ok {
+		if err := usagelog.MemberNameSnapshotValidator(v); err != nil {
+			return &ValidationError{Name: "member_name_snapshot", err: fmt.Errorf(`ent: validator failed for field "UsageLog.member_name_snapshot": %w`, err)}
 		}
 	}
 	if v, ok := _u.mutation.UserAgent(); ok {
@@ -1120,6 +1202,18 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.BillingModeCleared() {
 		_spec.ClearField(usagelog.FieldBillingMode, field.TypeString)
+	}
+	if value, ok := _u.mutation.MemberCodeSnapshot(); ok {
+		_spec.SetField(usagelog.FieldMemberCodeSnapshot, field.TypeString, value)
+	}
+	if _u.mutation.MemberCodeSnapshotCleared() {
+		_spec.ClearField(usagelog.FieldMemberCodeSnapshot, field.TypeString)
+	}
+	if value, ok := _u.mutation.MemberNameSnapshot(); ok {
+		_spec.SetField(usagelog.FieldMemberNameSnapshot, field.TypeString, value)
+	}
+	if _u.mutation.MemberNameSnapshotCleared() {
+		_spec.ClearField(usagelog.FieldMemberNameSnapshot, field.TypeString)
 	}
 	if value, ok := _u.mutation.InputTokens(); ok {
 		_spec.SetField(usagelog.FieldInputTokens, field.TypeInt, value)
@@ -1452,6 +1546,35 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.MemberCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usagelog.MemberTable,
+			Columns: []string{usagelog.MemberColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.MemberIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usagelog.MemberTable,
+			Columns: []string{usagelog.MemberColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{usagelog.Label}
@@ -1706,6 +1829,66 @@ func (_u *UsageLogUpdateOne) SetNillableSubscriptionID(v *int64) *UsageLogUpdate
 // ClearSubscriptionID clears the value of the "subscription_id" field.
 func (_u *UsageLogUpdateOne) ClearSubscriptionID() *UsageLogUpdateOne {
 	_u.mutation.ClearSubscriptionID()
+	return _u
+}
+
+// SetMemberID sets the "member_id" field.
+func (_u *UsageLogUpdateOne) SetMemberID(v int64) *UsageLogUpdateOne {
+	_u.mutation.SetMemberID(v)
+	return _u
+}
+
+// SetNillableMemberID sets the "member_id" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableMemberID(v *int64) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetMemberID(*v)
+	}
+	return _u
+}
+
+// ClearMemberID clears the value of the "member_id" field.
+func (_u *UsageLogUpdateOne) ClearMemberID() *UsageLogUpdateOne {
+	_u.mutation.ClearMemberID()
+	return _u
+}
+
+// SetMemberCodeSnapshot sets the "member_code_snapshot" field.
+func (_u *UsageLogUpdateOne) SetMemberCodeSnapshot(v string) *UsageLogUpdateOne {
+	_u.mutation.SetMemberCodeSnapshot(v)
+	return _u
+}
+
+// SetNillableMemberCodeSnapshot sets the "member_code_snapshot" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableMemberCodeSnapshot(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetMemberCodeSnapshot(*v)
+	}
+	return _u
+}
+
+// ClearMemberCodeSnapshot clears the value of the "member_code_snapshot" field.
+func (_u *UsageLogUpdateOne) ClearMemberCodeSnapshot() *UsageLogUpdateOne {
+	_u.mutation.ClearMemberCodeSnapshot()
+	return _u
+}
+
+// SetMemberNameSnapshot sets the "member_name_snapshot" field.
+func (_u *UsageLogUpdateOne) SetMemberNameSnapshot(v string) *UsageLogUpdateOne {
+	_u.mutation.SetMemberNameSnapshot(v)
+	return _u
+}
+
+// SetNillableMemberNameSnapshot sets the "member_name_snapshot" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableMemberNameSnapshot(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetMemberNameSnapshot(*v)
+	}
+	return _u
+}
+
+// ClearMemberNameSnapshot clears the value of the "member_name_snapshot" field.
+func (_u *UsageLogUpdateOne) ClearMemberNameSnapshot() *UsageLogUpdateOne {
+	_u.mutation.ClearMemberNameSnapshot()
 	return _u
 }
 
@@ -2358,6 +2541,11 @@ func (_u *UsageLogUpdateOne) SetSubscription(v *UserSubscription) *UsageLogUpdat
 	return _u.SetSubscriptionID(v.ID)
 }
 
+// SetMember sets the "member" edge to the EnterpriseMember entity.
+func (_u *UsageLogUpdateOne) SetMember(v *EnterpriseMember) *UsageLogUpdateOne {
+	return _u.SetMemberID(v.ID)
+}
+
 // Mutation returns the UsageLogMutation object of the builder.
 func (_u *UsageLogUpdateOne) Mutation() *UsageLogMutation {
 	return _u.mutation
@@ -2390,6 +2578,12 @@ func (_u *UsageLogUpdateOne) ClearGroup() *UsageLogUpdateOne {
 // ClearSubscription clears the "subscription" edge to the UserSubscription entity.
 func (_u *UsageLogUpdateOne) ClearSubscription() *UsageLogUpdateOne {
 	_u.mutation.ClearSubscription()
+	return _u
+}
+
+// ClearMember clears the "member" edge to the EnterpriseMember entity.
+func (_u *UsageLogUpdateOne) ClearMember() *UsageLogUpdateOne {
+	_u.mutation.ClearMember()
 	return _u
 }
 
@@ -2468,6 +2662,16 @@ func (_u *UsageLogUpdateOne) check() error {
 	if v, ok := _u.mutation.BillingMode(); ok {
 		if err := usagelog.BillingModeValidator(v); err != nil {
 			return &ValidationError{Name: "billing_mode", err: fmt.Errorf(`ent: validator failed for field "UsageLog.billing_mode": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.MemberCodeSnapshot(); ok {
+		if err := usagelog.MemberCodeSnapshotValidator(v); err != nil {
+			return &ValidationError{Name: "member_code_snapshot", err: fmt.Errorf(`ent: validator failed for field "UsageLog.member_code_snapshot": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.MemberNameSnapshot(); ok {
+		if err := usagelog.MemberNameSnapshotValidator(v); err != nil {
+			return &ValidationError{Name: "member_name_snapshot", err: fmt.Errorf(`ent: validator failed for field "UsageLog.member_name_snapshot": %w`, err)}
 		}
 	}
 	if v, ok := _u.mutation.UserAgent(); ok {
@@ -2590,6 +2794,18 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	}
 	if _u.mutation.BillingModeCleared() {
 		_spec.ClearField(usagelog.FieldBillingMode, field.TypeString)
+	}
+	if value, ok := _u.mutation.MemberCodeSnapshot(); ok {
+		_spec.SetField(usagelog.FieldMemberCodeSnapshot, field.TypeString, value)
+	}
+	if _u.mutation.MemberCodeSnapshotCleared() {
+		_spec.ClearField(usagelog.FieldMemberCodeSnapshot, field.TypeString)
+	}
+	if value, ok := _u.mutation.MemberNameSnapshot(); ok {
+		_spec.SetField(usagelog.FieldMemberNameSnapshot, field.TypeString, value)
+	}
+	if _u.mutation.MemberNameSnapshotCleared() {
+		_spec.ClearField(usagelog.FieldMemberNameSnapshot, field.TypeString)
 	}
 	if value, ok := _u.mutation.InputTokens(); ok {
 		_spec.SetField(usagelog.FieldInputTokens, field.TypeInt, value)
@@ -2915,6 +3131,35 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(usersubscription.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.MemberCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usagelog.MemberTable,
+			Columns: []string{usagelog.MemberColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.MemberIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usagelog.MemberTable,
+			Columns: []string{usagelog.MemberColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

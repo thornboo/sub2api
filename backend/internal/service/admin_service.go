@@ -126,6 +126,7 @@ type CreateUserInput struct {
 	Username      string
 	Notes         string
 	Role          string // 空字符串表示使用默认角色(user);合法值 admin/user
+	AccountType   string // 空字符串表示 individual；合法值 individual/enterprise
 	Balance       *float64
 	Concurrency   int
 	RPMLimit      int
@@ -135,16 +136,20 @@ type CreateUserInput struct {
 }
 
 type UpdateUserInput struct {
-	Email         string
-	Password      string
-	Username      *string
-	Notes         *string
-	Role          string   // 空字符串表示"未提供"(不修改);合法值 admin/user
-	Balance       *float64 // 使用指针区分"未提供"和"设置为0"
-	Concurrency   *int     // 使用指针区分"未提供"和"设置为0"
-	RPMLimit      *int     // 使用指针区分"未提供"和"设置为0"
-	Status        string
-	AllowedGroups *[]int64 // 使用指针区分"未提供"和"设置为空数组"
+	Email       string
+	Password    string
+	Username    *string
+	Notes       *string
+	Role        string // 空字符串表示"未提供"(不修改);合法值 admin/user
+	AccountType string // 空字符串表示"未提供"(不修改)
+	// EnterpriseEnabled controls the enterprise capability without destroying
+	// member history. nil means "not provided".
+	EnterpriseEnabled *bool
+	Balance           *float64 // 使用指针区分"未提供"和"设置为0"
+	Concurrency       *int     // 使用指针区分"未提供"和"设置为0"
+	RPMLimit          *int     // 使用指针区分"未提供"和"设置为0"
+	Status            string
+	AllowedGroups     *[]int64 // 使用指针区分"未提供"和"设置为空数组"
 	// GroupRates 用户专属分组倍率配置
 	// map[groupID]*rate，nil 表示删除该分组的专属倍率
 	GroupRates map[int64]*float64

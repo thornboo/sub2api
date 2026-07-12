@@ -23,6 +23,11 @@ const (
 	RoleUser  = domain.RoleUser
 )
 
+const (
+	UserAccountTypeIndividual = domain.UserAccountTypeIndividual
+	UserAccountTypeEnterprise = domain.UserAccountTypeEnterprise
+)
+
 // Affiliate rebate settings
 const (
 	AffiliateRebateRateDefault          = 20.0

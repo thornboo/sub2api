@@ -32,12 +32,16 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 
 	account, err := h.gatewayService.SelectAccountForModel(c.Request.Context(), apiKey.GroupID, "", "")
 	if err != nil {
+		service.MarkOpsGroupFailoverEligible(c)
 		h.errorResponse(c, http.StatusServiceUnavailable, "upstream_error", "No available OpenAI accounts")
 		return
 	}
 
 	manifest, err := h.gatewayService.FetchCodexModelsManifest(c.Request.Context(), account, c.Query("client_version"), c.GetHeader("If-None-Match"))
 	if err != nil {
+		if infraerrors.Code(err) >= http.StatusInternalServerError {
+			service.MarkOpsGroupFailoverEligible(c)
+		}
 		h.errorResponse(c, infraerrors.Code(err), "upstream_error", infraerrors.Message(err))
 		return
 	}

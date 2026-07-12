@@ -39,6 +39,9 @@ func (h *BatchImageHandler) Submit(c *gin.Context) {
 	}
 	got, err := h.service.Submit(c.Request.Context(), owner, req, c.GetHeader("Idempotency-Key"))
 	if err != nil {
+		if errors.Is(err, service.ErrBatchImageNoAccountAvailable) {
+			service.MarkOpsGroupFailoverEligible(c)
+		}
 		batchImageError(c, err)
 		return
 	}
@@ -238,6 +241,19 @@ func batchImageOwnerFromContext(c *gin.Context) (service.BatchImageOwner, bool) 
 		UserID:   apiKey.UserID,
 		APIKeyID: apiKey.ID,
 		GroupID:  apiKey.GroupID,
+		MemberID: apiKey.MemberID,
+		MemberCode: func() string {
+			if apiKey.Member == nil {
+				return ""
+			}
+			return apiKey.Member.MemberCode
+		}(),
+		MemberName: func() string {
+			if apiKey.Member == nil {
+				return ""
+			}
+			return apiKey.Member.Name
+		}(),
 	}, true
 }
 

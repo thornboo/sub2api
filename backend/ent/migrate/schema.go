@@ -35,6 +35,7 @@ var (
 		{Name: "window_5h_start", Type: field.TypeTime, Nullable: true},
 		{Name: "window_1d_start", Type: field.TypeTime, Nullable: true},
 		{Name: "window_7d_start", Type: field.TypeTime, Nullable: true},
+		{Name: "member_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "group_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "user_id", Type: field.TypeInt64},
 	}
@@ -45,14 +46,20 @@ var (
 		PrimaryKey: []*schema.Column{APIKeysColumns[0]},
 		ForeignKeys: []*schema.ForeignKey{
 			{
-				Symbol:     "api_keys_groups_api_keys",
+				Symbol:     "api_keys_enterprise_members_api_keys",
 				Columns:    []*schema.Column{APIKeysColumns[24]},
+				RefColumns: []*schema.Column{EnterpriseMembersColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "api_keys_groups_api_keys",
+				Columns:    []*schema.Column{APIKeysColumns[25]},
 				RefColumns: []*schema.Column{GroupsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "api_keys_users_api_keys",
-				Columns:    []*schema.Column{APIKeysColumns[25]},
+				Columns:    []*schema.Column{APIKeysColumns[26]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -61,10 +68,15 @@ var (
 			{
 				Name:    "apikey_user_id",
 				Unique:  false,
-				Columns: []*schema.Column{APIKeysColumns[25]},
+				Columns: []*schema.Column{APIKeysColumns[26]},
 			},
 			{
 				Name:    "apikey_group_id",
+				Unique:  false,
+				Columns: []*schema.Column{APIKeysColumns[25]},
+			},
+			{
+				Name:    "apikey_member_id",
 				Unique:  false,
 				Columns: []*schema.Column{APIKeysColumns[24]},
 			},
@@ -523,6 +535,10 @@ var (
 		{Name: "user_id", Type: field.TypeInt64},
 		{Name: "api_key_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "account_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "group_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "member_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "member_code_snapshot", Type: field.TypeString, Nullable: true, Size: 128},
+		{Name: "member_name_snapshot", Type: field.TypeString, Nullable: true, Size: 255},
 		{Name: "provider", Type: field.TypeString, Size: 32},
 		{Name: "model", Type: field.TypeString, Size: 128},
 		{Name: "task_name", Type: field.TypeString, Size: 255, Default: ""},
@@ -541,6 +557,7 @@ var (
 		{Name: "actual_cost", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "currency", Type: field.TypeString, Size: 16, Default: "USD"},
 		{Name: "hold_id", Type: field.TypeString, Nullable: true, Size: 128},
+		{Name: "member_budget_request_id", Type: field.TypeString, Nullable: true, Size: 128},
 		{Name: "idempotency_key", Type: field.TypeString, Nullable: true, Size: 255},
 		{Name: "request_hash", Type: field.TypeString, Nullable: true, Size: 128},
 		{Name: "manifest_hash", Type: field.TypeString, Nullable: true, Size: 128},
@@ -574,22 +591,27 @@ var (
 			{
 				Name:    "batchimagejob_user_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{BatchImageJobsColumns[2], BatchImageJobsColumns[35]},
+				Columns: []*schema.Column{BatchImageJobsColumns[2], BatchImageJobsColumns[40]},
+			},
+			{
+				Name:    "batchimagejob_member_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{BatchImageJobsColumns[6], BatchImageJobsColumns[40]},
 			},
 			{
 				Name:    "batchimagejob_status",
 				Unique:  false,
-				Columns: []*schema.Column{BatchImageJobsColumns[8]},
+				Columns: []*schema.Column{BatchImageJobsColumns[12]},
 			},
 			{
 				Name:    "batchimagejob_provider_status",
 				Unique:  false,
-				Columns: []*schema.Column{BatchImageJobsColumns[5], BatchImageJobsColumns[8]},
+				Columns: []*schema.Column{BatchImageJobsColumns[9], BatchImageJobsColumns[12]},
 			},
 			{
 				Name:    "batchimagejob_idempotency_key",
 				Unique:  false,
-				Columns: []*schema.Column{BatchImageJobsColumns[23]},
+				Columns: []*schema.Column{BatchImageJobsColumns[28]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "idempotency_key IS NOT NULL AND idempotency_key <> ''",
 				},
@@ -597,7 +619,7 @@ var (
 			{
 				Name:    "batchimagejob_manifest_hash",
 				Unique:  true,
-				Columns: []*schema.Column{BatchImageJobsColumns[25]},
+				Columns: []*schema.Column{BatchImageJobsColumns[30]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "manifest_hash IS NOT NULL AND manifest_hash <> ''",
 				},
@@ -605,17 +627,17 @@ var (
 			{
 				Name:    "batchimagejob_output_expires_at",
 				Unique:  false,
-				Columns: []*schema.Column{BatchImageJobsColumns[28]},
+				Columns: []*schema.Column{BatchImageJobsColumns[33]},
 			},
 			{
 				Name:    "batchimagejob_downloaded_at",
 				Unique:  false,
-				Columns: []*schema.Column{BatchImageJobsColumns[31]},
+				Columns: []*schema.Column{BatchImageJobsColumns[36]},
 			},
 			{
 				Name:    "batchimagejob_user_deleted_at",
 				Unique:  false,
-				Columns: []*schema.Column{BatchImageJobsColumns[32]},
+				Columns: []*schema.Column{BatchImageJobsColumns[37]},
 			},
 		},
 	}
@@ -792,6 +814,221 @@ var (
 				Name:    "channelmonitorrequesttemplate_provider_api_mode",
 				Unique:  false,
 				Columns: []*schema.Column{ChannelMonitorRequestTemplatesColumns[4], ChannelMonitorRequestTemplatesColumns[5]},
+			},
+		},
+	}
+	// EnterpriseMembersColumns holds the columns for the "enterprise_members" table.
+	EnterpriseMembersColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "member_code", Type: field.TypeString, Size: 100},
+		{Name: "name", Type: field.TypeString, Size: 100},
+		{Name: "status", Type: field.TypeString, Size: 20, Default: "active"},
+		{Name: "monthly_limit_usd", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
+		{Name: "rate_limit_5h", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
+		{Name: "rate_limit_1d", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
+		{Name: "rate_limit_7d", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
+		{Name: "version", Type: field.TypeInt64, Default: 1},
+		{Name: "enterprise_user_id", Type: field.TypeInt64},
+	}
+	// EnterpriseMembersTable holds the schema information for the "enterprise_members" table.
+	EnterpriseMembersTable = &schema.Table{
+		Name:       "enterprise_members",
+		Columns:    EnterpriseMembersColumns,
+		PrimaryKey: []*schema.Column{EnterpriseMembersColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "enterprise_members_users_enterprise_members",
+				Columns:    []*schema.Column{EnterpriseMembersColumns[12]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "enterprisemember_enterprise_user_id_member_code",
+				Unique:  true,
+				Columns: []*schema.Column{EnterpriseMembersColumns[12], EnterpriseMembersColumns[4]},
+			},
+			{
+				Name:    "enterprisemember_id_enterprise_user_id",
+				Unique:  true,
+				Columns: []*schema.Column{EnterpriseMembersColumns[0], EnterpriseMembersColumns[12]},
+			},
+			{
+				Name:    "enterprisemember_enterprise_user_id_status",
+				Unique:  false,
+				Columns: []*schema.Column{EnterpriseMembersColumns[12], EnterpriseMembersColumns[6]},
+			},
+			{
+				Name:    "enterprisemember_deleted_at",
+				Unique:  false,
+				Columns: []*schema.Column{EnterpriseMembersColumns[3]},
+			},
+		},
+	}
+	// EnterpriseMemberBudgetEntriesColumns holds the columns for the "enterprise_member_budget_entries" table.
+	EnterpriseMemberBudgetEntriesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "period_start", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "date"}},
+		{Name: "kind", Type: field.TypeString, Size: 32},
+		{Name: "request_id", Type: field.TypeString, Nullable: true, Size: 128},
+		{Name: "amount_usd", Type: field.TypeFloat64, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
+		{Name: "usage_log_id", Type: field.TypeInt64, Unique: true, Nullable: true},
+		{Name: "idempotency_key", Type: field.TypeString, Unique: true, Size: 128},
+		{Name: "actor_user_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "note", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "member_id", Type: field.TypeInt64},
+	}
+	// EnterpriseMemberBudgetEntriesTable holds the schema information for the "enterprise_member_budget_entries" table.
+	EnterpriseMemberBudgetEntriesTable = &schema.Table{
+		Name:       "enterprise_member_budget_entries",
+		Columns:    EnterpriseMemberBudgetEntriesColumns,
+		PrimaryKey: []*schema.Column{EnterpriseMemberBudgetEntriesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "enterprise_member_budget_entries_enterprise_members_budget_entries",
+				Columns:    []*schema.Column{EnterpriseMemberBudgetEntriesColumns[10]},
+				RefColumns: []*schema.Column{EnterpriseMembersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "enterprisememberbudgetentry_member_id_period_start_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{EnterpriseMemberBudgetEntriesColumns[10], EnterpriseMemberBudgetEntriesColumns[1], EnterpriseMemberBudgetEntriesColumns[9]},
+			},
+			{
+				Name:    "enterprisememberbudgetentry_request_id",
+				Unique:  true,
+				Columns: []*schema.Column{EnterpriseMemberBudgetEntriesColumns[3]},
+			},
+			{
+				Name:    "enterprisememberbudgetentry_kind_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{EnterpriseMemberBudgetEntriesColumns[2], EnterpriseMemberBudgetEntriesColumns[9]},
+			},
+		},
+	}
+	// EnterpriseMemberBudgetPeriodsColumns holds the columns for the "enterprise_member_budget_periods" table.
+	EnterpriseMemberBudgetPeriodsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "period_start", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "date"}},
+		{Name: "timezone", Type: field.TypeString, Size: 64, Default: "Asia/Shanghai"},
+		{Name: "used_usd", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
+		{Name: "reserved_usd", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
+		{Name: "version", Type: field.TypeInt64, Default: 1},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "member_id", Type: field.TypeInt64},
+	}
+	// EnterpriseMemberBudgetPeriodsTable holds the schema information for the "enterprise_member_budget_periods" table.
+	EnterpriseMemberBudgetPeriodsTable = &schema.Table{
+		Name:       "enterprise_member_budget_periods",
+		Columns:    EnterpriseMemberBudgetPeriodsColumns,
+		PrimaryKey: []*schema.Column{EnterpriseMemberBudgetPeriodsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "enterprise_member_budget_periods_enterprise_members_budget_periods",
+				Columns:    []*schema.Column{EnterpriseMemberBudgetPeriodsColumns[8]},
+				RefColumns: []*schema.Column{EnterpriseMembersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "enterprisememberbudgetperiod_member_id_period_start",
+				Unique:  true,
+				Columns: []*schema.Column{EnterpriseMemberBudgetPeriodsColumns[8], EnterpriseMemberBudgetPeriodsColumns[1]},
+			},
+			{
+				Name:    "enterprisememberbudgetperiod_period_start",
+				Unique:  false,
+				Columns: []*schema.Column{EnterpriseMemberBudgetPeriodsColumns[1]},
+			},
+		},
+	}
+	// EnterpriseMemberBudgetReservationsColumns holds the columns for the "enterprise_member_budget_reservations" table.
+	EnterpriseMemberBudgetReservationsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "request_id", Type: field.TypeString, Unique: true, Size: 128},
+		{Name: "period_start", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "date"}},
+		{Name: "reserved_usd", Type: field.TypeFloat64, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
+		{Name: "actual_usd", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
+		{Name: "status", Type: field.TypeString, Size: 20, Default: "reserved"},
+		{Name: "usage_log_id", Type: field.TypeInt64, Unique: true, Nullable: true},
+		{Name: "expires_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "member_id", Type: field.TypeInt64},
+	}
+	// EnterpriseMemberBudgetReservationsTable holds the schema information for the "enterprise_member_budget_reservations" table.
+	EnterpriseMemberBudgetReservationsTable = &schema.Table{
+		Name:       "enterprise_member_budget_reservations",
+		Columns:    EnterpriseMemberBudgetReservationsColumns,
+		PrimaryKey: []*schema.Column{EnterpriseMemberBudgetReservationsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "enterprise_member_budget_reservations_enterprise_members_budget_reservations",
+				Columns:    []*schema.Column{EnterpriseMemberBudgetReservationsColumns[10]},
+				RefColumns: []*schema.Column{EnterpriseMembersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "enterprisememberbudgetreservation_member_id_period_start_status",
+				Unique:  false,
+				Columns: []*schema.Column{EnterpriseMemberBudgetReservationsColumns[10], EnterpriseMemberBudgetReservationsColumns[2], EnterpriseMemberBudgetReservationsColumns[5]},
+			},
+			{
+				Name:    "enterprisememberbudgetreservation_status_expires_at",
+				Unique:  false,
+				Columns: []*schema.Column{EnterpriseMemberBudgetReservationsColumns[5], EnterpriseMemberBudgetReservationsColumns[7]},
+			},
+		},
+	}
+	// EnterpriseMemberGroupBindingsColumns holds the columns for the "enterprise_member_group_bindings" table.
+	EnterpriseMemberGroupBindingsColumns = []*schema.Column{
+		{Name: "sort_order", Type: field.TypeInt},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "member_id", Type: field.TypeInt64},
+		{Name: "group_id", Type: field.TypeInt64},
+	}
+	// EnterpriseMemberGroupBindingsTable holds the schema information for the "enterprise_member_group_bindings" table.
+	EnterpriseMemberGroupBindingsTable = &schema.Table{
+		Name:       "enterprise_member_group_bindings",
+		Columns:    EnterpriseMemberGroupBindingsColumns,
+		PrimaryKey: []*schema.Column{EnterpriseMemberGroupBindingsColumns[3], EnterpriseMemberGroupBindingsColumns[4]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "enterprise_member_group_bindings_enterprise_members_member",
+				Columns:    []*schema.Column{EnterpriseMemberGroupBindingsColumns[3]},
+				RefColumns: []*schema.Column{EnterpriseMembersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "enterprise_member_group_bindings_groups_group",
+				Columns:    []*schema.Column{EnterpriseMemberGroupBindingsColumns[4]},
+				RefColumns: []*schema.Column{GroupsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "enterprisemembergroupbinding_group_id",
+				Unique:  false,
+				Columns: []*schema.Column{EnterpriseMemberGroupBindingsColumns[4]},
+			},
+			{
+				Name:    "enterprisemembergroupbinding_member_id_sort_order_group_id",
+				Unique:  false,
+				Columns: []*schema.Column{EnterpriseMemberGroupBindingsColumns[3], EnterpriseMemberGroupBindingsColumns[0], EnterpriseMemberGroupBindingsColumns[4]},
 			},
 		},
 	}
@@ -1548,6 +1785,8 @@ var (
 		{Name: "model_mapping_chain", Type: field.TypeString, Nullable: true, Size: 500},
 		{Name: "billing_tier", Type: field.TypeString, Nullable: true, Size: 50},
 		{Name: "billing_mode", Type: field.TypeString, Nullable: true, Size: 20},
+		{Name: "member_code_snapshot", Type: field.TypeString, Nullable: true, Size: 100},
+		{Name: "member_name_snapshot", Type: field.TypeString, Nullable: true, Size: 100},
 		{Name: "input_tokens", Type: field.TypeInt, Default: 0},
 		{Name: "output_tokens", Type: field.TypeInt, Default: 0},
 		{Name: "cache_creation_tokens", Type: field.TypeInt, Default: 0},
@@ -1581,6 +1820,7 @@ var (
 		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "api_key_id", Type: field.TypeInt64},
 		{Name: "account_id", Type: field.TypeInt64},
+		{Name: "member_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "group_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "user_id", Type: field.TypeInt64},
 		{Name: "subscription_id", Type: field.TypeInt64, Nullable: true},
@@ -1593,31 +1833,37 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "usage_logs_api_keys_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[40]},
+				Columns:    []*schema.Column{UsageLogsColumns[42]},
 				RefColumns: []*schema.Column{APIKeysColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "usage_logs_accounts_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[41]},
+				Columns:    []*schema.Column{UsageLogsColumns[43]},
 				RefColumns: []*schema.Column{AccountsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
+				Symbol:     "usage_logs_enterprise_members_usage_logs",
+				Columns:    []*schema.Column{UsageLogsColumns[44]},
+				RefColumns: []*schema.Column{EnterpriseMembersColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
 				Symbol:     "usage_logs_groups_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[42]},
+				Columns:    []*schema.Column{UsageLogsColumns[45]},
 				RefColumns: []*schema.Column{GroupsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "usage_logs_users_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[43]},
+				Columns:    []*schema.Column{UsageLogsColumns[46]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "usage_logs_user_subscriptions_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[44]},
+				Columns:    []*schema.Column{UsageLogsColumns[47]},
 				RefColumns: []*schema.Column{UserSubscriptionsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -1626,32 +1872,32 @@ var (
 			{
 				Name:    "usagelog_user_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[43]},
+				Columns: []*schema.Column{UsageLogsColumns[46]},
 			},
 			{
 				Name:    "usagelog_api_key_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[40]},
+				Columns: []*schema.Column{UsageLogsColumns[42]},
 			},
 			{
 				Name:    "usagelog_account_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[41]},
+				Columns: []*schema.Column{UsageLogsColumns[43]},
 			},
 			{
 				Name:    "usagelog_group_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[42]},
+				Columns: []*schema.Column{UsageLogsColumns[45]},
 			},
 			{
 				Name:    "usagelog_subscription_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[44]},
+				Columns: []*schema.Column{UsageLogsColumns[47]},
 			},
 			{
 				Name:    "usagelog_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[39]},
+				Columns: []*schema.Column{UsageLogsColumns[41]},
 			},
 			{
 				Name:    "usagelog_model",
@@ -1671,17 +1917,22 @@ var (
 			{
 				Name:    "usagelog_user_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[43], UsageLogsColumns[39]},
+				Columns: []*schema.Column{UsageLogsColumns[46], UsageLogsColumns[41]},
 			},
 			{
 				Name:    "usagelog_api_key_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[40], UsageLogsColumns[39]},
+				Columns: []*schema.Column{UsageLogsColumns[42], UsageLogsColumns[41]},
 			},
 			{
 				Name:    "usagelog_group_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[42], UsageLogsColumns[39]},
+				Columns: []*schema.Column{UsageLogsColumns[45], UsageLogsColumns[41]},
+			},
+			{
+				Name:    "usagelog_member_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{UsageLogsColumns[44], UsageLogsColumns[41]},
 			},
 		},
 	}
@@ -1694,6 +1945,8 @@ var (
 		{Name: "email", Type: field.TypeString, Size: 255},
 		{Name: "password_hash", Type: field.TypeString, Size: 255},
 		{Name: "role", Type: field.TypeString, Size: 20, Default: "user"},
+		{Name: "account_type", Type: field.TypeString, Size: 20, Default: "individual"},
+		{Name: "enterprise_disabled_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "balance", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
 		{Name: "frozen_balance", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
 		{Name: "concurrency", Type: field.TypeInt, Default: 5},
@@ -1722,7 +1975,12 @@ var (
 			{
 				Name:    "user_status",
 				Unique:  false,
-				Columns: []*schema.Column{UsersColumns[10]},
+				Columns: []*schema.Column{UsersColumns[12]},
+			},
+			{
+				Name:    "user_account_type",
+				Unique:  false,
+				Columns: []*schema.Column{UsersColumns[7]},
 			},
 			{
 				Name:    "user_deleted_at",
@@ -2002,6 +2260,11 @@ var (
 		ChannelMonitorDailyRollupsTable,
 		ChannelMonitorHistoriesTable,
 		ChannelMonitorRequestTemplatesTable,
+		EnterpriseMembersTable,
+		EnterpriseMemberBudgetEntriesTable,
+		EnterpriseMemberBudgetPeriodsTable,
+		EnterpriseMemberBudgetReservationsTable,
+		EnterpriseMemberGroupBindingsTable,
 		ErrorPassthroughRulesTable,
 		GroupsTable,
 		IdempotencyRecordsTable,
@@ -2030,8 +2293,9 @@ var (
 )
 
 func init() {
-	APIKeysTable.ForeignKeys[0].RefTable = GroupsTable
-	APIKeysTable.ForeignKeys[1].RefTable = UsersTable
+	APIKeysTable.ForeignKeys[0].RefTable = EnterpriseMembersTable
+	APIKeysTable.ForeignKeys[1].RefTable = GroupsTable
+	APIKeysTable.ForeignKeys[2].RefTable = UsersTable
 	APIKeysTable.Annotation = &entsql.Annotation{
 		Table: "api_keys",
 	}
@@ -2084,6 +2348,27 @@ func init() {
 	}
 	ChannelMonitorRequestTemplatesTable.Annotation = &entsql.Annotation{
 		Table: "channel_monitor_request_templates",
+	}
+	EnterpriseMembersTable.ForeignKeys[0].RefTable = UsersTable
+	EnterpriseMembersTable.Annotation = &entsql.Annotation{
+		Table: "enterprise_members",
+	}
+	EnterpriseMemberBudgetEntriesTable.ForeignKeys[0].RefTable = EnterpriseMembersTable
+	EnterpriseMemberBudgetEntriesTable.Annotation = &entsql.Annotation{
+		Table: "enterprise_member_budget_entries",
+	}
+	EnterpriseMemberBudgetPeriodsTable.ForeignKeys[0].RefTable = EnterpriseMembersTable
+	EnterpriseMemberBudgetPeriodsTable.Annotation = &entsql.Annotation{
+		Table: "enterprise_member_budget_periods",
+	}
+	EnterpriseMemberBudgetReservationsTable.ForeignKeys[0].RefTable = EnterpriseMembersTable
+	EnterpriseMemberBudgetReservationsTable.Annotation = &entsql.Annotation{
+		Table: "enterprise_member_budget_reservations",
+	}
+	EnterpriseMemberGroupBindingsTable.ForeignKeys[0].RefTable = EnterpriseMembersTable
+	EnterpriseMemberGroupBindingsTable.ForeignKeys[1].RefTable = GroupsTable
+	EnterpriseMemberGroupBindingsTable.Annotation = &entsql.Annotation{
+		Table: "enterprise_member_group_bindings",
 	}
 	ErrorPassthroughRulesTable.Annotation = &entsql.Annotation{
 		Table: "error_passthrough_rules",
@@ -2147,9 +2432,10 @@ func init() {
 	}
 	UsageLogsTable.ForeignKeys[0].RefTable = APIKeysTable
 	UsageLogsTable.ForeignKeys[1].RefTable = AccountsTable
-	UsageLogsTable.ForeignKeys[2].RefTable = GroupsTable
-	UsageLogsTable.ForeignKeys[3].RefTable = UsersTable
-	UsageLogsTable.ForeignKeys[4].RefTable = UserSubscriptionsTable
+	UsageLogsTable.ForeignKeys[2].RefTable = EnterpriseMembersTable
+	UsageLogsTable.ForeignKeys[3].RefTable = GroupsTable
+	UsageLogsTable.ForeignKeys[4].RefTable = UsersTable
+	UsageLogsTable.ForeignKeys[5].RefTable = UserSubscriptionsTable
 	UsageLogsTable.Annotation = &entsql.Annotation{
 		Table: "usage_logs",
 	}

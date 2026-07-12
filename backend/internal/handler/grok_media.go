@@ -51,6 +51,34 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
 		return
 	}
+	var persistedTask *service.GrokMediaTask
+	if endpoint == service.GrokMediaEndpointVideoStatus && h.grokMediaTaskRepository != nil {
+		task, taskErr := h.grokMediaTaskRepository.GetByRequestID(c.Request.Context(), subject.UserID, apiKey.MemberID, requestID)
+		if taskErr != nil {
+			if errors.Is(taskErr, service.ErrGrokMediaTaskNotFound) && apiKey.MemberID == nil {
+				// Compatibility path for tasks created before migration 176. New
+				// tasks always have a durable route record.
+			} else if !errors.Is(taskErr, service.ErrGrokMediaTaskNotFound) {
+				h.errorResponse(c, http.StatusInternalServerError, "api_error", "Unable to resolve the persisted video task route")
+				return
+			} else {
+				h.errorResponse(c, http.StatusNotFound, "not_found_error", "Video task was not found for this API key identity")
+				return
+			}
+		} else {
+			persistedTask = task
+			if apiKey.MemberID != nil {
+				if !middleware2.ActivateEnterpriseMemberGroupByID(c, task.GroupID) {
+					h.errorResponse(c, http.StatusForbidden, "permission_error", "The video task group is no longer authorized for this member")
+					return
+				}
+				apiKey, _ = middleware2.GetAPIKeyFromContext(c)
+			} else if apiKey.GroupID == nil || *apiKey.GroupID != task.GroupID {
+				h.errorResponse(c, http.StatusForbidden, "permission_error", "The API key is no longer assigned to the video task group")
+				return
+			}
+		}
+	}
 
 	reqLog := requestLogger(
 		c,
@@ -153,6 +181,19 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		sessionHash = service.GrokMediaVideoRequestSessionHash(requestID)
 	}
 	requestCtx := c.Request.Context()
+	if endpoint == service.GrokMediaEndpointVideosGenerations && h.grokMediaTaskRepository != nil && apiKey.GroupID != nil {
+		groupID := *apiKey.GroupID
+		requestCtx = service.WithGrokMediaTaskRecorder(requestCtx, func(recordCtx context.Context, upstreamRequestID string, accountID int64) error {
+			return h.grokMediaTaskRepository.Create(recordCtx, &service.GrokMediaTask{
+				UpstreamRequestID: upstreamRequestID,
+				UserID:            subject.UserID,
+				APIKeyID:          apiKey.ID,
+				MemberID:          apiKey.MemberID,
+				GroupID:           groupID,
+				AccountID:         accountID,
+			})
+		})
+	}
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
@@ -164,19 +205,27 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	routingStart := time.Now()
 
 	for {
-		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			requestCtx,
-			apiKey.GroupID,
-			"",
-			sessionHash,
-			requestModel,
-			failedAccountIDs,
-			service.OpenAIUpstreamTransportHTTPSSE,
-			"",
-			false,
-			false,
-			service.PlatformGrok,
-		)
+		var selection *service.AccountSelectionResult
+		var scheduleDecision service.OpenAIAccountScheduleDecision
+		var err error
+		if persistedTask != nil {
+			selection, err = h.gatewayService.SelectGrokMediaTaskAccount(requestCtx, persistedTask.AccountID, persistedTask.GroupID)
+			scheduleDecision = service.OpenAIAccountScheduleDecision{Layer: "persisted_async_task", CandidateCount: 1, TopK: 1, SelectedAccountID: persistedTask.AccountID}
+		} else {
+			selection, scheduleDecision, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
+				requestCtx,
+				apiKey.GroupID,
+				"",
+				sessionHash,
+				requestModel,
+				failedAccountIDs,
+				service.OpenAIUpstreamTransportHTTPSSE,
+				"",
+				false,
+				false,
+				service.PlatformGrok,
+			)
+		}
 		if err != nil {
 			reqLog.Warn("grok_media.account_select_failed",
 				zap.Error(err),
@@ -269,6 +318,10 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 						}
 						continue
 					}
+				}
+				if persistedTask != nil {
+					h.handleFailoverExhausted(c, failoverErr, false)
+					return
 				}
 				h.gatewayService.RecordOpenAIAccountSwitch()
 				failedAccountIDs[account.ID] = struct{}{}

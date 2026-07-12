@@ -230,6 +230,11 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		AccountType:        p.Account.Type,
 		RequestPayloadHash: strings.TrimSpace(p.RequestPayloadHash),
 	}
+	if p.APIKey.MemberID != nil && p.APIKey.Member != nil {
+		cmd.MemberID = p.APIKey.MemberID
+		cmd.MemberBudgetRequestID = EnterpriseMemberBudgetRequestID(p.APIKey.ID, requestID)
+		cmd.MemberBudgetCost = p.Cost.ActualCost
+	}
 	if usageLog != nil {
 		cmd.Model = usageLog.Model
 		cmd.BillingType = usageLog.BillingType
@@ -296,6 +301,9 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	if result == nil || !result.Applied {
 		deps.deferredService.ScheduleLastUsedUpdate(p.Account.ID)
 		return false, nil
+	}
+	if cmd.MemberID != nil {
+		RecordEnterpriseMemberBudgetSettlement()
 	}
 
 	if result.APIKeyQuotaExhausted {
@@ -935,6 +943,11 @@ func (s *GatewayService) buildRecordUsageLog(
 		GroupID:               apiKey.GroupID,
 		SubscriptionID:        optionalSubscriptionID(subscription),
 		CreatedAt:             time.Now(),
+	}
+	if apiKey.MemberID != nil && apiKey.Member != nil {
+		usageLog.MemberID = apiKey.MemberID
+		usageLog.MemberCodeSnapshot = optionalTrimmedStringPtr(apiKey.Member.MemberCode)
+		usageLog.MemberNameSnapshot = optionalTrimmedStringPtr(apiKey.Member.Name)
 	}
 	if result.ImageCount > 0 && (cost == nil || cost.BillingMode != string(BillingModeToken)) {
 		usageLog.RateMultiplier = imageMultiplier

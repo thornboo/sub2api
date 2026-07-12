@@ -22,6 +22,11 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitordailyrollup"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
+	"github.com/Wei-Shaw/sub2api/ent/enterprisemember"
+	"github.com/Wei-Shaw/sub2api/ent/enterprisememberbudgetentry"
+	"github.com/Wei-Shaw/sub2api/ent/enterprisememberbudgetperiod"
+	"github.com/Wei-Shaw/sub2api/ent/enterprisememberbudgetreservation"
+	"github.com/Wei-Shaw/sub2api/ent/enterprisemembergroupbinding"
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
@@ -481,6 +486,141 @@ func (f TraverseChannelMonitorRequestTemplate) Traverse(ctx context.Context, q e
 		return f(ctx, q)
 	}
 	return fmt.Errorf("unexpected query type %T. expect *ent.ChannelMonitorRequestTemplateQuery", q)
+}
+
+// The EnterpriseMemberFunc type is an adapter to allow the use of ordinary function as a Querier.
+type EnterpriseMemberFunc func(context.Context, *ent.EnterpriseMemberQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f EnterpriseMemberFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.EnterpriseMemberQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.EnterpriseMemberQuery", q)
+}
+
+// The TraverseEnterpriseMember type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseEnterpriseMember func(context.Context, *ent.EnterpriseMemberQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseEnterpriseMember) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseEnterpriseMember) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.EnterpriseMemberQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.EnterpriseMemberQuery", q)
+}
+
+// The EnterpriseMemberBudgetEntryFunc type is an adapter to allow the use of ordinary function as a Querier.
+type EnterpriseMemberBudgetEntryFunc func(context.Context, *ent.EnterpriseMemberBudgetEntryQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f EnterpriseMemberBudgetEntryFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.EnterpriseMemberBudgetEntryQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.EnterpriseMemberBudgetEntryQuery", q)
+}
+
+// The TraverseEnterpriseMemberBudgetEntry type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseEnterpriseMemberBudgetEntry func(context.Context, *ent.EnterpriseMemberBudgetEntryQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseEnterpriseMemberBudgetEntry) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseEnterpriseMemberBudgetEntry) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.EnterpriseMemberBudgetEntryQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.EnterpriseMemberBudgetEntryQuery", q)
+}
+
+// The EnterpriseMemberBudgetPeriodFunc type is an adapter to allow the use of ordinary function as a Querier.
+type EnterpriseMemberBudgetPeriodFunc func(context.Context, *ent.EnterpriseMemberBudgetPeriodQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f EnterpriseMemberBudgetPeriodFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.EnterpriseMemberBudgetPeriodQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.EnterpriseMemberBudgetPeriodQuery", q)
+}
+
+// The TraverseEnterpriseMemberBudgetPeriod type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseEnterpriseMemberBudgetPeriod func(context.Context, *ent.EnterpriseMemberBudgetPeriodQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseEnterpriseMemberBudgetPeriod) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseEnterpriseMemberBudgetPeriod) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.EnterpriseMemberBudgetPeriodQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.EnterpriseMemberBudgetPeriodQuery", q)
+}
+
+// The EnterpriseMemberBudgetReservationFunc type is an adapter to allow the use of ordinary function as a Querier.
+type EnterpriseMemberBudgetReservationFunc func(context.Context, *ent.EnterpriseMemberBudgetReservationQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f EnterpriseMemberBudgetReservationFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.EnterpriseMemberBudgetReservationQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.EnterpriseMemberBudgetReservationQuery", q)
+}
+
+// The TraverseEnterpriseMemberBudgetReservation type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseEnterpriseMemberBudgetReservation func(context.Context, *ent.EnterpriseMemberBudgetReservationQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseEnterpriseMemberBudgetReservation) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseEnterpriseMemberBudgetReservation) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.EnterpriseMemberBudgetReservationQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.EnterpriseMemberBudgetReservationQuery", q)
+}
+
+// The EnterpriseMemberGroupBindingFunc type is an adapter to allow the use of ordinary function as a Querier.
+type EnterpriseMemberGroupBindingFunc func(context.Context, *ent.EnterpriseMemberGroupBindingQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f EnterpriseMemberGroupBindingFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.EnterpriseMemberGroupBindingQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.EnterpriseMemberGroupBindingQuery", q)
+}
+
+// The TraverseEnterpriseMemberGroupBinding type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseEnterpriseMemberGroupBinding func(context.Context, *ent.EnterpriseMemberGroupBindingQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseEnterpriseMemberGroupBinding) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseEnterpriseMemberGroupBinding) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.EnterpriseMemberGroupBindingQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.EnterpriseMemberGroupBindingQuery", q)
 }
 
 // The ErrorPassthroughRuleFunc type is an adapter to allow the use of ordinary function as a Querier.
@@ -1162,6 +1302,16 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.ChannelMonitorHistoryQuery, predicate.ChannelMonitorHistory, channelmonitorhistory.OrderOption]{typ: ent.TypeChannelMonitorHistory, tq: q}, nil
 	case *ent.ChannelMonitorRequestTemplateQuery:
 		return &query[*ent.ChannelMonitorRequestTemplateQuery, predicate.ChannelMonitorRequestTemplate, channelmonitorrequesttemplate.OrderOption]{typ: ent.TypeChannelMonitorRequestTemplate, tq: q}, nil
+	case *ent.EnterpriseMemberQuery:
+		return &query[*ent.EnterpriseMemberQuery, predicate.EnterpriseMember, enterprisemember.OrderOption]{typ: ent.TypeEnterpriseMember, tq: q}, nil
+	case *ent.EnterpriseMemberBudgetEntryQuery:
+		return &query[*ent.EnterpriseMemberBudgetEntryQuery, predicate.EnterpriseMemberBudgetEntry, enterprisememberbudgetentry.OrderOption]{typ: ent.TypeEnterpriseMemberBudgetEntry, tq: q}, nil
+	case *ent.EnterpriseMemberBudgetPeriodQuery:
+		return &query[*ent.EnterpriseMemberBudgetPeriodQuery, predicate.EnterpriseMemberBudgetPeriod, enterprisememberbudgetperiod.OrderOption]{typ: ent.TypeEnterpriseMemberBudgetPeriod, tq: q}, nil
+	case *ent.EnterpriseMemberBudgetReservationQuery:
+		return &query[*ent.EnterpriseMemberBudgetReservationQuery, predicate.EnterpriseMemberBudgetReservation, enterprisememberbudgetreservation.OrderOption]{typ: ent.TypeEnterpriseMemberBudgetReservation, tq: q}, nil
+	case *ent.EnterpriseMemberGroupBindingQuery:
+		return &query[*ent.EnterpriseMemberGroupBindingQuery, predicate.EnterpriseMemberGroupBinding, enterprisemembergroupbinding.OrderOption]{typ: ent.TypeEnterpriseMemberGroupBinding, tq: q}, nil
 	case *ent.ErrorPassthroughRuleQuery:
 		return &query[*ent.ErrorPassthroughRuleQuery, predicate.ErrorPassthroughRule, errorpassthroughrule.OrderOption]{typ: ent.TypeErrorPassthroughRule, tq: q}, nil
 	case *ent.GroupQuery:

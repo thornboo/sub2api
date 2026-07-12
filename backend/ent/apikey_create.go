@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/enterprisemember"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
@@ -101,6 +102,20 @@ func (_c *APIKeyCreate) SetGroupID(v int64) *APIKeyCreate {
 func (_c *APIKeyCreate) SetNillableGroupID(v *int64) *APIKeyCreate {
 	if v != nil {
 		_c.SetGroupID(*v)
+	}
+	return _c
+}
+
+// SetMemberID sets the "member_id" field.
+func (_c *APIKeyCreate) SetMemberID(v int64) *APIKeyCreate {
+	_c.mutation.SetMemberID(v)
+	return _c
+}
+
+// SetNillableMemberID sets the "member_id" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableMemberID(v *int64) *APIKeyCreate {
+	if v != nil {
+		_c.SetMemberID(*v)
 	}
 	return _c
 }
@@ -335,6 +350,11 @@ func (_c *APIKeyCreate) SetUser(v *User) *APIKeyCreate {
 // SetGroup sets the "group" edge to the Group entity.
 func (_c *APIKeyCreate) SetGroup(v *Group) *APIKeyCreate {
 	return _c.SetGroupID(v.ID)
+}
+
+// SetMember sets the "member" edge to the EnterpriseMember entity.
+func (_c *APIKeyCreate) SetMember(v *EnterpriseMember) *APIKeyCreate {
+	return _c.SetMemberID(v.ID)
 }
 
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
@@ -676,6 +696,23 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 		_node.GroupID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
+	if nodes := _c.mutation.MemberIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   apikey.MemberTable,
+			Columns: []string{apikey.MemberColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.MemberID = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	if nodes := _c.mutation.UsageLogsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
@@ -837,6 +874,24 @@ func (u *APIKeyUpsert) UpdateGroupID() *APIKeyUpsert {
 // ClearGroupID clears the value of the "group_id" field.
 func (u *APIKeyUpsert) ClearGroupID() *APIKeyUpsert {
 	u.SetNull(apikey.FieldGroupID)
+	return u
+}
+
+// SetMemberID sets the "member_id" field.
+func (u *APIKeyUpsert) SetMemberID(v int64) *APIKeyUpsert {
+	u.Set(apikey.FieldMemberID, v)
+	return u
+}
+
+// UpdateMemberID sets the "member_id" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateMemberID() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldMemberID)
+	return u
+}
+
+// ClearMemberID clears the value of the "member_id" field.
+func (u *APIKeyUpsert) ClearMemberID() *APIKeyUpsert {
+	u.SetNull(apikey.FieldMemberID)
 	return u
 }
 
@@ -1288,6 +1343,27 @@ func (u *APIKeyUpsertOne) UpdateGroupID() *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) ClearGroupID() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearGroupID()
+	})
+}
+
+// SetMemberID sets the "member_id" field.
+func (u *APIKeyUpsertOne) SetMemberID(v int64) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetMemberID(v)
+	})
+}
+
+// UpdateMemberID sets the "member_id" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateMemberID() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateMemberID()
+	})
+}
+
+// ClearMemberID clears the value of the "member_id" field.
+func (u *APIKeyUpsertOne) ClearMemberID() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearMemberID()
 	})
 }
 
@@ -1954,6 +2030,27 @@ func (u *APIKeyUpsertBulk) UpdateGroupID() *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) ClearGroupID() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearGroupID()
+	})
+}
+
+// SetMemberID sets the "member_id" field.
+func (u *APIKeyUpsertBulk) SetMemberID(v int64) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetMemberID(v)
+	})
+}
+
+// UpdateMemberID sets the "member_id" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateMemberID() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateMemberID()
+	})
+}
+
+// ClearMemberID clears the value of the "member_id" field.
+func (u *APIKeyUpsertBulk) ClearMemberID() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearMemberID()
 	})
 }
 

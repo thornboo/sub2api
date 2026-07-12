@@ -13,6 +13,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
 	"github.com/Wei-Shaw/sub2api/ent/authidentitychannel"
+	"github.com/Wei-Shaw/sub2api/ent/enterprisemember"
 	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
@@ -33,6 +34,18 @@ type userRepository struct {
 }
 
 var _ service.RedeemUserAdjustmentRepository = (*userRepository)(nil)
+
+// HasEnterpriseMemberFacts is deliberately broader than "active members".
+// Archived members still carry immutable identity, key, budget, and usage
+// history, so their existence permanently blocks a destructive downgrade.
+func (r *userRepository) HasEnterpriseMemberFacts(ctx context.Context, userID int64) (bool, error) {
+	if r == nil || r.client == nil {
+		return false, errors.New("user repository ent client is nil")
+	}
+	return r.client.EnterpriseMember.Query().
+		Where(enterprisemember.EnterpriseUserIDEQ(userID)).
+		Exist(mixins.SkipSoftDelete(ctx))
+}
 
 func NewUserRepository(client *dbent.Client, sqlDB *sql.DB) service.UserRepository {
 	return newUserRepositoryWithSQL(client, sqlDB)
@@ -90,6 +103,8 @@ func (r *userRepository) Create(ctx context.Context, userIn *service.User) error
 		SetNotes(userIn.Notes).
 		SetPasswordHash(userIn.PasswordHash).
 		SetRole(userIn.Role).
+		SetAccountType(userAccountTypeOrDefault(userIn.AccountType)).
+		SetNillableEnterpriseDisabledAt(userIn.EnterpriseDisabledAt).
 		SetBalance(userIn.Balance).
 		SetConcurrency(userIn.Concurrency).
 		SetStatus(userIn.Status).
@@ -233,6 +248,7 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User) error
 		SetNotes(userIn.Notes).
 		SetPasswordHash(userIn.PasswordHash).
 		SetRole(userIn.Role).
+		SetAccountType(userAccountTypeOrDefault(userIn.AccountType)).
 		SetBalance(userIn.Balance).
 		SetConcurrency(userIn.Concurrency).
 		SetStatus(userIn.Status).
@@ -242,6 +258,11 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User) error
 		SetBalanceNotifyExtraEmails(marshalExtraEmails(userIn.BalanceNotifyExtraEmails)).
 		SetTotalRecharged(userIn.TotalRecharged).
 		SetRpmLimit(userIn.RPMLimit)
+	if userIn.EnterpriseDisabledAt != nil {
+		updateOp = updateOp.SetEnterpriseDisabledAt(*userIn.EnterpriseDisabledAt)
+	} else {
+		updateOp = updateOp.ClearEnterpriseDisabledAt()
+	}
 	if userIn.SignupSource != "" {
 		updateOp = updateOp.SetSignupSource(userIn.SignupSource)
 	}
@@ -446,6 +467,9 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 	}
 	if filters.Role != "" {
 		q = q.Where(dbuser.RoleEQ(filters.Role))
+	}
+	if filters.AccountType != "" {
+		q = q.Where(dbuser.AccountTypeEQ(filters.AccountType))
 	}
 	if filters.Search != "" {
 		q = q.Where(
@@ -1044,11 +1068,22 @@ func applyUserEntityToService(dst *service.User, src *dbent.User) {
 		return
 	}
 	dst.ID = src.ID
+	dst.AccountType = src.AccountType
+	dst.EnterpriseDisabledAt = src.EnterpriseDisabledAt
 	dst.SignupSource = src.SignupSource
 	dst.LastLoginAt = src.LastLoginAt
 	dst.LastActiveAt = src.LastActiveAt
 	dst.CreatedAt = src.CreatedAt
 	dst.UpdatedAt = src.UpdatedAt
+}
+
+func userAccountTypeOrDefault(accountType string) string {
+	switch strings.TrimSpace(strings.ToLower(accountType)) {
+	case service.UserAccountTypeEnterprise:
+		return service.UserAccountTypeEnterprise
+	default:
+		return service.UserAccountTypeIndividual
+	}
 }
 
 func userSignupSourceOrDefault(signupSource string) string {

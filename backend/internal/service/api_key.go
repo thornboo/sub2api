@@ -45,13 +45,14 @@ func IsWindowExpired(windowStart *time.Time, duration time.Duration) bool {
 }
 
 type APIKey struct {
-	ID      int64
-	UserID  int64
-	Key     string
-	Name    string
-	Tags    []string
-	GroupID *int64
-	Status  string
+	ID       int64
+	UserID   int64
+	Key      string
+	Name     string
+	Tags     []string
+	GroupID  *int64
+	MemberID *int64
+	Status   string
 	// DisabledReason records system-driven disable reasons. Empty means manual/admin disable.
 	DisabledReason string
 	IPWhitelist    []string
@@ -66,6 +67,7 @@ type APIKey struct {
 	DeletedAt           *time.Time
 	User                *User
 	Group               *Group
+	Member              *EnterpriseMember
 	CurrentConcurrency  int
 
 	// Quota fields

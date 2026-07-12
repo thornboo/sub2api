@@ -103,6 +103,100 @@ func (_u *BatchImageJobUpdate) ClearAccountID() *BatchImageJobUpdate {
 	return _u
 }
 
+// SetGroupID sets the "group_id" field.
+func (_u *BatchImageJobUpdate) SetGroupID(v int64) *BatchImageJobUpdate {
+	_u.mutation.ResetGroupID()
+	_u.mutation.SetGroupID(v)
+	return _u
+}
+
+// SetNillableGroupID sets the "group_id" field if the given value is not nil.
+func (_u *BatchImageJobUpdate) SetNillableGroupID(v *int64) *BatchImageJobUpdate {
+	if v != nil {
+		_u.SetGroupID(*v)
+	}
+	return _u
+}
+
+// AddGroupID adds value to the "group_id" field.
+func (_u *BatchImageJobUpdate) AddGroupID(v int64) *BatchImageJobUpdate {
+	_u.mutation.AddGroupID(v)
+	return _u
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (_u *BatchImageJobUpdate) ClearGroupID() *BatchImageJobUpdate {
+	_u.mutation.ClearGroupID()
+	return _u
+}
+
+// SetMemberID sets the "member_id" field.
+func (_u *BatchImageJobUpdate) SetMemberID(v int64) *BatchImageJobUpdate {
+	_u.mutation.ResetMemberID()
+	_u.mutation.SetMemberID(v)
+	return _u
+}
+
+// SetNillableMemberID sets the "member_id" field if the given value is not nil.
+func (_u *BatchImageJobUpdate) SetNillableMemberID(v *int64) *BatchImageJobUpdate {
+	if v != nil {
+		_u.SetMemberID(*v)
+	}
+	return _u
+}
+
+// AddMemberID adds value to the "member_id" field.
+func (_u *BatchImageJobUpdate) AddMemberID(v int64) *BatchImageJobUpdate {
+	_u.mutation.AddMemberID(v)
+	return _u
+}
+
+// ClearMemberID clears the value of the "member_id" field.
+func (_u *BatchImageJobUpdate) ClearMemberID() *BatchImageJobUpdate {
+	_u.mutation.ClearMemberID()
+	return _u
+}
+
+// SetMemberCodeSnapshot sets the "member_code_snapshot" field.
+func (_u *BatchImageJobUpdate) SetMemberCodeSnapshot(v string) *BatchImageJobUpdate {
+	_u.mutation.SetMemberCodeSnapshot(v)
+	return _u
+}
+
+// SetNillableMemberCodeSnapshot sets the "member_code_snapshot" field if the given value is not nil.
+func (_u *BatchImageJobUpdate) SetNillableMemberCodeSnapshot(v *string) *BatchImageJobUpdate {
+	if v != nil {
+		_u.SetMemberCodeSnapshot(*v)
+	}
+	return _u
+}
+
+// ClearMemberCodeSnapshot clears the value of the "member_code_snapshot" field.
+func (_u *BatchImageJobUpdate) ClearMemberCodeSnapshot() *BatchImageJobUpdate {
+	_u.mutation.ClearMemberCodeSnapshot()
+	return _u
+}
+
+// SetMemberNameSnapshot sets the "member_name_snapshot" field.
+func (_u *BatchImageJobUpdate) SetMemberNameSnapshot(v string) *BatchImageJobUpdate {
+	_u.mutation.SetMemberNameSnapshot(v)
+	return _u
+}
+
+// SetNillableMemberNameSnapshot sets the "member_name_snapshot" field if the given value is not nil.
+func (_u *BatchImageJobUpdate) SetNillableMemberNameSnapshot(v *string) *BatchImageJobUpdate {
+	if v != nil {
+		_u.SetMemberNameSnapshot(*v)
+	}
+	return _u
+}
+
+// ClearMemberNameSnapshot clears the value of the "member_name_snapshot" field.
+func (_u *BatchImageJobUpdate) ClearMemberNameSnapshot() *BatchImageJobUpdate {
+	_u.mutation.ClearMemberNameSnapshot()
+	return _u
+}
+
 // SetProvider sets the "provider" field.
 func (_u *BatchImageJobUpdate) SetProvider(v string) *BatchImageJobUpdate {
 	_u.mutation.SetProvider(v)
@@ -449,6 +543,26 @@ func (_u *BatchImageJobUpdate) SetNillableHoldID(v *string) *BatchImageJobUpdate
 // ClearHoldID clears the value of the "hold_id" field.
 func (_u *BatchImageJobUpdate) ClearHoldID() *BatchImageJobUpdate {
 	_u.mutation.ClearHoldID()
+	return _u
+}
+
+// SetMemberBudgetRequestID sets the "member_budget_request_id" field.
+func (_u *BatchImageJobUpdate) SetMemberBudgetRequestID(v string) *BatchImageJobUpdate {
+	_u.mutation.SetMemberBudgetRequestID(v)
+	return _u
+}
+
+// SetNillableMemberBudgetRequestID sets the "member_budget_request_id" field if the given value is not nil.
+func (_u *BatchImageJobUpdate) SetNillableMemberBudgetRequestID(v *string) *BatchImageJobUpdate {
+	if v != nil {
+		_u.SetMemberBudgetRequestID(*v)
+	}
+	return _u
+}
+
+// ClearMemberBudgetRequestID clears the value of the "member_budget_request_id" field.
+func (_u *BatchImageJobUpdate) ClearMemberBudgetRequestID() *BatchImageJobUpdate {
+	_u.mutation.ClearMemberBudgetRequestID()
 	return _u
 }
 
@@ -823,6 +937,16 @@ func (_u *BatchImageJobUpdate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *BatchImageJobUpdate) check() error {
+	if v, ok := _u.mutation.MemberCodeSnapshot(); ok {
+		if err := batchimagejob.MemberCodeSnapshotValidator(v); err != nil {
+			return &ValidationError{Name: "member_code_snapshot", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.member_code_snapshot": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.MemberNameSnapshot(); ok {
+		if err := batchimagejob.MemberNameSnapshotValidator(v); err != nil {
+			return &ValidationError{Name: "member_name_snapshot", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.member_name_snapshot": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Provider(); ok {
 		if err := batchimagejob.ProviderValidator(v); err != nil {
 			return &ValidationError{Name: "provider", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.provider": %w`, err)}
@@ -876,6 +1000,11 @@ func (_u *BatchImageJobUpdate) check() error {
 	if v, ok := _u.mutation.HoldID(); ok {
 		if err := batchimagejob.HoldIDValidator(v); err != nil {
 			return &ValidationError{Name: "hold_id", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.hold_id": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.MemberBudgetRequestID(); ok {
+		if err := batchimagejob.MemberBudgetRequestIDValidator(v); err != nil {
+			return &ValidationError{Name: "member_budget_request_id", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.member_budget_request_id": %w`, err)}
 		}
 	}
 	if v, ok := _u.mutation.IdempotencyKey(); ok {
@@ -936,6 +1065,36 @@ func (_u *BatchImageJobUpdate) sqlSave(ctx context.Context) (_node int, err erro
 	}
 	if _u.mutation.AccountIDCleared() {
 		_spec.ClearField(batchimagejob.FieldAccountID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.GroupID(); ok {
+		_spec.SetField(batchimagejob.FieldGroupID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedGroupID(); ok {
+		_spec.AddField(batchimagejob.FieldGroupID, field.TypeInt64, value)
+	}
+	if _u.mutation.GroupIDCleared() {
+		_spec.ClearField(batchimagejob.FieldGroupID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.MemberID(); ok {
+		_spec.SetField(batchimagejob.FieldMemberID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedMemberID(); ok {
+		_spec.AddField(batchimagejob.FieldMemberID, field.TypeInt64, value)
+	}
+	if _u.mutation.MemberIDCleared() {
+		_spec.ClearField(batchimagejob.FieldMemberID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.MemberCodeSnapshot(); ok {
+		_spec.SetField(batchimagejob.FieldMemberCodeSnapshot, field.TypeString, value)
+	}
+	if _u.mutation.MemberCodeSnapshotCleared() {
+		_spec.ClearField(batchimagejob.FieldMemberCodeSnapshot, field.TypeString)
+	}
+	if value, ok := _u.mutation.MemberNameSnapshot(); ok {
+		_spec.SetField(batchimagejob.FieldMemberNameSnapshot, field.TypeString, value)
+	}
+	if _u.mutation.MemberNameSnapshotCleared() {
+		_spec.ClearField(batchimagejob.FieldMemberNameSnapshot, field.TypeString)
 	}
 	if value, ok := _u.mutation.Provider(); ok {
 		_spec.SetField(batchimagejob.FieldProvider, field.TypeString, value)
@@ -1035,6 +1194,12 @@ func (_u *BatchImageJobUpdate) sqlSave(ctx context.Context) (_node int, err erro
 	}
 	if _u.mutation.HoldIDCleared() {
 		_spec.ClearField(batchimagejob.FieldHoldID, field.TypeString)
+	}
+	if value, ok := _u.mutation.MemberBudgetRequestID(); ok {
+		_spec.SetField(batchimagejob.FieldMemberBudgetRequestID, field.TypeString, value)
+	}
+	if _u.mutation.MemberBudgetRequestIDCleared() {
+		_spec.ClearField(batchimagejob.FieldMemberBudgetRequestID, field.TypeString)
 	}
 	if value, ok := _u.mutation.IdempotencyKey(); ok {
 		_spec.SetField(batchimagejob.FieldIdempotencyKey, field.TypeString, value)
@@ -1227,6 +1392,100 @@ func (_u *BatchImageJobUpdateOne) AddAccountID(v int64) *BatchImageJobUpdateOne 
 // ClearAccountID clears the value of the "account_id" field.
 func (_u *BatchImageJobUpdateOne) ClearAccountID() *BatchImageJobUpdateOne {
 	_u.mutation.ClearAccountID()
+	return _u
+}
+
+// SetGroupID sets the "group_id" field.
+func (_u *BatchImageJobUpdateOne) SetGroupID(v int64) *BatchImageJobUpdateOne {
+	_u.mutation.ResetGroupID()
+	_u.mutation.SetGroupID(v)
+	return _u
+}
+
+// SetNillableGroupID sets the "group_id" field if the given value is not nil.
+func (_u *BatchImageJobUpdateOne) SetNillableGroupID(v *int64) *BatchImageJobUpdateOne {
+	if v != nil {
+		_u.SetGroupID(*v)
+	}
+	return _u
+}
+
+// AddGroupID adds value to the "group_id" field.
+func (_u *BatchImageJobUpdateOne) AddGroupID(v int64) *BatchImageJobUpdateOne {
+	_u.mutation.AddGroupID(v)
+	return _u
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (_u *BatchImageJobUpdateOne) ClearGroupID() *BatchImageJobUpdateOne {
+	_u.mutation.ClearGroupID()
+	return _u
+}
+
+// SetMemberID sets the "member_id" field.
+func (_u *BatchImageJobUpdateOne) SetMemberID(v int64) *BatchImageJobUpdateOne {
+	_u.mutation.ResetMemberID()
+	_u.mutation.SetMemberID(v)
+	return _u
+}
+
+// SetNillableMemberID sets the "member_id" field if the given value is not nil.
+func (_u *BatchImageJobUpdateOne) SetNillableMemberID(v *int64) *BatchImageJobUpdateOne {
+	if v != nil {
+		_u.SetMemberID(*v)
+	}
+	return _u
+}
+
+// AddMemberID adds value to the "member_id" field.
+func (_u *BatchImageJobUpdateOne) AddMemberID(v int64) *BatchImageJobUpdateOne {
+	_u.mutation.AddMemberID(v)
+	return _u
+}
+
+// ClearMemberID clears the value of the "member_id" field.
+func (_u *BatchImageJobUpdateOne) ClearMemberID() *BatchImageJobUpdateOne {
+	_u.mutation.ClearMemberID()
+	return _u
+}
+
+// SetMemberCodeSnapshot sets the "member_code_snapshot" field.
+func (_u *BatchImageJobUpdateOne) SetMemberCodeSnapshot(v string) *BatchImageJobUpdateOne {
+	_u.mutation.SetMemberCodeSnapshot(v)
+	return _u
+}
+
+// SetNillableMemberCodeSnapshot sets the "member_code_snapshot" field if the given value is not nil.
+func (_u *BatchImageJobUpdateOne) SetNillableMemberCodeSnapshot(v *string) *BatchImageJobUpdateOne {
+	if v != nil {
+		_u.SetMemberCodeSnapshot(*v)
+	}
+	return _u
+}
+
+// ClearMemberCodeSnapshot clears the value of the "member_code_snapshot" field.
+func (_u *BatchImageJobUpdateOne) ClearMemberCodeSnapshot() *BatchImageJobUpdateOne {
+	_u.mutation.ClearMemberCodeSnapshot()
+	return _u
+}
+
+// SetMemberNameSnapshot sets the "member_name_snapshot" field.
+func (_u *BatchImageJobUpdateOne) SetMemberNameSnapshot(v string) *BatchImageJobUpdateOne {
+	_u.mutation.SetMemberNameSnapshot(v)
+	return _u
+}
+
+// SetNillableMemberNameSnapshot sets the "member_name_snapshot" field if the given value is not nil.
+func (_u *BatchImageJobUpdateOne) SetNillableMemberNameSnapshot(v *string) *BatchImageJobUpdateOne {
+	if v != nil {
+		_u.SetMemberNameSnapshot(*v)
+	}
+	return _u
+}
+
+// ClearMemberNameSnapshot clears the value of the "member_name_snapshot" field.
+func (_u *BatchImageJobUpdateOne) ClearMemberNameSnapshot() *BatchImageJobUpdateOne {
+	_u.mutation.ClearMemberNameSnapshot()
 	return _u
 }
 
@@ -1576,6 +1835,26 @@ func (_u *BatchImageJobUpdateOne) SetNillableHoldID(v *string) *BatchImageJobUpd
 // ClearHoldID clears the value of the "hold_id" field.
 func (_u *BatchImageJobUpdateOne) ClearHoldID() *BatchImageJobUpdateOne {
 	_u.mutation.ClearHoldID()
+	return _u
+}
+
+// SetMemberBudgetRequestID sets the "member_budget_request_id" field.
+func (_u *BatchImageJobUpdateOne) SetMemberBudgetRequestID(v string) *BatchImageJobUpdateOne {
+	_u.mutation.SetMemberBudgetRequestID(v)
+	return _u
+}
+
+// SetNillableMemberBudgetRequestID sets the "member_budget_request_id" field if the given value is not nil.
+func (_u *BatchImageJobUpdateOne) SetNillableMemberBudgetRequestID(v *string) *BatchImageJobUpdateOne {
+	if v != nil {
+		_u.SetMemberBudgetRequestID(*v)
+	}
+	return _u
+}
+
+// ClearMemberBudgetRequestID clears the value of the "member_budget_request_id" field.
+func (_u *BatchImageJobUpdateOne) ClearMemberBudgetRequestID() *BatchImageJobUpdateOne {
+	_u.mutation.ClearMemberBudgetRequestID()
 	return _u
 }
 
@@ -1963,6 +2242,16 @@ func (_u *BatchImageJobUpdateOne) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *BatchImageJobUpdateOne) check() error {
+	if v, ok := _u.mutation.MemberCodeSnapshot(); ok {
+		if err := batchimagejob.MemberCodeSnapshotValidator(v); err != nil {
+			return &ValidationError{Name: "member_code_snapshot", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.member_code_snapshot": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.MemberNameSnapshot(); ok {
+		if err := batchimagejob.MemberNameSnapshotValidator(v); err != nil {
+			return &ValidationError{Name: "member_name_snapshot", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.member_name_snapshot": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Provider(); ok {
 		if err := batchimagejob.ProviderValidator(v); err != nil {
 			return &ValidationError{Name: "provider", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.provider": %w`, err)}
@@ -2016,6 +2305,11 @@ func (_u *BatchImageJobUpdateOne) check() error {
 	if v, ok := _u.mutation.HoldID(); ok {
 		if err := batchimagejob.HoldIDValidator(v); err != nil {
 			return &ValidationError{Name: "hold_id", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.hold_id": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.MemberBudgetRequestID(); ok {
+		if err := batchimagejob.MemberBudgetRequestIDValidator(v); err != nil {
+			return &ValidationError{Name: "member_budget_request_id", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.member_budget_request_id": %w`, err)}
 		}
 	}
 	if v, ok := _u.mutation.IdempotencyKey(); ok {
@@ -2093,6 +2387,36 @@ func (_u *BatchImageJobUpdateOne) sqlSave(ctx context.Context) (_node *BatchImag
 	}
 	if _u.mutation.AccountIDCleared() {
 		_spec.ClearField(batchimagejob.FieldAccountID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.GroupID(); ok {
+		_spec.SetField(batchimagejob.FieldGroupID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedGroupID(); ok {
+		_spec.AddField(batchimagejob.FieldGroupID, field.TypeInt64, value)
+	}
+	if _u.mutation.GroupIDCleared() {
+		_spec.ClearField(batchimagejob.FieldGroupID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.MemberID(); ok {
+		_spec.SetField(batchimagejob.FieldMemberID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedMemberID(); ok {
+		_spec.AddField(batchimagejob.FieldMemberID, field.TypeInt64, value)
+	}
+	if _u.mutation.MemberIDCleared() {
+		_spec.ClearField(batchimagejob.FieldMemberID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.MemberCodeSnapshot(); ok {
+		_spec.SetField(batchimagejob.FieldMemberCodeSnapshot, field.TypeString, value)
+	}
+	if _u.mutation.MemberCodeSnapshotCleared() {
+		_spec.ClearField(batchimagejob.FieldMemberCodeSnapshot, field.TypeString)
+	}
+	if value, ok := _u.mutation.MemberNameSnapshot(); ok {
+		_spec.SetField(batchimagejob.FieldMemberNameSnapshot, field.TypeString, value)
+	}
+	if _u.mutation.MemberNameSnapshotCleared() {
+		_spec.ClearField(batchimagejob.FieldMemberNameSnapshot, field.TypeString)
 	}
 	if value, ok := _u.mutation.Provider(); ok {
 		_spec.SetField(batchimagejob.FieldProvider, field.TypeString, value)
@@ -2192,6 +2516,12 @@ func (_u *BatchImageJobUpdateOne) sqlSave(ctx context.Context) (_node *BatchImag
 	}
 	if _u.mutation.HoldIDCleared() {
 		_spec.ClearField(batchimagejob.FieldHoldID, field.TypeString)
+	}
+	if value, ok := _u.mutation.MemberBudgetRequestID(); ok {
+		_spec.SetField(batchimagejob.FieldMemberBudgetRequestID, field.TypeString, value)
+	}
+	if _u.mutation.MemberBudgetRequestIDCleared() {
+		_spec.ClearField(batchimagejob.FieldMemberBudgetRequestID, field.TypeString)
 	}
 	if value, ok := _u.mutation.IdempotencyKey(); ok {
 		_spec.SetField(batchimagejob.FieldIdempotencyKey, field.TypeString, value)

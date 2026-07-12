@@ -120,6 +120,21 @@ func SubscriptionID(v int64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldSubscriptionID, v))
 }
 
+// MemberID applies equality check predicate on the "member_id" field. It's identical to MemberIDEQ.
+func MemberID(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldMemberID, v))
+}
+
+// MemberCodeSnapshot applies equality check predicate on the "member_code_snapshot" field. It's identical to MemberCodeSnapshotEQ.
+func MemberCodeSnapshot(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldMemberCodeSnapshot, v))
+}
+
+// MemberNameSnapshot applies equality check predicate on the "member_name_snapshot" field. It's identical to MemberNameSnapshotEQ.
+func MemberNameSnapshot(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldMemberNameSnapshot, v))
+}
+
 // InputTokens applies equality check predicate on the "input_tokens" field. It's identical to InputTokensEQ.
 func InputTokens(v int) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldInputTokens, v))
@@ -943,6 +958,186 @@ func SubscriptionIDIsNil() predicate.UsageLog {
 // SubscriptionIDNotNil applies the NotNil predicate on the "subscription_id" field.
 func SubscriptionIDNotNil() predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldNotNull(FieldSubscriptionID))
+}
+
+// MemberIDEQ applies the EQ predicate on the "member_id" field.
+func MemberIDEQ(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldMemberID, v))
+}
+
+// MemberIDNEQ applies the NEQ predicate on the "member_id" field.
+func MemberIDNEQ(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldMemberID, v))
+}
+
+// MemberIDIn applies the In predicate on the "member_id" field.
+func MemberIDIn(vs ...int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldMemberID, vs...))
+}
+
+// MemberIDNotIn applies the NotIn predicate on the "member_id" field.
+func MemberIDNotIn(vs ...int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldMemberID, vs...))
+}
+
+// MemberIDIsNil applies the IsNil predicate on the "member_id" field.
+func MemberIDIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldMemberID))
+}
+
+// MemberIDNotNil applies the NotNil predicate on the "member_id" field.
+func MemberIDNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldMemberID))
+}
+
+// MemberCodeSnapshotEQ applies the EQ predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotNEQ applies the NEQ predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotNEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotIn applies the In predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldMemberCodeSnapshot, vs...))
+}
+
+// MemberCodeSnapshotNotIn applies the NotIn predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotNotIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldMemberCodeSnapshot, vs...))
+}
+
+// MemberCodeSnapshotGT applies the GT predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotGT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotGTE applies the GTE predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotGTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotLT applies the LT predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotLT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotLTE applies the LTE predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotLTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotContains applies the Contains predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotContains(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContains(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotHasPrefix applies the HasPrefix predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotHasPrefix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasPrefix(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotHasSuffix applies the HasSuffix predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotHasSuffix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasSuffix(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotIsNil applies the IsNil predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldMemberCodeSnapshot))
+}
+
+// MemberCodeSnapshotNotNil applies the NotNil predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldMemberCodeSnapshot))
+}
+
+// MemberCodeSnapshotEqualFold applies the EqualFold predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotEqualFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEqualFold(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotContainsFold applies the ContainsFold predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotContainsFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContainsFold(FieldMemberCodeSnapshot, v))
+}
+
+// MemberNameSnapshotEQ applies the EQ predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotNEQ applies the NEQ predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotNEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotIn applies the In predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldMemberNameSnapshot, vs...))
+}
+
+// MemberNameSnapshotNotIn applies the NotIn predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotNotIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldMemberNameSnapshot, vs...))
+}
+
+// MemberNameSnapshotGT applies the GT predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotGT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotGTE applies the GTE predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotGTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotLT applies the LT predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotLT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotLTE applies the LTE predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotLTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotContains applies the Contains predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotContains(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContains(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotHasPrefix applies the HasPrefix predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotHasPrefix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasPrefix(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotHasSuffix applies the HasSuffix predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotHasSuffix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasSuffix(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotIsNil applies the IsNil predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldMemberNameSnapshot))
+}
+
+// MemberNameSnapshotNotNil applies the NotNil predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldMemberNameSnapshot))
+}
+
+// MemberNameSnapshotEqualFold applies the EqualFold predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotEqualFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEqualFold(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotContainsFold applies the ContainsFold predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotContainsFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContainsFold(FieldMemberNameSnapshot, v))
 }
 
 // InputTokensEQ applies the EQ predicate on the "input_tokens" field.
@@ -2487,6 +2682,29 @@ func HasSubscription() predicate.UsageLog {
 func HasSubscriptionWith(preds ...predicate.UserSubscription) predicate.UsageLog {
 	return predicate.UsageLog(func(s *sql.Selector) {
 		step := newSubscriptionStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasMember applies the HasEdge predicate on the "member" edge.
+func HasMember() predicate.UsageLog {
+	return predicate.UsageLog(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, MemberTable, MemberColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasMemberWith applies the HasEdge predicate on the "member" edge with a given conditions (other predicates).
+func HasMemberWith(preds ...predicate.EnterpriseMember) predicate.UsageLog {
+	return predicate.UsageLog(func(s *sql.Selector) {
+		step := newMemberStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

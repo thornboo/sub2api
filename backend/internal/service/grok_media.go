@@ -366,8 +366,16 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	if err != nil {
 		return nil, err
 	}
-	writeGrokMediaResponse(c, resp, respBody, s.responseHeaderFilter)
 	usage := grokMediaUsageFromResponse(endpoint, requestInfo, respBody)
+	// Persist asynchronous task routing before committing the task ID to the
+	// client. If this fails, the response remains uncommitted and the outer
+	// member-group orchestrator may safely retry another eligible group.
+	if endpoint == GrokMediaEndpointVideosGenerations && usage.ResponseID != "" {
+		if err := recordGrokMediaTask(ctx, usage.ResponseID, account.ID); err != nil {
+			return nil, err
+		}
+	}
+	writeGrokMediaResponse(c, resp, respBody, s.responseHeaderFilter)
 	return &OpenAIForwardResult{
 		RequestID:            requestIDHeader,
 		ResponseID:           usage.ResponseID,

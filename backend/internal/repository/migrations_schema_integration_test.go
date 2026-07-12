@@ -164,6 +164,92 @@ func TestMigrationsRunner_AuthIdentityAndPaymentSchemaStayAligned(t *testing.T) 
 	requireIndexAbsent(t, tx, "payment_orders", "paymentorder_out_trade_no_unique")
 }
 
+func TestMigrationsRunner_EnterpriseMemberSchemaStaysAligned(t *testing.T) {
+	tx := testTx(t)
+
+	requireColumn(t, tx, "users", "account_type", "character varying", 20, false)
+	requireColumn(t, tx, "users", "enterprise_disabled_at", "timestamp with time zone", 0, true)
+	requireColumnDefaultContains(t, tx, "users", "account_type", "individual")
+	requireConstraintDefinitionContains(t, tx, "users", "users_account_type_check", "individual", "enterprise")
+	requireIndex(t, tx, "users", "idx_users_account_type")
+
+	requireTable(t, tx, "enterprise_members")
+	requireColumn(t, tx, "enterprise_members", "enterprise_user_id", "bigint", 0, false)
+	requireColumn(t, tx, "enterprise_members", "member_code", "character varying", 100, false)
+	requireColumn(t, tx, "enterprise_members", "monthly_limit_usd", "numeric", 0, false)
+	requireColumn(t, tx, "enterprise_members", "version", "bigint", 0, false)
+	requireColumn(t, tx, "enterprise_members", "deleted_at", "timestamp with time zone", 0, true)
+	requireForeignKeyOnDelete(t, tx, "enterprise_members", "enterprise_user_id", "users", "RESTRICT")
+	requireConstraintDefinitionContains(t, tx, "enterprise_members", "enterprise_members_owner_code_unique", "enterprise_user_id", "member_code")
+	requireConstraintDefinitionContains(t, tx, "enterprise_members", "enterprise_members_id_owner_unique", "id", "enterprise_user_id")
+	requireConstraintDefinitionContains(t, tx, "enterprise_members", "enterprise_members_status_check", "active", "disabled")
+	requireIndex(t, tx, "enterprise_members", "idx_enterprise_members_owner_status")
+	requireIndex(t, tx, "enterprise_members", "enterprise_members_owner_code_ci_unique")
+
+	requireColumn(t, tx, "api_keys", "member_id", "bigint", 0, true)
+	requireConstraintDefinitionContains(t, tx, "api_keys", "api_keys_member_owner_fk", "member_id", "user_id", "enterprise_members", "enterprise_user_id", "ON DELETE RESTRICT")
+	requireConstraintDefinitionContains(t, tx, "api_keys", "api_keys_member_group_exclusive_check", "member_id IS NULL", "group_id IS NULL")
+	requireIndex(t, tx, "api_keys", "idx_api_keys_member_id")
+
+	requireTable(t, tx, "enterprise_member_group_bindings")
+	requireColumn(t, tx, "enterprise_member_group_bindings", "sort_order", "integer", 0, false)
+	requireForeignKeyOnDelete(t, tx, "enterprise_member_group_bindings", "member_id", "enterprise_members", "RESTRICT")
+	requireForeignKeyOnDelete(t, tx, "enterprise_member_group_bindings", "group_id", "groups", "RESTRICT")
+	requireIndex(t, tx, "enterprise_member_group_bindings", "idx_enterprise_member_group_bindings_order")
+
+	requireColumn(t, tx, "usage_logs", "member_id", "bigint", 0, true)
+	requireColumn(t, tx, "usage_logs", "member_code_snapshot", "character varying", 100, true)
+	requireColumn(t, tx, "usage_logs", "member_name_snapshot", "character varying", 100, true)
+	requireForeignKeyOnDelete(t, tx, "usage_logs", "member_id", "enterprise_members", "RESTRICT")
+	requireIndex(t, tx, "usage_logs", "idx_usage_logs_member_created_at")
+
+	requireColumn(t, tx, "batch_image_jobs", "member_id", "bigint", 0, true)
+	requireColumn(t, tx, "batch_image_jobs", "member_budget_request_id", "character varying", 128, true)
+	requireIndex(t, tx, "batch_image_jobs", "idx_batch_image_jobs_member_budget_request")
+
+	requireTable(t, tx, "enterprise_member_budget_periods")
+	requireConstraintDefinitionContains(t, tx, "enterprise_member_budget_periods", "enterprise_member_budget_periods_member_period_unique", "member_id", "period_start")
+	requireConstraintDefinitionContains(t, tx, "enterprise_member_budget_periods", "enterprise_member_budget_periods_amounts_check", "used_usd", "reserved_usd")
+	requireTable(t, tx, "enterprise_member_budget_reservations")
+	requireConstraintDefinitionContains(t, tx, "enterprise_member_budget_reservations", "enterprise_member_budget_reservations_status_check", "reserved", "settled", "released", "expired")
+	requireIndex(t, tx, "enterprise_member_budget_reservations", "idx_enterprise_member_budget_reservations_expiry")
+	requireTable(t, tx, "enterprise_member_budget_entries")
+	requireTable(t, tx, "enterprise_member_rate_limit_periods")
+	requireConstraintDefinitionContains(t, tx, "enterprise_members", "enterprise_members_rate_limits_check", "rate_limit_5h", "rate_limit_1d", "rate_limit_7d")
+	requireConstraintDefinitionContains(t, tx, "enterprise_member_rate_limit_periods", "enterprise_member_rate_limit_usage_check", "usage_5h", "usage_1d", "usage_7d")
+	requireIndex(t, tx, "enterprise_member_audit_logs", "enterprise_member_usage_adjustment_idempotency_unique")
+	requireConstraintDefinitionContains(t, tx, "enterprise_member_budget_entries", "enterprise_member_budget_entries_kind_check", "usage", "migration_opening", "manual_adjustment", "reconciliation")
+	requireConstraintDefinitionContains(t, tx, "enterprise_member_budget_entries", "enterprise_member_budget_entries_usage_shape_check", "request_id", "usage_log_id")
+
+	requireTable(t, tx, "grok_media_tasks")
+	requireConstraintDefinitionContains(t, tx, "grok_media_tasks", "grok_media_tasks_member_owner_fk", "member_id", "user_id", "enterprise_members", "enterprise_user_id", "ON DELETE RESTRICT")
+	requireIndex(t, tx, "grok_media_tasks", "idx_grok_media_tasks_member_created")
+
+	requireTable(t, tx, "enterprise_member_audit_logs")
+	requireColumn(t, tx, "enterprise_member_audit_logs", "before_data", "jsonb", 0, false)
+	requireColumn(t, tx, "enterprise_member_audit_logs", "after_data", "jsonb", 0, false)
+	requireConstraintDefinitionContains(t, tx, "enterprise_member_audit_logs", "enterprise_member_audit_logs_payload_shape_check", "before_data", "after_data", "metadata")
+	requireIndex(t, tx, "enterprise_member_audit_logs", "idx_enterprise_member_audit_owner_created")
+	requireTrigger(t, tx, "enterprise_member_audit_logs", "enterprise_member_audit_immutable")
+	requireTrigger(t, tx, "enterprise_members", "enterprise_member_audit_member")
+	requireTrigger(t, tx, "enterprise_member_group_bindings", "enterprise_member_audit_group_binding")
+	requireTrigger(t, tx, "api_keys", "enterprise_member_audit_key")
+	requireTrigger(t, tx, "enterprise_member_budget_entries", "enterprise_member_audit_budget")
+	requireTrigger(t, tx, "enterprise_member_import_jobs", "enterprise_member_audit_import_job")
+	requireTrigger(t, tx, "users", "enterprise_member_audit_account")
+
+	requireTable(t, tx, "enterprise_member_import_jobs")
+	requireColumn(t, tx, "enterprise_member_import_jobs", "selected_rows", "jsonb", 0, false)
+	requireColumn(t, tx, "enterprise_member_import_jobs", "locked_at", "timestamp with time zone", 0, true)
+	requireColumn(t, tx, "enterprise_member_import_jobs", "lock_owner", "character varying", 128, true)
+	requireColumn(t, tx, "enterprise_member_import_jobs", "attempt_count", "integer", 0, false)
+	requireColumn(t, tx, "enterprise_member_import_jobs", "result_secrets_ciphertext", "text", 0, true)
+	requireColumn(t, tx, "enterprise_member_import_jobs", "result_secrets_consumed_at", "timestamp with time zone", 0, true)
+	requireConstraintDefinitionContains(t, tx, "enterprise_member_import_jobs", "enterprise_member_import_jobs_status_check", "previewed", "queued", "processing", "completed", "failed")
+	requireConstraintDefinitionContains(t, tx, "enterprise_member_import_jobs", "enterprise_member_import_jobs_selected_rows_shape_check", "jsonb_typeof", "array")
+	requireIndex(t, tx, "enterprise_member_import_jobs", "idx_enterprise_member_import_jobs_queue")
+}
+
 func TestMigration174BackfillsOnlyUnambiguousRealSupplierDefaults(t *testing.T) {
 	ctx := context.Background()
 	tx := testTx(t)
@@ -240,6 +326,35 @@ SELECT EXISTS (
 `, table, index).Scan(&exists)
 	require.NoError(t, err, "query pg_indexes for %s.%s", table, index)
 	require.True(t, exists, "expected index %s on %s", index, table)
+}
+
+func requireTable(t *testing.T, tx *sql.Tx, table string) {
+	t.Helper()
+
+	var exists bool
+	err := tx.QueryRowContext(context.Background(), `
+SELECT to_regclass('public.' || $1) IS NOT NULL
+`, table).Scan(&exists)
+	require.NoError(t, err, "query table %s", table)
+	require.True(t, exists, "expected table %s to exist", table)
+}
+
+func requireTrigger(t *testing.T, tx *sql.Tx, table, trigger string) {
+	t.Helper()
+
+	var enabled string
+	err := tx.QueryRowContext(context.Background(), `
+SELECT t.tgenabled::text
+FROM pg_trigger t
+JOIN pg_class tbl ON tbl.oid = t.tgrelid
+JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+WHERE ns.nspname = 'public'
+  AND tbl.relname = $1
+  AND t.tgname = $2
+  AND NOT t.tgisinternal
+`, table, trigger).Scan(&enabled)
+	require.NoError(t, err, "query trigger %s on %s", trigger, table)
+	require.Contains(t, []string{"O", "A", "R"}, enabled, "expected trigger %s on %s to be enabled", trigger, table)
 }
 
 func requireIndexAbsent(t *testing.T, tx *sql.Tx, table, index string) {

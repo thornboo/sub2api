@@ -32,6 +32,9 @@ var usageLogInsertArgTypes = [...]string{
 	"text",        // requested_model
 	"text",        // upstream_model
 	"bigint",      // group_id
+	"bigint",      // member_id
+	"text",        // member_code_snapshot
+	"text",        // member_name_snapshot
 	"bigint",      // subscription_id
 	"integer",     // input_tokens
 	"integer",     // output_tokens
@@ -113,6 +116,8 @@ type usageLogBestEffortRequest struct {
 type usageLogInsertPrepared struct {
 	createdAt      time.Time
 	requestID      string
+	apiKeyID       int64
+	memberID       *int64
 	rateMultiplier float64
 	requestType    int16
 	args           []any
@@ -225,6 +230,9 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			requested_model,
 			upstream_model,
 			group_id,
+			member_id,
+			member_code_snapshot,
+			member_name_snapshot,
 			subscription_id,
 			input_tokens,
 			output_tokens,
@@ -273,11 +281,11 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			created_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7,
-			$8, $9,
-			$10, $11, $12, $13,
-			$14, $15, $16, $17,
-			$18, $19, $20, $21, $22, $23,
-			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54
+			$8, $9, $10, $11, $12,
+			$13, $14, $15, $16,
+			$17, $18, $19, $20,
+			$21, $22, $23, $24, $25, $26,
+			$27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 		RETURNING id, created_at
@@ -290,12 +298,14 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 				return false, err
 			}
 			log.RateMultiplier = prepared.rateMultiplier
+			_ = linkEnterpriseMemberBudgetUsage(ctx, sqlq, prepared.requestID, prepared.apiKeyID, prepared.memberID)
 			return false, nil
 		} else {
 			return false, err
 		}
 	}
 	log.RateMultiplier = prepared.rateMultiplier
+	_ = linkEnterpriseMemberBudgetUsage(ctx, sqlq, prepared.requestID, prepared.apiKeyID, prepared.memberID)
 	return true, nil
 }
 
@@ -599,6 +609,9 @@ func (r *usageLogRepository) flushBestEffortBatch(db *sql.DB, batch []usageLogBe
 			} else if group.prepared.requestID != "" && r != nil && r.bestEffortRecent != nil {
 				r.bestEffortRecent.SetDefault(group.key, struct{}{})
 			}
+			if singleErr == nil {
+				_ = linkEnterpriseMemberBudgetUsage(ctx, db, group.prepared.requestID, group.apiKeyID, group.prepared.memberID)
+			}
 			for _, req := range group.reqs {
 				sendUsageLogBestEffortResult(req.resultCh, singleErr)
 			}
@@ -606,6 +619,7 @@ func (r *usageLogRepository) flushBestEffortBatch(db *sql.DB, batch []usageLogBe
 		return
 	}
 	for _, group := range groupOrder {
+		_ = linkEnterpriseMemberBudgetUsage(ctx, db, group.prepared.requestID, group.apiKeyID, group.prepared.memberID)
 		if group.prepared.requestID != "" && r != nil && r.bestEffortRecent != nil {
 			r.bestEffortRecent.SetDefault(group.key, struct{}{})
 		}
@@ -661,6 +675,10 @@ func (r *usageLogRepository) batchInsertUsageLogs(db *sql.DB, keys []string, pre
 	if len(stateMap) != len(keys) {
 		return insertedMap, stateMap, false, fmt.Errorf("usage log batch state count mismatch: got=%d want=%d", len(stateMap), len(keys))
 	}
+	for _, key := range keys {
+		prepared := preparedByKey[key]
+		_ = linkEnterpriseMemberBudgetUsage(ctx, db, prepared.requestID, prepared.apiKeyID, prepared.memberID)
+	}
 	return insertedMap, stateMap, false, nil
 }
 
@@ -677,6 +695,9 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			requested_model,
 			upstream_model,
 			group_id,
+			member_id,
+			member_code_snapshot,
+			member_name_snapshot,
 			subscription_id,
 			input_tokens,
 			output_tokens,
@@ -725,7 +746,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			created_at
 		) AS (VALUES `)
 
-	args := make([]any, 0, len(keys)*55)
+	args := make([]any, 0, len(keys)*58)
 	argPos := 1
 	for idx, key := range keys {
 		if idx > 0 {
@@ -762,6 +783,9 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				requested_model,
 				upstream_model,
 				group_id,
+				member_id,
+				member_code_snapshot,
+				member_name_snapshot,
 				subscription_id,
 				input_tokens,
 				output_tokens,
@@ -818,6 +842,9 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				requested_model,
 				upstream_model,
 				group_id,
+				member_id,
+				member_code_snapshot,
+				member_name_snapshot,
 				subscription_id,
 				input_tokens,
 				output_tokens,
@@ -914,6 +941,9 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			requested_model,
 			upstream_model,
 			group_id,
+			member_id,
+			member_code_snapshot,
+			member_name_snapshot,
 			subscription_id,
 			input_tokens,
 			output_tokens,
@@ -962,7 +992,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			created_at
 		) AS (VALUES `)
 
-	args := make([]any, 0, len(preparedList)*54)
+	args := make([]any, 0, len(preparedList)*57)
 	argPos := 1
 	for idx, prepared := range preparedList {
 		if idx > 0 {
@@ -996,6 +1026,9 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			requested_model,
 			upstream_model,
 			group_id,
+			member_id,
+			member_code_snapshot,
+			member_name_snapshot,
 			subscription_id,
 			input_tokens,
 			output_tokens,
@@ -1052,6 +1085,9 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			requested_model,
 			upstream_model,
 			group_id,
+			member_id,
+			member_code_snapshot,
+			member_name_snapshot,
 			subscription_id,
 			input_tokens,
 			output_tokens,
@@ -1116,6 +1152,9 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			requested_model,
 			upstream_model,
 			group_id,
+			member_id,
+			member_code_snapshot,
+			member_name_snapshot,
 			subscription_id,
 			input_tokens,
 			output_tokens,
@@ -1164,11 +1203,11 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			created_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7,
-			$8, $9,
-			$10, $11, $12, $13,
-			$14, $15, $16, $17,
-			$18, $19, $20, $21, $22, $23,
-			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54
+			$8, $9, $10, $11, $12,
+			$13, $14, $15, $16,
+			$17, $18, $19, $20,
+			$21, $22, $23, $24, $25, $26,
+			$27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 	`, prepared.args...)
@@ -1189,6 +1228,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 	requestType := int16(log.RequestType)
 
 	groupID := nullInt64(log.GroupID)
+	memberID := nullInt64(log.MemberID)
 	subscriptionID := nullInt64(log.SubscriptionID)
 	duration := nullInt(log.DurationMs)
 	firstToken := nullInt(log.FirstTokenMs)
@@ -1224,6 +1264,8 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 	return usageLogInsertPrepared{
 		createdAt:      createdAt,
 		requestID:      requestID,
+		apiKeyID:       log.APIKeyID,
+		memberID:       log.MemberID,
 		rateMultiplier: rateMultiplier,
 		requestType:    requestType,
 		args: []any{
@@ -1235,6 +1277,9 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			nullString(&requestedModel),
 			upstreamModel,
 			groupID,
+			memberID,
+			nullString(log.MemberCodeSnapshot),
+			nullString(log.MemberNameSnapshot),
 			subscriptionID,
 			log.InputTokens,
 			log.OutputTokens,
@@ -1283,6 +1328,33 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			createdAt,
 		},
 	}
+}
+
+func linkEnterpriseMemberBudgetUsage(ctx context.Context, sqlq sqlExecutor, requestID string, apiKeyID int64, memberID *int64) error {
+	requestID = strings.TrimSpace(requestID)
+	if sqlq == nil || requestID == "" || apiKeyID <= 0 || memberID == nil {
+		return nil
+	}
+	budgetRequestID := service.EnterpriseMemberBudgetRequestID(apiKeyID, requestID)
+	if _, err := sqlq.ExecContext(ctx, `
+		UPDATE enterprise_member_budget_entries entry
+		SET usage_log_id = usage.id
+		FROM usage_logs usage
+		WHERE entry.request_id = $1
+		  AND entry.usage_log_id IS NULL
+		  AND usage.request_id = $2
+		  AND usage.api_key_id = $3`, budgetRequestID, requestID, apiKeyID); err != nil {
+		return err
+	}
+	_, err := sqlq.ExecContext(ctx, `
+		UPDATE enterprise_member_budget_reservations reservation
+		SET usage_log_id = usage.id, updated_at = NOW()
+		FROM usage_logs usage
+		WHERE reservation.request_id = $1
+		  AND reservation.usage_log_id IS NULL
+		  AND usage.request_id = $2
+		  AND usage.api_key_id = $3`, budgetRequestID, requestID, apiKeyID)
+	return err
 }
 
 func usageLogBatchKey(requestID string, apiKeyID int64) string {

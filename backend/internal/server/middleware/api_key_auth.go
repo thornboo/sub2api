@@ -124,6 +124,14 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			AbortWithError(c, 401, "USER_INACTIVE", "User account is not active")
 			return
 		}
+		if code, message, valid := validateEnterpriseMemberAPIKey(apiKey); !valid {
+			service.RecordEnterpriseMemberAuthResult(false, code)
+			AbortWithError(c, 403, code, message)
+			return
+		}
+		if apiKey.MemberID != nil {
+			service.RecordEnterpriseMemberAuthResult(true, "")
+		}
 		if abortIfAPIKeyGroupUnavailable(c, apiKey) {
 			return
 		}
@@ -175,7 +183,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 
 		// ── 6. 计费执行（skipBilling 时整块跳过） ────────────────────
 
-		if !skipBilling {
+		if !skipBilling && apiKey.MemberID == nil {
 			// Key 状态检查
 			switch apiKey.Status {
 			case service.StatusAPIKeyQuotaExhausted:
@@ -345,6 +353,26 @@ func validateAPIKeyGroupAvailable(apiKey *service.APIKey) (string, string, bool)
 	}
 	if !group.IsActive() {
 		return "GROUP_DISABLED", "API Key 所属分组已停用", false
+	}
+	return "", "", true
+}
+
+func validateEnterpriseMemberAPIKey(apiKey *service.APIKey) (string, string, bool) {
+	if apiKey == nil || apiKey.MemberID == nil {
+		return "", "", true
+	}
+	if apiKey.User == nil || !apiKey.User.IsEnterprise() {
+		return "ENTERPRISE_ACCOUNT_DISABLED", "Enterprise account is not available", false
+	}
+	member := apiKey.Member
+	if member == nil || member.ID != *apiKey.MemberID || member.EnterpriseUserID != apiKey.UserID || member.DeletedAt != nil {
+		return "ENTERPRISE_MEMBER_NOT_FOUND", "Enterprise member is not available", false
+	}
+	if member.Status != service.EnterpriseMemberStatusActive {
+		return "ENTERPRISE_MEMBER_DISABLED", "Enterprise member is disabled", false
+	}
+	if apiKey.GroupID != nil {
+		return "ENTERPRISE_MEMBER_KEY_INVALID", "Enterprise member key has an invalid fixed group", false
 	}
 	return "", "", true
 }

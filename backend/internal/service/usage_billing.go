@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 var ErrUsageBillingRequestIDRequired = errors.New("usage billing request_id is required")
@@ -19,20 +20,23 @@ type UsageBillingCommand struct {
 	RequestFingerprint string
 	RequestPayloadHash string
 
-	UserID              int64
-	AccountID           int64
-	SubscriptionID      *int64
-	AccountType         string
-	Model               string
-	ServiceTier         string
-	ReasoningEffort     string
-	BillingType         int8
-	InputTokens         int
-	OutputTokens        int
-	CacheCreationTokens int
-	CacheReadTokens     int
-	ImageCount          int
-	MediaType           string
+	UserID                int64
+	AccountID             int64
+	SubscriptionID        *int64
+	MemberID              *int64
+	MemberBudgetRequestID string
+	MemberBudgetCost      float64
+	AccountType           string
+	Model                 string
+	ServiceTier           string
+	ReasoningEffort       string
+	BillingType           int8
+	InputTokens           int
+	OutputTokens          int
+	CacheCreationTokens   int
+	CacheReadTokens       int
+	ImageCount            int
+	MediaType             string
 
 	BalanceCost         float64
 	SubscriptionCost    float64
@@ -56,7 +60,7 @@ func buildUsageBillingFingerprint(c *UsageBillingCommand) string {
 		return ""
 	}
 	raw := fmt.Sprintf(
-		"%d|%d|%d|%s|%s|%s|%s|%d|%d|%d|%d|%d|%d|%s|%d|%0.10f|%0.10f|%0.10f|%0.10f|%0.10f",
+		"%d|%d|%d|%s|%s|%s|%s|%d|%d|%d|%d|%d|%d|%s|%d|%d|%0.10f|%0.10f|%0.10f|%0.10f|%0.10f|%0.10f",
 		c.UserID,
 		c.AccountID,
 		c.APIKeyID,
@@ -72,11 +76,13 @@ func buildUsageBillingFingerprint(c *UsageBillingCommand) string {
 		c.ImageCount,
 		strings.TrimSpace(c.MediaType),
 		valueOrZero(c.SubscriptionID),
+		valueOrZero(c.MemberID),
 		c.BalanceCost,
 		c.SubscriptionCost,
 		c.APIKeyQuotaCost,
 		c.APIKeyRateLimitCost,
 		c.AccountQuotaCost,
+		c.MemberBudgetCost,
 	)
 	if payloadHash := strings.TrimSpace(c.RequestPayloadHash); payloadHash != "" {
 		raw += "|" + payloadHash
@@ -121,14 +127,17 @@ type UsageBillingApplyResult struct {
 
 // BatchImageBalanceHoldCommand describes an idempotent balance hold operation.
 type BatchImageBalanceHoldCommand struct {
-	RequestID          string
-	APIKeyID           int64
-	RequestFingerprint string
-	RequestPayloadHash string
-	UserID             int64
-	BatchID            string
-	HoldAmount         float64
-	ActualAmount       float64
+	RequestID             string
+	APIKeyID              int64
+	RequestFingerprint    string
+	RequestPayloadHash    string
+	UserID                int64
+	BatchID               string
+	HoldAmount            float64
+	ActualAmount          float64
+	MemberID              *int64
+	MemberBudgetRequestID string
+	MemberBudgetExpiresAt time.Time
 }
 
 func (c *BatchImageBalanceHoldCommand) Normalize() {
@@ -147,12 +156,14 @@ func buildBatchImageBalanceHoldFingerprint(c *BatchImageBalanceHoldCommand) stri
 		return ""
 	}
 	raw := fmt.Sprintf(
-		"%d|%d|%s|%0.10f|%0.10f",
+		"%d|%d|%s|%0.10f|%0.10f|%d|%s",
 		c.UserID,
 		c.APIKeyID,
 		strings.TrimSpace(c.BatchID),
 		c.HoldAmount,
 		c.ActualAmount,
+		valueOrZero(c.MemberID),
+		strings.TrimSpace(c.MemberBudgetRequestID),
 	)
 	if payloadHash := strings.TrimSpace(c.RequestPayloadHash); payloadHash != "" {
 		raw += "|" + payloadHash

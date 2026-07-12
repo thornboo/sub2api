@@ -21,6 +21,14 @@ const (
 	FieldAPIKeyID = "api_key_id"
 	// FieldAccountID holds the string denoting the account_id field in the database.
 	FieldAccountID = "account_id"
+	// FieldGroupID holds the string denoting the group_id field in the database.
+	FieldGroupID = "group_id"
+	// FieldMemberID holds the string denoting the member_id field in the database.
+	FieldMemberID = "member_id"
+	// FieldMemberCodeSnapshot holds the string denoting the member_code_snapshot field in the database.
+	FieldMemberCodeSnapshot = "member_code_snapshot"
+	// FieldMemberNameSnapshot holds the string denoting the member_name_snapshot field in the database.
+	FieldMemberNameSnapshot = "member_name_snapshot"
 	// FieldProvider holds the string denoting the provider field in the database.
 	FieldProvider = "provider"
 	// FieldModel holds the string denoting the model field in the database.
@@ -57,6 +65,8 @@ const (
 	FieldCurrency = "currency"
 	// FieldHoldID holds the string denoting the hold_id field in the database.
 	FieldHoldID = "hold_id"
+	// FieldMemberBudgetRequestID holds the string denoting the member_budget_request_id field in the database.
+	FieldMemberBudgetRequestID = "member_budget_request_id"
 	// FieldIdempotencyKey holds the string denoting the idempotency_key field in the database.
 	FieldIdempotencyKey = "idempotency_key"
 	// FieldRequestHash holds the string denoting the request_hash field in the database.
@@ -104,6 +114,10 @@ var Columns = []string{
 	FieldUserID,
 	FieldAPIKeyID,
 	FieldAccountID,
+	FieldGroupID,
+	FieldMemberID,
+	FieldMemberCodeSnapshot,
+	FieldMemberNameSnapshot,
 	FieldProvider,
 	FieldModel,
 	FieldTaskName,
@@ -122,6 +136,7 @@ var Columns = []string{
 	FieldActualCost,
 	FieldCurrency,
 	FieldHoldID,
+	FieldMemberBudgetRequestID,
 	FieldIdempotencyKey,
 	FieldRequestHash,
 	FieldManifestHash,
@@ -155,6 +170,10 @@ func ValidColumn(column string) bool {
 var (
 	// BatchIDValidator is a validator for the "batch_id" field. It is called by the builders before save.
 	BatchIDValidator func(string) error
+	// MemberCodeSnapshotValidator is a validator for the "member_code_snapshot" field. It is called by the builders before save.
+	MemberCodeSnapshotValidator func(string) error
+	// MemberNameSnapshotValidator is a validator for the "member_name_snapshot" field. It is called by the builders before save.
+	MemberNameSnapshotValidator func(string) error
 	// ProviderValidator is a validator for the "provider" field. It is called by the builders before save.
 	ProviderValidator func(string) error
 	// ModelValidator is a validator for the "model" field. It is called by the builders before save.
@@ -191,6 +210,8 @@ var (
 	CurrencyValidator func(string) error
 	// HoldIDValidator is a validator for the "hold_id" field. It is called by the builders before save.
 	HoldIDValidator func(string) error
+	// MemberBudgetRequestIDValidator is a validator for the "member_budget_request_id" field. It is called by the builders before save.
+	MemberBudgetRequestIDValidator func(string) error
 	// IdempotencyKeyValidator is a validator for the "idempotency_key" field. It is called by the builders before save.
 	IdempotencyKeyValidator func(string) error
 	// RequestHashValidator is a validator for the "request_hash" field. It is called by the builders before save.
@@ -237,6 +258,26 @@ func ByAPIKeyID(opts ...sql.OrderTermOption) OrderOption {
 // ByAccountID orders the results by the account_id field.
 func ByAccountID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldAccountID, opts...).ToFunc()
+}
+
+// ByGroupID orders the results by the group_id field.
+func ByGroupID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldGroupID, opts...).ToFunc()
+}
+
+// ByMemberID orders the results by the member_id field.
+func ByMemberID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMemberID, opts...).ToFunc()
+}
+
+// ByMemberCodeSnapshot orders the results by the member_code_snapshot field.
+func ByMemberCodeSnapshot(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMemberCodeSnapshot, opts...).ToFunc()
+}
+
+// ByMemberNameSnapshot orders the results by the member_name_snapshot field.
+func ByMemberNameSnapshot(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMemberNameSnapshot, opts...).ToFunc()
 }
 
 // ByProvider orders the results by the provider field.
@@ -327,6 +368,11 @@ func ByCurrency(opts ...sql.OrderTermOption) OrderOption {
 // ByHoldID orders the results by the hold_id field.
 func ByHoldID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldHoldID, opts...).ToFunc()
+}
+
+// ByMemberBudgetRequestID orders the results by the member_budget_request_id field.
+func ByMemberBudgetRequestID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMemberBudgetRequestID, opts...).ToFunc()
 }
 
 // ByIdempotencyKey orders the results by the idempotency_key field.

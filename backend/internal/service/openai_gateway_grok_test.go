@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -454,8 +455,17 @@ func TestForwardGrokMediaVideoGenerationReturnsUsageAndResponseID(t *testing.T) 
 	}}
 	svc := &OpenAIGatewayService{httpUpstream: upstream}
 
-	result, err := svc.ForwardGrokMedia(context.Background(), c, account, GrokMediaEndpointVideosGenerations, "", body, "application/json")
+	recorderCalled := false
+	ctx := WithGrokMediaTaskRecorder(context.Background(), func(_ context.Context, upstreamRequestID string, accountID int64) error {
+		recorderCalled = true
+		require.Equal(t, "video-request-123", upstreamRequestID)
+		require.Equal(t, int64(63), accountID)
+		require.Empty(t, recorder.Body.String(), "task routing must persist before the response is committed")
+		return nil
+	})
+	result, err := svc.ForwardGrokMedia(ctx, c, account, GrokMediaEndpointVideosGenerations, "", body, "application/json")
 	require.NoError(t, err)
+	require.True(t, recorderCalled)
 	require.Equal(t, "https://xai.test/v1/videos/generations", upstream.lastReq.URL.String())
 	require.JSONEq(t, `{"model":"grok-imagine-video","prompt":"waves","resolution":"720p","duration":10}`, string(upstream.lastBody))
 	require.Equal(t, "video-request-123", result.ResponseID)
@@ -467,6 +477,22 @@ func TestForwardGrokMediaVideoGenerationReturnsUsageAndResponseID(t *testing.T) 
 	require.Equal(t, 1, result.VideoCount)
 	require.Equal(t, VideoBillingResolution720P, result.VideoResolution)
 	require.Equal(t, 10, result.VideoDurationSeconds)
+
+	blockedResponse := httptest.NewRecorder()
+	blockedContext, _ := gin.CreateTestContext(blockedResponse)
+	blockedContext.Request = httptest.NewRequest(http.MethodPost, "/v1/videos/generations", bytes.NewReader(body))
+	blockedContext.Request.Header.Set("Content-Type", "application/json")
+	blockedUpstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"request_id":"video-request-persist-failed"}`)),
+	}}
+	blockedService := &OpenAIGatewayService{httpUpstream: blockedUpstream}
+	persistErr := errors.New("task route persistence failed")
+	blockedCtx := WithGrokMediaTaskRecorder(context.Background(), func(context.Context, string, int64) error { return persistErr })
+	_, err = blockedService.ForwardGrokMedia(blockedCtx, blockedContext, account, GrokMediaEndpointVideosGenerations, "", body, "application/json")
+	require.ErrorIs(t, err, persistErr)
+	require.Empty(t, blockedResponse.Body.String(), "a task ID without durable routing identity must never reach the client")
 }
 
 func TestForwardGrokMediaVideoGenerationPreservesImageToVideoModel(t *testing.T) {

@@ -2108,6 +2108,29 @@ func HasAllowedUsersWith(preds ...predicate.User) predicate.Group {
 	})
 }
 
+// HasEnterpriseMembers applies the HasEdge predicate on the "enterprise_members" edge.
+func HasEnterpriseMembers() predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, true, EnterpriseMembersTable, EnterpriseMembersPrimaryKey...),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasEnterpriseMembersWith applies the HasEdge predicate on the "enterprise_members" edge with a given conditions (other predicates).
+func HasEnterpriseMembersWith(preds ...predicate.EnterpriseMember) predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := newEnterpriseMembersStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasAccountGroups applies the HasEdge predicate on the "account_groups" edge.
 func HasAccountGroups() predicate.Group {
 	return predicate.Group(func(s *sql.Selector) {
@@ -2146,6 +2169,29 @@ func HasUserAllowedGroups() predicate.Group {
 func HasUserAllowedGroupsWith(preds ...predicate.UserAllowedGroup) predicate.Group {
 	return predicate.Group(func(s *sql.Selector) {
 		step := newUserAllowedGroupsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasEnterpriseMemberGroupBindings applies the HasEdge predicate on the "enterprise_member_group_bindings" edge.
+func HasEnterpriseMemberGroupBindings() predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, true, EnterpriseMemberGroupBindingsTable, EnterpriseMemberGroupBindingsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasEnterpriseMemberGroupBindingsWith applies the HasEdge predicate on the "enterprise_member_group_bindings" edge with a given conditions (other predicates).
+func HasEnterpriseMemberGroupBindingsWith(preds ...predicate.EnterpriseMemberGroupBinding) predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := newEnterpriseMemberGroupBindingsStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

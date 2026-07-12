@@ -4,16 +4,18 @@ import "time"
 
 // APIKeyAuthSnapshot API Key 认证缓存快照（仅包含认证所需字段）
 type APIKeyAuthSnapshot struct {
-	Version     int                      `json:"version"`
-	APIKeyID    int64                    `json:"api_key_id"`
-	UserID      int64                    `json:"user_id"`
-	GroupID     *int64                   `json:"group_id,omitempty"`
-	Name        string                   `json:"name"`
-	Status      string                   `json:"status"`
-	IPWhitelist []string                 `json:"ip_whitelist,omitempty"`
-	IPBlacklist []string                 `json:"ip_blacklist,omitempty"`
-	User        APIKeyAuthUserSnapshot   `json:"user"`
-	Group       *APIKeyAuthGroupSnapshot `json:"group,omitempty"`
+	Version     int                       `json:"version"`
+	APIKeyID    int64                     `json:"api_key_id"`
+	UserID      int64                     `json:"user_id"`
+	GroupID     *int64                    `json:"group_id,omitempty"`
+	MemberID    *int64                    `json:"member_id,omitempty"`
+	Name        string                    `json:"name"`
+	Status      string                    `json:"status"`
+	IPWhitelist []string                  `json:"ip_whitelist,omitempty"`
+	IPBlacklist []string                  `json:"ip_blacklist,omitempty"`
+	User        APIKeyAuthUserSnapshot    `json:"user"`
+	Group       *APIKeyAuthGroupSnapshot  `json:"group,omitempty"`
+	Member      *APIKeyAuthMemberSnapshot `json:"member,omitempty"`
 
 	// Quota fields for API Key independent quota feature
 	Quota     float64 `json:"quota"`      // Quota limit in USD (0 = unlimited)
@@ -28,14 +30,33 @@ type APIKeyAuthSnapshot struct {
 	RateLimit7d float64 `json:"rate_limit_7d"`
 }
 
+// APIKeyAuthMemberSnapshot contains the authorization-relevant member state and
+// the enterprise owner's ordered group intent. Budget counters are intentionally
+// excluded because they require an atomic runtime check.
+type APIKeyAuthMemberSnapshot struct {
+	ID               int64                     `json:"id"`
+	EnterpriseUserID int64                     `json:"enterprise_user_id"`
+	MemberCode       string                    `json:"member_code"`
+	Name             string                    `json:"name"`
+	Status           string                    `json:"status"`
+	MonthlyLimitUSD  float64                   `json:"monthly_limit_usd"`
+	RateLimit5h      float64                   `json:"rate_limit_5h"`
+	RateLimit1d      float64                   `json:"rate_limit_1d"`
+	RateLimit7d      float64                   `json:"rate_limit_7d"`
+	Version          int64                     `json:"version"`
+	Groups           []APIKeyAuthGroupSnapshot `json:"groups"`
+}
+
 // APIKeyAuthUserSnapshot 用户快照
 type APIKeyAuthUserSnapshot struct {
-	ID            int64   `json:"id"`
-	Status        string  `json:"status"`
-	Role          string  `json:"role"`
-	Balance       float64 `json:"balance"`
-	Concurrency   int     `json:"concurrency"`
-	AllowedGroups []int64 `json:"allowed_groups,omitempty"`
+	ID                   int64      `json:"id"`
+	Status               string     `json:"status"`
+	Role                 string     `json:"role"`
+	AccountType          string     `json:"account_type"`
+	EnterpriseDisabledAt *time.Time `json:"enterprise_disabled_at,omitempty"`
+	Balance              float64    `json:"balance"`
+	Concurrency          int        `json:"concurrency"`
+	AllowedGroups        []int64    `json:"allowed_groups,omitempty"`
 
 	// Balance notification fields (required for CheckBalanceAfterDeduction)
 	Email                      string             `json:"email"`

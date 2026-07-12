@@ -134,7 +134,7 @@ func (m *groupAwareMockAccountRepo) ListSchedulableUngroupedByPlatforms(ctx cont
 func (m *groupAwareMockAccountRepo) ListSchedulableByGroupIDAndPlatform(ctx context.Context, groupID int64, platform string) ([]Account, error) {
 	var result []Account
 	for _, acc := range m.allAccounts {
-		if acc.Platform == platform && acc.IsSchedulable() && accountBelongsToGroup(acc, groupID) {
+		if acc.Platform == platform && acc.IsSchedulable() && accountBelongsToGroup(&acc, groupID) {
 			result = append(result, acc)
 		}
 	}
@@ -149,21 +149,11 @@ func (m *groupAwareMockAccountRepo) ListSchedulableByGroupIDAndPlatforms(ctx con
 	}
 	var result []Account
 	for _, acc := range m.allAccounts {
-		if platformSet[acc.Platform] && acc.IsSchedulable() && accountBelongsToGroup(acc, groupID) {
+		if platformSet[acc.Platform] && acc.IsSchedulable() && accountBelongsToGroup(&acc, groupID) {
 			result = append(result, acc)
 		}
 	}
 	return result, nil
-}
-
-// accountBelongsToGroup 检查账号是否属于指定分组
-func accountBelongsToGroup(acc Account, groupID int64) bool {
-	for _, ag := range acc.AccountGroups {
-		if ag.GroupID == groupID {
-			return true
-		}
-	}
-	return false
 }
 
 // Verify interface implementation

@@ -14,6 +14,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/enterprisemember"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
@@ -976,6 +977,21 @@ func (_u *GroupUpdate) AddAllowedUsers(v ...*User) *GroupUpdate {
 	return _u.AddAllowedUserIDs(ids...)
 }
 
+// AddEnterpriseMemberIDs adds the "enterprise_members" edge to the EnterpriseMember entity by IDs.
+func (_u *GroupUpdate) AddEnterpriseMemberIDs(ids ...int64) *GroupUpdate {
+	_u.mutation.AddEnterpriseMemberIDs(ids...)
+	return _u
+}
+
+// AddEnterpriseMembers adds the "enterprise_members" edges to the EnterpriseMember entity.
+func (_u *GroupUpdate) AddEnterpriseMembers(v ...*EnterpriseMember) *GroupUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddEnterpriseMemberIDs(ids...)
+}
+
 // Mutation returns the GroupMutation object of the builder.
 func (_u *GroupUpdate) Mutation() *GroupMutation {
 	return _u.mutation
@@ -1105,6 +1121,27 @@ func (_u *GroupUpdate) RemoveAllowedUsers(v ...*User) *GroupUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAllowedUserIDs(ids...)
+}
+
+// ClearEnterpriseMembers clears all "enterprise_members" edges to the EnterpriseMember entity.
+func (_u *GroupUpdate) ClearEnterpriseMembers() *GroupUpdate {
+	_u.mutation.ClearEnterpriseMembers()
+	return _u
+}
+
+// RemoveEnterpriseMemberIDs removes the "enterprise_members" edge to EnterpriseMember entities by IDs.
+func (_u *GroupUpdate) RemoveEnterpriseMemberIDs(ids ...int64) *GroupUpdate {
+	_u.mutation.RemoveEnterpriseMemberIDs(ids...)
+	return _u
+}
+
+// RemoveEnterpriseMembers removes "enterprise_members" edges to EnterpriseMember entities.
+func (_u *GroupUpdate) RemoveEnterpriseMembers(v ...*EnterpriseMember) *GroupUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveEnterpriseMemberIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -1735,6 +1772,63 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		createE := &UserAllowedGroupCreate{config: _u.config, mutation: newUserAllowedGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.EnterpriseMembersCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.EnterpriseMembersTable,
+			Columns: group.EnterpriseMembersPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		createE := &EnterpriseMemberGroupBindingCreate{config: _u.config, mutation: newEnterpriseMemberGroupBindingMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedEnterpriseMembersIDs(); len(nodes) > 0 && !_u.mutation.EnterpriseMembersCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.EnterpriseMembersTable,
+			Columns: group.EnterpriseMembersPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &EnterpriseMemberGroupBindingCreate{config: _u.config, mutation: newEnterpriseMemberGroupBindingMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.EnterpriseMembersIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.EnterpriseMembersTable,
+			Columns: group.EnterpriseMembersPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &EnterpriseMemberGroupBindingCreate{config: _u.config, mutation: newEnterpriseMemberGroupBindingMutation(_u.config, OpCreate)}
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields
@@ -2700,6 +2794,21 @@ func (_u *GroupUpdateOne) AddAllowedUsers(v ...*User) *GroupUpdateOne {
 	return _u.AddAllowedUserIDs(ids...)
 }
 
+// AddEnterpriseMemberIDs adds the "enterprise_members" edge to the EnterpriseMember entity by IDs.
+func (_u *GroupUpdateOne) AddEnterpriseMemberIDs(ids ...int64) *GroupUpdateOne {
+	_u.mutation.AddEnterpriseMemberIDs(ids...)
+	return _u
+}
+
+// AddEnterpriseMembers adds the "enterprise_members" edges to the EnterpriseMember entity.
+func (_u *GroupUpdateOne) AddEnterpriseMembers(v ...*EnterpriseMember) *GroupUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddEnterpriseMemberIDs(ids...)
+}
+
 // Mutation returns the GroupMutation object of the builder.
 func (_u *GroupUpdateOne) Mutation() *GroupMutation {
 	return _u.mutation
@@ -2829,6 +2938,27 @@ func (_u *GroupUpdateOne) RemoveAllowedUsers(v ...*User) *GroupUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAllowedUserIDs(ids...)
+}
+
+// ClearEnterpriseMembers clears all "enterprise_members" edges to the EnterpriseMember entity.
+func (_u *GroupUpdateOne) ClearEnterpriseMembers() *GroupUpdateOne {
+	_u.mutation.ClearEnterpriseMembers()
+	return _u
+}
+
+// RemoveEnterpriseMemberIDs removes the "enterprise_members" edge to EnterpriseMember entities by IDs.
+func (_u *GroupUpdateOne) RemoveEnterpriseMemberIDs(ids ...int64) *GroupUpdateOne {
+	_u.mutation.RemoveEnterpriseMemberIDs(ids...)
+	return _u
+}
+
+// RemoveEnterpriseMembers removes "enterprise_members" edges to EnterpriseMember entities.
+func (_u *GroupUpdateOne) RemoveEnterpriseMembers(v ...*EnterpriseMember) *GroupUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveEnterpriseMemberIDs(ids...)
 }
 
 // Where appends a list predicates to the GroupUpdate builder.
@@ -3489,6 +3619,63 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		createE := &UserAllowedGroupCreate{config: _u.config, mutation: newUserAllowedGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.EnterpriseMembersCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.EnterpriseMembersTable,
+			Columns: group.EnterpriseMembersPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		createE := &EnterpriseMemberGroupBindingCreate{config: _u.config, mutation: newEnterpriseMemberGroupBindingMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedEnterpriseMembersIDs(); len(nodes) > 0 && !_u.mutation.EnterpriseMembersCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.EnterpriseMembersTable,
+			Columns: group.EnterpriseMembersPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &EnterpriseMemberGroupBindingCreate{config: _u.config, mutation: newEnterpriseMemberGroupBindingMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.EnterpriseMembersIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.EnterpriseMembersTable,
+			Columns: group.EnterpriseMembersPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &EnterpriseMemberGroupBindingCreate{config: _u.config, mutation: newEnterpriseMemberGroupBindingMutation(_u.config, OpCreate)}
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields

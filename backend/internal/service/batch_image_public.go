@@ -75,9 +75,12 @@ type BatchImageReferenceInput struct {
 }
 
 type BatchImageOwner struct {
-	UserID   int64
-	APIKeyID int64
-	GroupID  *int64
+	UserID     int64
+	APIKeyID   int64
+	GroupID    *int64
+	MemberID   *int64
+	MemberCode string
+	MemberName string
 }
 
 type BatchImagePublicService struct {
@@ -261,6 +264,10 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		UserID:                  owner.UserID,
 		APIKeyID:                &apiKeyID,
 		AccountID:               &accountID,
+		GroupID:                 owner.GroupID,
+		MemberID:                owner.MemberID,
+		MemberCodeSnapshot:      batchImageOptionalStringPtr(owner.MemberCode),
+		MemberNameSnapshot:      batchImageOptionalStringPtr(owner.MemberName),
 		Provider:                provider.Name(),
 		Model:                   normalized.Model,
 		TaskName:                normalized.TaskName,
@@ -279,6 +286,7 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		PricingSnapshotVersion:  1,
 		Currency:                "USD",
 		HoldID:                  &holdID,
+		MemberBudgetRequestID:   batchImageMemberBudgetRequestID(owner, batchID),
 		IdempotencyKey:          batchImageOptionalStringPtr(idempotencyKey),
 		RequestHash:             batchImageStringPtr(requestHash),
 	})
@@ -397,6 +405,14 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		return nil, err
 	}
 	return BatchImageJobToPublic(created), nil
+}
+
+func batchImageMemberBudgetRequestID(owner BatchImageOwner, batchID string) *string {
+	if owner.MemberID == nil || *owner.MemberID <= 0 {
+		return nil
+	}
+	requestID := EnterpriseMemberBudgetRequestID(owner.APIKeyID, BatchImageCaptureRequestID(batchID))
+	return &requestID
 }
 
 func (s *BatchImagePublicService) releaseFailedSubmitHold(ctx context.Context, job *BatchImageJob, requestHash string) error {

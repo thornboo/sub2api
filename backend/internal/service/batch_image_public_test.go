@@ -27,8 +27,11 @@ func TestBatchImagePublicService_Submit(t *testing.T) {
 
 	t.Run("accepts valid request stores refs and enqueues once", func(t *testing.T) {
 		svc, repo, queue, gemini, _ := newTestBatchImagePublicService(true)
+		groupID := int64(7)
+		memberID := int64(88)
+		owner := BatchImageOwner{UserID: 11, APIKeyID: 22, GroupID: &groupID, MemberID: &memberID, MemberCode: "member-88", MemberName: "Member 88"}
 
-		got, err := svc.Submit(ctx, testBatchImageOwner(), validBatchImageSubmitRequest(), "")
+		got, err := svc.Submit(ctx, owner, validBatchImageSubmitRequest(), "")
 		require.NoError(t, err)
 		require.Equal(t, "image.batch", got.Object)
 		require.Equal(t, "queued", got.Status)
@@ -42,6 +45,9 @@ func TestBatchImagePublicService_Submit(t *testing.T) {
 		require.Len(t, billing.reserves, 1)
 		require.Equal(t, BatchImageHoldRequestID(got.ID), billing.reserves[0].RequestID)
 		require.InDelta(t, 0.3, billing.reserves[0].HoldAmount, 1e-12)
+		require.NotNil(t, billing.reserves[0].MemberID)
+		require.Equal(t, int64(88), *billing.reserves[0].MemberID)
+		require.Equal(t, EnterpriseMemberBudgetRequestID(22, BatchImageCaptureRequestID(got.ID)), billing.reserves[0].MemberBudgetRequestID)
 		require.Empty(t, billing.releases)
 		authCache := svc.AuthCache.(*fakeBatchImageAuthCacheInvalidator)
 		require.Equal(t, []int64{11}, authCache.userIDs)
@@ -53,6 +59,10 @@ func TestBatchImagePublicService_Submit(t *testing.T) {
 		require.Equal(t, "files/gemini_api/output", batchImageDerefString(job.ProviderOutputRef))
 		require.NotNil(t, job.AccountID)
 		require.Equal(t, int64(202), *job.AccountID)
+		require.Equal(t, int64(7), *job.GroupID)
+		require.Equal(t, int64(88), *job.MemberID)
+		require.Equal(t, "member-88", batchImageDerefString(job.MemberCodeSnapshot))
+		require.Equal(t, "Member 88", batchImageDerefString(job.MemberNameSnapshot))
 		require.Equal(t, 1, job.PricingSnapshotVersion)
 		require.InDelta(t, 0.25, job.BaseUnitPrice, 1e-12)
 		require.InDelta(t, 1.0, job.GroupRateMultiplier, 1e-12)
@@ -717,7 +727,10 @@ func newTestBatchImagePublicService(enabled bool) (*BatchImagePublicService, *fa
 	svc := &BatchImagePublicService{
 		Repo:        repo,
 		AccountRepo: &publicBatchImageAccountRepo{accounts: []Account{testBatchImageAccount(101, AccountTypeAPIKey), testBatchImageAccount(202, AccountTypeServiceAccount)}},
-		Queue:       queue,
+		GroupRepo: &publicBatchImageGroupRepo{groups: map[int64]*Group{
+			7: {ID: 7, Platform: PlatformGemini, Status: StatusActive, Hydrated: true, RateMultiplier: 1, AllowImageGeneration: true, AllowBatchImageGeneration: true, BatchImageDiscountMultiplier: 0.5, BatchImageHoldMultiplier: 0.6},
+		}},
+		Queue: queue,
 		ProviderRegistry: NewBatchImageProviderRegistry(
 			gemini,
 			vertex,

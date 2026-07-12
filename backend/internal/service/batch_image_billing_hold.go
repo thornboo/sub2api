@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"go.uber.org/zap"
@@ -45,13 +46,16 @@ func buildBatchImageHoldCommand(job *BatchImageJob, requestID string, actualAmou
 		actualAmount = 0
 	}
 	return &BatchImageBalanceHoldCommand{
-		RequestID:          requestID,
-		APIKeyID:           *job.APIKeyID,
-		UserID:             job.UserID,
-		BatchID:            job.BatchID,
-		HoldAmount:         holdAmount,
-		ActualAmount:       actualAmount,
-		RequestPayloadHash: strings.TrimSpace(payloadHash),
+		RequestID:             requestID,
+		APIKeyID:              *job.APIKeyID,
+		UserID:                job.UserID,
+		BatchID:               job.BatchID,
+		HoldAmount:            holdAmount,
+		ActualAmount:          actualAmount,
+		MemberID:              job.MemberID,
+		MemberBudgetRequestID: batchImageDerefString(job.MemberBudgetRequestID),
+		MemberBudgetExpiresAt: time.Now().Add(30 * 24 * time.Hour),
+		RequestPayloadHash:    strings.TrimSpace(payloadHash),
 	}, nil
 }
 
@@ -69,6 +73,9 @@ func reserveBatchImageBalanceHold(ctx context.Context, repo UsageBillingReposito
 	if _, err := repo.ReserveBatchImageBalance(ctx, cmd); err != nil {
 		if errors.Is(err, ErrBatchImageInsufficientBalance) {
 			return ErrBatchImageInsufficientBalance
+		}
+		if IsEnterpriseMemberBudgetExceeded(err) || errors.Is(err, ErrEnterpriseMemberBudgetConflict) {
+			return err
 		}
 		return ErrBatchImageBillingHoldFailed.WithCause(err)
 	}

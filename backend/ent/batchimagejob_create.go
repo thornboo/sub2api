@@ -62,6 +62,62 @@ func (_c *BatchImageJobCreate) SetNillableAccountID(v *int64) *BatchImageJobCrea
 	return _c
 }
 
+// SetGroupID sets the "group_id" field.
+func (_c *BatchImageJobCreate) SetGroupID(v int64) *BatchImageJobCreate {
+	_c.mutation.SetGroupID(v)
+	return _c
+}
+
+// SetNillableGroupID sets the "group_id" field if the given value is not nil.
+func (_c *BatchImageJobCreate) SetNillableGroupID(v *int64) *BatchImageJobCreate {
+	if v != nil {
+		_c.SetGroupID(*v)
+	}
+	return _c
+}
+
+// SetMemberID sets the "member_id" field.
+func (_c *BatchImageJobCreate) SetMemberID(v int64) *BatchImageJobCreate {
+	_c.mutation.SetMemberID(v)
+	return _c
+}
+
+// SetNillableMemberID sets the "member_id" field if the given value is not nil.
+func (_c *BatchImageJobCreate) SetNillableMemberID(v *int64) *BatchImageJobCreate {
+	if v != nil {
+		_c.SetMemberID(*v)
+	}
+	return _c
+}
+
+// SetMemberCodeSnapshot sets the "member_code_snapshot" field.
+func (_c *BatchImageJobCreate) SetMemberCodeSnapshot(v string) *BatchImageJobCreate {
+	_c.mutation.SetMemberCodeSnapshot(v)
+	return _c
+}
+
+// SetNillableMemberCodeSnapshot sets the "member_code_snapshot" field if the given value is not nil.
+func (_c *BatchImageJobCreate) SetNillableMemberCodeSnapshot(v *string) *BatchImageJobCreate {
+	if v != nil {
+		_c.SetMemberCodeSnapshot(*v)
+	}
+	return _c
+}
+
+// SetMemberNameSnapshot sets the "member_name_snapshot" field.
+func (_c *BatchImageJobCreate) SetMemberNameSnapshot(v string) *BatchImageJobCreate {
+	_c.mutation.SetMemberNameSnapshot(v)
+	return _c
+}
+
+// SetNillableMemberNameSnapshot sets the "member_name_snapshot" field if the given value is not nil.
+func (_c *BatchImageJobCreate) SetNillableMemberNameSnapshot(v *string) *BatchImageJobCreate {
+	if v != nil {
+		_c.SetMemberNameSnapshot(*v)
+	}
+	return _c
+}
+
 // SetProvider sets the "provider" field.
 func (_c *BatchImageJobCreate) SetProvider(v string) *BatchImageJobCreate {
 	_c.mutation.SetProvider(v)
@@ -286,6 +342,20 @@ func (_c *BatchImageJobCreate) SetHoldID(v string) *BatchImageJobCreate {
 func (_c *BatchImageJobCreate) SetNillableHoldID(v *string) *BatchImageJobCreate {
 	if v != nil {
 		_c.SetHoldID(*v)
+	}
+	return _c
+}
+
+// SetMemberBudgetRequestID sets the "member_budget_request_id" field.
+func (_c *BatchImageJobCreate) SetMemberBudgetRequestID(v string) *BatchImageJobCreate {
+	_c.mutation.SetMemberBudgetRequestID(v)
+	return _c
+}
+
+// SetNillableMemberBudgetRequestID sets the "member_budget_request_id" field if the given value is not nil.
+func (_c *BatchImageJobCreate) SetNillableMemberBudgetRequestID(v *string) *BatchImageJobCreate {
+	if v != nil {
+		_c.SetMemberBudgetRequestID(*v)
 	}
 	return _c
 }
@@ -636,6 +706,16 @@ func (_c *BatchImageJobCreate) check() error {
 	if _, ok := _c.mutation.UserID(); !ok {
 		return &ValidationError{Name: "user_id", err: errors.New(`ent: missing required field "BatchImageJob.user_id"`)}
 	}
+	if v, ok := _c.mutation.MemberCodeSnapshot(); ok {
+		if err := batchimagejob.MemberCodeSnapshotValidator(v); err != nil {
+			return &ValidationError{Name: "member_code_snapshot", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.member_code_snapshot": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.MemberNameSnapshot(); ok {
+		if err := batchimagejob.MemberNameSnapshotValidator(v); err != nil {
+			return &ValidationError{Name: "member_name_snapshot", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.member_name_snapshot": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.Provider(); !ok {
 		return &ValidationError{Name: "provider", err: errors.New(`ent: missing required field "BatchImageJob.provider"`)}
 	}
@@ -721,6 +801,11 @@ func (_c *BatchImageJobCreate) check() error {
 			return &ValidationError{Name: "hold_id", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.hold_id": %w`, err)}
 		}
 	}
+	if v, ok := _c.mutation.MemberBudgetRequestID(); ok {
+		if err := batchimagejob.MemberBudgetRequestIDValidator(v); err != nil {
+			return &ValidationError{Name: "member_budget_request_id", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.member_budget_request_id": %w`, err)}
+		}
+	}
 	if v, ok := _c.mutation.IdempotencyKey(); ok {
 		if err := batchimagejob.IdempotencyKeyValidator(v); err != nil {
 			return &ValidationError{Name: "idempotency_key", err: fmt.Errorf(`ent: validator failed for field "BatchImageJob.idempotency_key": %w`, err)}
@@ -796,6 +881,22 @@ func (_c *BatchImageJobCreate) createSpec() (*BatchImageJob, *sqlgraph.CreateSpe
 		_spec.SetField(batchimagejob.FieldAccountID, field.TypeInt64, value)
 		_node.AccountID = &value
 	}
+	if value, ok := _c.mutation.GroupID(); ok {
+		_spec.SetField(batchimagejob.FieldGroupID, field.TypeInt64, value)
+		_node.GroupID = &value
+	}
+	if value, ok := _c.mutation.MemberID(); ok {
+		_spec.SetField(batchimagejob.FieldMemberID, field.TypeInt64, value)
+		_node.MemberID = &value
+	}
+	if value, ok := _c.mutation.MemberCodeSnapshot(); ok {
+		_spec.SetField(batchimagejob.FieldMemberCodeSnapshot, field.TypeString, value)
+		_node.MemberCodeSnapshot = &value
+	}
+	if value, ok := _c.mutation.MemberNameSnapshot(); ok {
+		_spec.SetField(batchimagejob.FieldMemberNameSnapshot, field.TypeString, value)
+		_node.MemberNameSnapshot = &value
+	}
 	if value, ok := _c.mutation.Provider(); ok {
 		_spec.SetField(batchimagejob.FieldProvider, field.TypeString, value)
 		_node.Provider = value
@@ -867,6 +968,10 @@ func (_c *BatchImageJobCreate) createSpec() (*BatchImageJob, *sqlgraph.CreateSpe
 	if value, ok := _c.mutation.HoldID(); ok {
 		_spec.SetField(batchimagejob.FieldHoldID, field.TypeString, value)
 		_node.HoldID = &value
+	}
+	if value, ok := _c.mutation.MemberBudgetRequestID(); ok {
+		_spec.SetField(batchimagejob.FieldMemberBudgetRequestID, field.TypeString, value)
+		_node.MemberBudgetRequestID = &value
 	}
 	if value, ok := _c.mutation.IdempotencyKey(); ok {
 		_spec.SetField(batchimagejob.FieldIdempotencyKey, field.TypeString, value)
@@ -1055,6 +1160,90 @@ func (u *BatchImageJobUpsert) AddAccountID(v int64) *BatchImageJobUpsert {
 // ClearAccountID clears the value of the "account_id" field.
 func (u *BatchImageJobUpsert) ClearAccountID() *BatchImageJobUpsert {
 	u.SetNull(batchimagejob.FieldAccountID)
+	return u
+}
+
+// SetGroupID sets the "group_id" field.
+func (u *BatchImageJobUpsert) SetGroupID(v int64) *BatchImageJobUpsert {
+	u.Set(batchimagejob.FieldGroupID, v)
+	return u
+}
+
+// UpdateGroupID sets the "group_id" field to the value that was provided on create.
+func (u *BatchImageJobUpsert) UpdateGroupID() *BatchImageJobUpsert {
+	u.SetExcluded(batchimagejob.FieldGroupID)
+	return u
+}
+
+// AddGroupID adds v to the "group_id" field.
+func (u *BatchImageJobUpsert) AddGroupID(v int64) *BatchImageJobUpsert {
+	u.Add(batchimagejob.FieldGroupID, v)
+	return u
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (u *BatchImageJobUpsert) ClearGroupID() *BatchImageJobUpsert {
+	u.SetNull(batchimagejob.FieldGroupID)
+	return u
+}
+
+// SetMemberID sets the "member_id" field.
+func (u *BatchImageJobUpsert) SetMemberID(v int64) *BatchImageJobUpsert {
+	u.Set(batchimagejob.FieldMemberID, v)
+	return u
+}
+
+// UpdateMemberID sets the "member_id" field to the value that was provided on create.
+func (u *BatchImageJobUpsert) UpdateMemberID() *BatchImageJobUpsert {
+	u.SetExcluded(batchimagejob.FieldMemberID)
+	return u
+}
+
+// AddMemberID adds v to the "member_id" field.
+func (u *BatchImageJobUpsert) AddMemberID(v int64) *BatchImageJobUpsert {
+	u.Add(batchimagejob.FieldMemberID, v)
+	return u
+}
+
+// ClearMemberID clears the value of the "member_id" field.
+func (u *BatchImageJobUpsert) ClearMemberID() *BatchImageJobUpsert {
+	u.SetNull(batchimagejob.FieldMemberID)
+	return u
+}
+
+// SetMemberCodeSnapshot sets the "member_code_snapshot" field.
+func (u *BatchImageJobUpsert) SetMemberCodeSnapshot(v string) *BatchImageJobUpsert {
+	u.Set(batchimagejob.FieldMemberCodeSnapshot, v)
+	return u
+}
+
+// UpdateMemberCodeSnapshot sets the "member_code_snapshot" field to the value that was provided on create.
+func (u *BatchImageJobUpsert) UpdateMemberCodeSnapshot() *BatchImageJobUpsert {
+	u.SetExcluded(batchimagejob.FieldMemberCodeSnapshot)
+	return u
+}
+
+// ClearMemberCodeSnapshot clears the value of the "member_code_snapshot" field.
+func (u *BatchImageJobUpsert) ClearMemberCodeSnapshot() *BatchImageJobUpsert {
+	u.SetNull(batchimagejob.FieldMemberCodeSnapshot)
+	return u
+}
+
+// SetMemberNameSnapshot sets the "member_name_snapshot" field.
+func (u *BatchImageJobUpsert) SetMemberNameSnapshot(v string) *BatchImageJobUpsert {
+	u.Set(batchimagejob.FieldMemberNameSnapshot, v)
+	return u
+}
+
+// UpdateMemberNameSnapshot sets the "member_name_snapshot" field to the value that was provided on create.
+func (u *BatchImageJobUpsert) UpdateMemberNameSnapshot() *BatchImageJobUpsert {
+	u.SetExcluded(batchimagejob.FieldMemberNameSnapshot)
+	return u
+}
+
+// ClearMemberNameSnapshot clears the value of the "member_name_snapshot" field.
+func (u *BatchImageJobUpsert) ClearMemberNameSnapshot() *BatchImageJobUpsert {
+	u.SetNull(batchimagejob.FieldMemberNameSnapshot)
 	return u
 }
 
@@ -1361,6 +1550,24 @@ func (u *BatchImageJobUpsert) UpdateHoldID() *BatchImageJobUpsert {
 // ClearHoldID clears the value of the "hold_id" field.
 func (u *BatchImageJobUpsert) ClearHoldID() *BatchImageJobUpsert {
 	u.SetNull(batchimagejob.FieldHoldID)
+	return u
+}
+
+// SetMemberBudgetRequestID sets the "member_budget_request_id" field.
+func (u *BatchImageJobUpsert) SetMemberBudgetRequestID(v string) *BatchImageJobUpsert {
+	u.Set(batchimagejob.FieldMemberBudgetRequestID, v)
+	return u
+}
+
+// UpdateMemberBudgetRequestID sets the "member_budget_request_id" field to the value that was provided on create.
+func (u *BatchImageJobUpsert) UpdateMemberBudgetRequestID() *BatchImageJobUpsert {
+	u.SetExcluded(batchimagejob.FieldMemberBudgetRequestID)
+	return u
+}
+
+// ClearMemberBudgetRequestID clears the value of the "member_budget_request_id" field.
+func (u *BatchImageJobUpsert) ClearMemberBudgetRequestID() *BatchImageJobUpsert {
+	u.SetNull(batchimagejob.FieldMemberBudgetRequestID)
 	return u
 }
 
@@ -1789,6 +1996,104 @@ func (u *BatchImageJobUpsertOne) ClearAccountID() *BatchImageJobUpsertOne {
 	})
 }
 
+// SetGroupID sets the "group_id" field.
+func (u *BatchImageJobUpsertOne) SetGroupID(v int64) *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetGroupID(v)
+	})
+}
+
+// AddGroupID adds v to the "group_id" field.
+func (u *BatchImageJobUpsertOne) AddGroupID(v int64) *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.AddGroupID(v)
+	})
+}
+
+// UpdateGroupID sets the "group_id" field to the value that was provided on create.
+func (u *BatchImageJobUpsertOne) UpdateGroupID() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateGroupID()
+	})
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (u *BatchImageJobUpsertOne) ClearGroupID() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearGroupID()
+	})
+}
+
+// SetMemberID sets the "member_id" field.
+func (u *BatchImageJobUpsertOne) SetMemberID(v int64) *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetMemberID(v)
+	})
+}
+
+// AddMemberID adds v to the "member_id" field.
+func (u *BatchImageJobUpsertOne) AddMemberID(v int64) *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.AddMemberID(v)
+	})
+}
+
+// UpdateMemberID sets the "member_id" field to the value that was provided on create.
+func (u *BatchImageJobUpsertOne) UpdateMemberID() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateMemberID()
+	})
+}
+
+// ClearMemberID clears the value of the "member_id" field.
+func (u *BatchImageJobUpsertOne) ClearMemberID() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearMemberID()
+	})
+}
+
+// SetMemberCodeSnapshot sets the "member_code_snapshot" field.
+func (u *BatchImageJobUpsertOne) SetMemberCodeSnapshot(v string) *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetMemberCodeSnapshot(v)
+	})
+}
+
+// UpdateMemberCodeSnapshot sets the "member_code_snapshot" field to the value that was provided on create.
+func (u *BatchImageJobUpsertOne) UpdateMemberCodeSnapshot() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateMemberCodeSnapshot()
+	})
+}
+
+// ClearMemberCodeSnapshot clears the value of the "member_code_snapshot" field.
+func (u *BatchImageJobUpsertOne) ClearMemberCodeSnapshot() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearMemberCodeSnapshot()
+	})
+}
+
+// SetMemberNameSnapshot sets the "member_name_snapshot" field.
+func (u *BatchImageJobUpsertOne) SetMemberNameSnapshot(v string) *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetMemberNameSnapshot(v)
+	})
+}
+
+// UpdateMemberNameSnapshot sets the "member_name_snapshot" field to the value that was provided on create.
+func (u *BatchImageJobUpsertOne) UpdateMemberNameSnapshot() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateMemberNameSnapshot()
+	})
+}
+
+// ClearMemberNameSnapshot clears the value of the "member_name_snapshot" field.
+func (u *BatchImageJobUpsertOne) ClearMemberNameSnapshot() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearMemberNameSnapshot()
+	})
+}
+
 // SetProvider sets the "provider" field.
 func (u *BatchImageJobUpsertOne) SetProvider(v string) *BatchImageJobUpsertOne {
 	return u.Update(func(s *BatchImageJobUpsert) {
@@ -2143,6 +2448,27 @@ func (u *BatchImageJobUpsertOne) UpdateHoldID() *BatchImageJobUpsertOne {
 func (u *BatchImageJobUpsertOne) ClearHoldID() *BatchImageJobUpsertOne {
 	return u.Update(func(s *BatchImageJobUpsert) {
 		s.ClearHoldID()
+	})
+}
+
+// SetMemberBudgetRequestID sets the "member_budget_request_id" field.
+func (u *BatchImageJobUpsertOne) SetMemberBudgetRequestID(v string) *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetMemberBudgetRequestID(v)
+	})
+}
+
+// UpdateMemberBudgetRequestID sets the "member_budget_request_id" field to the value that was provided on create.
+func (u *BatchImageJobUpsertOne) UpdateMemberBudgetRequestID() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateMemberBudgetRequestID()
+	})
+}
+
+// ClearMemberBudgetRequestID clears the value of the "member_budget_request_id" field.
+func (u *BatchImageJobUpsertOne) ClearMemberBudgetRequestID() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearMemberBudgetRequestID()
 	})
 }
 
@@ -2787,6 +3113,104 @@ func (u *BatchImageJobUpsertBulk) ClearAccountID() *BatchImageJobUpsertBulk {
 	})
 }
 
+// SetGroupID sets the "group_id" field.
+func (u *BatchImageJobUpsertBulk) SetGroupID(v int64) *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetGroupID(v)
+	})
+}
+
+// AddGroupID adds v to the "group_id" field.
+func (u *BatchImageJobUpsertBulk) AddGroupID(v int64) *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.AddGroupID(v)
+	})
+}
+
+// UpdateGroupID sets the "group_id" field to the value that was provided on create.
+func (u *BatchImageJobUpsertBulk) UpdateGroupID() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateGroupID()
+	})
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (u *BatchImageJobUpsertBulk) ClearGroupID() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearGroupID()
+	})
+}
+
+// SetMemberID sets the "member_id" field.
+func (u *BatchImageJobUpsertBulk) SetMemberID(v int64) *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetMemberID(v)
+	})
+}
+
+// AddMemberID adds v to the "member_id" field.
+func (u *BatchImageJobUpsertBulk) AddMemberID(v int64) *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.AddMemberID(v)
+	})
+}
+
+// UpdateMemberID sets the "member_id" field to the value that was provided on create.
+func (u *BatchImageJobUpsertBulk) UpdateMemberID() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateMemberID()
+	})
+}
+
+// ClearMemberID clears the value of the "member_id" field.
+func (u *BatchImageJobUpsertBulk) ClearMemberID() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearMemberID()
+	})
+}
+
+// SetMemberCodeSnapshot sets the "member_code_snapshot" field.
+func (u *BatchImageJobUpsertBulk) SetMemberCodeSnapshot(v string) *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetMemberCodeSnapshot(v)
+	})
+}
+
+// UpdateMemberCodeSnapshot sets the "member_code_snapshot" field to the value that was provided on create.
+func (u *BatchImageJobUpsertBulk) UpdateMemberCodeSnapshot() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateMemberCodeSnapshot()
+	})
+}
+
+// ClearMemberCodeSnapshot clears the value of the "member_code_snapshot" field.
+func (u *BatchImageJobUpsertBulk) ClearMemberCodeSnapshot() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearMemberCodeSnapshot()
+	})
+}
+
+// SetMemberNameSnapshot sets the "member_name_snapshot" field.
+func (u *BatchImageJobUpsertBulk) SetMemberNameSnapshot(v string) *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetMemberNameSnapshot(v)
+	})
+}
+
+// UpdateMemberNameSnapshot sets the "member_name_snapshot" field to the value that was provided on create.
+func (u *BatchImageJobUpsertBulk) UpdateMemberNameSnapshot() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateMemberNameSnapshot()
+	})
+}
+
+// ClearMemberNameSnapshot clears the value of the "member_name_snapshot" field.
+func (u *BatchImageJobUpsertBulk) ClearMemberNameSnapshot() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearMemberNameSnapshot()
+	})
+}
+
 // SetProvider sets the "provider" field.
 func (u *BatchImageJobUpsertBulk) SetProvider(v string) *BatchImageJobUpsertBulk {
 	return u.Update(func(s *BatchImageJobUpsert) {
@@ -3141,6 +3565,27 @@ func (u *BatchImageJobUpsertBulk) UpdateHoldID() *BatchImageJobUpsertBulk {
 func (u *BatchImageJobUpsertBulk) ClearHoldID() *BatchImageJobUpsertBulk {
 	return u.Update(func(s *BatchImageJobUpsert) {
 		s.ClearHoldID()
+	})
+}
+
+// SetMemberBudgetRequestID sets the "member_budget_request_id" field.
+func (u *BatchImageJobUpsertBulk) SetMemberBudgetRequestID(v string) *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetMemberBudgetRequestID(v)
+	})
+}
+
+// UpdateMemberBudgetRequestID sets the "member_budget_request_id" field to the value that was provided on create.
+func (u *BatchImageJobUpsertBulk) UpdateMemberBudgetRequestID() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateMemberBudgetRequestID()
+	})
+}
+
+// ClearMemberBudgetRequestID clears the value of the "member_budget_request_id" field.
+func (u *BatchImageJobUpsertBulk) ClearMemberBudgetRequestID() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearMemberBudgetRequestID()
 	})
 }
 

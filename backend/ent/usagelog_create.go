@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/enterprisemember"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
@@ -165,6 +166,48 @@ func (_c *UsageLogCreate) SetSubscriptionID(v int64) *UsageLogCreate {
 func (_c *UsageLogCreate) SetNillableSubscriptionID(v *int64) *UsageLogCreate {
 	if v != nil {
 		_c.SetSubscriptionID(*v)
+	}
+	return _c
+}
+
+// SetMemberID sets the "member_id" field.
+func (_c *UsageLogCreate) SetMemberID(v int64) *UsageLogCreate {
+	_c.mutation.SetMemberID(v)
+	return _c
+}
+
+// SetNillableMemberID sets the "member_id" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableMemberID(v *int64) *UsageLogCreate {
+	if v != nil {
+		_c.SetMemberID(*v)
+	}
+	return _c
+}
+
+// SetMemberCodeSnapshot sets the "member_code_snapshot" field.
+func (_c *UsageLogCreate) SetMemberCodeSnapshot(v string) *UsageLogCreate {
+	_c.mutation.SetMemberCodeSnapshot(v)
+	return _c
+}
+
+// SetNillableMemberCodeSnapshot sets the "member_code_snapshot" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableMemberCodeSnapshot(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetMemberCodeSnapshot(*v)
+	}
+	return _c
+}
+
+// SetMemberNameSnapshot sets the "member_name_snapshot" field.
+func (_c *UsageLogCreate) SetMemberNameSnapshot(v string) *UsageLogCreate {
+	_c.mutation.SetMemberNameSnapshot(v)
+	return _c
+}
+
+// SetNillableMemberNameSnapshot sets the "member_name_snapshot" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableMemberNameSnapshot(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetMemberNameSnapshot(*v)
 	}
 	return _c
 }
@@ -620,6 +663,11 @@ func (_c *UsageLogCreate) SetSubscription(v *UserSubscription) *UsageLogCreate {
 	return _c.SetSubscriptionID(v.ID)
 }
 
+// SetMember sets the "member" edge to the EnterpriseMember entity.
+func (_c *UsageLogCreate) SetMember(v *EnterpriseMember) *UsageLogCreate {
+	return _c.SetMemberID(v.ID)
+}
+
 // Mutation returns the UsageLogMutation object of the builder.
 func (_c *UsageLogCreate) Mutation() *UsageLogMutation {
 	return _c.mutation
@@ -785,6 +833,16 @@ func (_c *UsageLogCreate) check() error {
 			return &ValidationError{Name: "billing_mode", err: fmt.Errorf(`ent: validator failed for field "UsageLog.billing_mode": %w`, err)}
 		}
 	}
+	if v, ok := _c.mutation.MemberCodeSnapshot(); ok {
+		if err := usagelog.MemberCodeSnapshotValidator(v); err != nil {
+			return &ValidationError{Name: "member_code_snapshot", err: fmt.Errorf(`ent: validator failed for field "UsageLog.member_code_snapshot": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.MemberNameSnapshot(); ok {
+		if err := usagelog.MemberNameSnapshotValidator(v); err != nil {
+			return &ValidationError{Name: "member_name_snapshot", err: fmt.Errorf(`ent: validator failed for field "UsageLog.member_name_snapshot": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.InputTokens(); !ok {
 		return &ValidationError{Name: "input_tokens", err: errors.New(`ent: missing required field "UsageLog.input_tokens"`)}
 	}
@@ -944,6 +1002,14 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.BillingMode(); ok {
 		_spec.SetField(usagelog.FieldBillingMode, field.TypeString, value)
 		_node.BillingMode = &value
+	}
+	if value, ok := _c.mutation.MemberCodeSnapshot(); ok {
+		_spec.SetField(usagelog.FieldMemberCodeSnapshot, field.TypeString, value)
+		_node.MemberCodeSnapshot = &value
+	}
+	if value, ok := _c.mutation.MemberNameSnapshot(); ok {
+		_spec.SetField(usagelog.FieldMemberNameSnapshot, field.TypeString, value)
+		_node.MemberNameSnapshot = &value
 	}
 	if value, ok := _c.mutation.InputTokens(); ok {
 		_spec.SetField(usagelog.FieldInputTokens, field.TypeInt, value)
@@ -1152,6 +1218,23 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_node.SubscriptionID = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.MemberIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usagelog.MemberTable,
+			Columns: []string{usagelog.MemberColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.MemberID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec
@@ -1413,6 +1496,60 @@ func (u *UsageLogUpsert) UpdateSubscriptionID() *UsageLogUpsert {
 // ClearSubscriptionID clears the value of the "subscription_id" field.
 func (u *UsageLogUpsert) ClearSubscriptionID() *UsageLogUpsert {
 	u.SetNull(usagelog.FieldSubscriptionID)
+	return u
+}
+
+// SetMemberID sets the "member_id" field.
+func (u *UsageLogUpsert) SetMemberID(v int64) *UsageLogUpsert {
+	u.Set(usagelog.FieldMemberID, v)
+	return u
+}
+
+// UpdateMemberID sets the "member_id" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateMemberID() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldMemberID)
+	return u
+}
+
+// ClearMemberID clears the value of the "member_id" field.
+func (u *UsageLogUpsert) ClearMemberID() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldMemberID)
+	return u
+}
+
+// SetMemberCodeSnapshot sets the "member_code_snapshot" field.
+func (u *UsageLogUpsert) SetMemberCodeSnapshot(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldMemberCodeSnapshot, v)
+	return u
+}
+
+// UpdateMemberCodeSnapshot sets the "member_code_snapshot" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateMemberCodeSnapshot() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldMemberCodeSnapshot)
+	return u
+}
+
+// ClearMemberCodeSnapshot clears the value of the "member_code_snapshot" field.
+func (u *UsageLogUpsert) ClearMemberCodeSnapshot() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldMemberCodeSnapshot)
+	return u
+}
+
+// SetMemberNameSnapshot sets the "member_name_snapshot" field.
+func (u *UsageLogUpsert) SetMemberNameSnapshot(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldMemberNameSnapshot, v)
+	return u
+}
+
+// UpdateMemberNameSnapshot sets the "member_name_snapshot" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateMemberNameSnapshot() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldMemberNameSnapshot)
+	return u
+}
+
+// ClearMemberNameSnapshot clears the value of the "member_name_snapshot" field.
+func (u *UsageLogUpsert) ClearMemberNameSnapshot() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldMemberNameSnapshot)
 	return u
 }
 
@@ -2255,6 +2392,69 @@ func (u *UsageLogUpsertOne) UpdateSubscriptionID() *UsageLogUpsertOne {
 func (u *UsageLogUpsertOne) ClearSubscriptionID() *UsageLogUpsertOne {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.ClearSubscriptionID()
+	})
+}
+
+// SetMemberID sets the "member_id" field.
+func (u *UsageLogUpsertOne) SetMemberID(v int64) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetMemberID(v)
+	})
+}
+
+// UpdateMemberID sets the "member_id" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateMemberID() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateMemberID()
+	})
+}
+
+// ClearMemberID clears the value of the "member_id" field.
+func (u *UsageLogUpsertOne) ClearMemberID() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearMemberID()
+	})
+}
+
+// SetMemberCodeSnapshot sets the "member_code_snapshot" field.
+func (u *UsageLogUpsertOne) SetMemberCodeSnapshot(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetMemberCodeSnapshot(v)
+	})
+}
+
+// UpdateMemberCodeSnapshot sets the "member_code_snapshot" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateMemberCodeSnapshot() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateMemberCodeSnapshot()
+	})
+}
+
+// ClearMemberCodeSnapshot clears the value of the "member_code_snapshot" field.
+func (u *UsageLogUpsertOne) ClearMemberCodeSnapshot() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearMemberCodeSnapshot()
+	})
+}
+
+// SetMemberNameSnapshot sets the "member_name_snapshot" field.
+func (u *UsageLogUpsertOne) SetMemberNameSnapshot(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetMemberNameSnapshot(v)
+	})
+}
+
+// UpdateMemberNameSnapshot sets the "member_name_snapshot" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateMemberNameSnapshot() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateMemberNameSnapshot()
+	})
+}
+
+// ClearMemberNameSnapshot clears the value of the "member_name_snapshot" field.
+func (u *UsageLogUpsertOne) ClearMemberNameSnapshot() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearMemberNameSnapshot()
 	})
 }
 
@@ -3355,6 +3555,69 @@ func (u *UsageLogUpsertBulk) UpdateSubscriptionID() *UsageLogUpsertBulk {
 func (u *UsageLogUpsertBulk) ClearSubscriptionID() *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.ClearSubscriptionID()
+	})
+}
+
+// SetMemberID sets the "member_id" field.
+func (u *UsageLogUpsertBulk) SetMemberID(v int64) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetMemberID(v)
+	})
+}
+
+// UpdateMemberID sets the "member_id" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateMemberID() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateMemberID()
+	})
+}
+
+// ClearMemberID clears the value of the "member_id" field.
+func (u *UsageLogUpsertBulk) ClearMemberID() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearMemberID()
+	})
+}
+
+// SetMemberCodeSnapshot sets the "member_code_snapshot" field.
+func (u *UsageLogUpsertBulk) SetMemberCodeSnapshot(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetMemberCodeSnapshot(v)
+	})
+}
+
+// UpdateMemberCodeSnapshot sets the "member_code_snapshot" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateMemberCodeSnapshot() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateMemberCodeSnapshot()
+	})
+}
+
+// ClearMemberCodeSnapshot clears the value of the "member_code_snapshot" field.
+func (u *UsageLogUpsertBulk) ClearMemberCodeSnapshot() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearMemberCodeSnapshot()
+	})
+}
+
+// SetMemberNameSnapshot sets the "member_name_snapshot" field.
+func (u *UsageLogUpsertBulk) SetMemberNameSnapshot(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetMemberNameSnapshot(v)
+	})
+}
+
+// UpdateMemberNameSnapshot sets the "member_name_snapshot" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateMemberNameSnapshot() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateMemberNameSnapshot()
+	})
+}
+
+// ClearMemberNameSnapshot clears the value of the "member_name_snapshot" field.
+func (u *UsageLogUpsertBulk) ClearMemberNameSnapshot() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearMemberNameSnapshot()
 	})
 }
 

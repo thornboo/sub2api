@@ -82,6 +82,10 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			abortWithGoogleError(c, 401, "User account is not active")
 			return
 		}
+		if _, message, valid := validateEnterpriseMemberAPIKey(apiKey); !valid {
+			abortWithGoogleError(c, 403, message)
+			return
+		}
 		if _, message, ok := validateAPIKeyGroupAvailable(apiKey); !ok {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable)
 			abortWithGoogleError(c, 403, message)
@@ -125,6 +129,15 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 		}
 		if apiKey.IsQuotaExhausted() {
 			abortWithGoogleError(c, 429, "API key 额度已用完")
+			return
+		}
+
+		if apiKey.MemberID != nil {
+			c.Set(string(ContextKeyAPIKey), apiKey)
+			c.Set(string(ContextKeyUser), AuthSubject{UserID: apiKey.User.ID, Concurrency: apiKey.User.Concurrency})
+			c.Set(string(ContextKeyUserRole), apiKey.User.Role)
+			_ = apiKeyService.TouchLastUsed(c.Request.Context(), apiKey.ID)
+			c.Next()
 			return
 		}
 

@@ -85,6 +85,16 @@ func Role(v string) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldRole, v))
 }
 
+// AccountType applies equality check predicate on the "account_type" field. It's identical to AccountTypeEQ.
+func AccountType(v string) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldAccountType, v))
+}
+
+// EnterpriseDisabledAt applies equality check predicate on the "enterprise_disabled_at" field. It's identical to EnterpriseDisabledAtEQ.
+func EnterpriseDisabledAt(v time.Time) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldEnterpriseDisabledAt, v))
+}
+
 // Balance applies equality check predicate on the "balance" field. It's identical to BalanceEQ.
 func Balance(v float64) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldBalance, v))
@@ -498,6 +508,121 @@ func RoleEqualFold(v string) predicate.User {
 // RoleContainsFold applies the ContainsFold predicate on the "role" field.
 func RoleContainsFold(v string) predicate.User {
 	return predicate.User(sql.FieldContainsFold(FieldRole, v))
+}
+
+// AccountTypeEQ applies the EQ predicate on the "account_type" field.
+func AccountTypeEQ(v string) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldAccountType, v))
+}
+
+// AccountTypeNEQ applies the NEQ predicate on the "account_type" field.
+func AccountTypeNEQ(v string) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldAccountType, v))
+}
+
+// AccountTypeIn applies the In predicate on the "account_type" field.
+func AccountTypeIn(vs ...string) predicate.User {
+	return predicate.User(sql.FieldIn(FieldAccountType, vs...))
+}
+
+// AccountTypeNotIn applies the NotIn predicate on the "account_type" field.
+func AccountTypeNotIn(vs ...string) predicate.User {
+	return predicate.User(sql.FieldNotIn(FieldAccountType, vs...))
+}
+
+// AccountTypeGT applies the GT predicate on the "account_type" field.
+func AccountTypeGT(v string) predicate.User {
+	return predicate.User(sql.FieldGT(FieldAccountType, v))
+}
+
+// AccountTypeGTE applies the GTE predicate on the "account_type" field.
+func AccountTypeGTE(v string) predicate.User {
+	return predicate.User(sql.FieldGTE(FieldAccountType, v))
+}
+
+// AccountTypeLT applies the LT predicate on the "account_type" field.
+func AccountTypeLT(v string) predicate.User {
+	return predicate.User(sql.FieldLT(FieldAccountType, v))
+}
+
+// AccountTypeLTE applies the LTE predicate on the "account_type" field.
+func AccountTypeLTE(v string) predicate.User {
+	return predicate.User(sql.FieldLTE(FieldAccountType, v))
+}
+
+// AccountTypeContains applies the Contains predicate on the "account_type" field.
+func AccountTypeContains(v string) predicate.User {
+	return predicate.User(sql.FieldContains(FieldAccountType, v))
+}
+
+// AccountTypeHasPrefix applies the HasPrefix predicate on the "account_type" field.
+func AccountTypeHasPrefix(v string) predicate.User {
+	return predicate.User(sql.FieldHasPrefix(FieldAccountType, v))
+}
+
+// AccountTypeHasSuffix applies the HasSuffix predicate on the "account_type" field.
+func AccountTypeHasSuffix(v string) predicate.User {
+	return predicate.User(sql.FieldHasSuffix(FieldAccountType, v))
+}
+
+// AccountTypeEqualFold applies the EqualFold predicate on the "account_type" field.
+func AccountTypeEqualFold(v string) predicate.User {
+	return predicate.User(sql.FieldEqualFold(FieldAccountType, v))
+}
+
+// AccountTypeContainsFold applies the ContainsFold predicate on the "account_type" field.
+func AccountTypeContainsFold(v string) predicate.User {
+	return predicate.User(sql.FieldContainsFold(FieldAccountType, v))
+}
+
+// EnterpriseDisabledAtEQ applies the EQ predicate on the "enterprise_disabled_at" field.
+func EnterpriseDisabledAtEQ(v time.Time) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldEnterpriseDisabledAt, v))
+}
+
+// EnterpriseDisabledAtNEQ applies the NEQ predicate on the "enterprise_disabled_at" field.
+func EnterpriseDisabledAtNEQ(v time.Time) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldEnterpriseDisabledAt, v))
+}
+
+// EnterpriseDisabledAtIn applies the In predicate on the "enterprise_disabled_at" field.
+func EnterpriseDisabledAtIn(vs ...time.Time) predicate.User {
+	return predicate.User(sql.FieldIn(FieldEnterpriseDisabledAt, vs...))
+}
+
+// EnterpriseDisabledAtNotIn applies the NotIn predicate on the "enterprise_disabled_at" field.
+func EnterpriseDisabledAtNotIn(vs ...time.Time) predicate.User {
+	return predicate.User(sql.FieldNotIn(FieldEnterpriseDisabledAt, vs...))
+}
+
+// EnterpriseDisabledAtGT applies the GT predicate on the "enterprise_disabled_at" field.
+func EnterpriseDisabledAtGT(v time.Time) predicate.User {
+	return predicate.User(sql.FieldGT(FieldEnterpriseDisabledAt, v))
+}
+
+// EnterpriseDisabledAtGTE applies the GTE predicate on the "enterprise_disabled_at" field.
+func EnterpriseDisabledAtGTE(v time.Time) predicate.User {
+	return predicate.User(sql.FieldGTE(FieldEnterpriseDisabledAt, v))
+}
+
+// EnterpriseDisabledAtLT applies the LT predicate on the "enterprise_disabled_at" field.
+func EnterpriseDisabledAtLT(v time.Time) predicate.User {
+	return predicate.User(sql.FieldLT(FieldEnterpriseDisabledAt, v))
+}
+
+// EnterpriseDisabledAtLTE applies the LTE predicate on the "enterprise_disabled_at" field.
+func EnterpriseDisabledAtLTE(v time.Time) predicate.User {
+	return predicate.User(sql.FieldLTE(FieldEnterpriseDisabledAt, v))
+}
+
+// EnterpriseDisabledAtIsNil applies the IsNil predicate on the "enterprise_disabled_at" field.
+func EnterpriseDisabledAtIsNil() predicate.User {
+	return predicate.User(sql.FieldIsNull(FieldEnterpriseDisabledAt))
+}
+
+// EnterpriseDisabledAtNotNil applies the NotNil predicate on the "enterprise_disabled_at" field.
+func EnterpriseDisabledAtNotNil() predicate.User {
+	return predicate.User(sql.FieldNotNull(FieldEnterpriseDisabledAt))
 }
 
 // BalanceEQ applies the EQ predicate on the "balance" field.
@@ -1676,6 +1801,29 @@ func HasPlatformQuotas() predicate.User {
 func HasPlatformQuotasWith(preds ...predicate.UserPlatformQuota) predicate.User {
 	return predicate.User(func(s *sql.Selector) {
 		step := newPlatformQuotasStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasEnterpriseMembers applies the HasEdge predicate on the "enterprise_members" edge.
+func HasEnterpriseMembers() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, EnterpriseMembersTable, EnterpriseMembersColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasEnterpriseMembersWith applies the HasEdge predicate on the "enterprise_members" edge with a given conditions (other predicates).
+func HasEnterpriseMembersWith(preds ...predicate.EnterpriseMember) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newEnterpriseMembersStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

@@ -74,6 +74,26 @@ func AccountID(v int64) predicate.BatchImageJob {
 	return predicate.BatchImageJob(sql.FieldEQ(FieldAccountID, v))
 }
 
+// GroupID applies equality check predicate on the "group_id" field. It's identical to GroupIDEQ.
+func GroupID(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEQ(FieldGroupID, v))
+}
+
+// MemberID applies equality check predicate on the "member_id" field. It's identical to MemberIDEQ.
+func MemberID(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEQ(FieldMemberID, v))
+}
+
+// MemberCodeSnapshot applies equality check predicate on the "member_code_snapshot" field. It's identical to MemberCodeSnapshotEQ.
+func MemberCodeSnapshot(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEQ(FieldMemberCodeSnapshot, v))
+}
+
+// MemberNameSnapshot applies equality check predicate on the "member_name_snapshot" field. It's identical to MemberNameSnapshotEQ.
+func MemberNameSnapshot(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEQ(FieldMemberNameSnapshot, v))
+}
+
 // Provider applies equality check predicate on the "provider" field. It's identical to ProviderEQ.
 func Provider(v string) predicate.BatchImageJob {
 	return predicate.BatchImageJob(sql.FieldEQ(FieldProvider, v))
@@ -162,6 +182,11 @@ func Currency(v string) predicate.BatchImageJob {
 // HoldID applies equality check predicate on the "hold_id" field. It's identical to HoldIDEQ.
 func HoldID(v string) predicate.BatchImageJob {
 	return predicate.BatchImageJob(sql.FieldEQ(FieldHoldID, v))
+}
+
+// MemberBudgetRequestID applies equality check predicate on the "member_budget_request_id" field. It's identical to MemberBudgetRequestIDEQ.
+func MemberBudgetRequestID(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEQ(FieldMemberBudgetRequestID, v))
 }
 
 // IdempotencyKey applies equality check predicate on the "idempotency_key" field. It's identical to IdempotencyKeyEQ.
@@ -457,6 +482,256 @@ func AccountIDIsNil() predicate.BatchImageJob {
 // AccountIDNotNil applies the NotNil predicate on the "account_id" field.
 func AccountIDNotNil() predicate.BatchImageJob {
 	return predicate.BatchImageJob(sql.FieldNotNull(FieldAccountID))
+}
+
+// GroupIDEQ applies the EQ predicate on the "group_id" field.
+func GroupIDEQ(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEQ(FieldGroupID, v))
+}
+
+// GroupIDNEQ applies the NEQ predicate on the "group_id" field.
+func GroupIDNEQ(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNEQ(FieldGroupID, v))
+}
+
+// GroupIDIn applies the In predicate on the "group_id" field.
+func GroupIDIn(vs ...int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIn(FieldGroupID, vs...))
+}
+
+// GroupIDNotIn applies the NotIn predicate on the "group_id" field.
+func GroupIDNotIn(vs ...int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotIn(FieldGroupID, vs...))
+}
+
+// GroupIDGT applies the GT predicate on the "group_id" field.
+func GroupIDGT(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldGT(FieldGroupID, v))
+}
+
+// GroupIDGTE applies the GTE predicate on the "group_id" field.
+func GroupIDGTE(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldGTE(FieldGroupID, v))
+}
+
+// GroupIDLT applies the LT predicate on the "group_id" field.
+func GroupIDLT(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldLT(FieldGroupID, v))
+}
+
+// GroupIDLTE applies the LTE predicate on the "group_id" field.
+func GroupIDLTE(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldLTE(FieldGroupID, v))
+}
+
+// GroupIDIsNil applies the IsNil predicate on the "group_id" field.
+func GroupIDIsNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIsNull(FieldGroupID))
+}
+
+// GroupIDNotNil applies the NotNil predicate on the "group_id" field.
+func GroupIDNotNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotNull(FieldGroupID))
+}
+
+// MemberIDEQ applies the EQ predicate on the "member_id" field.
+func MemberIDEQ(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEQ(FieldMemberID, v))
+}
+
+// MemberIDNEQ applies the NEQ predicate on the "member_id" field.
+func MemberIDNEQ(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNEQ(FieldMemberID, v))
+}
+
+// MemberIDIn applies the In predicate on the "member_id" field.
+func MemberIDIn(vs ...int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIn(FieldMemberID, vs...))
+}
+
+// MemberIDNotIn applies the NotIn predicate on the "member_id" field.
+func MemberIDNotIn(vs ...int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotIn(FieldMemberID, vs...))
+}
+
+// MemberIDGT applies the GT predicate on the "member_id" field.
+func MemberIDGT(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldGT(FieldMemberID, v))
+}
+
+// MemberIDGTE applies the GTE predicate on the "member_id" field.
+func MemberIDGTE(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldGTE(FieldMemberID, v))
+}
+
+// MemberIDLT applies the LT predicate on the "member_id" field.
+func MemberIDLT(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldLT(FieldMemberID, v))
+}
+
+// MemberIDLTE applies the LTE predicate on the "member_id" field.
+func MemberIDLTE(v int64) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldLTE(FieldMemberID, v))
+}
+
+// MemberIDIsNil applies the IsNil predicate on the "member_id" field.
+func MemberIDIsNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIsNull(FieldMemberID))
+}
+
+// MemberIDNotNil applies the NotNil predicate on the "member_id" field.
+func MemberIDNotNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotNull(FieldMemberID))
+}
+
+// MemberCodeSnapshotEQ applies the EQ predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotEQ(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEQ(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotNEQ applies the NEQ predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotNEQ(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNEQ(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotIn applies the In predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotIn(vs ...string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIn(FieldMemberCodeSnapshot, vs...))
+}
+
+// MemberCodeSnapshotNotIn applies the NotIn predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotNotIn(vs ...string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotIn(FieldMemberCodeSnapshot, vs...))
+}
+
+// MemberCodeSnapshotGT applies the GT predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotGT(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldGT(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotGTE applies the GTE predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotGTE(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldGTE(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotLT applies the LT predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotLT(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldLT(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotLTE applies the LTE predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotLTE(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldLTE(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotContains applies the Contains predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotContains(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldContains(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotHasPrefix applies the HasPrefix predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotHasPrefix(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldHasPrefix(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotHasSuffix applies the HasSuffix predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotHasSuffix(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldHasSuffix(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotIsNil applies the IsNil predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotIsNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIsNull(FieldMemberCodeSnapshot))
+}
+
+// MemberCodeSnapshotNotNil applies the NotNil predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotNotNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotNull(FieldMemberCodeSnapshot))
+}
+
+// MemberCodeSnapshotEqualFold applies the EqualFold predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotEqualFold(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEqualFold(FieldMemberCodeSnapshot, v))
+}
+
+// MemberCodeSnapshotContainsFold applies the ContainsFold predicate on the "member_code_snapshot" field.
+func MemberCodeSnapshotContainsFold(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldContainsFold(FieldMemberCodeSnapshot, v))
+}
+
+// MemberNameSnapshotEQ applies the EQ predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotEQ(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEQ(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotNEQ applies the NEQ predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotNEQ(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNEQ(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotIn applies the In predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotIn(vs ...string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIn(FieldMemberNameSnapshot, vs...))
+}
+
+// MemberNameSnapshotNotIn applies the NotIn predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotNotIn(vs ...string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotIn(FieldMemberNameSnapshot, vs...))
+}
+
+// MemberNameSnapshotGT applies the GT predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotGT(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldGT(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotGTE applies the GTE predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotGTE(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldGTE(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotLT applies the LT predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotLT(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldLT(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotLTE applies the LTE predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotLTE(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldLTE(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotContains applies the Contains predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotContains(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldContains(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotHasPrefix applies the HasPrefix predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotHasPrefix(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldHasPrefix(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotHasSuffix applies the HasSuffix predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotHasSuffix(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldHasSuffix(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotIsNil applies the IsNil predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotIsNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIsNull(FieldMemberNameSnapshot))
+}
+
+// MemberNameSnapshotNotNil applies the NotNil predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotNotNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotNull(FieldMemberNameSnapshot))
+}
+
+// MemberNameSnapshotEqualFold applies the EqualFold predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotEqualFold(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEqualFold(FieldMemberNameSnapshot, v))
+}
+
+// MemberNameSnapshotContainsFold applies the ContainsFold predicate on the "member_name_snapshot" field.
+func MemberNameSnapshotContainsFold(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldContainsFold(FieldMemberNameSnapshot, v))
 }
 
 // ProviderEQ applies the EQ predicate on the "provider" field.
@@ -1532,6 +1807,81 @@ func HoldIDEqualFold(v string) predicate.BatchImageJob {
 // HoldIDContainsFold applies the ContainsFold predicate on the "hold_id" field.
 func HoldIDContainsFold(v string) predicate.BatchImageJob {
 	return predicate.BatchImageJob(sql.FieldContainsFold(FieldHoldID, v))
+}
+
+// MemberBudgetRequestIDEQ applies the EQ predicate on the "member_budget_request_id" field.
+func MemberBudgetRequestIDEQ(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEQ(FieldMemberBudgetRequestID, v))
+}
+
+// MemberBudgetRequestIDNEQ applies the NEQ predicate on the "member_budget_request_id" field.
+func MemberBudgetRequestIDNEQ(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNEQ(FieldMemberBudgetRequestID, v))
+}
+
+// MemberBudgetRequestIDIn applies the In predicate on the "member_budget_request_id" field.
+func MemberBudgetRequestIDIn(vs ...string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIn(FieldMemberBudgetRequestID, vs...))
+}
+
+// MemberBudgetRequestIDNotIn applies the NotIn predicate on the "member_budget_request_id" field.
+func MemberBudgetRequestIDNotIn(vs ...string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotIn(FieldMemberBudgetRequestID, vs...))
+}
+
+// MemberBudgetRequestIDGT applies the GT predicate on the "member_budget_request_id" field.
+func MemberBudgetRequestIDGT(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldGT(FieldMemberBudgetRequestID, v))
+}
+
+// MemberBudgetRequestIDGTE applies the GTE predicate on the "member_budget_request_id" field.
+func MemberBudgetRequestIDGTE(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldGTE(FieldMemberBudgetRequestID, v))
+}
+
+// MemberBudgetRequestIDLT applies the LT predicate on the "member_budget_request_id" field.
+func MemberBudgetRequestIDLT(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldLT(FieldMemberBudgetRequestID, v))
+}
+
+// MemberBudgetRequestIDLTE applies the LTE predicate on the "member_budget_request_id" field.
+func MemberBudgetRequestIDLTE(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldLTE(FieldMemberBudgetRequestID, v))
+}
+
+// MemberBudgetRequestIDContains applies the Contains predicate on the "member_budget_request_id" field.
+func MemberBudgetRequestIDContains(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldContains(FieldMemberBudgetRequestID, v))
+}
+
+// MemberBudgetRequestIDHasPrefix applies the HasPrefix predicate on the "member_budget_request_id" field.
+func MemberBudgetRequestIDHasPrefix(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldHasPrefix(FieldMemberBudgetRequestID, v))
+}
+
+// MemberBudgetRequestIDHasSuffix applies the HasSuffix predicate on the "member_budget_request_id" field.
+func MemberBudgetRequestIDHasSuffix(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldHasSuffix(FieldMemberBudgetRequestID, v))
+}
+
+// MemberBudgetRequestIDIsNil applies the IsNil predicate on the "member_budget_request_id" field.
+func MemberBudgetRequestIDIsNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIsNull(FieldMemberBudgetRequestID))
+}
+
+// MemberBudgetRequestIDNotNil applies the NotNil predicate on the "member_budget_request_id" field.
+func MemberBudgetRequestIDNotNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotNull(FieldMemberBudgetRequestID))
+}
+
+// MemberBudgetRequestIDEqualFold applies the EqualFold predicate on the "member_budget_request_id" field.
+func MemberBudgetRequestIDEqualFold(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldEqualFold(FieldMemberBudgetRequestID, v))
+}
+
+// MemberBudgetRequestIDContainsFold applies the ContainsFold predicate on the "member_budget_request_id" field.
+func MemberBudgetRequestIDContainsFold(v string) predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldContainsFold(FieldMemberBudgetRequestID, v))
 }
 
 // IdempotencyKeyEQ applies the EQ predicate on the "idempotency_key" field.

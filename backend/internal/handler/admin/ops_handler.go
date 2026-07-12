@@ -127,6 +127,20 @@ func NewOpsHandler(opsService *service.OpsService) *OpsHandler {
 	return &OpsHandler{opsService: opsService}
 }
 
+// GetEnterpriseMemberMetrics returns bounded process-local counters without
+// tenant/member labels or upstream routing details.
+func (h *OpsHandler) GetEnterpriseMemberMetrics(c *gin.Context) {
+	if h.opsService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
+		return
+	}
+	if err := h.opsService.RequireMonitoringEnabled(c.Request.Context()); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, service.GetEnterpriseMemberMetricsSnapshot())
+}
+
 // GetErrorLogs lists ops error logs.
 // applyOpsErrorSortParams reads sort_by/sort_order query params into the filter.
 // Column whitelist and order normalization live in the repository; unknown

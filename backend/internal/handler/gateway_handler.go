@@ -554,7 +554,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	currentAPIKey := apiKey
 	currentSubscription := subscription
 	var fallbackGroupID *int64
-	if apiKey.Group != nil {
+	// Member keys may only move through their ordered candidate orchestrator.
+	// The legacy invalid-request fallback is intentionally disabled here so it
+	// cannot escape the member authorization set or bypass the no-client-error-
+	// replay rule.
+	if apiKey.MemberID == nil && apiKey.Group != nil {
 		fallbackGroupID = apiKey.Group.FallbackGroupIDOnInvalidRequest
 	}
 	fallbackUsed := false
@@ -991,6 +995,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 // Falls back to default models if no whitelist is configured
 func (h *GatewayHandler) Models(c *gin.Context) {
 	apiKey, _ := middleware2.GetAPIKeyFromContext(c)
+	if apiKey != nil && apiKey.MemberID != nil {
+		groups := middleware2.GetEnterpriseMemberCandidateGroups(c)
+		if len(groups) > 0 {
+			writeModelsList(c, h.enterpriseMemberAvailableModels(c.Request.Context(), groups))
+			return
+		}
+	}
 
 	var groupID *int64
 	var platform string
@@ -1038,6 +1049,35 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		"object": "list",
 		"data":   claude.DefaultModels,
 	})
+}
+
+func (h *GatewayHandler) enterpriseMemberAvailableModels(ctx context.Context, groups []service.Group) []string {
+	seen := make(map[string]struct{})
+	models := make([]string, 0)
+	for i := range groups {
+		group := &groups[i]
+		groupID := group.ID
+		available := h.gatewayService.GetAvailableModels(ctx, &groupID, group.Platform)
+		fallback := defaultModelIDsForPlatform(group.Platform)
+		if group.CustomModelsListEnabled() {
+			available = filterModelsByCustomList(customModelsListSource(group.Platform, available, fallback), fallback, group.ModelsListConfig.Models)
+		} else if len(available) == 0 {
+			available = fallback
+		}
+		for _, model := range available {
+			model = strings.TrimSpace(model)
+			if model == "" {
+				continue
+			}
+			key := strings.ToLower(model)
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			models = append(models, model)
+		}
+	}
+	return models
 }
 
 func writeModelsList(c *gin.Context, modelIDs []string) {
@@ -1560,6 +1600,9 @@ func (h *GatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotT
 }
 
 func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, platform string, streamStarted bool) {
+	if !streamStarted {
+		service.MarkOpsGroupFailoverEligible(c)
+	}
 	statusCode := failoverErr.StatusCode
 	responseBody := failoverErr.ResponseBody
 	if service.IsOpenAISilentRefusalErrorBody(responseBody) {
@@ -1603,6 +1646,9 @@ func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *se
 
 // handleFailoverExhaustedSimple 简化版本，用于没有响应体的情况
 func (h *GatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCode int, streamStarted bool) {
+	if !streamStarted {
+		service.MarkOpsGroupFailoverEligible(c)
+	}
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
 	service.SetOpsUpstreamError(c, statusCode, errMsg, "")
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)

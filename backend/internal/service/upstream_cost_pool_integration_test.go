@@ -4,35 +4,54 @@ package service_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/repository"
 	svc "github.com/Wei-Shaw/sub2api/internal/service"
+	redisclient "github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	_ "github.com/lib/pq"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
+	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 )
 
 const servicePostgresImageTag = "postgres:18.1-alpine3.23"
+const serviceRedisImageTag = "redis:8.4-alpine"
 
 var (
 	serviceIntegrationDB        *sql.DB
 	serviceIntegrationEntClient *dbent.Client
+	serviceIntegrationRedis     *tcredis.RedisContainer
 )
+
+type countingAPIKeyCache struct {
+	svc.APIKeyCache
+	l2Gets atomic.Int64
+}
+
+func (c *countingAPIKeyCache) GetAuthCache(ctx context.Context, key string) (*svc.APIKeyAuthCacheEntry, error) {
+	c.l2Gets.Add(1)
+	return c.APIKeyCache.GetAuthCache(ctx, key)
+}
 
 type upstreamRechargeAdmin interface {
 	CreateUpstreamRechargeRecord(context.Context, svc.UpstreamRechargeRecordInput) (*svc.UpstreamRechargeRecord, error)
@@ -133,11 +152,158 @@ func TestMain(m *testing.M) {
 	drv := entsql.OpenDB(dialect.Postgres, serviceIntegrationDB)
 	serviceIntegrationEntClient = dbent.NewClient(dbent.Driver(drv))
 
+	serviceIntegrationRedis, err = tcredis.Run(ctx, serviceRedisImageTag)
+	if err != nil {
+		log.Printf("failed to start redis container: %v", err)
+		os.Exit(1)
+	}
+	defer func() { _ = serviceIntegrationRedis.Terminate(ctx) }()
 	code := m.Run()
 
 	_ = serviceIntegrationEntClient.Close()
 	_ = serviceIntegrationDB.Close()
 	os.Exit(code)
+}
+
+func TestAPIKeyAuthCacheInvalidationPropagatesAcrossServiceInstances(t *testing.T) {
+	fixture := newAuthCacheIntegrationFixture(t)
+	fixture.primeRemoteL1WithStaleUserStatus(t)
+	fixture.serviceA.InvalidateAuthCacheByUserID(context.Background(), fixture.userID)
+	fixture.requireRemoteServiceReloadsDisabledUser(t)
+}
+
+func TestAPIKeyAuthCacheInvalidationSubscriberRecoversAfterRedisRestart(t *testing.T) {
+	fixture := newAuthCacheIntegrationFixture(t)
+	fixture.primeRemoteL1WithStaleUserStatus(t)
+
+	stopTimeout := 5 * time.Second
+	require.NoError(t, serviceIntegrationRedis.Stop(context.Background(), &stopTimeout))
+	require.Eventually(t, func() bool {
+		pingCtx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		return fixture.rdbA.Ping(pingCtx).Err() != nil
+	}, 5*time.Second, 50*time.Millisecond, "the test must observe a real Redis outage")
+
+	require.NoError(t, serviceIntegrationRedis.Start(context.Background()))
+	require.Eventually(t, func() bool {
+		pingCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		return fixture.rdbA.Ping(pingCtx).Err() == nil && fixture.rdbB.Ping(pingCtx).Err() == nil
+	}, 10*time.Second, 100*time.Millisecond, "both service clients must reconnect after Redis restarts")
+	require.Eventually(t, func() bool {
+		counts, err := fixture.rdbA.PubSubNumSub(context.Background(), "auth:cache:invalidate").Result()
+		return err == nil && counts["auth:cache:invalidate"] >= 1
+	}, 10*time.Second, 100*time.Millisecond, "instance B must restore its invalidation subscription before the single publish")
+
+	fixture.serviceA.InvalidateAuthCacheByUserID(context.Background(), fixture.userID)
+	fixture.requireRemoteServiceReloadsDisabledUser(t)
+}
+
+type authCacheIntegrationFixture struct {
+	userID   int64
+	rawKey   string
+	rdbA     *redisclient.Client
+	rdbB     *redisclient.Client
+	cacheA   svc.APIKeyCache
+	cacheB   *countingAPIKeyCache
+	serviceA *svc.APIKeyService
+	serviceB *svc.APIKeyService
+}
+
+func newAuthCacheIntegrationFixture(t *testing.T) *authCacheIntegrationFixture {
+	t.Helper()
+	ctx := context.Background()
+	suffix := fmt.Sprintf("auth-cache-%d", time.Now().UnixNano())
+	user, err := serviceIntegrationEntClient.User.Create().
+		SetEmail(suffix + "@example.com").
+		SetPasswordHash("integration-test-password-hash").
+		SetStatus(svc.StatusActive).
+		SetRole(svc.RoleUser).
+		Save(ctx)
+	require.NoError(t, err)
+	keyRepoA := repository.NewAPIKeyRepository(serviceIntegrationEntClient, serviceIntegrationDB)
+	keyRepoB := repository.NewAPIKeyRepository(serviceIntegrationEntClient, serviceIntegrationDB)
+	rawKey := "sk-" + suffix
+	require.NoError(t, keyRepoA.Create(ctx, &svc.APIKey{UserID: user.ID, Key: rawKey, Name: "cross-instance", Status: svc.StatusActive}))
+	t.Cleanup(func() {
+		_, cleanupErr := serviceIntegrationDB.ExecContext(context.Background(), `DELETE FROM api_keys WHERE user_id = $1`, user.ID)
+		require.NoError(t, cleanupErr)
+		_, cleanupErr = serviceIntegrationDB.ExecContext(context.Background(), `DELETE FROM users WHERE id = $1`, user.ID)
+		require.NoError(t, cleanupErr)
+	})
+
+	rdbA := newServiceIntegrationRedisClient()
+	rdbB := newServiceIntegrationRedisClient()
+	t.Cleanup(func() {
+		_ = rdbA.Close()
+		_ = rdbB.Close()
+	})
+	require.NoError(t, rdbA.Ping(ctx).Err())
+	require.NoError(t, rdbB.Ping(ctx).Err())
+	cacheA := repository.NewAPIKeyCache(rdbA)
+	cacheB := &countingAPIKeyCache{APIKeyCache: repository.NewAPIKeyCache(rdbB)}
+	cfg := &config.Config{APIKeyAuth: config.APIKeyAuthCacheConfig{
+		L1Size: 1000, L1TTLSeconds: 60, L2TTLSeconds: 60, NegativeTTLSeconds: 30, Singleflight: true,
+	}}
+	fixture := &authCacheIntegrationFixture{
+		userID: user.ID, rawKey: rawKey, rdbA: rdbA, rdbB: rdbB, cacheA: cacheA, cacheB: cacheB,
+		serviceA: svc.NewAPIKeyService(keyRepoA, nil, nil, nil, nil, cacheA, cfg),
+		serviceB: svc.NewAPIKeyService(keyRepoB, nil, nil, nil, nil, cacheB, cfg),
+	}
+	subscriberCtx, cancelSubscriber := context.WithCancel(context.Background())
+	t.Cleanup(cancelSubscriber)
+	fixture.serviceB.StartAuthCacheInvalidationSubscriber(subscriberCtx)
+	return fixture
+}
+
+func newServiceIntegrationRedisClient() *redisclient.Client {
+	return redisclient.NewClient(&redisclient.Options{
+		Addr: "service-integration-redis:6379",
+		Dialer: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			host, err := serviceIntegrationRedis.Host(ctx)
+			if err != nil {
+				return nil, err
+			}
+			port, err := serviceIntegrationRedis.MappedPort(ctx, "6379/tcp")
+			if err != nil {
+				return nil, err
+			}
+			return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort(host, port.Port()))
+		},
+	})
+}
+
+func (f *authCacheIntegrationFixture) primeRemoteL1WithStaleUserStatus(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	loaded, err := f.serviceB.GetByKey(ctx, f.rawKey)
+	require.NoError(t, err)
+	require.NotNil(t, loaded.User)
+	require.Equal(t, svc.StatusActive, loaded.User.Status)
+	require.Eventually(t, func() bool {
+		before := f.cacheB.l2Gets.Load()
+		_, getErr := f.serviceB.GetByKey(ctx, f.rawKey)
+		return getErr == nil && f.cacheB.l2Gets.Load() == before
+	}, 2*time.Second, 10*time.Millisecond)
+	_, err = serviceIntegrationEntClient.User.UpdateOneID(f.userID).SetStatus(svc.StatusDisabled).Save(ctx)
+	require.NoError(t, err)
+	require.NoError(t, f.cacheA.DeleteAuthCache(ctx, serviceAuthCacheKey(f.rawKey)), "remove L2 without publishing")
+	stale, err := f.serviceB.GetByKey(ctx, f.rawKey)
+	require.NoError(t, err)
+	require.Equal(t, svc.StatusActive, stale.User.Status, "instance B must demonstrably hold the old snapshot in its independent L1")
+}
+
+func (f *authCacheIntegrationFixture) requireRemoteServiceReloadsDisabledUser(t *testing.T) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		fresh, err := f.serviceB.GetByKey(context.Background(), f.rawKey)
+		return err == nil && fresh.User != nil && fresh.User.Status == svc.StatusDisabled
+	}, 3*time.Second, 10*time.Millisecond, "the remote L1 must be evicted so authentication reloads current database state")
+}
+
+func serviceAuthCacheKey(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:])
 }
 
 func TestUpstreamCostPoolRechargeSnapshotIgnoresAdjustment(t *testing.T) {

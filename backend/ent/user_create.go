@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/announcementread"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
+	"github.com/Wei-Shaw/sub2api/ent/enterprisemember"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
@@ -98,6 +99,34 @@ func (_c *UserCreate) SetRole(v string) *UserCreate {
 func (_c *UserCreate) SetNillableRole(v *string) *UserCreate {
 	if v != nil {
 		_c.SetRole(*v)
+	}
+	return _c
+}
+
+// SetAccountType sets the "account_type" field.
+func (_c *UserCreate) SetAccountType(v string) *UserCreate {
+	_c.mutation.SetAccountType(v)
+	return _c
+}
+
+// SetNillableAccountType sets the "account_type" field if the given value is not nil.
+func (_c *UserCreate) SetNillableAccountType(v *string) *UserCreate {
+	if v != nil {
+		_c.SetAccountType(*v)
+	}
+	return _c
+}
+
+// SetEnterpriseDisabledAt sets the "enterprise_disabled_at" field.
+func (_c *UserCreate) SetEnterpriseDisabledAt(v time.Time) *UserCreate {
+	_c.mutation.SetEnterpriseDisabledAt(v)
+	return _c
+}
+
+// SetNillableEnterpriseDisabledAt sets the "enterprise_disabled_at" field if the given value is not nil.
+func (_c *UserCreate) SetNillableEnterpriseDisabledAt(v *time.Time) *UserCreate {
+	if v != nil {
+		_c.SetEnterpriseDisabledAt(*v)
 	}
 	return _c
 }
@@ -549,6 +578,21 @@ func (_c *UserCreate) AddPlatformQuotas(v ...*UserPlatformQuota) *UserCreate {
 	return _c.AddPlatformQuotaIDs(ids...)
 }
 
+// AddEnterpriseMemberIDs adds the "enterprise_members" edge to the EnterpriseMember entity by IDs.
+func (_c *UserCreate) AddEnterpriseMemberIDs(ids ...int64) *UserCreate {
+	_c.mutation.AddEnterpriseMemberIDs(ids...)
+	return _c
+}
+
+// AddEnterpriseMembers adds the "enterprise_members" edges to the EnterpriseMember entity.
+func (_c *UserCreate) AddEnterpriseMembers(v ...*EnterpriseMember) *UserCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddEnterpriseMemberIDs(ids...)
+}
+
 // Mutation returns the UserMutation object of the builder.
 func (_c *UserCreate) Mutation() *UserMutation {
 	return _c.mutation
@@ -603,6 +647,10 @@ func (_c *UserCreate) defaults() error {
 	if _, ok := _c.mutation.Role(); !ok {
 		v := user.DefaultRole
 		_c.mutation.SetRole(v)
+	}
+	if _, ok := _c.mutation.AccountType(); !ok {
+		v := user.DefaultAccountType
+		_c.mutation.SetAccountType(v)
 	}
 	if _, ok := _c.mutation.Balance(); !ok {
 		v := user.DefaultBalance
@@ -689,6 +737,14 @@ func (_c *UserCreate) check() error {
 	if v, ok := _c.mutation.Role(); ok {
 		if err := user.RoleValidator(v); err != nil {
 			return &ValidationError{Name: "role", err: fmt.Errorf(`ent: validator failed for field "User.role": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.AccountType(); !ok {
+		return &ValidationError{Name: "account_type", err: errors.New(`ent: missing required field "User.account_type"`)}
+	}
+	if v, ok := _c.mutation.AccountType(); ok {
+		if err := user.AccountTypeValidator(v); err != nil {
+			return &ValidationError{Name: "account_type", err: fmt.Errorf(`ent: validator failed for field "User.account_type": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.Balance(); !ok {
@@ -795,6 +851,14 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Role(); ok {
 		_spec.SetField(user.FieldRole, field.TypeString, value)
 		_node.Role = value
+	}
+	if value, ok := _c.mutation.AccountType(); ok {
+		_spec.SetField(user.FieldAccountType, field.TypeString, value)
+		_node.AccountType = value
+	}
+	if value, ok := _c.mutation.EnterpriseDisabledAt(); ok {
+		_spec.SetField(user.FieldEnterpriseDisabledAt, field.TypeTime, value)
+		_node.EnterpriseDisabledAt = &value
 	}
 	if value, ok := _c.mutation.Balance(); ok {
 		_spec.SetField(user.FieldBalance, field.TypeFloat64, value)
@@ -1080,6 +1144,22 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 		}
 		_spec.Edges = append(_spec.Edges, edge)
 	}
+	if nodes := _c.mutation.EnterpriseMembersIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.EnterpriseMembersTable,
+			Columns: []string{user.EnterpriseMembersColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(enterprisemember.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	return _node, _spec
 }
 
@@ -1195,6 +1275,36 @@ func (u *UserUpsert) SetRole(v string) *UserUpsert {
 // UpdateRole sets the "role" field to the value that was provided on create.
 func (u *UserUpsert) UpdateRole() *UserUpsert {
 	u.SetExcluded(user.FieldRole)
+	return u
+}
+
+// SetAccountType sets the "account_type" field.
+func (u *UserUpsert) SetAccountType(v string) *UserUpsert {
+	u.Set(user.FieldAccountType, v)
+	return u
+}
+
+// UpdateAccountType sets the "account_type" field to the value that was provided on create.
+func (u *UserUpsert) UpdateAccountType() *UserUpsert {
+	u.SetExcluded(user.FieldAccountType)
+	return u
+}
+
+// SetEnterpriseDisabledAt sets the "enterprise_disabled_at" field.
+func (u *UserUpsert) SetEnterpriseDisabledAt(v time.Time) *UserUpsert {
+	u.Set(user.FieldEnterpriseDisabledAt, v)
+	return u
+}
+
+// UpdateEnterpriseDisabledAt sets the "enterprise_disabled_at" field to the value that was provided on create.
+func (u *UserUpsert) UpdateEnterpriseDisabledAt() *UserUpsert {
+	u.SetExcluded(user.FieldEnterpriseDisabledAt)
+	return u
+}
+
+// ClearEnterpriseDisabledAt clears the value of the "enterprise_disabled_at" field.
+func (u *UserUpsert) ClearEnterpriseDisabledAt() *UserUpsert {
+	u.SetNull(user.FieldEnterpriseDisabledAt)
 	return u
 }
 
@@ -1599,6 +1709,41 @@ func (u *UserUpsertOne) SetRole(v string) *UserUpsertOne {
 func (u *UserUpsertOne) UpdateRole() *UserUpsertOne {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateRole()
+	})
+}
+
+// SetAccountType sets the "account_type" field.
+func (u *UserUpsertOne) SetAccountType(v string) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.SetAccountType(v)
+	})
+}
+
+// UpdateAccountType sets the "account_type" field to the value that was provided on create.
+func (u *UserUpsertOne) UpdateAccountType() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateAccountType()
+	})
+}
+
+// SetEnterpriseDisabledAt sets the "enterprise_disabled_at" field.
+func (u *UserUpsertOne) SetEnterpriseDisabledAt(v time.Time) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.SetEnterpriseDisabledAt(v)
+	})
+}
+
+// UpdateEnterpriseDisabledAt sets the "enterprise_disabled_at" field to the value that was provided on create.
+func (u *UserUpsertOne) UpdateEnterpriseDisabledAt() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateEnterpriseDisabledAt()
+	})
+}
+
+// ClearEnterpriseDisabledAt clears the value of the "enterprise_disabled_at" field.
+func (u *UserUpsertOne) ClearEnterpriseDisabledAt() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.ClearEnterpriseDisabledAt()
 	})
 }
 
@@ -2216,6 +2361,41 @@ func (u *UserUpsertBulk) SetRole(v string) *UserUpsertBulk {
 func (u *UserUpsertBulk) UpdateRole() *UserUpsertBulk {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateRole()
+	})
+}
+
+// SetAccountType sets the "account_type" field.
+func (u *UserUpsertBulk) SetAccountType(v string) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.SetAccountType(v)
+	})
+}
+
+// UpdateAccountType sets the "account_type" field to the value that was provided on create.
+func (u *UserUpsertBulk) UpdateAccountType() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateAccountType()
+	})
+}
+
+// SetEnterpriseDisabledAt sets the "enterprise_disabled_at" field.
+func (u *UserUpsertBulk) SetEnterpriseDisabledAt(v time.Time) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.SetEnterpriseDisabledAt(v)
+	})
+}
+
+// UpdateEnterpriseDisabledAt sets the "enterprise_disabled_at" field to the value that was provided on create.
+func (u *UserUpsertBulk) UpdateEnterpriseDisabledAt() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateEnterpriseDisabledAt()
+	})
+}
+
+// ClearEnterpriseDisabledAt clears the value of the "enterprise_disabled_at" field.
+func (u *UserUpsertBulk) ClearEnterpriseDisabledAt() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.ClearEnterpriseDisabledAt()
 	})
 }
 

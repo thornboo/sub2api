@@ -29,6 +29,11 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitordailyrollup"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
+	"github.com/Wei-Shaw/sub2api/ent/enterprisemember"
+	"github.com/Wei-Shaw/sub2api/ent/enterprisememberbudgetentry"
+	"github.com/Wei-Shaw/sub2api/ent/enterprisememberbudgetperiod"
+	"github.com/Wei-Shaw/sub2api/ent/enterprisememberbudgetreservation"
+	"github.com/Wei-Shaw/sub2api/ent/enterprisemembergroupbinding"
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
@@ -90,6 +95,16 @@ type Client struct {
 	ChannelMonitorHistory *ChannelMonitorHistoryClient
 	// ChannelMonitorRequestTemplate is the client for interacting with the ChannelMonitorRequestTemplate builders.
 	ChannelMonitorRequestTemplate *ChannelMonitorRequestTemplateClient
+	// EnterpriseMember is the client for interacting with the EnterpriseMember builders.
+	EnterpriseMember *EnterpriseMemberClient
+	// EnterpriseMemberBudgetEntry is the client for interacting with the EnterpriseMemberBudgetEntry builders.
+	EnterpriseMemberBudgetEntry *EnterpriseMemberBudgetEntryClient
+	// EnterpriseMemberBudgetPeriod is the client for interacting with the EnterpriseMemberBudgetPeriod builders.
+	EnterpriseMemberBudgetPeriod *EnterpriseMemberBudgetPeriodClient
+	// EnterpriseMemberBudgetReservation is the client for interacting with the EnterpriseMemberBudgetReservation builders.
+	EnterpriseMemberBudgetReservation *EnterpriseMemberBudgetReservationClient
+	// EnterpriseMemberGroupBinding is the client for interacting with the EnterpriseMemberGroupBinding builders.
+	EnterpriseMemberGroupBinding *EnterpriseMemberGroupBindingClient
 	// ErrorPassthroughRule is the client for interacting with the ErrorPassthroughRule builders.
 	ErrorPassthroughRule *ErrorPassthroughRuleClient
 	// Group is the client for interacting with the Group builders.
@@ -163,6 +178,11 @@ func (c *Client) init() {
 	c.ChannelMonitorDailyRollup = NewChannelMonitorDailyRollupClient(c.config)
 	c.ChannelMonitorHistory = NewChannelMonitorHistoryClient(c.config)
 	c.ChannelMonitorRequestTemplate = NewChannelMonitorRequestTemplateClient(c.config)
+	c.EnterpriseMember = NewEnterpriseMemberClient(c.config)
+	c.EnterpriseMemberBudgetEntry = NewEnterpriseMemberBudgetEntryClient(c.config)
+	c.EnterpriseMemberBudgetPeriod = NewEnterpriseMemberBudgetPeriodClient(c.config)
+	c.EnterpriseMemberBudgetReservation = NewEnterpriseMemberBudgetReservationClient(c.config)
+	c.EnterpriseMemberGroupBinding = NewEnterpriseMemberGroupBindingClient(c.config)
 	c.ErrorPassthroughRule = NewErrorPassthroughRuleClient(c.config)
 	c.Group = NewGroupClient(c.config)
 	c.IdempotencyRecord = NewIdempotencyRecordClient(c.config)
@@ -277,46 +297,51 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 	cfg := c.config
 	cfg.driver = tx
 	return &Tx{
-		ctx:                           ctx,
-		config:                        cfg,
-		APIKey:                        NewAPIKeyClient(cfg),
-		Account:                       NewAccountClient(cfg),
-		AccountGroup:                  NewAccountGroupClient(cfg),
-		Announcement:                  NewAnnouncementClient(cfg),
-		AnnouncementRead:              NewAnnouncementReadClient(cfg),
-		AuthIdentity:                  NewAuthIdentityClient(cfg),
-		AuthIdentityChannel:           NewAuthIdentityChannelClient(cfg),
-		BatchImageEvent:               NewBatchImageEventClient(cfg),
-		BatchImageItem:                NewBatchImageItemClient(cfg),
-		BatchImageJob:                 NewBatchImageJobClient(cfg),
-		ChannelMonitor:                NewChannelMonitorClient(cfg),
-		ChannelMonitorDailyRollup:     NewChannelMonitorDailyRollupClient(cfg),
-		ChannelMonitorHistory:         NewChannelMonitorHistoryClient(cfg),
-		ChannelMonitorRequestTemplate: NewChannelMonitorRequestTemplateClient(cfg),
-		ErrorPassthroughRule:          NewErrorPassthroughRuleClient(cfg),
-		Group:                         NewGroupClient(cfg),
-		IdempotencyRecord:             NewIdempotencyRecordClient(cfg),
-		IdentityAdoptionDecision:      NewIdentityAdoptionDecisionClient(cfg),
-		PaymentAuditLog:               NewPaymentAuditLogClient(cfg),
-		PaymentOrder:                  NewPaymentOrderClient(cfg),
-		PaymentProviderInstance:       NewPaymentProviderInstanceClient(cfg),
-		PendingAuthSession:            NewPendingAuthSessionClient(cfg),
-		PromoCode:                     NewPromoCodeClient(cfg),
-		PromoCodeUsage:                NewPromoCodeUsageClient(cfg),
-		Proxy:                         NewProxyClient(cfg),
-		RedeemCode:                    NewRedeemCodeClient(cfg),
-		SecuritySecret:                NewSecuritySecretClient(cfg),
-		Setting:                       NewSettingClient(cfg),
-		SubscriptionPlan:              NewSubscriptionPlanClient(cfg),
-		TLSFingerprintProfile:         NewTLSFingerprintProfileClient(cfg),
-		UsageCleanupTask:              NewUsageCleanupTaskClient(cfg),
-		UsageLog:                      NewUsageLogClient(cfg),
-		User:                          NewUserClient(cfg),
-		UserAllowedGroup:              NewUserAllowedGroupClient(cfg),
-		UserAttributeDefinition:       NewUserAttributeDefinitionClient(cfg),
-		UserAttributeValue:            NewUserAttributeValueClient(cfg),
-		UserPlatformQuota:             NewUserPlatformQuotaClient(cfg),
-		UserSubscription:              NewUserSubscriptionClient(cfg),
+		ctx:                               ctx,
+		config:                            cfg,
+		APIKey:                            NewAPIKeyClient(cfg),
+		Account:                           NewAccountClient(cfg),
+		AccountGroup:                      NewAccountGroupClient(cfg),
+		Announcement:                      NewAnnouncementClient(cfg),
+		AnnouncementRead:                  NewAnnouncementReadClient(cfg),
+		AuthIdentity:                      NewAuthIdentityClient(cfg),
+		AuthIdentityChannel:               NewAuthIdentityChannelClient(cfg),
+		BatchImageEvent:                   NewBatchImageEventClient(cfg),
+		BatchImageItem:                    NewBatchImageItemClient(cfg),
+		BatchImageJob:                     NewBatchImageJobClient(cfg),
+		ChannelMonitor:                    NewChannelMonitorClient(cfg),
+		ChannelMonitorDailyRollup:         NewChannelMonitorDailyRollupClient(cfg),
+		ChannelMonitorHistory:             NewChannelMonitorHistoryClient(cfg),
+		ChannelMonitorRequestTemplate:     NewChannelMonitorRequestTemplateClient(cfg),
+		EnterpriseMember:                  NewEnterpriseMemberClient(cfg),
+		EnterpriseMemberBudgetEntry:       NewEnterpriseMemberBudgetEntryClient(cfg),
+		EnterpriseMemberBudgetPeriod:      NewEnterpriseMemberBudgetPeriodClient(cfg),
+		EnterpriseMemberBudgetReservation: NewEnterpriseMemberBudgetReservationClient(cfg),
+		EnterpriseMemberGroupBinding:      NewEnterpriseMemberGroupBindingClient(cfg),
+		ErrorPassthroughRule:              NewErrorPassthroughRuleClient(cfg),
+		Group:                             NewGroupClient(cfg),
+		IdempotencyRecord:                 NewIdempotencyRecordClient(cfg),
+		IdentityAdoptionDecision:          NewIdentityAdoptionDecisionClient(cfg),
+		PaymentAuditLog:                   NewPaymentAuditLogClient(cfg),
+		PaymentOrder:                      NewPaymentOrderClient(cfg),
+		PaymentProviderInstance:           NewPaymentProviderInstanceClient(cfg),
+		PendingAuthSession:                NewPendingAuthSessionClient(cfg),
+		PromoCode:                         NewPromoCodeClient(cfg),
+		PromoCodeUsage:                    NewPromoCodeUsageClient(cfg),
+		Proxy:                             NewProxyClient(cfg),
+		RedeemCode:                        NewRedeemCodeClient(cfg),
+		SecuritySecret:                    NewSecuritySecretClient(cfg),
+		Setting:                           NewSettingClient(cfg),
+		SubscriptionPlan:                  NewSubscriptionPlanClient(cfg),
+		TLSFingerprintProfile:             NewTLSFingerprintProfileClient(cfg),
+		UsageCleanupTask:                  NewUsageCleanupTaskClient(cfg),
+		UsageLog:                          NewUsageLogClient(cfg),
+		User:                              NewUserClient(cfg),
+		UserAllowedGroup:                  NewUserAllowedGroupClient(cfg),
+		UserAttributeDefinition:           NewUserAttributeDefinitionClient(cfg),
+		UserAttributeValue:                NewUserAttributeValueClient(cfg),
+		UserPlatformQuota:                 NewUserPlatformQuotaClient(cfg),
+		UserSubscription:                  NewUserSubscriptionClient(cfg),
 	}, nil
 }
 
@@ -334,46 +359,51 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 	cfg := c.config
 	cfg.driver = &txDriver{tx: tx, drv: c.driver}
 	return &Tx{
-		ctx:                           ctx,
-		config:                        cfg,
-		APIKey:                        NewAPIKeyClient(cfg),
-		Account:                       NewAccountClient(cfg),
-		AccountGroup:                  NewAccountGroupClient(cfg),
-		Announcement:                  NewAnnouncementClient(cfg),
-		AnnouncementRead:              NewAnnouncementReadClient(cfg),
-		AuthIdentity:                  NewAuthIdentityClient(cfg),
-		AuthIdentityChannel:           NewAuthIdentityChannelClient(cfg),
-		BatchImageEvent:               NewBatchImageEventClient(cfg),
-		BatchImageItem:                NewBatchImageItemClient(cfg),
-		BatchImageJob:                 NewBatchImageJobClient(cfg),
-		ChannelMonitor:                NewChannelMonitorClient(cfg),
-		ChannelMonitorDailyRollup:     NewChannelMonitorDailyRollupClient(cfg),
-		ChannelMonitorHistory:         NewChannelMonitorHistoryClient(cfg),
-		ChannelMonitorRequestTemplate: NewChannelMonitorRequestTemplateClient(cfg),
-		ErrorPassthroughRule:          NewErrorPassthroughRuleClient(cfg),
-		Group:                         NewGroupClient(cfg),
-		IdempotencyRecord:             NewIdempotencyRecordClient(cfg),
-		IdentityAdoptionDecision:      NewIdentityAdoptionDecisionClient(cfg),
-		PaymentAuditLog:               NewPaymentAuditLogClient(cfg),
-		PaymentOrder:                  NewPaymentOrderClient(cfg),
-		PaymentProviderInstance:       NewPaymentProviderInstanceClient(cfg),
-		PendingAuthSession:            NewPendingAuthSessionClient(cfg),
-		PromoCode:                     NewPromoCodeClient(cfg),
-		PromoCodeUsage:                NewPromoCodeUsageClient(cfg),
-		Proxy:                         NewProxyClient(cfg),
-		RedeemCode:                    NewRedeemCodeClient(cfg),
-		SecuritySecret:                NewSecuritySecretClient(cfg),
-		Setting:                       NewSettingClient(cfg),
-		SubscriptionPlan:              NewSubscriptionPlanClient(cfg),
-		TLSFingerprintProfile:         NewTLSFingerprintProfileClient(cfg),
-		UsageCleanupTask:              NewUsageCleanupTaskClient(cfg),
-		UsageLog:                      NewUsageLogClient(cfg),
-		User:                          NewUserClient(cfg),
-		UserAllowedGroup:              NewUserAllowedGroupClient(cfg),
-		UserAttributeDefinition:       NewUserAttributeDefinitionClient(cfg),
-		UserAttributeValue:            NewUserAttributeValueClient(cfg),
-		UserPlatformQuota:             NewUserPlatformQuotaClient(cfg),
-		UserSubscription:              NewUserSubscriptionClient(cfg),
+		ctx:                               ctx,
+		config:                            cfg,
+		APIKey:                            NewAPIKeyClient(cfg),
+		Account:                           NewAccountClient(cfg),
+		AccountGroup:                      NewAccountGroupClient(cfg),
+		Announcement:                      NewAnnouncementClient(cfg),
+		AnnouncementRead:                  NewAnnouncementReadClient(cfg),
+		AuthIdentity:                      NewAuthIdentityClient(cfg),
+		AuthIdentityChannel:               NewAuthIdentityChannelClient(cfg),
+		BatchImageEvent:                   NewBatchImageEventClient(cfg),
+		BatchImageItem:                    NewBatchImageItemClient(cfg),
+		BatchImageJob:                     NewBatchImageJobClient(cfg),
+		ChannelMonitor:                    NewChannelMonitorClient(cfg),
+		ChannelMonitorDailyRollup:         NewChannelMonitorDailyRollupClient(cfg),
+		ChannelMonitorHistory:             NewChannelMonitorHistoryClient(cfg),
+		ChannelMonitorRequestTemplate:     NewChannelMonitorRequestTemplateClient(cfg),
+		EnterpriseMember:                  NewEnterpriseMemberClient(cfg),
+		EnterpriseMemberBudgetEntry:       NewEnterpriseMemberBudgetEntryClient(cfg),
+		EnterpriseMemberBudgetPeriod:      NewEnterpriseMemberBudgetPeriodClient(cfg),
+		EnterpriseMemberBudgetReservation: NewEnterpriseMemberBudgetReservationClient(cfg),
+		EnterpriseMemberGroupBinding:      NewEnterpriseMemberGroupBindingClient(cfg),
+		ErrorPassthroughRule:              NewErrorPassthroughRuleClient(cfg),
+		Group:                             NewGroupClient(cfg),
+		IdempotencyRecord:                 NewIdempotencyRecordClient(cfg),
+		IdentityAdoptionDecision:          NewIdentityAdoptionDecisionClient(cfg),
+		PaymentAuditLog:                   NewPaymentAuditLogClient(cfg),
+		PaymentOrder:                      NewPaymentOrderClient(cfg),
+		PaymentProviderInstance:           NewPaymentProviderInstanceClient(cfg),
+		PendingAuthSession:                NewPendingAuthSessionClient(cfg),
+		PromoCode:                         NewPromoCodeClient(cfg),
+		PromoCodeUsage:                    NewPromoCodeUsageClient(cfg),
+		Proxy:                             NewProxyClient(cfg),
+		RedeemCode:                        NewRedeemCodeClient(cfg),
+		SecuritySecret:                    NewSecuritySecretClient(cfg),
+		Setting:                           NewSettingClient(cfg),
+		SubscriptionPlan:                  NewSubscriptionPlanClient(cfg),
+		TLSFingerprintProfile:             NewTLSFingerprintProfileClient(cfg),
+		UsageCleanupTask:                  NewUsageCleanupTaskClient(cfg),
+		UsageLog:                          NewUsageLogClient(cfg),
+		User:                              NewUserClient(cfg),
+		UserAllowedGroup:                  NewUserAllowedGroupClient(cfg),
+		UserAttributeDefinition:           NewUserAttributeDefinitionClient(cfg),
+		UserAttributeValue:                NewUserAttributeValueClient(cfg),
+		UserPlatformQuota:                 NewUserPlatformQuotaClient(cfg),
+		UserSubscription:                  NewUserSubscriptionClient(cfg),
 	}, nil
 }
 
@@ -406,7 +436,9 @@ func (c *Client) Use(hooks ...Hook) {
 		c.APIKey, c.Account, c.AccountGroup, c.Announcement, c.AnnouncementRead,
 		c.AuthIdentity, c.AuthIdentityChannel, c.BatchImageEvent, c.BatchImageItem,
 		c.BatchImageJob, c.ChannelMonitor, c.ChannelMonitorDailyRollup,
-		c.ChannelMonitorHistory, c.ChannelMonitorRequestTemplate,
+		c.ChannelMonitorHistory, c.ChannelMonitorRequestTemplate, c.EnterpriseMember,
+		c.EnterpriseMemberBudgetEntry, c.EnterpriseMemberBudgetPeriod,
+		c.EnterpriseMemberBudgetReservation, c.EnterpriseMemberGroupBinding,
 		c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
 		c.IdentityAdoptionDecision, c.PaymentAuditLog, c.PaymentOrder,
 		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
@@ -426,7 +458,9 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.APIKey, c.Account, c.AccountGroup, c.Announcement, c.AnnouncementRead,
 		c.AuthIdentity, c.AuthIdentityChannel, c.BatchImageEvent, c.BatchImageItem,
 		c.BatchImageJob, c.ChannelMonitor, c.ChannelMonitorDailyRollup,
-		c.ChannelMonitorHistory, c.ChannelMonitorRequestTemplate,
+		c.ChannelMonitorHistory, c.ChannelMonitorRequestTemplate, c.EnterpriseMember,
+		c.EnterpriseMemberBudgetEntry, c.EnterpriseMemberBudgetPeriod,
+		c.EnterpriseMemberBudgetReservation, c.EnterpriseMemberGroupBinding,
 		c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
 		c.IdentityAdoptionDecision, c.PaymentAuditLog, c.PaymentOrder,
 		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
@@ -470,6 +504,16 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.ChannelMonitorHistory.mutate(ctx, m)
 	case *ChannelMonitorRequestTemplateMutation:
 		return c.ChannelMonitorRequestTemplate.mutate(ctx, m)
+	case *EnterpriseMemberMutation:
+		return c.EnterpriseMember.mutate(ctx, m)
+	case *EnterpriseMemberBudgetEntryMutation:
+		return c.EnterpriseMemberBudgetEntry.mutate(ctx, m)
+	case *EnterpriseMemberBudgetPeriodMutation:
+		return c.EnterpriseMemberBudgetPeriod.mutate(ctx, m)
+	case *EnterpriseMemberBudgetReservationMutation:
+		return c.EnterpriseMemberBudgetReservation.mutate(ctx, m)
+	case *EnterpriseMemberGroupBindingMutation:
+		return c.EnterpriseMemberGroupBinding.mutate(ctx, m)
 	case *ErrorPassthroughRuleMutation:
 		return c.ErrorPassthroughRule.mutate(ctx, m)
 	case *GroupMutation:
@@ -656,6 +700,22 @@ func (c *APIKeyClient) QueryGroup(_m *APIKey) *GroupQuery {
 			sqlgraph.From(apikey.Table, apikey.FieldID, id),
 			sqlgraph.To(group.Table, group.FieldID),
 			sqlgraph.Edge(sqlgraph.M2O, true, apikey.GroupTable, apikey.GroupColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryMember queries the member edge of a APIKey.
+func (c *APIKeyClient) QueryMember(_m *APIKey) *EnterpriseMemberQuery {
+	query := (&EnterpriseMemberClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(apikey.Table, apikey.FieldID, id),
+			sqlgraph.To(enterprisemember.Table, enterprisemember.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, apikey.MemberTable, apikey.MemberColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -2724,6 +2784,832 @@ func (c *ChannelMonitorRequestTemplateClient) mutate(ctx context.Context, m *Cha
 	}
 }
 
+// EnterpriseMemberClient is a client for the EnterpriseMember schema.
+type EnterpriseMemberClient struct {
+	config
+}
+
+// NewEnterpriseMemberClient returns a client for the EnterpriseMember from the given config.
+func NewEnterpriseMemberClient(c config) *EnterpriseMemberClient {
+	return &EnterpriseMemberClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `enterprisemember.Hooks(f(g(h())))`.
+func (c *EnterpriseMemberClient) Use(hooks ...Hook) {
+	c.hooks.EnterpriseMember = append(c.hooks.EnterpriseMember, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `enterprisemember.Intercept(f(g(h())))`.
+func (c *EnterpriseMemberClient) Intercept(interceptors ...Interceptor) {
+	c.inters.EnterpriseMember = append(c.inters.EnterpriseMember, interceptors...)
+}
+
+// Create returns a builder for creating a EnterpriseMember entity.
+func (c *EnterpriseMemberClient) Create() *EnterpriseMemberCreate {
+	mutation := newEnterpriseMemberMutation(c.config, OpCreate)
+	return &EnterpriseMemberCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of EnterpriseMember entities.
+func (c *EnterpriseMemberClient) CreateBulk(builders ...*EnterpriseMemberCreate) *EnterpriseMemberCreateBulk {
+	return &EnterpriseMemberCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *EnterpriseMemberClient) MapCreateBulk(slice any, setFunc func(*EnterpriseMemberCreate, int)) *EnterpriseMemberCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &EnterpriseMemberCreateBulk{err: fmt.Errorf("calling to EnterpriseMemberClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*EnterpriseMemberCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &EnterpriseMemberCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for EnterpriseMember.
+func (c *EnterpriseMemberClient) Update() *EnterpriseMemberUpdate {
+	mutation := newEnterpriseMemberMutation(c.config, OpUpdate)
+	return &EnterpriseMemberUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *EnterpriseMemberClient) UpdateOne(_m *EnterpriseMember) *EnterpriseMemberUpdateOne {
+	mutation := newEnterpriseMemberMutation(c.config, OpUpdateOne, withEnterpriseMember(_m))
+	return &EnterpriseMemberUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *EnterpriseMemberClient) UpdateOneID(id int64) *EnterpriseMemberUpdateOne {
+	mutation := newEnterpriseMemberMutation(c.config, OpUpdateOne, withEnterpriseMemberID(id))
+	return &EnterpriseMemberUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for EnterpriseMember.
+func (c *EnterpriseMemberClient) Delete() *EnterpriseMemberDelete {
+	mutation := newEnterpriseMemberMutation(c.config, OpDelete)
+	return &EnterpriseMemberDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *EnterpriseMemberClient) DeleteOne(_m *EnterpriseMember) *EnterpriseMemberDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *EnterpriseMemberClient) DeleteOneID(id int64) *EnterpriseMemberDeleteOne {
+	builder := c.Delete().Where(enterprisemember.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &EnterpriseMemberDeleteOne{builder}
+}
+
+// Query returns a query builder for EnterpriseMember.
+func (c *EnterpriseMemberClient) Query() *EnterpriseMemberQuery {
+	return &EnterpriseMemberQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeEnterpriseMember},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a EnterpriseMember entity by its id.
+func (c *EnterpriseMemberClient) Get(ctx context.Context, id int64) (*EnterpriseMember, error) {
+	return c.Query().Where(enterprisemember.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *EnterpriseMemberClient) GetX(ctx context.Context, id int64) *EnterpriseMember {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryEnterpriseUser queries the enterprise_user edge of a EnterpriseMember.
+func (c *EnterpriseMemberClient) QueryEnterpriseUser(_m *EnterpriseMember) *UserQuery {
+	query := (&UserClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(enterprisemember.Table, enterprisemember.FieldID, id),
+			sqlgraph.To(user.Table, user.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, enterprisemember.EnterpriseUserTable, enterprisemember.EnterpriseUserColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryAPIKeys queries the api_keys edge of a EnterpriseMember.
+func (c *EnterpriseMemberClient) QueryAPIKeys(_m *EnterpriseMember) *APIKeyQuery {
+	query := (&APIKeyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(enterprisemember.Table, enterprisemember.FieldID, id),
+			sqlgraph.To(apikey.Table, apikey.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, enterprisemember.APIKeysTable, enterprisemember.APIKeysColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryUsageLogs queries the usage_logs edge of a EnterpriseMember.
+func (c *EnterpriseMemberClient) QueryUsageLogs(_m *EnterpriseMember) *UsageLogQuery {
+	query := (&UsageLogClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(enterprisemember.Table, enterprisemember.FieldID, id),
+			sqlgraph.To(usagelog.Table, usagelog.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, enterprisemember.UsageLogsTable, enterprisemember.UsageLogsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryGroups queries the groups edge of a EnterpriseMember.
+func (c *EnterpriseMemberClient) QueryGroups(_m *EnterpriseMember) *GroupQuery {
+	query := (&GroupClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(enterprisemember.Table, enterprisemember.FieldID, id),
+			sqlgraph.To(group.Table, group.FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, false, enterprisemember.GroupsTable, enterprisemember.GroupsPrimaryKey...),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryBudgetPeriods queries the budget_periods edge of a EnterpriseMember.
+func (c *EnterpriseMemberClient) QueryBudgetPeriods(_m *EnterpriseMember) *EnterpriseMemberBudgetPeriodQuery {
+	query := (&EnterpriseMemberBudgetPeriodClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(enterprisemember.Table, enterprisemember.FieldID, id),
+			sqlgraph.To(enterprisememberbudgetperiod.Table, enterprisememberbudgetperiod.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, enterprisemember.BudgetPeriodsTable, enterprisemember.BudgetPeriodsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryBudgetReservations queries the budget_reservations edge of a EnterpriseMember.
+func (c *EnterpriseMemberClient) QueryBudgetReservations(_m *EnterpriseMember) *EnterpriseMemberBudgetReservationQuery {
+	query := (&EnterpriseMemberBudgetReservationClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(enterprisemember.Table, enterprisemember.FieldID, id),
+			sqlgraph.To(enterprisememberbudgetreservation.Table, enterprisememberbudgetreservation.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, enterprisemember.BudgetReservationsTable, enterprisemember.BudgetReservationsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryBudgetEntries queries the budget_entries edge of a EnterpriseMember.
+func (c *EnterpriseMemberClient) QueryBudgetEntries(_m *EnterpriseMember) *EnterpriseMemberBudgetEntryQuery {
+	query := (&EnterpriseMemberBudgetEntryClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(enterprisemember.Table, enterprisemember.FieldID, id),
+			sqlgraph.To(enterprisememberbudgetentry.Table, enterprisememberbudgetentry.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, enterprisemember.BudgetEntriesTable, enterprisemember.BudgetEntriesColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryEnterpriseMemberGroupBindings queries the enterprise_member_group_bindings edge of a EnterpriseMember.
+func (c *EnterpriseMemberClient) QueryEnterpriseMemberGroupBindings(_m *EnterpriseMember) *EnterpriseMemberGroupBindingQuery {
+	query := (&EnterpriseMemberGroupBindingClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(enterprisemember.Table, enterprisemember.FieldID, id),
+			sqlgraph.To(enterprisemembergroupbinding.Table, enterprisemembergroupbinding.MemberColumn),
+			sqlgraph.Edge(sqlgraph.O2M, true, enterprisemember.EnterpriseMemberGroupBindingsTable, enterprisemember.EnterpriseMemberGroupBindingsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *EnterpriseMemberClient) Hooks() []Hook {
+	hooks := c.hooks.EnterpriseMember
+	return append(hooks[:len(hooks):len(hooks)], enterprisemember.Hooks[:]...)
+}
+
+// Interceptors returns the client interceptors.
+func (c *EnterpriseMemberClient) Interceptors() []Interceptor {
+	inters := c.inters.EnterpriseMember
+	return append(inters[:len(inters):len(inters)], enterprisemember.Interceptors[:]...)
+}
+
+func (c *EnterpriseMemberClient) mutate(ctx context.Context, m *EnterpriseMemberMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&EnterpriseMemberCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&EnterpriseMemberUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&EnterpriseMemberUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&EnterpriseMemberDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown EnterpriseMember mutation op: %q", m.Op())
+	}
+}
+
+// EnterpriseMemberBudgetEntryClient is a client for the EnterpriseMemberBudgetEntry schema.
+type EnterpriseMemberBudgetEntryClient struct {
+	config
+}
+
+// NewEnterpriseMemberBudgetEntryClient returns a client for the EnterpriseMemberBudgetEntry from the given config.
+func NewEnterpriseMemberBudgetEntryClient(c config) *EnterpriseMemberBudgetEntryClient {
+	return &EnterpriseMemberBudgetEntryClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `enterprisememberbudgetentry.Hooks(f(g(h())))`.
+func (c *EnterpriseMemberBudgetEntryClient) Use(hooks ...Hook) {
+	c.hooks.EnterpriseMemberBudgetEntry = append(c.hooks.EnterpriseMemberBudgetEntry, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `enterprisememberbudgetentry.Intercept(f(g(h())))`.
+func (c *EnterpriseMemberBudgetEntryClient) Intercept(interceptors ...Interceptor) {
+	c.inters.EnterpriseMemberBudgetEntry = append(c.inters.EnterpriseMemberBudgetEntry, interceptors...)
+}
+
+// Create returns a builder for creating a EnterpriseMemberBudgetEntry entity.
+func (c *EnterpriseMemberBudgetEntryClient) Create() *EnterpriseMemberBudgetEntryCreate {
+	mutation := newEnterpriseMemberBudgetEntryMutation(c.config, OpCreate)
+	return &EnterpriseMemberBudgetEntryCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of EnterpriseMemberBudgetEntry entities.
+func (c *EnterpriseMemberBudgetEntryClient) CreateBulk(builders ...*EnterpriseMemberBudgetEntryCreate) *EnterpriseMemberBudgetEntryCreateBulk {
+	return &EnterpriseMemberBudgetEntryCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *EnterpriseMemberBudgetEntryClient) MapCreateBulk(slice any, setFunc func(*EnterpriseMemberBudgetEntryCreate, int)) *EnterpriseMemberBudgetEntryCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &EnterpriseMemberBudgetEntryCreateBulk{err: fmt.Errorf("calling to EnterpriseMemberBudgetEntryClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*EnterpriseMemberBudgetEntryCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &EnterpriseMemberBudgetEntryCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for EnterpriseMemberBudgetEntry.
+func (c *EnterpriseMemberBudgetEntryClient) Update() *EnterpriseMemberBudgetEntryUpdate {
+	mutation := newEnterpriseMemberBudgetEntryMutation(c.config, OpUpdate)
+	return &EnterpriseMemberBudgetEntryUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *EnterpriseMemberBudgetEntryClient) UpdateOne(_m *EnterpriseMemberBudgetEntry) *EnterpriseMemberBudgetEntryUpdateOne {
+	mutation := newEnterpriseMemberBudgetEntryMutation(c.config, OpUpdateOne, withEnterpriseMemberBudgetEntry(_m))
+	return &EnterpriseMemberBudgetEntryUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *EnterpriseMemberBudgetEntryClient) UpdateOneID(id int64) *EnterpriseMemberBudgetEntryUpdateOne {
+	mutation := newEnterpriseMemberBudgetEntryMutation(c.config, OpUpdateOne, withEnterpriseMemberBudgetEntryID(id))
+	return &EnterpriseMemberBudgetEntryUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for EnterpriseMemberBudgetEntry.
+func (c *EnterpriseMemberBudgetEntryClient) Delete() *EnterpriseMemberBudgetEntryDelete {
+	mutation := newEnterpriseMemberBudgetEntryMutation(c.config, OpDelete)
+	return &EnterpriseMemberBudgetEntryDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *EnterpriseMemberBudgetEntryClient) DeleteOne(_m *EnterpriseMemberBudgetEntry) *EnterpriseMemberBudgetEntryDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *EnterpriseMemberBudgetEntryClient) DeleteOneID(id int64) *EnterpriseMemberBudgetEntryDeleteOne {
+	builder := c.Delete().Where(enterprisememberbudgetentry.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &EnterpriseMemberBudgetEntryDeleteOne{builder}
+}
+
+// Query returns a query builder for EnterpriseMemberBudgetEntry.
+func (c *EnterpriseMemberBudgetEntryClient) Query() *EnterpriseMemberBudgetEntryQuery {
+	return &EnterpriseMemberBudgetEntryQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeEnterpriseMemberBudgetEntry},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a EnterpriseMemberBudgetEntry entity by its id.
+func (c *EnterpriseMemberBudgetEntryClient) Get(ctx context.Context, id int64) (*EnterpriseMemberBudgetEntry, error) {
+	return c.Query().Where(enterprisememberbudgetentry.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *EnterpriseMemberBudgetEntryClient) GetX(ctx context.Context, id int64) *EnterpriseMemberBudgetEntry {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryMember queries the member edge of a EnterpriseMemberBudgetEntry.
+func (c *EnterpriseMemberBudgetEntryClient) QueryMember(_m *EnterpriseMemberBudgetEntry) *EnterpriseMemberQuery {
+	query := (&EnterpriseMemberClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(enterprisememberbudgetentry.Table, enterprisememberbudgetentry.FieldID, id),
+			sqlgraph.To(enterprisemember.Table, enterprisemember.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, enterprisememberbudgetentry.MemberTable, enterprisememberbudgetentry.MemberColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *EnterpriseMemberBudgetEntryClient) Hooks() []Hook {
+	return c.hooks.EnterpriseMemberBudgetEntry
+}
+
+// Interceptors returns the client interceptors.
+func (c *EnterpriseMemberBudgetEntryClient) Interceptors() []Interceptor {
+	return c.inters.EnterpriseMemberBudgetEntry
+}
+
+func (c *EnterpriseMemberBudgetEntryClient) mutate(ctx context.Context, m *EnterpriseMemberBudgetEntryMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&EnterpriseMemberBudgetEntryCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&EnterpriseMemberBudgetEntryUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&EnterpriseMemberBudgetEntryUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&EnterpriseMemberBudgetEntryDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown EnterpriseMemberBudgetEntry mutation op: %q", m.Op())
+	}
+}
+
+// EnterpriseMemberBudgetPeriodClient is a client for the EnterpriseMemberBudgetPeriod schema.
+type EnterpriseMemberBudgetPeriodClient struct {
+	config
+}
+
+// NewEnterpriseMemberBudgetPeriodClient returns a client for the EnterpriseMemberBudgetPeriod from the given config.
+func NewEnterpriseMemberBudgetPeriodClient(c config) *EnterpriseMemberBudgetPeriodClient {
+	return &EnterpriseMemberBudgetPeriodClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `enterprisememberbudgetperiod.Hooks(f(g(h())))`.
+func (c *EnterpriseMemberBudgetPeriodClient) Use(hooks ...Hook) {
+	c.hooks.EnterpriseMemberBudgetPeriod = append(c.hooks.EnterpriseMemberBudgetPeriod, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `enterprisememberbudgetperiod.Intercept(f(g(h())))`.
+func (c *EnterpriseMemberBudgetPeriodClient) Intercept(interceptors ...Interceptor) {
+	c.inters.EnterpriseMemberBudgetPeriod = append(c.inters.EnterpriseMemberBudgetPeriod, interceptors...)
+}
+
+// Create returns a builder for creating a EnterpriseMemberBudgetPeriod entity.
+func (c *EnterpriseMemberBudgetPeriodClient) Create() *EnterpriseMemberBudgetPeriodCreate {
+	mutation := newEnterpriseMemberBudgetPeriodMutation(c.config, OpCreate)
+	return &EnterpriseMemberBudgetPeriodCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of EnterpriseMemberBudgetPeriod entities.
+func (c *EnterpriseMemberBudgetPeriodClient) CreateBulk(builders ...*EnterpriseMemberBudgetPeriodCreate) *EnterpriseMemberBudgetPeriodCreateBulk {
+	return &EnterpriseMemberBudgetPeriodCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *EnterpriseMemberBudgetPeriodClient) MapCreateBulk(slice any, setFunc func(*EnterpriseMemberBudgetPeriodCreate, int)) *EnterpriseMemberBudgetPeriodCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &EnterpriseMemberBudgetPeriodCreateBulk{err: fmt.Errorf("calling to EnterpriseMemberBudgetPeriodClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*EnterpriseMemberBudgetPeriodCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &EnterpriseMemberBudgetPeriodCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for EnterpriseMemberBudgetPeriod.
+func (c *EnterpriseMemberBudgetPeriodClient) Update() *EnterpriseMemberBudgetPeriodUpdate {
+	mutation := newEnterpriseMemberBudgetPeriodMutation(c.config, OpUpdate)
+	return &EnterpriseMemberBudgetPeriodUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *EnterpriseMemberBudgetPeriodClient) UpdateOne(_m *EnterpriseMemberBudgetPeriod) *EnterpriseMemberBudgetPeriodUpdateOne {
+	mutation := newEnterpriseMemberBudgetPeriodMutation(c.config, OpUpdateOne, withEnterpriseMemberBudgetPeriod(_m))
+	return &EnterpriseMemberBudgetPeriodUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *EnterpriseMemberBudgetPeriodClient) UpdateOneID(id int64) *EnterpriseMemberBudgetPeriodUpdateOne {
+	mutation := newEnterpriseMemberBudgetPeriodMutation(c.config, OpUpdateOne, withEnterpriseMemberBudgetPeriodID(id))
+	return &EnterpriseMemberBudgetPeriodUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for EnterpriseMemberBudgetPeriod.
+func (c *EnterpriseMemberBudgetPeriodClient) Delete() *EnterpriseMemberBudgetPeriodDelete {
+	mutation := newEnterpriseMemberBudgetPeriodMutation(c.config, OpDelete)
+	return &EnterpriseMemberBudgetPeriodDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *EnterpriseMemberBudgetPeriodClient) DeleteOne(_m *EnterpriseMemberBudgetPeriod) *EnterpriseMemberBudgetPeriodDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *EnterpriseMemberBudgetPeriodClient) DeleteOneID(id int64) *EnterpriseMemberBudgetPeriodDeleteOne {
+	builder := c.Delete().Where(enterprisememberbudgetperiod.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &EnterpriseMemberBudgetPeriodDeleteOne{builder}
+}
+
+// Query returns a query builder for EnterpriseMemberBudgetPeriod.
+func (c *EnterpriseMemberBudgetPeriodClient) Query() *EnterpriseMemberBudgetPeriodQuery {
+	return &EnterpriseMemberBudgetPeriodQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeEnterpriseMemberBudgetPeriod},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a EnterpriseMemberBudgetPeriod entity by its id.
+func (c *EnterpriseMemberBudgetPeriodClient) Get(ctx context.Context, id int64) (*EnterpriseMemberBudgetPeriod, error) {
+	return c.Query().Where(enterprisememberbudgetperiod.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *EnterpriseMemberBudgetPeriodClient) GetX(ctx context.Context, id int64) *EnterpriseMemberBudgetPeriod {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryMember queries the member edge of a EnterpriseMemberBudgetPeriod.
+func (c *EnterpriseMemberBudgetPeriodClient) QueryMember(_m *EnterpriseMemberBudgetPeriod) *EnterpriseMemberQuery {
+	query := (&EnterpriseMemberClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(enterprisememberbudgetperiod.Table, enterprisememberbudgetperiod.FieldID, id),
+			sqlgraph.To(enterprisemember.Table, enterprisemember.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, enterprisememberbudgetperiod.MemberTable, enterprisememberbudgetperiod.MemberColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *EnterpriseMemberBudgetPeriodClient) Hooks() []Hook {
+	return c.hooks.EnterpriseMemberBudgetPeriod
+}
+
+// Interceptors returns the client interceptors.
+func (c *EnterpriseMemberBudgetPeriodClient) Interceptors() []Interceptor {
+	return c.inters.EnterpriseMemberBudgetPeriod
+}
+
+func (c *EnterpriseMemberBudgetPeriodClient) mutate(ctx context.Context, m *EnterpriseMemberBudgetPeriodMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&EnterpriseMemberBudgetPeriodCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&EnterpriseMemberBudgetPeriodUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&EnterpriseMemberBudgetPeriodUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&EnterpriseMemberBudgetPeriodDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown EnterpriseMemberBudgetPeriod mutation op: %q", m.Op())
+	}
+}
+
+// EnterpriseMemberBudgetReservationClient is a client for the EnterpriseMemberBudgetReservation schema.
+type EnterpriseMemberBudgetReservationClient struct {
+	config
+}
+
+// NewEnterpriseMemberBudgetReservationClient returns a client for the EnterpriseMemberBudgetReservation from the given config.
+func NewEnterpriseMemberBudgetReservationClient(c config) *EnterpriseMemberBudgetReservationClient {
+	return &EnterpriseMemberBudgetReservationClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `enterprisememberbudgetreservation.Hooks(f(g(h())))`.
+func (c *EnterpriseMemberBudgetReservationClient) Use(hooks ...Hook) {
+	c.hooks.EnterpriseMemberBudgetReservation = append(c.hooks.EnterpriseMemberBudgetReservation, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `enterprisememberbudgetreservation.Intercept(f(g(h())))`.
+func (c *EnterpriseMemberBudgetReservationClient) Intercept(interceptors ...Interceptor) {
+	c.inters.EnterpriseMemberBudgetReservation = append(c.inters.EnterpriseMemberBudgetReservation, interceptors...)
+}
+
+// Create returns a builder for creating a EnterpriseMemberBudgetReservation entity.
+func (c *EnterpriseMemberBudgetReservationClient) Create() *EnterpriseMemberBudgetReservationCreate {
+	mutation := newEnterpriseMemberBudgetReservationMutation(c.config, OpCreate)
+	return &EnterpriseMemberBudgetReservationCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of EnterpriseMemberBudgetReservation entities.
+func (c *EnterpriseMemberBudgetReservationClient) CreateBulk(builders ...*EnterpriseMemberBudgetReservationCreate) *EnterpriseMemberBudgetReservationCreateBulk {
+	return &EnterpriseMemberBudgetReservationCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *EnterpriseMemberBudgetReservationClient) MapCreateBulk(slice any, setFunc func(*EnterpriseMemberBudgetReservationCreate, int)) *EnterpriseMemberBudgetReservationCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &EnterpriseMemberBudgetReservationCreateBulk{err: fmt.Errorf("calling to EnterpriseMemberBudgetReservationClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*EnterpriseMemberBudgetReservationCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &EnterpriseMemberBudgetReservationCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for EnterpriseMemberBudgetReservation.
+func (c *EnterpriseMemberBudgetReservationClient) Update() *EnterpriseMemberBudgetReservationUpdate {
+	mutation := newEnterpriseMemberBudgetReservationMutation(c.config, OpUpdate)
+	return &EnterpriseMemberBudgetReservationUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *EnterpriseMemberBudgetReservationClient) UpdateOne(_m *EnterpriseMemberBudgetReservation) *EnterpriseMemberBudgetReservationUpdateOne {
+	mutation := newEnterpriseMemberBudgetReservationMutation(c.config, OpUpdateOne, withEnterpriseMemberBudgetReservation(_m))
+	return &EnterpriseMemberBudgetReservationUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *EnterpriseMemberBudgetReservationClient) UpdateOneID(id int64) *EnterpriseMemberBudgetReservationUpdateOne {
+	mutation := newEnterpriseMemberBudgetReservationMutation(c.config, OpUpdateOne, withEnterpriseMemberBudgetReservationID(id))
+	return &EnterpriseMemberBudgetReservationUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for EnterpriseMemberBudgetReservation.
+func (c *EnterpriseMemberBudgetReservationClient) Delete() *EnterpriseMemberBudgetReservationDelete {
+	mutation := newEnterpriseMemberBudgetReservationMutation(c.config, OpDelete)
+	return &EnterpriseMemberBudgetReservationDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *EnterpriseMemberBudgetReservationClient) DeleteOne(_m *EnterpriseMemberBudgetReservation) *EnterpriseMemberBudgetReservationDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *EnterpriseMemberBudgetReservationClient) DeleteOneID(id int64) *EnterpriseMemberBudgetReservationDeleteOne {
+	builder := c.Delete().Where(enterprisememberbudgetreservation.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &EnterpriseMemberBudgetReservationDeleteOne{builder}
+}
+
+// Query returns a query builder for EnterpriseMemberBudgetReservation.
+func (c *EnterpriseMemberBudgetReservationClient) Query() *EnterpriseMemberBudgetReservationQuery {
+	return &EnterpriseMemberBudgetReservationQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeEnterpriseMemberBudgetReservation},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a EnterpriseMemberBudgetReservation entity by its id.
+func (c *EnterpriseMemberBudgetReservationClient) Get(ctx context.Context, id int64) (*EnterpriseMemberBudgetReservation, error) {
+	return c.Query().Where(enterprisememberbudgetreservation.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *EnterpriseMemberBudgetReservationClient) GetX(ctx context.Context, id int64) *EnterpriseMemberBudgetReservation {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryMember queries the member edge of a EnterpriseMemberBudgetReservation.
+func (c *EnterpriseMemberBudgetReservationClient) QueryMember(_m *EnterpriseMemberBudgetReservation) *EnterpriseMemberQuery {
+	query := (&EnterpriseMemberClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(enterprisememberbudgetreservation.Table, enterprisememberbudgetreservation.FieldID, id),
+			sqlgraph.To(enterprisemember.Table, enterprisemember.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, enterprisememberbudgetreservation.MemberTable, enterprisememberbudgetreservation.MemberColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *EnterpriseMemberBudgetReservationClient) Hooks() []Hook {
+	return c.hooks.EnterpriseMemberBudgetReservation
+}
+
+// Interceptors returns the client interceptors.
+func (c *EnterpriseMemberBudgetReservationClient) Interceptors() []Interceptor {
+	return c.inters.EnterpriseMemberBudgetReservation
+}
+
+func (c *EnterpriseMemberBudgetReservationClient) mutate(ctx context.Context, m *EnterpriseMemberBudgetReservationMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&EnterpriseMemberBudgetReservationCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&EnterpriseMemberBudgetReservationUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&EnterpriseMemberBudgetReservationUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&EnterpriseMemberBudgetReservationDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown EnterpriseMemberBudgetReservation mutation op: %q", m.Op())
+	}
+}
+
+// EnterpriseMemberGroupBindingClient is a client for the EnterpriseMemberGroupBinding schema.
+type EnterpriseMemberGroupBindingClient struct {
+	config
+}
+
+// NewEnterpriseMemberGroupBindingClient returns a client for the EnterpriseMemberGroupBinding from the given config.
+func NewEnterpriseMemberGroupBindingClient(c config) *EnterpriseMemberGroupBindingClient {
+	return &EnterpriseMemberGroupBindingClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `enterprisemembergroupbinding.Hooks(f(g(h())))`.
+func (c *EnterpriseMemberGroupBindingClient) Use(hooks ...Hook) {
+	c.hooks.EnterpriseMemberGroupBinding = append(c.hooks.EnterpriseMemberGroupBinding, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `enterprisemembergroupbinding.Intercept(f(g(h())))`.
+func (c *EnterpriseMemberGroupBindingClient) Intercept(interceptors ...Interceptor) {
+	c.inters.EnterpriseMemberGroupBinding = append(c.inters.EnterpriseMemberGroupBinding, interceptors...)
+}
+
+// Create returns a builder for creating a EnterpriseMemberGroupBinding entity.
+func (c *EnterpriseMemberGroupBindingClient) Create() *EnterpriseMemberGroupBindingCreate {
+	mutation := newEnterpriseMemberGroupBindingMutation(c.config, OpCreate)
+	return &EnterpriseMemberGroupBindingCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of EnterpriseMemberGroupBinding entities.
+func (c *EnterpriseMemberGroupBindingClient) CreateBulk(builders ...*EnterpriseMemberGroupBindingCreate) *EnterpriseMemberGroupBindingCreateBulk {
+	return &EnterpriseMemberGroupBindingCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *EnterpriseMemberGroupBindingClient) MapCreateBulk(slice any, setFunc func(*EnterpriseMemberGroupBindingCreate, int)) *EnterpriseMemberGroupBindingCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &EnterpriseMemberGroupBindingCreateBulk{err: fmt.Errorf("calling to EnterpriseMemberGroupBindingClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*EnterpriseMemberGroupBindingCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &EnterpriseMemberGroupBindingCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for EnterpriseMemberGroupBinding.
+func (c *EnterpriseMemberGroupBindingClient) Update() *EnterpriseMemberGroupBindingUpdate {
+	mutation := newEnterpriseMemberGroupBindingMutation(c.config, OpUpdate)
+	return &EnterpriseMemberGroupBindingUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *EnterpriseMemberGroupBindingClient) UpdateOne(_m *EnterpriseMemberGroupBinding) *EnterpriseMemberGroupBindingUpdateOne {
+	mutation := newEnterpriseMemberGroupBindingMutation(c.config, OpUpdateOne)
+	mutation.member = &_m.MemberID
+	mutation.group = &_m.GroupID
+	return &EnterpriseMemberGroupBindingUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for EnterpriseMemberGroupBinding.
+func (c *EnterpriseMemberGroupBindingClient) Delete() *EnterpriseMemberGroupBindingDelete {
+	mutation := newEnterpriseMemberGroupBindingMutation(c.config, OpDelete)
+	return &EnterpriseMemberGroupBindingDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Query returns a query builder for EnterpriseMemberGroupBinding.
+func (c *EnterpriseMemberGroupBindingClient) Query() *EnterpriseMemberGroupBindingQuery {
+	return &EnterpriseMemberGroupBindingQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeEnterpriseMemberGroupBinding},
+		inters: c.Interceptors(),
+	}
+}
+
+// QueryMember queries the member edge of a EnterpriseMemberGroupBinding.
+func (c *EnterpriseMemberGroupBindingClient) QueryMember(_m *EnterpriseMemberGroupBinding) *EnterpriseMemberQuery {
+	return c.Query().
+		Where(enterprisemembergroupbinding.MemberID(_m.MemberID), enterprisemembergroupbinding.GroupID(_m.GroupID)).
+		QueryMember()
+}
+
+// QueryGroup queries the group edge of a EnterpriseMemberGroupBinding.
+func (c *EnterpriseMemberGroupBindingClient) QueryGroup(_m *EnterpriseMemberGroupBinding) *GroupQuery {
+	return c.Query().
+		Where(enterprisemembergroupbinding.MemberID(_m.MemberID), enterprisemembergroupbinding.GroupID(_m.GroupID)).
+		QueryGroup()
+}
+
+// Hooks returns the client hooks.
+func (c *EnterpriseMemberGroupBindingClient) Hooks() []Hook {
+	return c.hooks.EnterpriseMemberGroupBinding
+}
+
+// Interceptors returns the client interceptors.
+func (c *EnterpriseMemberGroupBindingClient) Interceptors() []Interceptor {
+	return c.inters.EnterpriseMemberGroupBinding
+}
+
+func (c *EnterpriseMemberGroupBindingClient) mutate(ctx context.Context, m *EnterpriseMemberGroupBindingMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&EnterpriseMemberGroupBindingCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&EnterpriseMemberGroupBindingUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&EnterpriseMemberGroupBindingUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&EnterpriseMemberGroupBindingDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown EnterpriseMemberGroupBinding mutation op: %q", m.Op())
+	}
+}
+
 // ErrorPassthroughRuleClient is a client for the ErrorPassthroughRule schema.
 type ErrorPassthroughRuleClient struct {
 	config
@@ -3061,6 +3947,22 @@ func (c *GroupClient) QueryAllowedUsers(_m *Group) *UserQuery {
 	return query
 }
 
+// QueryEnterpriseMembers queries the enterprise_members edge of a Group.
+func (c *GroupClient) QueryEnterpriseMembers(_m *Group) *EnterpriseMemberQuery {
+	query := (&EnterpriseMemberClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(group.Table, group.FieldID, id),
+			sqlgraph.To(enterprisemember.Table, enterprisemember.FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, true, group.EnterpriseMembersTable, group.EnterpriseMembersPrimaryKey...),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryAccountGroups queries the account_groups edge of a Group.
 func (c *GroupClient) QueryAccountGroups(_m *Group) *AccountGroupQuery {
 	query := (&AccountGroupClient{config: c.config}).Query()
@@ -3086,6 +3988,22 @@ func (c *GroupClient) QueryUserAllowedGroups(_m *Group) *UserAllowedGroupQuery {
 			sqlgraph.From(group.Table, group.FieldID, id),
 			sqlgraph.To(userallowedgroup.Table, userallowedgroup.GroupColumn),
 			sqlgraph.Edge(sqlgraph.O2M, true, group.UserAllowedGroupsTable, group.UserAllowedGroupsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryEnterpriseMemberGroupBindings queries the enterprise_member_group_bindings edge of a Group.
+func (c *GroupClient) QueryEnterpriseMemberGroupBindings(_m *Group) *EnterpriseMemberGroupBindingQuery {
+	query := (&EnterpriseMemberGroupBindingClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(group.Table, group.FieldID, id),
+			sqlgraph.To(enterprisemembergroupbinding.Table, enterprisemembergroupbinding.GroupColumn),
+			sqlgraph.Edge(sqlgraph.O2M, true, group.EnterpriseMemberGroupBindingsTable, group.EnterpriseMemberGroupBindingsColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -5497,6 +6415,22 @@ func (c *UsageLogClient) QuerySubscription(_m *UsageLog) *UserSubscriptionQuery 
 	return query
 }
 
+// QueryMember queries the member edge of a UsageLog.
+func (c *UsageLogClient) QueryMember(_m *UsageLog) *EnterpriseMemberQuery {
+	query := (&EnterpriseMemberClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(usagelog.Table, usagelog.FieldID, id),
+			sqlgraph.To(enterprisemember.Table, enterprisemember.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, usagelog.MemberTable, usagelog.MemberColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *UsageLogClient) Hooks() []Hook {
 	return c.hooks.UsageLog
@@ -5831,6 +6765,22 @@ func (c *UserClient) QueryPlatformQuotas(_m *User) *UserPlatformQuotaQuery {
 			sqlgraph.From(user.Table, user.FieldID, id),
 			sqlgraph.To(userplatformquota.Table, userplatformquota.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, user.PlatformQuotasTable, user.PlatformQuotasColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryEnterpriseMembers queries the enterprise_members edge of a User.
+func (c *UserClient) QueryEnterpriseMembers(_m *User) *EnterpriseMemberQuery {
+	query := (&EnterpriseMemberClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, id),
+			sqlgraph.To(enterprisemember.Table, enterprisemember.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.EnterpriseMembersTable, user.EnterpriseMembersColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -6669,7 +7619,9 @@ type (
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
 		AuthIdentityChannel, BatchImageEvent, BatchImageItem, BatchImageJob,
 		ChannelMonitor, ChannelMonitorDailyRollup, ChannelMonitorHistory,
-		ChannelMonitorRequestTemplate, ErrorPassthroughRule, Group, IdempotencyRecord,
+		ChannelMonitorRequestTemplate, EnterpriseMember, EnterpriseMemberBudgetEntry,
+		EnterpriseMemberBudgetPeriod, EnterpriseMemberBudgetReservation,
+		EnterpriseMemberGroupBinding, ErrorPassthroughRule, Group, IdempotencyRecord,
 		IdentityAdoptionDecision, PaymentAuditLog, PaymentOrder,
 		PaymentProviderInstance, PendingAuthSession, PromoCode, PromoCodeUsage, Proxy,
 		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
@@ -6680,7 +7632,9 @@ type (
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
 		AuthIdentityChannel, BatchImageEvent, BatchImageItem, BatchImageJob,
 		ChannelMonitor, ChannelMonitorDailyRollup, ChannelMonitorHistory,
-		ChannelMonitorRequestTemplate, ErrorPassthroughRule, Group, IdempotencyRecord,
+		ChannelMonitorRequestTemplate, EnterpriseMember, EnterpriseMemberBudgetEntry,
+		EnterpriseMemberBudgetPeriod, EnterpriseMemberBudgetReservation,
+		EnterpriseMemberGroupBinding, ErrorPassthroughRule, Group, IdempotencyRecord,
 		IdentityAdoptionDecision, PaymentAuditLog, PaymentOrder,
 		PaymentProviderInstance, PendingAuthSession, PromoCode, PromoCodeUsage, Proxy,
 		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,

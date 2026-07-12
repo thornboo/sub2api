@@ -18,6 +18,15 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
+var ErrEnterpriseAccountHasFacts = infraerrors.Conflict(
+	"ENTERPRISE_ACCOUNT_HAS_FACTS",
+	"enterprise account has member history and cannot be converted to an individual account; disable enterprise capability instead",
+)
+
+type enterpriseMemberFactsChecker interface {
+	HasEnterpriseMemberFacts(ctx context.Context, userID int64) (bool, error)
+}
+
 // User management implementations
 func (s *adminServiceImpl) ListUsers(ctx context.Context, page, pageSize int, filters UserListFilters, sortBy, sortOrder string) ([]User, int64, error) {
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize, SortBy: sortBy, SortOrder: sortOrder}
@@ -117,6 +126,25 @@ func normalizeUserRole(role, fallback string) (string, error) {
 	return role, nil
 }
 
+func normalizeUserAccountType(accountType, fallback string) (string, error) {
+	if accountType == "" {
+		return fallback, nil
+	}
+	switch accountType {
+	case UserAccountTypeIndividual, UserAccountTypeEnterprise:
+		return accountType, nil
+	default:
+		return "", fmt.Errorf("invalid account type: %q (must be %s or %s)", accountType, UserAccountTypeIndividual, UserAccountTypeEnterprise)
+	}
+}
+
+func sameOptionalTime(left, right *time.Time) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.Equal(*right)
+}
+
 func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInput) (*User, error) {
 	balance := 0.0
 	if input.Balance != nil {
@@ -130,12 +158,20 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 	if err != nil {
 		return nil, err
 	}
+	accountType, err := normalizeUserAccountType(input.AccountType, UserAccountTypeIndividual)
+	if err != nil {
+		return nil, err
+	}
+	if role != RoleUser && accountType == UserAccountTypeEnterprise {
+		return nil, errors.New("enterprise account type requires role=user")
+	}
 
 	user := &User{
 		Email:         input.Email,
 		Username:      input.Username,
 		Notes:         input.Notes,
 		Role:          role,
+		AccountType:   accountType,
 		Balance:       balance,
 		Concurrency:   input.Concurrency,
 		RPMLimit:      input.RPMLimit,
@@ -215,6 +251,8 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	oldConcurrency := user.Concurrency
 	oldStatus := user.Status
 	oldRole := user.Role
+	oldAccountType := user.AccountType
+	oldEnterpriseDisabledAt := user.EnterpriseDisabledAt
 	oldRPMLimit := user.RPMLimit
 	oldAllowedGroups := append([]int64(nil), user.AllowedGroups...)
 	groupRatesTouched := input.GroupRates != nil && s.userGroupRateRepo != nil
@@ -253,6 +291,44 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 			}
 		}
 		user.Role = role
+	}
+	nextAccountType := user.AccountType
+	if input.AccountType != "" {
+		accountType, err := normalizeUserAccountType(input.AccountType, nextAccountType)
+		if err != nil {
+			return nil, err
+		}
+		nextAccountType = accountType
+	}
+	if user.Role != RoleUser && nextAccountType == UserAccountTypeEnterprise {
+		return nil, errors.New("enterprise account type requires role=user")
+	}
+	if oldAccountType == UserAccountTypeEnterprise && nextAccountType == UserAccountTypeIndividual {
+		checker, ok := s.userRepo.(enterpriseMemberFactsChecker)
+		if !ok {
+			return nil, errors.New("enterprise account history check is unavailable")
+		}
+		hasFacts, checkErr := checker.HasEnterpriseMemberFacts(ctx, user.ID)
+		if checkErr != nil {
+			return nil, fmt.Errorf("check enterprise account history: %w", checkErr)
+		}
+		if hasFacts {
+			return nil, ErrEnterpriseAccountHasFacts
+		}
+	}
+	if input.EnterpriseEnabled != nil && nextAccountType != UserAccountTypeEnterprise {
+		return nil, errors.New("enterprise_enabled requires account_type=enterprise")
+	}
+	user.AccountType = nextAccountType
+	if nextAccountType == UserAccountTypeIndividual {
+		user.EnterpriseDisabledAt = nil
+	} else if input.EnterpriseEnabled != nil {
+		if *input.EnterpriseEnabled {
+			user.EnterpriseDisabledAt = nil
+		} else if user.EnterpriseDisabledAt == nil {
+			disabledAt := time.Now()
+			user.EnterpriseDisabledAt = &disabledAt
+		}
 	}
 
 	if input.Concurrency != nil {
@@ -317,11 +393,19 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 		logger.LegacyPrintf("service.admin", "audit: user role changed actor_admin_id=%d target_user_id=%d old_role=%s new_role=%s",
 			input.ActorAdminID, user.ID, oldRole, user.Role)
 	}
+	if user.AccountType != oldAccountType {
+		logger.LegacyPrintf("service.admin", "audit: user account type changed actor_admin_id=%d target_user_id=%d old_account_type=%s new_account_type=%s",
+			input.ActorAdminID, user.ID, oldAccountType, user.AccountType)
+	}
+	if !sameOptionalTime(user.EnterpriseDisabledAt, oldEnterpriseDisabledAt) {
+		logger.LegacyPrintf("service.admin", "audit: enterprise capability changed actor_admin_id=%d target_user_id=%d enabled=%t",
+			input.ActorAdminID, user.ID, user.EnterpriseDisabledAt == nil)
+	}
 
 	if s.authCacheInvalidator != nil {
 		// RPMLimit 直接参与 billing_cache_service.checkRPM 的三级级联，
 		// allowed_groups 参与 API Key 专属分组授权判断；不失效缓存会让修改在一个 L2 TTL 内失去效果。
-		if user.Concurrency != oldConcurrency || user.Status != oldStatus || user.Role != oldRole || user.RPMLimit != oldRPMLimit || !sameInt64Set(user.AllowedGroups, oldAllowedGroups) || groupRatesTouched {
+		if user.Concurrency != oldConcurrency || user.Status != oldStatus || user.Role != oldRole || user.AccountType != oldAccountType || !sameOptionalTime(user.EnterpriseDisabledAt, oldEnterpriseDisabledAt) || user.RPMLimit != oldRPMLimit || !sameInt64Set(user.AllowedGroups, oldAllowedGroups) || groupRatesTouched {
 			s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, user.ID)
 		}
 	}

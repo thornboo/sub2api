@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -110,15 +111,94 @@ func (r *usageBillingRepository) claimUsageBillingRequest(ctx context.Context, t
 }
 
 func (r *usageBillingRepository) ReserveBatchImageBalance(ctx context.Context, cmd *service.BatchImageBalanceHoldCommand) (*service.BatchImageBalanceHoldResult, error) {
-	return r.applyBatchImageBalanceHold(ctx, cmd, reserveUsageBillingBatchImageBalance)
+	return r.applyBatchImageBalanceHold(ctx, cmd, func(ctx context.Context, tx *sql.Tx, cmd *service.BatchImageBalanceHoldCommand) (*service.BatchImageBalanceHoldResult, error) {
+		result, err := reserveUsageBillingBatchImageBalance(ctx, tx, cmd)
+		if err != nil {
+			return nil, err
+		}
+		if err := reserveBatchImageEnterpriseMemberBudget(ctx, tx, cmd); err != nil {
+			return nil, err
+		}
+		return result, nil
+	})
 }
 
 func (r *usageBillingRepository) CaptureBatchImageBalance(ctx context.Context, cmd *service.BatchImageBalanceHoldCommand) (*service.BatchImageBalanceHoldResult, error) {
-	return r.applyBatchImageBalanceHold(ctx, cmd, captureUsageBillingBatchImageBalance)
+	return r.applyBatchImageBalanceHold(ctx, cmd, func(ctx context.Context, tx *sql.Tx, cmd *service.BatchImageBalanceHoldCommand) (*service.BatchImageBalanceHoldResult, error) {
+		result, err := captureUsageBillingBatchImageBalance(ctx, tx, cmd)
+		if err != nil {
+			return nil, err
+		}
+		if cmd.MemberID != nil && strings.TrimSpace(cmd.MemberBudgetRequestID) != "" {
+			if err := settleEnterpriseMemberBudget(ctx, tx, &service.UsageBillingCommand{
+				MemberID: cmd.MemberID, MemberBudgetRequestID: cmd.MemberBudgetRequestID, MemberBudgetCost: cmd.ActualAmount,
+			}); err != nil {
+				return nil, err
+			}
+		}
+		return result, nil
+	})
 }
 
 func (r *usageBillingRepository) ReleaseBatchImageBalance(ctx context.Context, cmd *service.BatchImageBalanceHoldCommand) (*service.BatchImageBalanceHoldResult, error) {
-	return r.applyBatchImageBalanceHold(ctx, cmd, releaseUsageBillingBatchImageBalance)
+	return r.applyBatchImageBalanceHold(ctx, cmd, func(ctx context.Context, tx *sql.Tx, cmd *service.BatchImageBalanceHoldCommand) (*service.BatchImageBalanceHoldResult, error) {
+		result, err := releaseUsageBillingBatchImageBalance(ctx, tx, cmd)
+		if err != nil {
+			return nil, err
+		}
+		if err := releaseBatchImageEnterpriseMemberBudget(ctx, tx, cmd.MemberBudgetRequestID); err != nil {
+			return nil, err
+		}
+		return result, nil
+	})
+}
+
+func reserveBatchImageEnterpriseMemberBudget(ctx context.Context, tx *sql.Tx, cmd *service.BatchImageBalanceHoldCommand) error {
+	if cmd == nil || cmd.MemberID == nil || *cmd.MemberID <= 0 || strings.TrimSpace(cmd.MemberBudgetRequestID) == "" || cmd.HoldAmount <= 0 {
+		return nil
+	}
+	periodStart, enforced, err := reserveEnterpriseMemberSpendingLimits(ctx, tx, *cmd.MemberID, cmd.HoldAmount, time.Now())
+	if err != nil {
+		return err
+	}
+	if !enforced {
+		return nil
+	}
+	expiresAt := cmd.MemberBudgetExpiresAt
+	if expiresAt.IsZero() {
+		expiresAt = time.Now().Add(30 * 24 * time.Hour)
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO enterprise_member_budget_reservations (request_id, member_id, period_start, reserved_usd, expires_at) VALUES ($1, $2, $3, $4, $5)`, cmd.MemberBudgetRequestID, *cmd.MemberID, periodStart, cmd.HoldAmount, expiresAt)
+	if err != nil {
+		if isUniqueConstraintViolation(err) {
+			return service.ErrEnterpriseMemberBudgetConflict
+		}
+		return err
+	}
+	return nil
+}
+
+func releaseBatchImageEnterpriseMemberBudget(ctx context.Context, tx *sql.Tx, requestID string) error {
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return nil
+	}
+	var memberID int64
+	var periodStart time.Time
+	var amount float64
+	var status string
+	err := tx.QueryRowContext(ctx, `SELECT member_id, period_start, reserved_usd, status FROM enterprise_member_budget_reservations WHERE request_id = $1 FOR UPDATE`, requestID).Scan(&memberID, &periodStart, &amount, &status)
+	if errors.Is(err, sql.ErrNoRows) || status != "reserved" {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE enterprise_member_budget_periods SET reserved_usd = GREATEST(0, reserved_usd - $1), version = version + 1, updated_at = NOW() WHERE member_id = $2 AND period_start = $3`, amount, memberID, periodStart); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE enterprise_member_budget_reservations SET status = 'released', updated_at = NOW() WHERE request_id = $1`, requestID)
+	return err
 }
 
 func (r *usageBillingRepository) applyBatchImageBalanceHold(
@@ -209,7 +289,116 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 		result.QuotaState = quotaState
 	}
 
+	if cmd.MemberID != nil && cmd.MemberBudgetRequestID != "" {
+		if err := settleEnterpriseMemberBudget(ctx, tx, cmd); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+func settleEnterpriseMemberBudget(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) error {
+	var memberID int64
+	var periodStart time.Time
+	var reservedUSD float64
+	var status string
+	err := tx.QueryRowContext(ctx, `
+		SELECT member_id, period_start, reserved_usd, status
+		FROM enterprise_member_budget_reservations
+		WHERE request_id = $1
+		FOR UPDATE`, cmd.MemberBudgetRequestID).Scan(&memberID, &periodStart, &reservedUSD, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		if cmd.MemberBudgetCost <= 0 {
+			return nil
+		}
+		return settleUnlimitedEnterpriseMemberBudget(ctx, tx, cmd)
+	}
+	if err != nil {
+		return err
+	}
+	if cmd.MemberID == nil || memberID != *cmd.MemberID {
+		return service.ErrEnterpriseMemberBudgetConflict
+	}
+	if status == "settled" {
+		return nil
+	}
+	reservedDelta := 0.0
+	if status == "reserved" {
+		reservedDelta = reservedUSD
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE enterprise_member_budget_periods
+		SET used_usd = used_usd + $1,
+			reserved_usd = GREATEST(0, reserved_usd - $2),
+			version = version + 1,
+			updated_at = NOW()
+		WHERE member_id = $3 AND period_start = $4`, cmd.MemberBudgetCost, reservedDelta, memberID, periodStart); err != nil {
+		return err
+	}
+	if err := incrementEnterpriseMemberRateLimitUsage(ctx, tx, memberID, cmd.MemberBudgetCost); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE enterprise_member_budget_reservations
+		SET actual_usd = $1, status = 'settled', updated_at = NOW()
+		WHERE request_id = $2`, cmd.MemberBudgetCost, cmd.MemberBudgetRequestID); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO enterprise_member_budget_entries
+			(member_id, period_start, kind, request_id, amount_usd, idempotency_key, note)
+		VALUES ($1, $2, 'usage', $3, $4, $5, '')
+		ON CONFLICT (request_id) DO NOTHING`, memberID, periodStart, cmd.MemberBudgetRequestID, cmd.MemberBudgetCost, "usage:"+cmd.MemberBudgetRequestID)
+	return err
+}
+
+func settleUnlimitedEnterpriseMemberBudget(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) error {
+	if cmd == nil || cmd.MemberID == nil || *cmd.MemberID <= 0 {
+		return service.ErrEnterpriseMemberBudgetConflict
+	}
+	var monthlyLimit, limit5h, limit1d, limit7d float64
+	if err := tx.QueryRowContext(ctx, `SELECT monthly_limit_usd, rate_limit_5h, rate_limit_1d, rate_limit_7d FROM enterprise_members WHERE id = $1`, *cmd.MemberID).
+		Scan(&monthlyLimit, &limit5h, &limit1d, &limit7d); err != nil {
+		return err
+	}
+	// A positive limit must always have passed through a durable reservation.
+	// Only the explicit zero-limit (unlimited) policy may settle without one.
+	if monthlyLimit > 0 || limit5h > 0 || limit1d > 0 || limit7d > 0 {
+		return service.ErrEnterpriseMemberBudgetConflict
+	}
+	location, err := time.LoadLocation(enterpriseBudgetTimezone())
+	if err != nil {
+		return err
+	}
+	now := time.Now().In(location)
+	periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, location)
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO enterprise_member_budget_periods (member_id, period_start, timezone)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (member_id, period_start) DO NOTHING`, *cmd.MemberID, periodStart, enterpriseBudgetTimezone()); err != nil {
+		return err
+	}
+	inserted, err := tx.ExecContext(ctx, `
+		INSERT INTO enterprise_member_budget_entries
+			(member_id, period_start, kind, request_id, amount_usd, idempotency_key, note)
+		VALUES ($1, $2, 'usage', $3, $4, $5, '')
+		ON CONFLICT (request_id) DO NOTHING`, *cmd.MemberID, periodStart, cmd.MemberBudgetRequestID, cmd.MemberBudgetCost, "usage:"+cmd.MemberBudgetRequestID)
+	if err != nil {
+		return err
+	}
+	affected, err := inserted.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return nil
+	}
+	_, err = tx.ExecContext(ctx, `
+		UPDATE enterprise_member_budget_periods
+		SET used_usd = used_usd + $1, version = version + 1, updated_at = NOW()
+		WHERE member_id = $2 AND period_start = $3`, cmd.MemberBudgetCost, *cmd.MemberID, periodStart)
+	return err
 }
 
 func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscriptionID int64, costUSD float64) error {

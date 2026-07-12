@@ -9,6 +9,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -35,6 +36,8 @@ type OpenAIGatewayHandler struct {
 	errorPassthroughService  *service.ErrorPassthroughService
 	contentModerationService *service.ContentModerationService
 	opsService               *service.OpsService
+	memberBudgetService      *service.EnterpriseMemberBudgetService
+	grokMediaTaskRepository  service.GrokMediaTaskRepository
 	concurrencyHelper        *ConcurrencyHelper
 	imageLimiter             *imageConcurrencyLimiter
 	maxAccountSwitches       int
@@ -137,6 +140,8 @@ func NewOpenAIGatewayHandler(
 	errorPassthroughService *service.ErrorPassthroughService,
 	contentModerationService *service.ContentModerationService,
 	opsService *service.OpsService,
+	memberBudgetService *service.EnterpriseMemberBudgetService,
+	grokMediaTaskRepository service.GrokMediaTaskRepository,
 	cfg *config.Config,
 ) *OpenAIGatewayHandler {
 	pingInterval := time.Duration(0)
@@ -155,6 +160,8 @@ func NewOpenAIGatewayHandler(
 		errorPassthroughService:  errorPassthroughService,
 		contentModerationService: contentModerationService,
 		opsService:               opsService,
+		memberBudgetService:      memberBudgetService,
+		grokMediaTaskRepository:  grokMediaTaskRepository,
 		concurrencyHelper:        NewConcurrencyHelper(concurrencyService, SSEPingFormatComment, pingInterval),
 		imageLimiter:             &imageConcurrencyLimiter{},
 		maxAccountSwitches:       maxAccountSwitches,
@@ -447,7 +454,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		if service.GetOpsCyberPolicy(c) != nil {
 			cyberBlockKeyHTTP = service.CyberSessionBlockKey(apiKey.ID, c, sessionHashBody)
 		}
-		h.recordCyberPolicyIfMarked(c, apiKey, account, subscription, reqModel, err != nil, cyberBlockKeyHTTP, channelMapping.ToUsageFields(reqModel, ""), service.HashUsageRequestPayload(body))
+		h.recordCyberPolicyIfMarked(c, apiKey, account, subscription, reqModel, err != nil, cyberBlockKeyHTTP, channelMapping.ToUsageFields(reqModel, ""), service.HashUsageRequestPayload(body), c.Request.Context())
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
 		upstreamLatencyMs, _ := getContextInt64(c, service.OpsUpstreamLatencyMsKey)
 		responseLatencyMs := forwardDurationMs
@@ -961,7 +968,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		if service.GetOpsCyberPolicy(c) != nil {
 			cyberBlockKeyMsg = service.CyberSessionBlockKey(apiKey.ID, c, body)
 		}
-		h.recordCyberPolicyIfMarked(c, apiKey, account, subscription, reqModel, err != nil, cyberBlockKeyMsg, channelMappingMsg.ToUsageFields(reqModel, ""), service.HashUsageRequestPayload(body))
+		h.recordCyberPolicyIfMarked(c, apiKey, account, subscription, reqModel, err != nil, cyberBlockKeyMsg, channelMappingMsg.ToUsageFields(reqModel, ""), service.HashUsageRequestPayload(body), c.Request.Context())
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
 		upstreamLatencyMs, _ := getContextInt64(c, service.OpsUpstreamLatencyMsKey)
 		responseLatencyMs := forwardDurationMs
@@ -1376,6 +1383,18 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "model is required in first response.create payload")
 		return
 	}
+	if apiKey.MemberID != nil {
+		if !middleware2.ActivateEnterpriseMemberGroupForModel(c, reqModel) {
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "no authorized enterprise member group supports this model")
+			return
+		}
+		apiKey, ok = middleware2.GetAPIKeyFromContext(c)
+		if !ok || apiKey == nil {
+			closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "enterprise member group activation failed")
+			return
+		}
+		ctx = c.Request.Context()
+	}
 	previousResponseID := strings.TrimSpace(gjson.GetBytes(firstMessage, "previous_response_id").String())
 	previousResponseIDKind := service.ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
 	if previousResponseID != "" && previousResponseIDKind == service.OpenAIPreviousResponseIDKindMessageID {
@@ -1417,6 +1436,76 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMappingWS, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, reqModel)
+
+	type wsTurnBudgetState struct {
+		ctx         context.Context
+		requestID   string
+		payloadHash string
+	}
+	var wsTurnBudgetMu sync.Mutex
+	wsTurnBudgets := make(map[int]wsTurnBudgetState)
+	baseClientRequestID, _ := ctx.Value(ctxkey.ClientRequestID).(string)
+	if strings.TrimSpace(baseClientRequestID) == "" {
+		baseClientRequestID = uuid.NewString()
+	}
+	reserveWSTurnBudget := func(turn int, payload []byte, model string) (context.Context, error) {
+		wsTurnBudgetMu.Lock()
+		if existing, exists := wsTurnBudgets[turn]; exists {
+			wsTurnBudgetMu.Unlock()
+			return existing.ctx, nil
+		}
+		wsTurnBudgetMu.Unlock()
+
+		turnRequestID := fmt.Sprintf("%s:ws:%d", strings.TrimSpace(baseClientRequestID), turn)
+		turnCtx := context.WithValue(ctx, ctxkey.ClientRequestID, turnRequestID)
+		var reservation *service.EnterpriseMemberBudgetReservation
+		var err error
+		if h.memberBudgetService != nil {
+			reservation, err = h.memberBudgetService.Reserve(turnCtx, service.EnterpriseMemberBudgetEstimateInput{
+				RequestID: turnRequestID, APIKey: apiKey, RequestedModel: model, Endpoint: c.Request.URL.Path, Body: payload,
+			})
+			if err != nil {
+				return nil, err
+			}
+		}
+		if reservation != nil {
+			turnCtx = context.WithValue(turnCtx, ctxkey.MemberBudgetReservation, reservation)
+		}
+		state := wsTurnBudgetState{ctx: turnCtx, requestID: turnRequestID, payloadHash: service.HashUsageRequestPayload(payload)}
+		wsTurnBudgetMu.Lock()
+		wsTurnBudgets[turn] = state
+		wsTurnBudgetMu.Unlock()
+		return turnCtx, nil
+	}
+	takeWSTurnBudget := func(turn int) (wsTurnBudgetState, bool) {
+		wsTurnBudgetMu.Lock()
+		defer wsTurnBudgetMu.Unlock()
+		state, exists := wsTurnBudgets[turn]
+		if exists {
+			delete(wsTurnBudgets, turn)
+		}
+		return state, exists
+	}
+	releaseWSTurnBudget := func(state wsTurnBudgetState) {
+		if h.memberBudgetService == nil || apiKey == nil || strings.TrimSpace(state.requestID) == "" {
+			return
+		}
+		releaseCtx, releaseCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer releaseCancel()
+		_ = h.memberBudgetService.Release(releaseCtx, apiKey.ID, state.requestID)
+	}
+	defer func() {
+		wsTurnBudgetMu.Lock()
+		pending := make([]wsTurnBudgetState, 0, len(wsTurnBudgets))
+		for _, state := range wsTurnBudgets {
+			pending = append(pending, state)
+		}
+		wsTurnBudgets = make(map[int]wsTurnBudgetState)
+		wsTurnBudgetMu.Unlock()
+		for _, state := range pending {
+			releaseWSTurnBudget(state)
+		}
+	}()
 
 	var currentUserRelease func()
 	var currentAccountRelease func()
@@ -1488,6 +1577,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	var lastFailoverErr *service.UpstreamFailoverError
 
 	for {
+		if _, err := reserveWSTurnBudget(1, firstMessage, reqModel); err != nil {
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, err.Error())
+			return
+		}
 		reqLog.Debug("openai.websocket_account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
 			ctx,
@@ -1507,6 +1600,23 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				zap.Error(err),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
+			if apiKey.MemberID != nil && middleware2.ActivateNextEnterpriseMemberGroupForModel(c, reqModel) {
+				apiKey, _ = middleware2.GetAPIKeyFromContext(c)
+				subscription, _ = middleware2.GetSubscriptionFromContext(c)
+				requestPlatform = openAICompatibleRequestPlatform(apiKey)
+				requiredTransport = service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
+				if requestPlatform == service.PlatformGrok {
+					requiredTransport = service.OpenAIUpstreamTransportHTTPSSE
+				}
+				channelMappingWS, _ = h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, reqModel)
+				sessionHash = h.gatewayService.GenerateSessionHashWithFallback(c, firstMessage, openAIWSIngressFallbackSessionSeed(subject.UserID, apiKey.ID, apiKey.GroupID))
+				failedAccountIDs = make(map[int64]struct{})
+				lastFailoverErr = nil
+				switchCount = 0
+				if billingErr := h.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); billingErr == nil {
+					continue
+				}
+			}
 			if lastFailoverErr != nil {
 				closeOpenAIWSFailoverExhausted(wsConn, lastFailoverErr)
 			} else {
@@ -1569,13 +1679,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			zap.Int("candidate_count", scheduleDecision.CandidateCount),
 		)
 
-		var requestPayloadHash string
 		hooks := &service.OpenAIWSIngressHooks{
 			InitialRequestModel: reqModel,
 			BeforeRequest: func(turn int, payload []byte, originalModel string) error {
-				if turn == 1 {
-					return nil
-				}
 				if !gjson.ValidBytes(payload) {
 					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", errors.New("invalid json"))
 				}
@@ -1585,6 +1691,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				}
 				if model == "" {
 					model = reqModel
+				}
+				if _, err := reserveWSTurnBudget(turn, payload, model); err != nil {
+					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
+				}
+				if turn == 1 {
+					return nil
 				}
 				if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, model, payload); decision != nil && decision.Blocked {
 					writeContentModerationWSError(ctx, wsConn, decision)
@@ -1628,17 +1740,27 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				return nil
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
+				turnBudget, hasTurnBudget := takeWSTurnBudget(turn)
+				turnCtx := ctx
+				requestPayloadHash := ""
+				if hasTurnBudget {
+					turnCtx = turnBudget.ctx
+					requestPayloadHash = turnBudget.payloadHash
+				}
 				// F1: cyber 标记按 turn 生命周期清理——defer 保证任意早返回路径都执行；
 				// CyberBlocked 必须在 submit 前同步预捕获（task 闭包由 worker 池异步执行，
 				// 届时 defer 已清除标记）。
 				defer clearCyberPolicyTurnState(c)
 				releaseTurnSlots()
-				h.recordCyberPolicyIfMarked(c, apiKey, account, subscription, reqModel, turnErr != nil, cyberBlockKey, channelMappingWS.ToUsageFields(reqModel, ""), requestPayloadHash)
+				h.recordCyberPolicyIfMarked(c, apiKey, account, subscription, reqModel, turnErr != nil, cyberBlockKey, channelMappingWS.ToUsageFields(reqModel, ""), requestPayloadHash, turnCtx)
 				if service.GetOpsCyberPolicy(c) != nil {
 					cyberBlockedThisConn = true
 				}
 				if turnErr != nil {
 					if result == nil || result.ImageCount <= 0 {
+						if hasTurnBudget && service.GetOpsCyberPolicy(c) == nil {
+							releaseWSTurnBudget(turnBudget)
+						}
 						return
 					}
 					// cyber 命中时该 turn 的用量已由 recordCyberPolicyIfMarked(forwardErrored=true)
@@ -1653,6 +1775,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					)
 				}
 				if result == nil {
+					if hasTurnBudget {
+						releaseWSTurnBudget(turnBudget)
+					}
 					return
 				}
 				// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
@@ -1664,7 +1789,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				upstreamEndpoint := openAIUsageUpstreamEndpoint(c, account, result)
 				quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 				cyberBlocked := service.GetOpsCyberPolicy(c) != nil
-				h.submitOpenAIUsageRecordTask(ctx, result, func(taskCtx context.Context) {
+				h.submitOpenAIUsageRecordTask(turnCtx, result, func(taskCtx context.Context) {
 					if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
 						Result:             result,
 						APIKey:             apiKey,
@@ -1710,8 +1835,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		}
 
 		// WebSocket 首包可能很大，hash 必须在 hooks 外算成字符串，避免 AfterTurn 闭包保活请求体。
-		requestPayloadHash = service.HashUsageRequestPayload(wsFirstMessage)
-
 		if err := h.gatewayService.ProxyResponsesWebSocketFromClient(ctx, c, wsConn, account, token, wsFirstMessage, hooks); err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
@@ -1951,6 +2074,9 @@ func (h *OpenAIGatewayHandler) handleConcurrencyError(c *gin.Context, err error,
 }
 
 func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
+	if !streamStarted {
+		service.MarkOpsGroupFailoverEligible(c)
+	}
 	statusCode := failoverErr.StatusCode
 	responseBody := failoverErr.ResponseBody
 	if service.IsOpenAISilentRefusalErrorBody(responseBody) {
@@ -1993,6 +2119,9 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 }
 
 func (h *OpenAIGatewayHandler) handleAccountCapabilityMismatchExhausted(c *gin.Context, capabilityErr *service.AccountCapabilityMismatchError, streamStarted bool) {
+	if !streamStarted {
+		service.MarkOpsGroupFailoverEligible(c)
+	}
 	message := "No available OpenAI account can preserve the requested Responses API features"
 	if capabilityErr != nil && strings.TrimSpace(capabilityErr.Message) != "" {
 		message = capabilityErr.Message
@@ -2018,6 +2147,9 @@ func (h *OpenAIGatewayHandler) handleOpenAIAccountAttemptsExhausted(
 
 // handleFailoverExhaustedSimple 简化版本，用于没有响应体的情况
 func (h *OpenAIGatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCode int, streamStarted bool) {
+	if !streamStarted {
+		service.MarkOpsGroupFailoverEligible(c)
+	}
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
 	service.SetOpsUpstreamError(c, statusCode, errMsg, "")
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)
@@ -2495,7 +2627,7 @@ func (h *OpenAIGatewayHandler) enqueueCyberSessionBlockedOpsEntry(c *gin.Context
 // 并在 forward 返回错误时写一条 tokens=0 用量行。标记由 gateway 服务层在透传 cyber 后设置；
 // 当前请求已发给用户，本方法只做事后记录，不影响响应。forwardErrored 为 true 时才写用量行，
 // 避免与正常 RecordUsage(forward 成功路径)重复。每请求至多记录一次。
-func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey *service.APIKey, account *service.Account, subscription *service.UserSubscription, model string, forwardErrored bool, cyberBlockKey string, channelFields service.ChannelUsageFields, requestPayloadHash string) {
+func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey *service.APIKey, account *service.Account, subscription *service.UserSubscription, model string, forwardErrored bool, cyberBlockKey string, channelFields service.ChannelUsageFields, requestPayloadHash string, billingCtx context.Context) {
 	mark := service.GetOpsCyberPolicy(c)
 	if mark == nil {
 		return
@@ -2538,6 +2670,9 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 	gwSvc := h.gatewayService
 	opsSvc := h.opsService
 	apiKeySvc := h.apiKeyService
+	if billingCtx == nil {
+		billingCtx = context.Background()
+	}
 	requestPath := ""
 	if c.Request != nil && c.Request.URL != nil {
 		requestPath = c.Request.URL.Path
@@ -2571,7 +2706,7 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 		CreatedAt:       time.Now(),
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(billingCtx), 30*time.Second)
 		defer cancel()
 		if cmSvc != nil {
 			cmSvc.RecordCyberPolicyEvent(ctx, service.CyberPolicyRecordInput{

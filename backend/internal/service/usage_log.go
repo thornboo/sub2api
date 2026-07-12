@@ -131,8 +131,11 @@ type UsageLog struct {
 	// ScheduleMeta records non-sensitive scheduler diagnostics for admin troubleshooting.
 	ScheduleMeta *UsageScheduleMeta
 
-	GroupID        *int64
-	SubscriptionID *int64
+	GroupID            *int64
+	SubscriptionID     *int64
+	MemberID           *int64
+	MemberCodeSnapshot *string
+	MemberNameSnapshot *string
 
 	InputTokens         int
 	OutputTokens        int

@@ -99,21 +99,25 @@ var (
 )
 
 type BatchImageJob struct {
-	ID                int64
-	BatchID           string
-	UserID            int64
-	APIKeyID          *int64
-	AccountID         *int64
-	Provider          string
-	Model             string
-	TaskName          string
-	ParentBatchID     *string
-	Status            string
-	ProviderJobName   *string
-	ProviderInputRef  *string
-	ProviderOutputRef *string
-	GCSInputURI       *string
-	GCSOutputURI      *string
+	ID                 int64
+	BatchID            string
+	UserID             int64
+	APIKeyID           *int64
+	AccountID          *int64
+	GroupID            *int64
+	MemberID           *int64
+	MemberCodeSnapshot *string
+	MemberNameSnapshot *string
+	Provider           string
+	Model              string
+	TaskName           string
+	ParentBatchID      *string
+	Status             string
+	ProviderJobName    *string
+	ProviderInputRef   *string
+	ProviderOutputRef  *string
+	GCSInputURI        *string
+	GCSOutputURI       *string
 
 	ItemCount      int
 	SuccessCount   int
@@ -133,6 +137,7 @@ type BatchImageJob struct {
 	PricingSnapshotVersion  int
 	Currency                string
 	HoldID                  *string
+	MemberBudgetRequestID   *string
 
 	IdempotencyKey *string
 	RequestHash    *string
@@ -159,20 +164,24 @@ type BatchImageJob struct {
 }
 
 type CreateBatchImageJobParams struct {
-	BatchID           string
-	UserID            int64
-	APIKeyID          *int64
-	AccountID         *int64
-	Provider          string
-	Model             string
-	TaskName          string
-	ParentBatchID     *string
-	Status            string
-	ProviderJobName   *string
-	ProviderInputRef  *string
-	ProviderOutputRef *string
-	GCSInputURI       *string
-	GCSOutputURI      *string
+	BatchID            string
+	UserID             int64
+	APIKeyID           *int64
+	AccountID          *int64
+	GroupID            *int64
+	MemberID           *int64
+	MemberCodeSnapshot *string
+	MemberNameSnapshot *string
+	Provider           string
+	Model              string
+	TaskName           string
+	ParentBatchID      *string
+	Status             string
+	ProviderJobName    *string
+	ProviderInputRef   *string
+	ProviderOutputRef  *string
+	GCSInputURI        *string
+	GCSOutputURI       *string
 
 	ItemCount      int
 	SuccessCount   int
@@ -192,6 +201,7 @@ type CreateBatchImageJobParams struct {
 	PricingSnapshotVersion  int
 	Currency                string
 	HoldID                  *string
+	MemberBudgetRequestID   *string
 
 	IdempotencyKey *string
 	RequestHash    *string

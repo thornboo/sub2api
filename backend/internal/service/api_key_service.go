@@ -198,6 +198,7 @@ type CreateAPIKeyRequest struct {
 	Name        string   `json:"name"`
 	Tags        []string `json:"tags"`
 	GroupID     *int64   `json:"group_id"`
+	MemberID    *int64   `json:"-"`
 	CustomKey   *string  `json:"custom_key"`   // 可选的自定义key
 	IPWhitelist []string `json:"ip_whitelist"` // IP 白名单
 	IPBlacklist []string `json:"ip_blacklist"` // IP 黑名单
@@ -1259,6 +1260,7 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		Name:        html.EscapeString(req.Name),
 		Tags:        tags,
 		GroupID:     req.GroupID,
+		MemberID:    req.MemberID,
 		Status:      StatusActive,
 		IPWhitelist: req.IPWhitelist,
 		IPBlacklist: req.IPBlacklist,
