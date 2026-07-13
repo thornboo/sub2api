@@ -2,6 +2,62 @@
 
 这里记录二开分支吸收上游变更的同步工作。
 
+## 2026-07-13 - 增量合并上游 `main`：Grok 媒体、Alpha Search、WebSocket 生命周期与 Apple Container
+
+分支：
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`e316ebf5`
+- 合并前目标：`d2a8f4c4`
+- 上游 head：`7d239d62`
+- 结果提交：本条所在合并提交
+
+上游要点：
+- Grok 增加 OAuth/API Key 账号配置、第三方 Base URL、媒体能力、视频编辑与扩展路由，并补充缓存和配额处理。
+- OpenAI 增加 Alpha Search 端点、按次计费配置和分组字段；WebSocket 转发补齐生命周期、连接池、重试和失败边界。
+- Responses/Chat/Anthropic 兼容层继续修正工具、流式终态、usage 和 Codex identity 转换；调度、冷却、并发与上游错误分类同步吸收正确性修复。
+- 前端 DataTable 对小数据集跳过虚拟滚动，管理员设置增加 Fast/Flex 用户搜索选择器，并修正日期输入、账号/Grok 配置和用量展示。
+- 部署侧增加 Apple Container 脚本、示例环境和生命周期夹具测试；仓储侧增加 API Key 最近 IP 查询索引。
+
+合并策略：
+- 合并前完整阅读 `docs-site` 的分支策略、合并流程、补丁目录、变更映射、配置与迁移约束、验证矩阵以及企业成员/企业用量设计；刷新 `origin/main` 后以 `git merge-tree` 预检，再执行 `git merge --no-commit origin/main`。
+- 接受上游网关、媒体、计费、WebSocket、仓储索引、前端性能与部署正确性改进；继续保留 dev-zz `1.6.0`、二开镜像、stone/emerald 视觉体系、显式数据保留策略、企业成员路由和 owner/admin 字段边界。
+- 上游新增两个文件名前缀均为 `174` 的迁移；仓库迁移规则按完整文件名区分且已有同前缀先例，因此两个新迁移与本地 `175` 至 `181` 并存，不修改任何已经应用的迁移内容。
+- Alpha Search 和新增 Grok 路由纳入现有企业成员解析、分组资格、限额和用量编排；Responses 工具转换继续使用 dev-zz 的 request-local registry 与严格 capability mismatch 语义，同时吸收上游 `additional_tools` 正确性覆盖。
+
+冲突文件：
+- `backend/cmd/server/VERSION`：保留 dev-zz `1.6.0`，不采用上游 `0.1.153`。
+- `deploy/.env.example`：保留 `thornboo/sub2api:latest`，同时加入上游 Apple Container 镜像配置。
+- `backend/internal/handler/ops_capture_writer_nil_test.go`、`backend/internal/handler/openai_gateway_handler.go`、`backend/internal/handler/openai_gateway_endpoint_normalization_test.go`：合并测试依赖，保留本地账号耗尽语义，并采用上游覆盖更完整的 endpoint 解析。
+- `backend/internal/pkg/apicompat/chatcompletions_responses_bridge.go`、`backend/internal/pkg/apicompat/chatcompletions_responses_bridge_custom_tools_test.go`、`backend/internal/service/openai_gateway_responses_chat_fallback.go`：保留共享工具 registry 与严格无损转换边界，吸收上游 `additional_tools` 测试。
+- `backend/internal/service/api_key_auth_cache_impl.go`：缓存版本提升至 `18`，同时失效上游 Web Search 定价和 dev-zz 企业成员聚合限额缓存。
+- `backend/internal/service/openai_gateway_grok_test.go`、`backend/internal/server/routes/gateway.go`、`backend/internal/server/middleware/enterprise_member_group.go`：合并 Grok/Alpha Search 路由，并补齐企业成员平台资格检查。
+- `frontend/src/components/common/DataTable.vue`、`frontend/src/i18n/locales/en/admin/settings.ts`、`frontend/src/i18n/locales/zh/admin/settings.ts`、`frontend/src/views/admin/SettingsView.vue`、`frontend/src/views/user/DashboardView.vue`：吸收小列表性能、用户选择器和本地日期格式修复，同时保留二开视觉和兼容文案键。
+
+合并复审修复：
+- 删除自动合并后 `OpenAIGatewayResult.UpstreamEndpoint` 的重复字段，避免编译失败。
+- `opsCaptureWriter` 增加显式 retained 标记；compact SSE keepalive 持有 wrapper 时不再把已逃逸对象放回 `sync.Pool`，并以定向 race 测试锁定跨请求生命周期。
+- 新增 Alpha Search 企业成员分组资格回归，确认 OpenAI 分组允许、Grok 分组拒绝；新增路由均经过企业成员预算和用量编排。
+- 保留旧 Fast/Flex 用户 ID 文案键，避免现有 locale contract 测试和旧调用点因上游重命名回归。
+
+验证：
+- `mise x -C backend -- go test ./...`
+- `mise x -C backend -- go test -race ./internal/handler -run '^TestOpsErrorLoggerMiddleware_DownstreamWriterDoesNotEscapeIntoPool$' -count=1`
+- `mise x -C backend -- go test -tags=integration -c -o /tmp/sub2api-repository-integration.test ./internal/repository`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run`（175 个测试文件、1105 个测试通过）
+- `pnpm --dir frontend build`
+- `pnpm --dir docs-site docs:build`
+- `bash -n deploy/apple-container.sh deploy/tests/apple-container-test.sh deploy/tests/fixtures/bin/container deploy/tests/fixtures/bin/curl`
+- `bash deploy/tests/apple-container-test.sh`
+- `git diff --check`、`git diff --cached --check`、未合并索引和冲突标记扫描。
+
+未验证：
+- 浏览器人工 smoke。
+- 真实 Docker/testcontainers 集成测试运行；本地只编译 repository integration 测试二进制，运行交给远端 CI。
+- 远端 CI、镜像构建和生产升级；本轮只合并并提交 `dev-zz-develop`，不推送、不提升 `dev-zz`、不打 tag、不发布。
+
 ## 2026-07-11 - `e316ebf5` 合并后 Tool Search 协议复审修复
 
 复审结论：

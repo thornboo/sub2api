@@ -54,20 +54,3 @@ func TestOpenAIUpstreamEndpoint_ViaGetUpstreamEndpoint(t *testing.T) {
 		})
 	}
 }
-
-func TestOpenAIUsageUpstreamEndpointPrefersForwardResult(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-	account := &service.Account{Platform: service.PlatformOpenAI}
-
-	got := openAIUsageUpstreamEndpoint(c, account, &service.OpenAIForwardResult{
-		UpstreamEndpoint: " /v1/chat/completions ",
-	})
-	require.Equal(t, "/v1/chat/completions", got)
-
-	got = openAIUsageUpstreamEndpoint(c, account, &service.OpenAIForwardResult{})
-	require.Equal(t, EndpointResponses, got)
-}

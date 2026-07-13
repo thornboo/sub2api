@@ -181,6 +181,10 @@ func enterpriseMemberGroupEligible(c *gin.Context, user *service.User, group *se
 		if group.Platform != service.PlatformOpenAI {
 			return false
 		}
+	case strings.HasSuffix(requestPath, "/alpha/search"):
+		if group.Platform != service.PlatformOpenAI {
+			return false
+		}
 	case strings.Contains(requestPath, "/videos/"):
 		if group.Platform != service.PlatformGrok || !service.GroupAllowsImageGeneration(group) {
 			return false

@@ -125,6 +125,10 @@ func TestEnterpriseMemberGroupEligibleEnforcesEndpointCapabilities(t *testing.T)
 	require.True(t, enterpriseMemberGroupEligible(embeddings, user, activeGroup(service.PlatformOpenAI), "text-embedding-3-large"))
 	require.False(t, enterpriseMemberGroupEligible(embeddings, user, activeGroup(service.PlatformGrok), "text-embedding-3-large"))
 
+	alphaSearch := testContext(http.MethodPost, "/v1/alpha/search")
+	require.True(t, enterpriseMemberGroupEligible(alphaSearch, user, activeGroup(service.PlatformOpenAI), "gpt-5.6"))
+	require.False(t, enterpriseMemberGroupEligible(alphaSearch, user, activeGroup(service.PlatformGrok), "gpt-5.6"))
+
 	gemini := testContext(http.MethodPost, "/v1beta/models/gemini-2.5-pro:generateContent")
 	require.True(t, enterpriseMemberGroupEligible(gemini, user, activeGroup(service.PlatformGemini), "gemini-2.5-pro"))
 	require.True(t, enterpriseMemberGroupEligible(gemini, user, activeGroup(service.PlatformAntigravity), "gemini-2.5-pro"))

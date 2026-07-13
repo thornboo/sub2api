@@ -470,8 +470,9 @@ func isOpsNoAvailableAccountError(err error) bool {
 
 type opsCaptureWriter struct {
 	gin.ResponseWriter
-	limit int
-	buf   bytes.Buffer
+	limit  int
+	buf    bytes.Buffer
+	retire bool
 }
 
 const opsCaptureWriterLimit = 64 * 1024
@@ -490,6 +491,7 @@ func acquireOpsCaptureWriter(rw gin.ResponseWriter) *opsCaptureWriter {
 	w.ResponseWriter = rw
 	w.limit = opsCaptureWriterLimit
 	w.buf.Reset()
+	w.retire = false
 	return w
 }
 
@@ -508,6 +510,16 @@ func resetOpsCaptureWriter(w *opsCaptureWriter) {
 	w.ResponseWriter = nil
 	w.limit = opsCaptureWriterLimit
 	w.buf.Reset()
+	w.retire = false
+}
+
+// MarkResponseWriterRetained prevents pooling when a downstream wrapper keeps
+// a reference to this writer beyond its active c.Writer slot. Rebinding a
+// retained writer for another request would race with the old wrapper.
+func (w *opsCaptureWriter) MarkResponseWriterRetained() {
+	if w != nil {
+		w.retire = true
+	}
 }
 
 func (w *opsCaptureWriter) Status() int {
@@ -627,7 +639,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			// released writer. If w escaped into another wrapper, retire it instead
 			// of returning the mutable object to the pool where another request could
 			// rebind it while the old wrapper still holds a reference.
-			reusable := c.Writer == w
+			reusable := c.Writer == w && !w.retire
 			c.Writer = originalWriter
 			if reusable {
 				releaseOpsCaptureWriter(w)
