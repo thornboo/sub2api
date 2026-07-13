@@ -23,6 +23,9 @@ INSERT INTO ops_error_logs (
   client_request_id,
   user_id,
   api_key_id,
+  member_id,
+  member_code_snapshot,
+  member_name_snapshot,
   account_id,
   group_id,
   client_ip,
@@ -61,7 +64,7 @@ INSERT INTO ops_error_logs (
   deleted_key_name,
   api_key_prefix
 ) VALUES (
-  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41
+  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44
 )`
 
 func NewOpsRepository(db *sql.DB) service.OpsRepository {
@@ -137,6 +140,9 @@ func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {
 		opsNullString(input.ClientRequestID),
 		opsNullInt64(input.UserID),
 		opsNullInt64(input.APIKeyID),
+		opsNullInt64(input.MemberID),
+		opsNullString(input.MemberCodeSnapshot),
+		opsNullString(input.MemberNameSnapshot),
 		opsNullInt64(input.AccountID),
 		opsNullInt64(input.GroupID),
 		opsNullString(input.ClientIP),
@@ -260,6 +266,9 @@ SELECT
   e.user_id,
   COALESCE(u.email, ''),
   e.api_key_id,
+  e.member_id,
+  COALESCE(e.member_code_snapshot, ''),
+  COALESCE(e.member_name_snapshot, ''),
   e.account_id,
   COALESCE(a.name, ''),
   e.group_id,
@@ -302,6 +311,7 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 		var clientIP sql.NullString
 		var userID sql.NullInt64
 		var apiKeyID sql.NullInt64
+		var memberID sql.NullInt64
 		var accountID sql.NullInt64
 		var accountName string
 		var groupID sql.NullInt64
@@ -337,6 +347,9 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 			&userID,
 			&userEmail,
 			&apiKeyID,
+			&memberID,
+			&item.MemberCodeSnapshot,
+			&item.MemberNameSnapshot,
 			&accountID,
 			&accountName,
 			&groupID,
@@ -380,6 +393,10 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 		if apiKeyID.Valid {
 			v := apiKeyID.Int64
 			item.APIKeyID = &v
+		}
+		if memberID.Valid {
+			v := memberID.Int64
+			item.MemberID = &v
 		}
 		if accountID.Valid {
 			v := accountID.Int64
@@ -459,6 +476,9 @@ SELECT
   e.user_id,
   COALESCE(u.email, ''),
   e.api_key_id,
+  e.member_id,
+  COALESCE(e.member_code_snapshot, ''),
+  COALESCE(e.member_name_snapshot, ''),
   e.account_id,
   COALESCE(a.name, ''),
   e.group_id,
@@ -501,6 +521,7 @@ LIMIT 1`
 	var clientIP sql.NullString
 	var userID sql.NullInt64
 	var apiKeyID sql.NullInt64
+	var memberID sql.NullInt64
 	var accountID sql.NullInt64
 	var groupID sql.NullInt64
 	var authLatency sql.NullInt64
@@ -539,6 +560,9 @@ LIMIT 1`
 		&userID,
 		&out.UserEmail,
 		&apiKeyID,
+		&memberID,
+		&out.MemberCodeSnapshot,
+		&out.MemberNameSnapshot,
 		&accountID,
 		&out.AccountName,
 		&groupID,
@@ -593,6 +617,10 @@ LIMIT 1`
 	if apiKeyID.Valid {
 		v := apiKeyID.Int64
 		out.APIKeyID = &v
+	}
+	if memberID.Valid {
+		v := memberID.Int64
+		out.MemberID = &v
 	}
 	if accountID.Valid {
 		v := accountID.Int64
@@ -1092,6 +1120,17 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 	if filter.APIKeyID != nil && *filter.APIKeyID > 0 {
 		args = append(args, *filter.APIKeyID)
 		clauses = append(clauses, "e.api_key_id = $"+itoa(len(args)))
+	}
+	if filter.MemberID != nil && *filter.MemberID > 0 {
+		args = append(args, *filter.MemberID)
+		clauses = append(clauses, "e.member_id = $"+itoa(len(args)))
+	} else {
+		switch strings.TrimSpace(filter.MemberScope) {
+		case "assigned":
+			clauses = append(clauses, "e.member_id IS NOT NULL")
+		case "unassigned":
+			clauses = append(clauses, "e.member_id IS NULL")
+		}
 	}
 	if m := strings.TrimSpace(filter.Model); m != "" {
 		if filter.ModelFuzzy {

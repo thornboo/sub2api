@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -181,8 +182,8 @@ func TestUsageLogRepositoryGetOwnerAPIKeyLeaderboardReturnsDisplayedCostAndGloba
 		WithArgs(int64(42), start, end, int64(42), 2).
 		WillReturnRows(rows)
 
-	mock.ExpectQuery("(?s)SELECT api_key_id, COALESCE\\(SUM\\(actual_cost\\), 0\\).*FROM usage_logs").
-		WithArgs(int64(42), sqlmock.AnyArg(), previousStart, start).
+	mock.ExpectQuery("(?s)SELECT ul\\.api_key_id, COALESCE\\(SUM\\(ul\\.actual_cost\\), 0\\).*FROM usage_logs ul\\s+JOIN api_keys ak ON ul\\.api_key_id = ak\\.id.*ul\\.user_id = \\$1.*ak\\.user_id = \\$4.*ul\\.api_key_id = ANY\\(\\$5\\)").
+		WithArgs(int64(42), previousStart, start, int64(42), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"api_key_id", "actual_cost"}).AddRow(int64(7), 30.0))
 
 	got, err := repo.GetOwnerAPIKeyAnalyticsLeaderboard(context.Background(), service.OwnerAPIKeyAnalyticsFilters{
@@ -201,6 +202,35 @@ func TestUsageLogRepositoryGetOwnerAPIKeyLeaderboardReturnsDisplayedCostAndGloba
 	require.Equal(t, 15.0, got.Items[1].SharePercent)
 	require.Equal(t, 30.0, got.Items[0].PreviousActualCost)
 	require.Equal(t, 100.0, got.Items[0].ChangePercent)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestOwnerAPIKeyPreviousActualCostPreservesHistoricalMemberAndGroupScope(t *testing.T) {
+	db, mock := newSQLMock(t)
+	repo := &usageLogRepository{sql: db}
+
+	start := time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, 7)
+	previousStart := start.Add(-end.Sub(start))
+	memberID := int64(42)
+	groupID := int64(9)
+	filters := service.OwnerAPIKeyAnalyticsFilters{
+		UserID:          7,
+		MemberID:        &memberID,
+		MemberScope:     usagestats.MemberScopeAll,
+		MemberFilterSet: true,
+		GroupID:         &groupID,
+		StartTime:       start,
+		EndTime:         end,
+	}
+
+	mock.ExpectQuery("(?s)SELECT ul\\.api_key_id.*FROM usage_logs ul\\s+JOIN api_keys ak ON ul\\.api_key_id = ak\\.id.*ul\\.user_id = \\$1.*ul\\.created_at >= \\$2.*ul\\.created_at < \\$3.*ul\\.member_id = \\$4.*ul\\.group_id = \\$5.*ul\\.api_key_id = ANY\\(\\$6\\)").
+		WithArgs(int64(7), previousStart, start, memberID, groupID, sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"api_key_id", "actual_cost"}).AddRow(int64(11), 12.5))
+
+	got, err := repo.ownerAPIKeyPreviousActualCost(context.Background(), filters, []int64{11})
+	require.NoError(t, err)
+	require.Equal(t, map[int64]float64{11: 12.5}, got)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

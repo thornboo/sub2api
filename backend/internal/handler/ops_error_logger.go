@@ -880,6 +880,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 					entry.Platform = apiKey.Group.Platform
 				}
 			}
+			applyOpsMemberAttribution(entry, apiKey)
 
 			var clientIP string
 			if ip := strings.TrimSpace(ip.GetClientIP(c)); ip != "" {
@@ -1072,6 +1073,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 				entry.Platform = apiKey.Group.Platform
 			}
 		}
+		applyOpsMemberAttribution(entry, apiKey)
 
 		var clientIP string
 		if ip := strings.TrimSpace(ip.GetClientIP(c)); ip != "" {
@@ -1223,6 +1225,7 @@ func logOpsStreamError(c *gin.Context, ops *service.OpsService, wireStatus int) 
 			entry.Platform = apiKey.Group.Platform
 		}
 	}
+	applyOpsMemberAttribution(entry, apiKey)
 
 	if clientIP := strings.TrimSpace(ip.GetClientIP(c)); clientIP != "" {
 		entry.ClientIP = &clientIP
@@ -1345,6 +1348,19 @@ func getOpsAPIKey(c *gin.Context) *service.APIKey {
 		return apiKey
 	}
 	return nil
+}
+
+func applyOpsMemberAttribution(entry *service.OpsInsertErrorLogInput, apiKey *service.APIKey) {
+	if entry == nil || apiKey == nil || apiKey.MemberID == nil {
+		return
+	}
+	memberID := *apiKey.MemberID
+	entry.MemberID = &memberID
+	if apiKey.Member == nil || apiKey.Member.ID != memberID {
+		return
+	}
+	entry.MemberCodeSnapshot = strings.TrimSpace(apiKey.Member.MemberCode)
+	entry.MemberNameSnapshot = strings.TrimSpace(apiKey.Member.Name)
 }
 
 func resolveOpsPlatform(apiKey *service.APIKey, fallback string) string {

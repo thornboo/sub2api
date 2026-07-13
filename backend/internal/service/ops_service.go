@@ -211,6 +211,13 @@ func (s *OpsService) prepareErrorLogInput(ctx context.Context, entry *OpsInsertE
 	if entry.CreatedAt.IsZero() {
 		entry.CreatedAt = time.Now()
 	}
+	if entry.MemberID == nil {
+		entry.MemberCodeSnapshot = ""
+		entry.MemberNameSnapshot = ""
+	} else {
+		entry.MemberCodeSnapshot = truncateString(strings.TrimSpace(entry.MemberCodeSnapshot), 100)
+		entry.MemberNameSnapshot = truncateString(strings.TrimSpace(entry.MemberNameSnapshot), 100)
+	}
 
 	// Ensure required fields exist (DB has NOT NULL constraints).
 	entry.ErrorPhase = strings.TrimSpace(entry.ErrorPhase)

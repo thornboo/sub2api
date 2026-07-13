@@ -125,10 +125,12 @@ func RegisterUserRoutes(
 		usage := authenticated.Group("/usage")
 		{
 			usage.GET("", h.Usage.List)
+			usage.GET("/members", h.Usage.ListOwnerUsageMembers)
 			usage.GET("/errors", h.Usage.ListErrors)
 			usage.GET("/errors/:id", h.Usage.GetErrorDetail)
 			usage.GET("/analytics/summary", h.Usage.GetOwnerAPIKeyAnalyticsSummary)
 			usage.GET("/analytics/leaderboard", h.Usage.GetOwnerAPIKeyAnalyticsLeaderboard)
+			usage.GET("/analytics/members", h.Usage.GetOwnerMemberAnalyticsLeaderboard)
 			usage.GET("/analytics/models", h.Usage.GetOwnerAPIKeyModelAnalytics)
 			usage.GET("/analytics/groups", h.Usage.GetOwnerAPIKeyGroupAnalytics)
 			usage.GET("/analytics/tags", h.Usage.GetOwnerAPIKeyTagAnalytics)

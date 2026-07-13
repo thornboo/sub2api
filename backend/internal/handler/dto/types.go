@@ -477,8 +477,11 @@ type UsageLog struct {
 	// UpstreamEndpoint is the normalized upstream endpoint path, e.g. /v1/responses.
 	UpstreamEndpoint *string `json:"upstream_endpoint,omitempty"`
 
-	GroupID        *int64 `json:"group_id"`
-	SubscriptionID *int64 `json:"subscription_id"`
+	GroupID        *int64  `json:"group_id"`
+	MemberID       *int64  `json:"member_id,omitempty"`
+	MemberCode     *string `json:"member_code_snapshot,omitempty"`
+	MemberName     *string `json:"member_name_snapshot,omitempty"`
+	SubscriptionID *int64  `json:"subscription_id"`
 
 	InputTokens         int `json:"input_tokens"`
 	OutputTokens        int `json:"output_tokens"`

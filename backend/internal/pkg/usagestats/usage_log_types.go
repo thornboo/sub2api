@@ -9,6 +9,12 @@ const (
 	ModelSourceMapping   = "mapping"
 )
 
+const (
+	MemberScopeAll        = "all"
+	MemberScopeAssigned   = "assigned"
+	MemberScopeUnassigned = "unassigned"
+)
+
 func IsValidModelSource(source string) bool {
 	switch source {
 	case ModelSourceRequested, ModelSourceUpstream, ModelSourceMapping:
@@ -23,6 +29,15 @@ func NormalizeModelSource(source string) string {
 		return source
 	}
 	return ModelSourceRequested
+}
+
+func IsValidMemberScope(scope string) bool {
+	switch scope {
+	case "", MemberScopeAll, MemberScopeAssigned, MemberScopeUnassigned:
+		return true
+	default:
+		return false
+	}
 }
 
 // DashboardStats 仪表盘统计
@@ -270,7 +285,11 @@ type UsageLogFilters struct {
 	APIKeyID  int64
 	AccountID int64
 	GroupID   int64
-	Model     string
+	// MemberID scopes enterprise usage to one immutable member identity.
+	// MemberScope is used only when MemberID is nil and supports all/assigned/unassigned.
+	MemberID    *int64
+	MemberScope string
+	Model       string
 	// ModelFilterSource controls how Model is matched. Empty preserves raw usage_logs.model semantics.
 	ModelFilterSource string
 	RequestType       *int16

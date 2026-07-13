@@ -8,6 +8,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	gocache "github.com/patrickmn/go-cache"
 )
@@ -94,6 +95,33 @@ func appendUsageLogBillingModeWhereConditionWithAlias(conditions []string, args 
 
 func appendUsageLogBillingModeQueryFilter(query string, args []any, billingMode string, alias string) (string, []any) {
 	conditions, args := appendUsageLogBillingModeWhereConditionWithAlias(nil, args, billingMode, alias)
+	if len(conditions) == 0 {
+		return query, args
+	}
+	return query + " AND " + conditions[0], args
+}
+
+func appendUsageLogMemberWhereCondition(conditions []string, args []any, filters usagestats.UsageLogFilters, alias string) ([]string, []any) {
+	column := "member_id"
+	if alias != "" {
+		column = alias + ".member_id"
+	}
+	if filters.MemberID != nil {
+		conditions = append(conditions, fmt.Sprintf("%s = $%d", column, len(args)+1))
+		args = append(args, *filters.MemberID)
+		return conditions, args
+	}
+	switch strings.TrimSpace(filters.MemberScope) {
+	case usagestats.MemberScopeAssigned:
+		conditions = append(conditions, column+" IS NOT NULL")
+	case usagestats.MemberScopeUnassigned:
+		conditions = append(conditions, column+" IS NULL")
+	}
+	return conditions, args
+}
+
+func appendUsageLogMemberQueryFilter(query string, args []any, filters usagestats.UsageLogFilters, alias string) (string, []any) {
+	conditions, args := appendUsageLogMemberWhereCondition(nil, args, filters, alias)
 	if len(conditions) == 0 {
 		return query, args
 	}

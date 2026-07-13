@@ -51,13 +51,16 @@ type OpsErrorLog struct {
 	RequestID       string `json:"request_id"`
 	Message         string `json:"message"`
 
-	UserID      *int64 `json:"user_id"`
-	UserEmail   string `json:"user_email"`
-	APIKeyID    *int64 `json:"api_key_id"`
-	AccountID   *int64 `json:"account_id"`
-	AccountName string `json:"account_name"`
-	GroupID     *int64 `json:"group_id"`
-	GroupName   string `json:"group_name"`
+	UserID             *int64 `json:"user_id"`
+	UserEmail          string `json:"user_email"`
+	APIKeyID           *int64 `json:"api_key_id"`
+	MemberID           *int64 `json:"member_id,omitempty"`
+	MemberCodeSnapshot string `json:"member_code_snapshot,omitempty"`
+	MemberNameSnapshot string `json:"member_name_snapshot,omitempty"`
+	AccountID          *int64 `json:"account_id"`
+	AccountName        string `json:"account_name"`
+	GroupID            *int64 `json:"group_id"`
+	GroupName          string `json:"group_name"`
 
 	ClientIP    *string `json:"client_ip"`
 	RequestPath string  `json:"request_path"`
@@ -134,8 +137,10 @@ type OpsErrorLogFilter struct {
 
 	// User-scoped filters (used by the user-facing error requests endpoint and
 	// by admin drill-down from the usage page).
-	UserID   *int64
-	APIKeyID *int64
+	UserID      *int64
+	APIKeyID    *int64
+	MemberID    *int64
+	MemberScope string
 
 	// MatchDeletedKeyOwner: 用户侧专用。UserID 设置且为 true 时,归属从 user_id=UserID
 	// 放宽为 (user_id=UserID OR deleted_key_owner_user_id=UserID),使原所有者能看到

@@ -32,6 +32,54 @@ type userGroupStat struct {
 	ActualCost  float64 `json:"actual_cost"`
 }
 
+func parseUsageMemberFilters(c *gin.Context) (*int64, string, bool, string) {
+	rawMemberID, hasMemberID := c.GetQuery("member_id")
+	rawMemberScope, hasMemberScope := c.GetQuery("member_scope")
+	if !hasMemberID && !hasMemberScope {
+		return nil, "", false, ""
+	}
+
+	var memberID *int64
+	if raw := strings.TrimSpace(rawMemberID); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed <= 0 {
+			return nil, "", true, "Invalid member_id"
+		}
+		memberID = &parsed
+	} else if hasMemberID {
+		return nil, "", true, "Invalid member_id"
+	}
+
+	memberScope := strings.ToLower(strings.TrimSpace(rawMemberScope))
+	if memberScope == "" {
+		memberScope = usagestats.MemberScopeAll
+	}
+	if !usagestats.IsValidMemberScope(memberScope) {
+		return nil, "", true, "Invalid member_scope, allowed values are all, assigned, unassigned"
+	}
+	if memberID != nil && memberScope != usagestats.MemberScopeAll {
+		return nil, "", true, "member_id cannot be combined with assigned or unassigned member_scope"
+	}
+	return memberID, memberScope, true, ""
+}
+
+func apiKeyMatchesMemberFilter(apiKey *service.APIKey, memberID *int64, memberScope string) bool {
+	if apiKey == nil {
+		return true
+	}
+	if memberID != nil {
+		return apiKey.MemberID != nil && *apiKey.MemberID == *memberID
+	}
+	switch memberScope {
+	case usagestats.MemberScopeAssigned:
+		return apiKey.MemberID != nil
+	case usagestats.MemberScopeUnassigned:
+		return apiKey.MemberID == nil
+	default:
+		return true
+	}
+}
+
 // UsageHandler handles usage-related requests
 type UsageHandler struct {
 	usageService   *service.UsageService
@@ -63,6 +111,7 @@ func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) 
 	}
 
 	var apiKeyID int64
+	var selectedAPIKey *service.APIKey
 	if apiKeyIDStr := strings.TrimSpace(c.Query("api_key_id")); apiKeyIDStr != "" {
 		id, err := strconv.ParseInt(apiKeyIDStr, 10, 64)
 		if err != nil {
@@ -83,6 +132,29 @@ func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) 
 			return nil, false
 		}
 		apiKeyID = id
+		selectedAPIKey = apiKey
+	}
+
+	memberID, memberScope, memberFilterSet, memberErrMessage := parseUsageMemberFilters(c)
+	if memberErrMessage != "" {
+		response.BadRequest(c, memberErrMessage)
+		return nil, false
+	}
+	if memberFilterSet {
+		if err := h.usageService.ValidateEnterpriseUsageOwner(c.Request.Context(), subject.UserID); err != nil {
+			response.ErrorFrom(c, err)
+			return nil, false
+		}
+		if memberID != nil {
+			if err := h.usageService.ValidateOwnerUsageMember(c.Request.Context(), subject.UserID, *memberID); err != nil {
+				response.ErrorFrom(c, err)
+				return nil, false
+			}
+		}
+		if !apiKeyMatchesMemberFilter(selectedAPIKey, memberID, memberScope) {
+			response.BadRequest(c, "api_key_id does not belong to the selected member scope")
+			return nil, false
+		}
 	}
 
 	var groupID int64
@@ -197,6 +269,8 @@ func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) 
 			UserID:            subject.UserID,
 			APIKeyID:          apiKeyID,
 			GroupID:           groupID,
+			MemberID:          memberID,
+			MemberScope:       memberScope,
 			Model:             strings.TrimSpace(c.Query("model")),
 			ModelFilterSource: usagestats.ModelSourceRequested,
 			RequestType:       requestType,
@@ -306,6 +380,7 @@ func (h *UsageHandler) ListErrors(c *gin.Context) {
 
 	filter.Model = strings.TrimSpace(c.Query("model"))
 
+	var selectedAPIKey *service.APIKey
 	if k := strings.TrimSpace(c.Query("api_key_id")); k != "" {
 		n, err := strconv.ParseInt(k, 10, 64)
 		if err != nil || n < 0 {
@@ -315,6 +390,46 @@ func (h *UsageHandler) ListErrors(c *gin.Context) {
 		if n > 0 {
 			filter.APIKeyID = &n
 		}
+	}
+
+	memberID, memberScope, memberFilterSet, memberErrMessage := parseUsageMemberFilters(c)
+	if memberErrMessage != "" {
+		response.BadRequest(c, memberErrMessage)
+		return
+	}
+	if memberFilterSet {
+		if err := h.usageService.ValidateEnterpriseUsageOwner(c.Request.Context(), subject.UserID); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		if memberID != nil {
+			if err := h.usageService.ValidateOwnerUsageMember(c.Request.Context(), subject.UserID, *memberID); err != nil {
+				response.ErrorFrom(c, err)
+				return
+			}
+		}
+		if filter.APIKeyID != nil {
+			if h.apiKeyService == nil {
+				response.InternalError(c, "API key service not available")
+				return
+			}
+			apiKey, err := h.apiKeyService.GetByID(c.Request.Context(), *filter.APIKeyID)
+			if err != nil {
+				response.ErrorFrom(c, err)
+				return
+			}
+			if apiKey.UserID != subject.UserID {
+				response.Forbidden(c, "Not authorized to access this API key's error records")
+				return
+			}
+			selectedAPIKey = apiKey
+		}
+		if !apiKeyMatchesMemberFilter(selectedAPIKey, memberID, memberScope) {
+			response.BadRequest(c, "api_key_id does not belong to the selected member scope")
+			return
+		}
+		filter.MemberID = memberID
+		filter.MemberScope = memberScope
 	}
 
 	if sc := strings.TrimSpace(c.Query("status_code")); sc != "" {
@@ -693,6 +808,11 @@ func parseOwnerAPIKeyAnalyticsFilters(c *gin.Context, userID int64) (service.Own
 		apiKeyID = &parsed
 	}
 
+	memberID, memberScope, memberFilterSet, memberErrMessage := parseUsageMemberFilters(c)
+	if memberErrMessage != "" {
+		return service.OwnerAPIKeyAnalyticsFilters{}, nil, memberErrMessage
+	}
+
 	var groupID *int64
 	if rawGroupID := strings.TrimSpace(c.Query("group_id")); rawGroupID != "" {
 		parsed, err := strconv.ParseInt(rawGroupID, 10, 64)
@@ -718,18 +838,58 @@ func parseOwnerAPIKeyAnalyticsFilters(c *gin.Context, userID int64) (service.Own
 	}
 
 	return service.OwnerAPIKeyAnalyticsFilters{
-		UserID:       userID,
-		APIKeyID:     apiKeyID,
-		StartTime:    startTime,
-		EndTime:      endTime,
-		TimezoneName: timezoneName,
-		Granularity:  granularity,
-		GroupID:      groupID,
-		Tags:         parseOwnerAnalyticsTags(c.Query("tags")),
-		Status:       status,
-		Search:       search,
-		Limit:        limit,
+		UserID:          userID,
+		APIKeyID:        apiKeyID,
+		MemberID:        memberID,
+		MemberScope:     memberScope,
+		MemberFilterSet: memberFilterSet,
+		StartTime:       startTime,
+		EndTime:         endTime,
+		TimezoneName:    timezoneName,
+		Granularity:     granularity,
+		GroupID:         groupID,
+		Tags:            parseOwnerAnalyticsTags(c.Query("tags")),
+		Status:          status,
+		Search:          search,
+		Limit:           limit,
 	}, loc, ""
+}
+
+func (h *UsageHandler) validateOwnerAnalyticsMemberFilter(c *gin.Context, userID int64, filters service.OwnerAPIKeyAnalyticsFilters) bool {
+	if !filters.MemberFilterSet {
+		return true
+	}
+	if err := h.usageService.ValidateEnterpriseUsageOwner(c.Request.Context(), userID); err != nil {
+		response.ErrorFrom(c, err)
+		return false
+	}
+	if filters.MemberID != nil {
+		if err := h.usageService.ValidateOwnerUsageMember(c.Request.Context(), userID, *filters.MemberID); err != nil {
+			response.ErrorFrom(c, err)
+			return false
+		}
+	}
+	if filters.APIKeyID == nil {
+		return true
+	}
+	if h.apiKeyService == nil {
+		response.InternalError(c, "API key service not available")
+		return false
+	}
+	apiKey, err := h.apiKeyService.GetByID(c.Request.Context(), *filters.APIKeyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return false
+	}
+	if apiKey.UserID != userID {
+		response.Forbidden(c, "Not authorized to access this API key's usage records")
+		return false
+	}
+	if !apiKeyMatchesMemberFilter(apiKey, filters.MemberID, filters.MemberScope) {
+		response.BadRequest(c, "api_key_id does not belong to the selected member scope")
+		return false
+	}
+	return true
 }
 
 type userVisibleModelStat struct {
@@ -994,6 +1154,23 @@ func ownerAnalyticsResponseMeta(filters service.OwnerAPIKeyAnalyticsFilters, loc
 	}
 }
 
+// ListOwnerUsageMembers returns the enterprise member directory used by usage filters.
+// Archived members remain visible because historical usage facts keep their member identity.
+// GET /api/v1/usage/members
+func (h *UsageHandler) ListOwnerUsageMembers(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	members, err := h.usageService.ListOwnerUsageMembers(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"members": members})
+}
+
 // GetOwnerAPIKeyAnalyticsSummary handles owner-level API Key usage summary.
 // GET /api/v1/usage/analytics/summary
 func (h *UsageHandler) GetOwnerAPIKeyAnalyticsSummary(c *gin.Context) {
@@ -1006,6 +1183,9 @@ func (h *UsageHandler) GetOwnerAPIKeyAnalyticsSummary(c *gin.Context) {
 	filters, loc, errMessage := parseOwnerAPIKeyAnalyticsFilters(c, subject.UserID)
 	if errMessage != "" {
 		response.BadRequest(c, errMessage)
+		return
+	}
+	if !h.validateOwnerAnalyticsMemberFilter(c, subject.UserID, filters) {
 		return
 	}
 	summary, err := h.usageService.GetOwnerAPIKeyAnalyticsSummary(c.Request.Context(), filters)
@@ -1032,6 +1212,9 @@ func (h *UsageHandler) GetOwnerAPIKeyAnalyticsLeaderboard(c *gin.Context) {
 		response.BadRequest(c, errMessage)
 		return
 	}
+	if !h.validateOwnerAnalyticsMemberFilter(c, subject.UserID, filters) {
+		return
+	}
 	leaderboard, err := h.usageService.GetOwnerAPIKeyAnalyticsLeaderboard(c.Request.Context(), filters)
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -1040,6 +1223,39 @@ func (h *UsageHandler) GetOwnerAPIKeyAnalyticsLeaderboard(c *gin.Context) {
 	resp := ownerAnalyticsResponseMeta(filters, loc)
 	resp["items"] = leaderboard.Items
 	resp["total"] = leaderboard.Total
+	resp["total_actual_cost"] = leaderboard.TotalActualCost
+	resp["displayed_actual_cost"] = leaderboard.DisplayedActualCost
+	response.Success(c, resp)
+}
+
+// GetOwnerMemberAnalyticsLeaderboard handles enterprise member ranking and budget risk.
+// GET /api/v1/usage/analytics/members
+func (h *UsageHandler) GetOwnerMemberAnalyticsLeaderboard(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	filters, loc, errMessage := parseOwnerAPIKeyAnalyticsFilters(c, subject.UserID)
+	if errMessage != "" {
+		response.BadRequest(c, errMessage)
+		return
+	}
+	if !h.validateOwnerAnalyticsMemberFilter(c, subject.UserID, filters) {
+		return
+	}
+	leaderboard, err := h.usageService.GetOwnerMemberAnalyticsLeaderboard(c.Request.Context(), filters)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	resp := ownerAnalyticsResponseMeta(filters, loc)
+	resp["items"] = leaderboard.Items
+	resp["total"] = leaderboard.Total
+	resp["member_count"] = leaderboard.MemberCount
+	resp["budget_risk_member_count"] = leaderboard.BudgetRiskMemberCount
+	resp["total_reserved_usd"] = leaderboard.TotalReservedUSD
 	resp["total_actual_cost"] = leaderboard.TotalActualCost
 	resp["displayed_actual_cost"] = leaderboard.DisplayedActualCost
 	response.Success(c, resp)
@@ -1057,6 +1273,9 @@ func (h *UsageHandler) GetOwnerAPIKeyModelAnalytics(c *gin.Context) {
 	filters, loc, errMessage := parseOwnerAPIKeyAnalyticsFilters(c, subject.UserID)
 	if errMessage != "" {
 		response.BadRequest(c, errMessage)
+		return
+	}
+	if !h.validateOwnerAnalyticsMemberFilter(c, subject.UserID, filters) {
 		return
 	}
 	models, err := h.usageService.GetOwnerAPIKeyModelAnalytics(c.Request.Context(), filters)
@@ -1083,6 +1302,9 @@ func (h *UsageHandler) GetOwnerAPIKeyGroupAnalytics(c *gin.Context) {
 		response.BadRequest(c, errMessage)
 		return
 	}
+	if !h.validateOwnerAnalyticsMemberFilter(c, subject.UserID, filters) {
+		return
+	}
 	groups, err := h.usageService.GetOwnerAPIKeyGroupAnalytics(c.Request.Context(), filters)
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -1107,6 +1329,9 @@ func (h *UsageHandler) GetOwnerAPIKeyTagAnalytics(c *gin.Context) {
 		response.BadRequest(c, errMessage)
 		return
 	}
+	if !h.validateOwnerAnalyticsMemberFilter(c, subject.UserID, filters) {
+		return
+	}
 	tags, err := h.usageService.GetOwnerAPIKeyTagAnalytics(c.Request.Context(), filters)
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -1129,6 +1354,9 @@ func (h *UsageHandler) GetOwnerAPIKeyUsageTrend(c *gin.Context) {
 	filters, loc, errMessage := parseOwnerAPIKeyAnalyticsFilters(c, subject.UserID)
 	if errMessage != "" {
 		response.BadRequest(c, errMessage)
+		return
+	}
+	if !h.validateOwnerAnalyticsMemberFilter(c, subject.UserID, filters) {
 		return
 	}
 	items, err := h.usageService.GetOwnerAPIKeyUsageTrend(c.Request.Context(), filters)

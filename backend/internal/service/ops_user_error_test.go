@@ -65,19 +65,23 @@ func TestCategoryToFilter(t *testing.T) {
 }
 
 func TestToUserErrorRequest_RedactsSensitiveFields(t *testing.T) {
+	memberID := int64(77)
 	src := &OpsErrorLog{
-		ID:              123,
-		CreatedAt:       time.Unix(0, 0).UTC(),
-		Model:           "m",
-		RequestedModel:  "rm",
-		InboundEndpoint: "/v1/chat/completions",
-		StatusCode:      429,
-		Platform:        "openai",
-		Phase:           "request",
-		Type:            "rate_limit_error",
-		Message:         "rate limit exceeded",
-		APIKeyName:      "my-key",
-		APIKeyDeleted:   true,
+		ID:                 123,
+		CreatedAt:          time.Unix(0, 0).UTC(),
+		Model:              "m",
+		RequestedModel:     "rm",
+		InboundEndpoint:    "/v1/chat/completions",
+		StatusCode:         429,
+		Platform:           "openai",
+		Phase:              "request",
+		Type:               "rate_limit_error",
+		Message:            "rate limit exceeded",
+		APIKeyName:         "my-key",
+		APIKeyDeleted:      true,
+		MemberID:           &memberID,
+		MemberCodeSnapshot: "finance-01",
+		MemberNameSnapshot: "Finance Team",
 	}
 	out := ToUserErrorRequest(src)
 	if out.ID != 123 {
@@ -100,6 +104,9 @@ func TestToUserErrorRequest_RedactsSensitiveFields(t *testing.T) {
 	}
 	if !out.KeyDeleted {
 		t.Error("want key_deleted=true")
+	}
+	if out.MemberID == nil || *out.MemberID != memberID || out.MemberCode != "finance-01" || out.MemberName != "Finance Team" {
+		t.Errorf("member attribution mismatch: %+v", out)
 	}
 }
 

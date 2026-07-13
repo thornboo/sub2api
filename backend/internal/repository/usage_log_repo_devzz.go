@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 )
@@ -95,6 +96,17 @@ func ownerAnalyticsAPIKeyFilters(conditions []string, args []any, filters servic
 		conditions = append(conditions, fmt.Sprintf("%s.id = $%d", alias, len(args)+1))
 		args = append(args, *filters.APIKeyID)
 	}
+	if filters.MemberID != nil {
+		conditions = append(conditions, fmt.Sprintf("%s.member_id = $%d", alias, len(args)+1))
+		args = append(args, *filters.MemberID)
+	} else {
+		switch strings.TrimSpace(filters.MemberScope) {
+		case usagestats.MemberScopeAssigned:
+			conditions = append(conditions, fmt.Sprintf("%s.member_id IS NOT NULL", alias))
+		case usagestats.MemberScopeUnassigned:
+			conditions = append(conditions, fmt.Sprintf("%s.member_id IS NULL", alias))
+		}
+	}
 	if filters.GroupID != nil {
 		if *filters.GroupID == 0 {
 			conditions = append(conditions, fmt.Sprintf("%s.group_id IS NULL", alias))
@@ -122,6 +134,10 @@ func ownerAnalyticsAPIKeyFilters(conditions []string, args []any, filters servic
 	return conditions, args, nil
 }
 
+func ownerAnalyticsMemberFilterActive(filters service.OwnerAPIKeyAnalyticsFilters) bool {
+	return filters.MemberFilterSet || filters.MemberID != nil || strings.TrimSpace(filters.MemberScope) != ""
+}
+
 func ownerAnalyticsUsageConditions(filters service.OwnerAPIKeyAnalyticsFilters, includeTime bool) ([]string, []any, error) {
 	conditions := make([]string, 0, 8)
 	args := make([]any, 0, 8)
@@ -135,6 +151,53 @@ func ownerAnalyticsUsageConditions(filters service.OwnerAPIKeyAnalyticsFilters, 
 		args = append(args, filters.StartTime)
 		conditions = append(conditions, fmt.Sprintf("ul.created_at < $%d", len(args)+1))
 		args = append(args, filters.EndTime)
+	}
+	if ownerAnalyticsMemberFilterActive(filters) {
+		if filters.MemberID != nil {
+			conditions = append(conditions, fmt.Sprintf("ul.member_id = $%d", len(args)+1))
+			args = append(args, *filters.MemberID)
+		} else {
+			switch strings.TrimSpace(filters.MemberScope) {
+			case usagestats.MemberScopeAssigned:
+				conditions = append(conditions, "ul.member_id IS NOT NULL")
+			case usagestats.MemberScopeUnassigned:
+				conditions = append(conditions, "ul.member_id IS NULL")
+			}
+		}
+		if filters.APIKeyID != nil {
+			conditions = append(conditions, fmt.Sprintf("ul.api_key_id = $%d", len(args)+1))
+			args = append(args, *filters.APIKeyID)
+		}
+		if filters.GroupID != nil {
+			if *filters.GroupID == 0 {
+				conditions = append(conditions, "ul.group_id IS NULL")
+			} else {
+				conditions = append(conditions, fmt.Sprintf("ul.group_id = $%d", len(args)+1))
+				args = append(args, *filters.GroupID)
+			}
+		}
+		// Key metadata filters are intentionally current-state filters. Historical
+		// member rows otherwise remain visible even after a key is soft-deleted.
+		if filters.Status != "" || filters.Search != "" || len(filters.Tags) > 0 {
+			conditions = append(conditions, "ak.deleted_at IS NULL")
+		}
+		if filters.Status != "" {
+			conditions = append(conditions, fmt.Sprintf("ak.status = $%d", len(args)+1))
+			args = append(args, filters.Status)
+		}
+		if filters.Search != "" {
+			conditions = append(conditions, fmt.Sprintf("(ak.name ILIKE $%d OR ak.key ILIKE $%d)", len(args)+1, len(args)+1))
+			args = append(args, "%"+filters.Search+"%")
+		}
+		if len(filters.Tags) > 0 {
+			tagsJSON, err := json.Marshal(filters.Tags)
+			if err != nil {
+				return nil, nil, err
+			}
+			conditions = append(conditions, fmt.Sprintf("ak.tags @> $%d::jsonb", len(args)+1))
+			args = append(args, string(tagsJSON))
+		}
+		return conditions, args, nil
 	}
 	return ownerAnalyticsAPIKeyFilters(conditions, args, filters, "ak")
 }
@@ -328,8 +391,7 @@ func (r *usageLogRepository) GetOwnerAPIKeyAnalyticsLeaderboard(ctx context.Cont
 	}
 
 	if len(ids) > 0 {
-		previousStart := filters.StartTime.Add(-filters.EndTime.Sub(filters.StartTime))
-		previous, err := r.ownerAPIKeyPreviousActualCost(ctx, filters.UserID, ids, previousStart, filters.StartTime)
+		previous, err := r.ownerAPIKeyPreviousActualCost(ctx, filters, ids)
 		if err != nil {
 			return nil, err
 		}
@@ -350,18 +412,25 @@ func (r *usageLogRepository) GetOwnerAPIKeyAnalyticsLeaderboard(ctx context.Cont
 	}, nil
 }
 
-func (r *usageLogRepository) ownerAPIKeyPreviousActualCost(ctx context.Context, userID int64, apiKeyIDs []int64, startTime, endTime time.Time) (map[int64]float64, error) {
+func (r *usageLogRepository) ownerAPIKeyPreviousActualCost(ctx context.Context, filters service.OwnerAPIKeyAnalyticsFilters, apiKeyIDs []int64) (map[int64]float64, error) {
 	out := make(map[int64]float64, len(apiKeyIDs))
+	previousFilters := filters
+	previousFilters.EndTime = filters.StartTime
+	previousFilters.StartTime = filters.StartTime.Add(-filters.EndTime.Sub(filters.StartTime))
+	conditions, args, err := ownerAnalyticsUsageConditions(previousFilters, true)
+	if err != nil {
+		return nil, err
+	}
+	conditions = append(conditions, fmt.Sprintf("ul.api_key_id = ANY($%d)", len(args)+1))
+	args = append(args, pq.Array(apiKeyIDs))
 	query := `
-		SELECT api_key_id, COALESCE(SUM(actual_cost), 0)
-		FROM usage_logs
-		WHERE user_id = $1
-		  AND api_key_id = ANY($2)
-		  AND created_at >= $3
-		  AND created_at < $4
-		GROUP BY api_key_id
+		SELECT ul.api_key_id, COALESCE(SUM(ul.actual_cost), 0)
+		FROM usage_logs ul
+		JOIN api_keys ak ON ul.api_key_id = ak.id
+		` + buildWhere(conditions) + `
+		GROUP BY ul.api_key_id
 	`
-	rows, err := r.sql.QueryContext(ctx, query, userID, pq.Array(apiKeyIDs), startTime, endTime)
+	rows, err := r.sql.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

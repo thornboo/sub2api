@@ -21,6 +21,9 @@ type UserErrorRequest struct {
 	Message         string    `json:"message"`
 	KeyName         string    `json:"key_name"`
 	KeyDeleted      bool      `json:"key_deleted"`
+	MemberID        *int64    `json:"member_id,omitempty"`
+	MemberCode      string    `json:"member_code_snapshot,omitempty"`
+	MemberName      string    `json:"member_name_snapshot,omitempty"`
 	ClientIP        string    `json:"client_ip,omitempty"`
 	GroupName       string    `json:"group_name,omitempty"`
 	RequestType     *int16    `json:"request_type,omitempty"`
@@ -113,6 +116,9 @@ func ToUserErrorRequest(e *OpsErrorLog) *UserErrorRequest {
 		Message:         e.Message,
 		KeyName:         e.APIKeyName,
 		KeyDeleted:      e.APIKeyDeleted,
+		MemberID:        e.MemberID,
+		MemberCode:      e.MemberCodeSnapshot,
+		MemberName:      e.MemberNameSnapshot,
 		ClientIP:        clientIP,
 		GroupName:       e.GroupName,
 		RequestType:     e.RequestType,

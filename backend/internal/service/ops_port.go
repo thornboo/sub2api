@@ -73,11 +73,14 @@ type OpsInsertErrorLogInput struct {
 	RequestID       string
 	ClientRequestID string
 
-	UserID    *int64
-	APIKeyID  *int64
-	AccountID *int64
-	GroupID   *int64
-	ClientIP  *string
+	UserID             *int64
+	APIKeyID           *int64
+	MemberID           *int64
+	MemberCodeSnapshot string
+	MemberNameSnapshot string
+	AccountID          *int64
+	GroupID            *int64
+	ClientIP           *string
 
 	Platform    string
 	Model       string
