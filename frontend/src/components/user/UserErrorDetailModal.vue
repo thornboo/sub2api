@@ -26,6 +26,15 @@
           <span class="font-medium text-gray-500 dark:text-dark-400">{{ t('usage.errors.model') }}</span>
           <p class="mt-0.5 text-gray-900 dark:text-dark-100">{{ detail.model || '-' }}</p>
         </div>
+        <div v-if="detail.member_id">
+          <span class="font-medium text-gray-500 dark:text-dark-400">{{ t('usage.member') }}</span>
+          <p class="mt-0.5 text-gray-900 dark:text-dark-100">
+            {{ detail.member_name_snapshot || `#${detail.member_id}` }}
+            <span class="ml-1 font-mono text-xs text-gray-500 dark:text-dark-400">
+              {{ detail.member_code_snapshot || `#${detail.member_id}` }}
+            </span>
+          </p>
+        </div>
         <!-- Endpoint -->
         <div>
           <span class="font-medium text-gray-500 dark:text-dark-400">{{ t('usage.errors.endpoint') }}</span>

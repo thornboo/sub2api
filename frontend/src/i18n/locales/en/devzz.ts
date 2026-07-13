@@ -309,11 +309,25 @@ export default {
     },
     // Usage
     usage: {
+        member: 'Enterprise Member',
+        memberFilter: 'Member Scope',
+        members: {
+            all: 'All members and unassigned requests',
+            assigned: 'All assigned members',
+            unassigned: 'Unassigned member requests',
+            unassignedShort: 'Unassigned',
+            option: '{name} ({code})',
+            optionArchived: '{name} ({code}, archived)',
+            archived: 'Archived'
+        },
         tabs: {
             analytics: 'Analytics'
         },
         analytics: {
-            title: 'API Key Usage Analytics',
+            title: 'Enterprise Usage Analytics',
+            dimensionMember: 'By Member',
+            dimensionKey: 'By Key',
+            memberScope: 'Uses immutable member attribution for the selected time range; archived members and deleted keys retain their historical records.',
             scope: 'Uses the selected date range and panel filters for current-account API keys; admin-only cost and upstream routing fields are not exposed.',
             singleKeyScope: 'Follows the date filter above and analyzes only the selected API key. Admin-only cost and upstream routing fields are not exposed.',
             loadFailed: 'Failed to load usage analytics',
@@ -326,6 +340,11 @@ export default {
             activeKeysNow: 'Active Keys Now',
             nearQuotaKeys: 'Near Quota Now',
             nearRateLimitKeys: 'Near Rate Limit Now',
+            memberCount: 'Members',
+            budgetRiskMembers: 'Members at Budget Risk',
+            reservedBudget: 'Reserved Budget',
+            budgetUsed: 'Budget Used',
+            memberBudget: 'Current Budget',
             apiKey: 'API Key',
             share: 'Total share',
             change: 'Change',
@@ -340,6 +359,7 @@ export default {
                 limit: 'Show',
             },
             tabs: {
+                memberLeaderboard: 'Member Ranking',
                 leaderboard: 'Key Ranking',
                 trend: 'Spend Trend',
                 models: 'Model Distribution',

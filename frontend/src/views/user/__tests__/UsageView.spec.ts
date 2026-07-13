@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 
 import UsageView from '../UsageView.vue'
 
@@ -8,8 +9,12 @@ const {
   getStats,
   getDashboardModels,
   getDashboardSnapshotV2,
+  listOwnerUsageMembers,
   list,
   getAvailable,
+  authStore,
+  routeQueryState,
+  routerReplace,
   showError,
   showWarning,
   showSuccess,
@@ -19,8 +24,12 @@ const {
   getStats: vi.fn(),
   getDashboardModels: vi.fn(),
   getDashboardSnapshotV2: vi.fn(),
+  listOwnerUsageMembers: vi.fn(),
   list: vi.fn(),
   getAvailable: vi.fn(),
+  authStore: { user: { role: 'user', account_type: 'individual' } as Record<string, unknown> },
+  routeQueryState: { value: {} as Record<string, string> },
+  routerReplace: vi.fn(),
   showError: vi.fn(),
   showWarning: vi.fn(),
   showSuccess: vi.fn(),
@@ -70,6 +79,7 @@ vi.mock('@/api', () => ({
     getStats,
     getDashboardModels,
     getDashboardSnapshotV2,
+    listOwnerUsageMembers,
   },
   keysAPI: {
     list,
@@ -80,8 +90,21 @@ vi.mock('@/api', () => ({
 }))
 
 vi.mock('@/stores/app', () => ({
-  useAppStore: () => ({ showError, showWarning, showSuccess, showInfo }),
+  useAppStore: () => ({ showError, showWarning, showSuccess, showInfo, cachedPublicSettings: {} }),
 }))
+
+vi.mock('@/stores/auth', () => ({
+  useAuthStore: () => authStore,
+}))
+
+vi.mock('vue-router', async () => {
+  const { reactive } = await import('vue')
+  routeQueryState.value = reactive(routeQueryState.value)
+  return {
+    useRoute: () => ({ query: routeQueryState.value }),
+    useRouter: () => ({ replace: routerReplace }),
+  }
+})
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -154,8 +177,12 @@ describe('user UsageView', () => {
     getStats.mockReset()
     getDashboardModels.mockReset()
     getDashboardSnapshotV2.mockReset()
+    listOwnerUsageMembers.mockReset()
     list.mockReset()
     getAvailable.mockReset()
+    routerReplace.mockReset()
+    authStore.user = { role: 'user', account_type: 'individual' }
+    for (const key of Object.keys(routeQueryState.value)) delete routeQueryState.value[key]
     showError.mockReset()
     showWarning.mockReset()
     showSuccess.mockReset()
@@ -188,6 +215,7 @@ describe('user UsageView', () => {
       trend: [],
       groups: [],
     })
+    listOwnerUsageMembers.mockResolvedValue({ members: [] })
     list.mockResolvedValue({ items: [{ id: 1, name: 'demo-key' }] })
     getAvailable.mockResolvedValue([{ id: 1, name: 'default' }])
   })
@@ -206,6 +234,56 @@ describe('user UsageView', () => {
     }))
     expect(list).toHaveBeenCalledWith(1, 100)
     expect(getAvailable).toHaveBeenCalled()
+  })
+
+  it('loads every API-key page so member-to-key drill-down is not capped at 100 keys', async () => {
+    list
+      .mockResolvedValueOnce({ items: [{ id: 1, name: 'first-key' }], pages: 2 })
+      .mockResolvedValueOnce({ items: [{ id: 101, name: 'second-page-key' }], pages: 2 })
+
+    mountUsageView()
+    await flushPromises()
+
+    expect(list).toHaveBeenNthCalledWith(1, 1, 100)
+    expect(list).toHaveBeenNthCalledWith(2, 2, 100)
+  })
+
+  it('restores an enterprise member deep link and scopes every usage query to that member', async () => {
+    authStore.user = { role: 'user', account_type: 'enterprise' }
+    routeQueryState.value.tab = 'usage'
+    routeQueryState.value.member_id = '42'
+    listOwnerUsageMembers.mockResolvedValue({
+      members: [{ id: 42, member_code: 'finance-01', name: 'Finance', status: 'active', archived: false, key_count: 1 }],
+    })
+    list.mockResolvedValue({ items: [{ id: 7, name: 'finance-key', member_id: 42 }] })
+
+    mountUsageView()
+    await flushPromises()
+
+    expect(listOwnerUsageMembers).toHaveBeenCalledOnce()
+    expect(query).toHaveBeenCalledWith(
+      expect.objectContaining({ member_id: 42 }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+    expect(getStats).toHaveBeenCalledWith(expect.objectContaining({ member_id: 42 }))
+    expect(getDashboardModels).toHaveBeenCalledWith(expect.objectContaining({ member_id: 42 }))
+    expect(getDashboardSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({ member_id: 42 }))
+  })
+
+  it('returns to the default analytics tab when browser navigation removes the tab query', async () => {
+    routeQueryState.value.tab = 'usage'
+    const wrapper = mountUsageView()
+    await flushPromises()
+
+    const usageTab = wrapper.findAll('button.tab').find((button) => button.text() === 'usage.tabs.usage')
+    expect(usageTab?.classes()).toContain('tab-active')
+
+    delete routeQueryState.value.tab
+    await nextTick()
+    await flushPromises()
+
+    const analyticsTab = wrapper.findAll('button.tab').find((button) => button.text() === 'usage.tabs.analytics')
+    expect(analyticsTab?.classes()).toContain('tab-active')
   })
 
   it('exports csv with current filters and without admin-only fields', async () => {

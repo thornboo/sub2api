@@ -14,6 +14,20 @@
         @sort="onSort"
         @rowClick="(row) => openDetail(row.id)"
       >
+        <template #cell-member="{ row }">
+          <div v-if="row.member_id" class="min-w-0 text-sm">
+            <div class="max-w-44 truncate font-medium text-gray-900 dark:text-white" :title="row.member_name_snapshot || `#${row.member_id}`">
+              {{ row.member_name_snapshot || `#${row.member_id}` }}
+            </div>
+            <div class="mt-0.5 max-w-44 truncate font-mono text-[11px] text-gray-500 dark:text-gray-400">
+              {{ row.member_code_snapshot || `#${row.member_id}` }}
+            </div>
+          </div>
+          <span v-else class="inline-flex rounded-md bg-stone-100 px-2 py-1 text-xs text-stone-600 dark:bg-white/[0.06] dark:text-stone-300">
+            {{ t('usage.members.unassignedShort') }}
+          </span>
+        </template>
+
         <template #cell-model="{ row }">
           <span v-if="row.model" class="text-sm font-medium text-gray-900 dark:text-white">{{ row.model }}</span>
           <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
@@ -146,6 +160,7 @@ const props = defineProps<{
   loading: boolean
   page: number
   pageSize: number
+  showMember?: boolean
   /** 列设置:仅显示这些 key 的列;不传则全显(key 须与 allColumns 一致) */
   visibleColumnKeys?: string[]
 }>()
@@ -166,6 +181,7 @@ const { t } = useI18n()
 // 列序对齐用户端用量明细:Key → 模型 → 端点 → IP → 分组 → 类型 → 平台 → 分类
 // → 结果(状态→消息)→ 时间 → UA(用量明细 UA 同在时间之后的尾部)
 const allColumns = computed<Column[]>(() => [
+  ...(props.showMember ? [{ key: 'member', label: t('usage.member') }] : []),
   { key: 'key_name', label: t('usage.errors.keyName') },
   { key: 'model', label: t('usage.errors.model'), sortable: true },
   { key: 'endpoint', label: t('usage.errors.endpoint') },

@@ -1448,6 +1448,9 @@ export interface UsageLog {
   upstream_endpoint?: string | null
 
   group_id: number | null
+  member_id?: number | null
+  member_code_snapshot?: string | null
+  member_name_snapshot?: string | null
   subscription_id: number | null
 
   input_tokens: number
@@ -1875,6 +1878,9 @@ export interface UserErrorRequest {
   message: string
   key_name: string
   key_deleted: boolean
+  member_id?: number
+  member_code_snapshot?: string
+  member_name_snapshot?: string
   client_ip?: string
   group_name?: string
   request_type?: number
@@ -1899,6 +1905,8 @@ export interface UserErrorListParams {
   status_code?: number
   category?: string
   api_key_id?: number
+  member_id?: number
+  member_scope?: 'all' | 'assigned' | 'unassigned'
   // 服务端排序,列白名单见后端 opsErrorLogsOrderBy(created_at/model/status_code)
   sort_by?: string
   sort_order?: 'asc' | 'desc'
@@ -1908,6 +1916,8 @@ export interface UsageQueryParams {
   page?: number
   page_size?: number
   api_key_id?: number
+  member_id?: number
+  member_scope?: 'all' | 'assigned' | 'unassigned'
   user_id?: number
   account_id?: number
   group_id?: number

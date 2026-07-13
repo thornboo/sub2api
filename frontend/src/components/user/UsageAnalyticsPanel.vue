@@ -13,6 +13,24 @@
         </p>
       </div>
       <div class="flex flex-wrap items-end gap-2">
+        <div v-if="enterprise" class="inline-flex h-10 rounded-lg border border-stone-200 bg-stone-50 p-1 dark:border-white/10 dark:bg-white/[0.04]">
+          <button
+            type="button"
+            class="rounded-md px-3 text-xs font-medium transition-colors"
+            :class="analyticsDimension === 'member' ? 'bg-white text-emerald-700 shadow-sm dark:bg-white/10 dark:text-emerald-300' : 'text-stone-500 dark:text-stone-400'"
+            @click="setAnalyticsDimension('member')"
+          >
+            {{ t('usage.analytics.dimensionMember') }}
+          </button>
+          <button
+            type="button"
+            class="rounded-md px-3 text-xs font-medium transition-colors"
+            :class="analyticsDimension === 'key' ? 'bg-white text-emerald-700 shadow-sm dark:bg-white/10 dark:text-emerald-300' : 'text-stone-500 dark:text-stone-400'"
+            @click="setAnalyticsDimension('key')"
+          >
+            {{ t('usage.analytics.dimensionKey') }}
+          </button>
+        </div>
         <Select
           :model-value="granularity"
           :options="granularityOptions"
@@ -37,7 +55,17 @@
 
     <div class="mt-4 rounded-lg border border-stone-200/80 bg-stone-50/70 p-3 dark:border-white/10 dark:bg-white/[0.035]">
       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-        <label class="xl:col-span-2">
+        <label v-if="enterprise">
+          <span class="mb-1.5 block text-xs font-medium text-stone-500 dark:text-stone-400">
+            {{ t('usage.memberFilter') }}
+          </span>
+          <Select
+            v-model="selectedAnalyticsMemberFilter"
+            :options="memberFilterOptions"
+            searchable="auto"
+          />
+        </label>
+        <label v-if="analyticsDimension === 'key'" :class="enterprise ? '' : 'xl:col-span-2'">
           <span class="mb-1.5 block text-xs font-medium text-stone-500 dark:text-stone-400">
             {{ t('usage.analytics.filters.search') }}
           </span>
@@ -68,7 +96,7 @@
             searchable="auto"
           />
         </label>
-        <label>
+        <label v-if="analyticsDimension === 'key'">
           <span class="mb-1.5 block text-xs font-medium text-stone-500 dark:text-stone-400">
             {{ t('keys.tags') }}
           </span>
@@ -78,7 +106,7 @@
             searchable="auto"
           />
         </label>
-        <label>
+        <label v-if="analyticsDimension === 'key'">
           <span class="mb-1.5 block text-xs font-medium text-stone-500 dark:text-stone-400">
             {{ t('common.status') }}
           </span>
@@ -128,7 +156,7 @@
       </div>
     </div>
 
-    <div class="mt-3 grid gap-3 md:grid-cols-3">
+    <div v-if="analyticsDimension === 'key'" class="mt-3 grid gap-3 md:grid-cols-3">
       <div class="rounded-lg border border-stone-200/80 bg-white/60 px-3 py-2 dark:border-white/10 dark:bg-black/20">
         <div class="text-xs text-stone-500 dark:text-stone-400">{{ t('usage.analytics.activeKeysNow') }}</div>
         <div class="mt-1 font-semibold tabular-nums text-stone-950 dark:text-white">{{ formatInteger(snapshot.active_key_count) }}</div>
@@ -145,6 +173,20 @@
             {{ formatSnapshotTime(snapshot.snapshot_at) }}
           </span>
         </div>
+      </div>
+    </div>
+    <div v-else class="mt-3 grid gap-3 md:grid-cols-3">
+      <div class="rounded-lg border border-stone-200/80 bg-white/60 px-3 py-2 dark:border-white/10 dark:bg-black/20">
+        <div class="text-xs text-stone-500 dark:text-stone-400">{{ t('usage.analytics.memberCount') }}</div>
+        <div class="mt-1 font-semibold tabular-nums text-stone-950 dark:text-white">{{ formatInteger(memberCount) }}</div>
+      </div>
+      <div class="rounded-lg border border-stone-200/80 bg-white/60 px-3 py-2 dark:border-white/10 dark:bg-black/20">
+        <div class="text-xs text-stone-500 dark:text-stone-400">{{ t('usage.analytics.budgetRiskMembers') }}</div>
+        <div class="mt-1 font-semibold tabular-nums text-amber-600 dark:text-amber-300">{{ formatInteger(memberBudgetRiskCount) }}</div>
+      </div>
+      <div class="rounded-lg border border-stone-200/80 bg-white/60 px-3 py-2 dark:border-white/10 dark:bg-black/20">
+        <div class="text-xs text-stone-500 dark:text-stone-400">{{ t('usage.analytics.reservedBudget') }}</div>
+        <div class="mt-1 font-semibold tabular-nums text-stone-950 dark:text-white">{{ formatMoney(memberReservedTotal) }}</div>
       </div>
     </div>
 
@@ -176,13 +218,20 @@
         </div>
 
         <div v-else-if="activeTab === 'leaderboard'" class="space-y-3">
-          <div v-if="leaderboardChartData" class="rounded-lg border border-stone-200/80 p-3 dark:border-white/10" :style="{ height: rankedChartHeight(leaderboardItems.length) }">
-            <Bar :data="leaderboardChartData" :options="leaderboardChartOptions" />
+          <div v-if="effectiveLeaderboardChartData" class="rounded-lg border border-stone-200/80 p-3 dark:border-white/10" :style="{ height: rankedChartHeight(effectiveLeaderboardCount) }">
+            <Bar :data="effectiveLeaderboardChartData" :options="effectiveLeaderboardChartOptions" />
           </div>
           <OwnerLeaderboardTable
+            v-if="analyticsDimension === 'key'"
             :items="leaderboardItems"
             :max-cost="leaderboardMaxCost"
             :on-select="selectAnalyticsAPIKey"
+          />
+          <OwnerMemberLeaderboardTable
+            v-else
+            :items="memberLeaderboardItems"
+            :max-cost="memberLeaderboardMaxCost"
+            :on-select="selectAnalyticsMember"
           />
         </div>
 
@@ -231,14 +280,18 @@ import { Bar } from 'vue-chartjs'
 import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { usageAPI } from '@/api'
+import { serializeCSV } from '@/utils/csv'
 import { formatCompactNumber } from '@/utils/format'
-import type { ApiKey } from '@/types'
+import type { ApiKey, Group } from '@/types'
 import type {
   ApiKeyUsageTrendGranularity,
   OwnerApiKeyAnalyticsParams,
   OwnerApiKeyAnalyticsSnapshot,
   OwnerApiKeyAnalyticsSummary,
   OwnerApiKeyLeaderboardItem,
+  OwnerMemberLeaderboardItem,
+  OwnerMemberLeaderboardResponse,
+  OwnerUsageMember,
   OwnerGroupAnalyticsItem,
   OwnerModelAnalyticsItem,
   OwnerTagAnalyticsItem,
@@ -248,6 +301,7 @@ import type {
 ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend)
 
 type AnalyticsTab = 'leaderboard' | 'trend' | 'models' | 'groups' | 'tags'
+type AnalyticsDimension = 'member' | 'key'
 type IconName = InstanceType<typeof Icon>['$props']['name']
 type AnalyticsStatus = NonNullable<OwnerApiKeyAnalyticsParams['status']>
 
@@ -258,25 +312,43 @@ const props = withDefaults(defineProps<{
   startTime?: string
   endTime?: string
   apiKeys?: ApiKey[]
+  groups?: Group[]
+  enterprise?: boolean
+  members?: OwnerUsageMember[]
+  memberFilter?: string
 }>(), {
   startTime: '',
   endTime: '',
-  apiKeys: () => []
+  apiKeys: () => [],
+  groups: () => [],
+  enterprise: false,
+  members: () => [],
+  memberFilter: 'all'
 })
+
+const emit = defineEmits<{
+  (event: 'update:member-filter', value: string): void
+}>()
 
 const { t } = useI18n()
 
 const activeTab = ref<AnalyticsTab>('leaderboard')
+const analyticsDimension = ref<AnalyticsDimension>(props.enterprise ? 'member' : 'key')
 const granularity = ref<ApiKeyUsageTrendGranularity>('day')
 const loading = ref(false)
 const error = ref('')
 const summary = ref<OwnerApiKeyAnalyticsSummary | null>(null)
 const leaderboardItems = ref<OwnerApiKeyLeaderboardItem[]>([])
+const memberLeaderboardItems = ref<OwnerMemberLeaderboardItem[]>([])
+const memberCount = ref(0)
+const memberBudgetRiskCount = ref(0)
+const memberReservedTotal = ref(0)
 const modelItems = ref<OwnerModelAnalyticsItem[]>([])
 const groupItems = ref<OwnerGroupAnalyticsItem[]>([])
 const tagItems = ref<OwnerTagAnalyticsItem[]>([])
 const trendItems = ref<OwnerTrendAnalyticsPoint[]>([])
 const selectedAnalyticsAPIKeyID = ref<number | null>(props.apiKeyId || null)
+const selectedAnalyticsMemberFilter = ref(props.memberFilter)
 const selectedAnalyticsGroupID = ref<number | null>(null)
 const selectedAnalyticsTag = ref<string | null>(null)
 const selectedAnalyticsStatus = ref<AnalyticsStatus | null>(null)
@@ -301,13 +373,24 @@ const emptySnapshot: OwnerApiKeyAnalyticsSnapshot = {
   snapshot_at: ''
 }
 
-const tabs = computed<Array<{ value: AnalyticsTab; label: string; icon: IconName }>>(() => [
-  { value: 'leaderboard', label: t('usage.analytics.tabs.leaderboard'), icon: 'users' },
-  { value: 'trend', label: t('usage.analytics.tabs.trend'), icon: 'trendingUp' },
-  { value: 'models', label: t('usage.analytics.tabs.models'), icon: 'database' },
-  { value: 'groups', label: t('usage.analytics.tabs.groups'), icon: 'grid' },
-  { value: 'tags', label: t('usage.analytics.tabs.tags'), icon: 'filter' }
-])
+const tabs = computed<Array<{ value: AnalyticsTab; label: string; icon: IconName }>>(() => {
+  const items: Array<{ value: AnalyticsTab; label: string; icon: IconName }> = [
+    {
+      value: 'leaderboard',
+      label: analyticsDimension.value === 'member'
+        ? t('usage.analytics.tabs.memberLeaderboard')
+        : t('usage.analytics.tabs.leaderboard'),
+      icon: 'users'
+    },
+    { value: 'trend', label: t('usage.analytics.tabs.trend'), icon: 'trendingUp' },
+    { value: 'models', label: t('usage.analytics.tabs.models'), icon: 'database' },
+    { value: 'groups', label: t('usage.analytics.tabs.groups'), icon: 'grid' }
+  ]
+  if (analyticsDimension.value === 'key') {
+    items.push({ value: 'tags', label: t('usage.analytics.tabs.tags'), icon: 'filter' })
+  }
+  return items
+})
 
 const granularityOptions = computed(() => [
   { value: 'hour', label: t('keys.usageDetails.granularity.hour') },
@@ -315,15 +398,40 @@ const granularityOptions = computed(() => [
   { value: 'week', label: t('keys.usageDetails.granularity.week') },
   { value: 'month', label: t('keys.usageDetails.granularity.month') }
 ])
+const memberFilterOptions = computed(() => [
+  { value: 'all', label: t('usage.members.all') },
+  { value: 'assigned', label: t('usage.members.assigned') },
+  { value: 'unassigned', label: t('usage.members.unassigned') },
+  ...props.members.map((member) => ({
+    value: `member:${member.id}`,
+    label: member.archived
+      ? t('usage.members.optionArchived', { name: member.name, code: member.member_code })
+      : t('usage.members.option', { name: member.name, code: member.member_code })
+  }))
+])
+const analyticsAPIKeys = computed(() => {
+  const selected = selectedAnalyticsMemberFilter.value
+  if (!props.enterprise || selected === 'all') return props.apiKeys
+  if (selected === 'assigned') return props.apiKeys.filter((key) => key.member_id != null)
+  if (selected === 'unassigned') return props.apiKeys.filter((key) => key.member_id == null)
+  if (selected.startsWith('member:')) {
+    const memberID = Number(selected.slice('member:'.length))
+    return props.apiKeys.filter((key) => key.member_id === memberID)
+  }
+  return props.apiKeys
+})
 const apiKeyFilterOptions = computed(() => [
   { value: null, label: t('usage.allApiKeys') },
-  ...props.apiKeys.map((key) => ({
+  ...analyticsAPIKeys.value.map((key) => ({
     value: key.id,
     label: key.name || `#${key.id}`
   }))
 ])
 const groupFilterOptions = computed(() => {
   const groups = new Map<number, string>()
+  for (const group of props.groups) {
+    groups.set(group.id, group.name || `#${group.id}`)
+  }
   for (const key of props.apiKeys) {
     if (typeof key.group_id === 'number' && key.group_id > 0) {
       groups.set(key.group_id, key.group?.name || `#${key.group_id}`)
@@ -368,7 +476,9 @@ const limitOptions = computed(() => [
 
 const snapshot = computed(() => summary.value?.current_key_snapshot || emptySnapshot)
 const scopeText = computed(() =>
-  props.apiKeyId
+  analyticsDimension.value === 'member'
+    ? t('usage.analytics.memberScope')
+    : props.apiKeyId
     ? t('usage.analytics.singleKeyScope')
     : t('usage.analytics.scope')
 )
@@ -399,6 +509,7 @@ const summaryMetrics = computed(() => [
   }
 ])
 const hasAnalyticsFilters = computed(() =>
+  selectedAnalyticsMemberFilter.value !== props.memberFilter ||
   selectedAnalyticsAPIKeyID.value !== (props.apiKeyId || null) ||
   selectedAnalyticsGroupID.value !== null ||
   selectedAnalyticsTag.value !== null ||
@@ -408,6 +519,7 @@ const hasAnalyticsFilters = computed(() =>
 )
 
 const leaderboardMaxCost = computed(() => maxCost(leaderboardItems.value))
+const memberLeaderboardMaxCost = computed(() => maxCost(memberLeaderboardItems.value))
 const modelMaxCost = computed(() => maxCost(modelItems.value))
 const groupMaxCost = computed(() => maxCost(groupItems.value))
 const tagMaxCost = computed(() => maxCost(tagItems.value))
@@ -531,6 +643,38 @@ const leaderboardChartOptions = computed<ChartOptions<'bar'>>(() => makeRankedCh
     if (item) selectAnalyticsAPIKey(item)
   }
 ))
+const memberLeaderboardChartData = computed<ChartData<'bar'> | null>(() => makeRankedChartData(
+  memberLeaderboardItems.value,
+  memberLeaderboardLabel,
+  'teal'
+))
+const memberLeaderboardChartOptions = computed<ChartOptions<'bar'>>(() => makeRankedChartOptions(
+  memberLeaderboardItems.value.map(memberLeaderboardLabel),
+  (index) => {
+    const item = memberLeaderboardItems.value[index]
+    if (!item) return []
+    return [
+      `${t('usage.actualCost')}: ${formatMoney(item.actual_cost)}`,
+      `${t('usage.analytics.share')}: ${formatPercent(item.share_percent)}`,
+      `${t('usage.analytics.budgetUsed')}: ${formatMoney(item.current_used_usd)}`,
+      `${t('usage.analytics.reservedBudget')}: ${formatMoney(item.current_reserved_usd)}`,
+      `${t('usage.totalRequests')}: ${formatInteger(item.requests)}`
+    ]
+  },
+  (index) => {
+    const item = memberLeaderboardItems.value[index]
+    if (item) selectAnalyticsMember(item)
+  }
+))
+const effectiveLeaderboardChartData = computed(() =>
+  analyticsDimension.value === 'member' ? memberLeaderboardChartData.value : leaderboardChartData.value
+)
+const effectiveLeaderboardChartOptions = computed(() =>
+  analyticsDimension.value === 'member' ? memberLeaderboardChartOptions.value : leaderboardChartOptions.value
+)
+const effectiveLeaderboardCount = computed(() =>
+  analyticsDimension.value === 'member' ? memberLeaderboardItems.value.length : leaderboardItems.value.length
+)
 const modelChartData = computed<ChartData<'bar'> | null>(() => makeRankedChartData(
   modelItems.value,
   (item) => item.model || 'unknown',
@@ -595,6 +739,8 @@ const tagChartOptions = computed<ChartOptions<'bar'>>(() => makeRankedChartOptio
 
 const requestSignature = computed(() => JSON.stringify({
   tab: activeTab.value,
+  dimension: analyticsDimension.value,
+  memberFilter: selectedAnalyticsMemberFilter.value,
   granularity: granularity.value,
   apiKeyId: props.apiKeyId || null,
   analyticsApiKeyId: selectedAnalyticsAPIKeyID.value,
@@ -625,17 +771,28 @@ function buildParams(): OwnerApiKeyAnalyticsParams {
   if (selectedAnalyticsAPIKeyID.value) {
     params.api_key_id = selectedAnalyticsAPIKeyID.value
   }
+  if (props.enterprise) {
+    const selectedMember = selectedAnalyticsMemberFilter.value
+    if (selectedMember.startsWith('member:')) {
+      const memberID = Number(selectedMember.slice('member:'.length))
+      if (Number.isFinite(memberID) && memberID > 0) params.member_id = memberID
+    } else if (selectedMember === 'assigned' || selectedMember === 'unassigned') {
+      params.member_scope = selectedMember
+    } else if (analyticsDimension.value === 'member') {
+      params.member_scope = 'all'
+    }
+  }
   if (selectedAnalyticsGroupID.value !== null) {
     params.group_id = selectedAnalyticsGroupID.value
   }
-  if (selectedAnalyticsTag.value) {
+  if (analyticsDimension.value === 'key' && selectedAnalyticsTag.value) {
     params.tags = selectedAnalyticsTag.value
   }
-  if (selectedAnalyticsStatus.value) {
+  if (analyticsDimension.value === 'key' && selectedAnalyticsStatus.value) {
     params.status = selectedAnalyticsStatus.value
   }
   const search = analyticsSearch.value.trim()
-  if (search) {
+  if (analyticsDimension.value === 'key' && search) {
     params.search = search
   }
   return params
@@ -651,13 +808,18 @@ async function loadAnalytics() {
   error.value = ''
 
   try {
-    const [summaryResult, tabResult] = await Promise.all([
+    const memberMetricsRequest = analyticsDimension.value === 'member' && activeTab.value !== 'leaderboard'
+      ? usageAPI.getOwnerMemberAnalyticsLeaderboard({ ...params, limit: 1 }, { signal: controller.signal })
+      : Promise.resolve(null)
+    const [summaryResult, tabResult, memberMetricsResult] = await Promise.all([
       usageAPI.getOwnerApiKeyAnalyticsSummary(params, { signal: controller.signal }),
-      loadActiveTab(params, controller.signal)
+      loadActiveTab(params, controller.signal),
+      memberMetricsRequest
     ])
     if (requestID !== latestRequestID || controller.signal.aborted) return
     summary.value = summaryResult.summary
     applyTabResult(tabResult)
+    if (memberMetricsResult) applyMemberMetrics(memberMetricsResult)
   } catch (err) {
     if (requestID !== latestRequestID || controller.signal.aborted || isAbortError(err)) return
     console.error('[UsageAnalyticsPanel] Failed to load usage analytics:', err)
@@ -680,7 +842,9 @@ function loadActiveTab(params: OwnerApiKeyAnalyticsParams, signal: AbortSignal) 
     case 'tags':
       return usageAPI.getOwnerApiKeyTagAnalytics(params, { signal })
     default:
-      return usageAPI.getOwnerApiKeyAnalyticsLeaderboard(params, { signal })
+      return analyticsDimension.value === 'member'
+        ? usageAPI.getOwnerMemberAnalyticsLeaderboard(params, { signal })
+        : usageAPI.getOwnerApiKeyAnalyticsLeaderboard(params, { signal })
   }
 }
 
@@ -688,6 +852,9 @@ function applyTabResult(result: Awaited<ReturnType<typeof loadActiveTab>>) {
   if ('items' in result) {
     if (activeTab.value === 'trend') {
       trendItems.value = result.items as OwnerTrendAnalyticsPoint[]
+    } else if (analyticsDimension.value === 'member') {
+      memberLeaderboardItems.value = result.items as OwnerMemberLeaderboardItem[]
+      applyMemberMetrics(result as OwnerMemberLeaderboardResponse)
     } else {
       leaderboardItems.value = result.items as OwnerApiKeyLeaderboardItem[]
     }
@@ -698,6 +865,12 @@ function applyTabResult(result: Awaited<ReturnType<typeof loadActiveTab>>) {
   } else if ('tags' in result) {
     tagItems.value = result.tags
   }
+}
+
+function applyMemberMetrics(result: OwnerMemberLeaderboardResponse) {
+  memberCount.value = result.member_count
+  memberBudgetRiskCount.value = result.budget_risk_member_count
+  memberReservedTotal.value = result.total_reserved_usd
 }
 
 function scheduleLoad() {
@@ -892,8 +1065,34 @@ function truncateChartLabel(value: string) {
   return value.length > 18 ? `${value.slice(0, 17)}...` : value
 }
 
+function memberLeaderboardLabel(item: OwnerMemberLeaderboardItem) {
+  if (!item.member_id) return t('usage.members.unassignedShort')
+  return item.member_name || item.member_code || `#${item.member_id}`
+}
+
+function setAnalyticsDimension(value: AnalyticsDimension) {
+  analyticsDimension.value = value
+  if (value === 'member' && activeTab.value === 'tags') {
+    activeTab.value = 'leaderboard'
+  }
+  if (value === 'member') {
+    selectedAnalyticsTag.value = null
+    selectedAnalyticsStatus.value = null
+    analyticsSearch.value = ''
+  }
+}
+
 function selectAnalyticsAPIKey(item: OwnerApiKeyLeaderboardItem) {
   selectedAnalyticsAPIKeyID.value = item.api_key_id
+  activeTab.value = 'trend'
+}
+
+function selectAnalyticsMember(item: OwnerMemberLeaderboardItem) {
+  selectedAnalyticsMemberFilter.value = item.member_id
+    ? `member:${item.member_id}`
+    : 'unassigned'
+  selectedAnalyticsAPIKeyID.value = null
+  emit('update:member-filter', selectedAnalyticsMemberFilter.value)
   activeTab.value = 'trend'
 }
 
@@ -910,18 +1109,20 @@ function selectAnalyticsTag(item: OwnerTagAnalyticsItem) {
 }
 
 function resetAnalyticsFilters() {
+  selectedAnalyticsMemberFilter.value = props.memberFilter
   selectedAnalyticsAPIKeyID.value = props.apiKeyId || null
   selectedAnalyticsGroupID.value = null
   selectedAnalyticsTag.value = null
   selectedAnalyticsStatus.value = null
   analyticsSearch.value = ''
   analyticsLimit.value = 20
+  emit('update:member-filter', selectedAnalyticsMemberFilter.value)
 }
 
 function exportAnalyticsCSV() {
   const exportData = currentAnalyticsExport()
   if (exportData.rows.length === 0) return
-  const csv = toCSV(exportData.headers, exportData.rows)
+  const csv = serializeCSV(exportData.headers, exportData.rows)
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -935,9 +1136,10 @@ function exportAnalyticsCSV() {
 
 function currentAnalyticsExport() {
   const suffix = `${props.startDate || 'start'}_to_${props.endDate || 'end'}`
+  const dimensionPrefix = analyticsDimension.value === 'member' ? 'member' : 'api_key'
   if (activeTab.value === 'trend') {
     return {
-      filename: `api_key_usage_trend_${suffix}.csv`,
+      filename: `${dimensionPrefix}_usage_trend_${suffix}.csv`,
       headers: ['bucket', 'requests', 'input_tokens', 'output_tokens', 'cache_creation_tokens', 'cache_read_tokens', 'total_tokens', 'actual_cost'],
       rows: trendItems.value.map((item) => [
         item.date,
@@ -953,14 +1155,14 @@ function currentAnalyticsExport() {
   }
   if (activeTab.value === 'models') {
     return {
-      filename: `api_key_usage_models_${suffix}.csv`,
+      filename: `${dimensionPrefix}_usage_models_${suffix}.csv`,
       headers: ['model', 'requests', 'total_tokens', 'actual_cost'],
       rows: modelItems.value.map((item) => [item.model, item.requests, item.total_tokens, item.actual_cost])
     }
   }
   if (activeTab.value === 'groups') {
     return {
-      filename: `api_key_usage_groups_${suffix}.csv`,
+      filename: `${dimensionPrefix}_usage_groups_${suffix}.csv`,
       headers: ['group_id', 'group_name', 'key_count', 'share_percent', 'requests', 'total_tokens', 'actual_cost'],
       rows: groupItems.value.map((item) => [item.group_id ?? '', item.group_name, item.key_count, item.share_percent, item.requests, item.total_tokens, item.actual_cost])
     }
@@ -970,6 +1172,29 @@ function currentAnalyticsExport() {
       filename: `api_key_usage_tags_${suffix}.csv`,
       headers: ['tag', 'key_count', 'requests', 'total_tokens', 'actual_cost'],
       rows: tagItems.value.map((item) => [item.tag, item.key_count, item.requests, item.total_tokens, item.actual_cost])
+    }
+  }
+  if (analyticsDimension.value === 'member') {
+    return {
+      filename: `member_usage_leaderboard_${suffix}.csv`,
+      headers: ['member_id', 'member_code', 'member_name', 'status', 'archived', 'key_count', 'monthly_limit_usd', 'current_used_usd', 'current_reserved_usd', 'requests', 'total_tokens', 'actual_cost', 'share_percent', 'change_percent', 'last_used_at'],
+      rows: memberLeaderboardItems.value.map((item) => [
+        item.member_id ?? '',
+        item.member_code,
+        item.member_name,
+        item.status,
+        item.archived ? 'true' : 'false',
+        item.key_count,
+        item.monthly_limit_usd,
+        item.current_used_usd,
+        item.current_reserved_usd,
+        item.requests,
+        item.total_tokens,
+        item.actual_cost,
+        item.share_percent,
+        item.change_percent,
+        item.last_used_at || ''
+      ])
     }
   }
   return {
@@ -990,21 +1215,6 @@ function currentAnalyticsExport() {
       item.last_used_at || ''
     ])
   }
-}
-
-function toCSV(headers: string[], rows: Array<Array<string | number>>) {
-  return [
-    headers.map(escapeCSVCell).join(','),
-    ...rows.map((row) => row.map(escapeCSVCell).join(','))
-  ].join('\n')
-}
-
-function escapeCSVCell(value: string | number) {
-  const raw = String(value ?? '')
-  if (/[",\n\r]/.test(raw)) {
-    return `"${raw.replace(/"/g, '""')}"`
-  }
-  return raw
 }
 
 function barWidth(value: number, max: number) {
@@ -1095,6 +1305,87 @@ const OwnerLeaderboardTable = defineComponent({
             ]),
             h('td', { class: cellClass }, renderTags(item.tags)),
             h('td', { class: cellClass }, item.group_name || t('keys.noGroup')),
+            h('td', { class: numericCellClass }, formatCompactNumber(item.requests)),
+            h('td', { class: numericCellClass, title: formatInteger(item.total_tokens) }, formatCompactNumber(item.total_tokens)),
+            h('td', { class: numericCellClass }, h(ProgressCell, { value: item.actual_cost, max: props.maxCost })),
+            h('td', { class: numericCellClass }, formatPercent(item.share_percent)),
+            h('td', { class: changeClass(item.change_percent) }, formatChange(item.change_percent))
+          ])))
+        ])
+      ])
+    ])
+  }
+})
+
+const OwnerMemberLeaderboardTable = defineComponent({
+  name: 'OwnerMemberLeaderboardTable',
+  props: {
+    items: { type: Array as PropType<OwnerMemberLeaderboardItem[]>, required: true },
+    maxCost: { type: Number, required: true },
+    onSelect: { type: Function as PropType<(item: OwnerMemberLeaderboardItem) => void>, default: null }
+  },
+  setup(props) {
+    const { t } = useI18n()
+    const statusLabel = (item: OwnerMemberLeaderboardItem) => {
+      if (!item.member_id) return t('usage.members.unassignedShort')
+      if (item.archived) return t('usage.members.archived')
+      if (item.status === 'active') return t('keys.status.active')
+      if (item.status === 'disabled') return t('keys.status.disabled')
+      return item.status
+    }
+    const budgetText = (item: OwnerMemberLeaderboardItem) => {
+      const consumed = item.current_used_usd + item.current_reserved_usd
+      if (item.monthly_limit_usd <= 0) {
+        return `${formatMoney(consumed)} / ∞`
+      }
+      return `${formatMoney(consumed)} / ${formatMoney(item.monthly_limit_usd)}`
+    }
+    return () => h('div', { class: 'overflow-hidden rounded-lg border border-stone-200/80 dark:border-white/10' }, [
+      h('div', { class: 'overflow-x-auto' }, [
+        h('table', { class: 'min-w-full text-sm' }, [
+          h('thead', { class: 'bg-stone-50 dark:bg-white/[0.04]' }, [
+            h('tr', [
+              h('th', { class: headerClass }, t('usage.member')),
+              h('th', { class: headerClass }, t('common.status')),
+              h('th', { class: numericHeaderClass }, t('usage.analytics.keyCount')),
+              h('th', { class: numericHeaderClass }, t('usage.analytics.memberBudget')),
+              h('th', { class: numericHeaderClass }, t('usage.totalRequests')),
+              h('th', { class: numericHeaderClass }, t('usage.totalTokens')),
+              h('th', { class: numericHeaderClass }, t('usage.actualCost')),
+              h('th', { class: numericHeaderClass }, t('usage.analytics.share')),
+              h('th', { class: numericHeaderClass }, t('usage.analytics.change'))
+            ])
+          ]),
+          h('tbody', { class: bodyClass }, props.items.length === 0 ? [
+            h(EmptyRows, { colspan: 9 })
+          ] : props.items.map((item, index) => h('tr', {
+            key: item.member_id ?? 'unassigned',
+            class: tableRowClass(!!props.onSelect),
+            onClick: () => props.onSelect?.(item)
+          }, [
+            h('td', { class: cellClass }, [
+              h('div', { class: 'flex items-center gap-2' }, [
+                h('span', { class: 'flex h-6 w-6 items-center justify-center rounded bg-stone-100 text-xs font-semibold text-stone-500 dark:bg-white/10 dark:text-stone-300' }, index + 1),
+                h('div', { class: 'min-w-0' }, [
+                  h('div', { class: 'max-w-52 truncate font-medium text-stone-950 dark:text-white' }, memberLeaderboardLabel(item)),
+                  item.member_id
+                    ? h('div', { class: 'mt-0.5 max-w-52 truncate font-mono text-[11px] text-stone-400' }, item.member_code || `#${item.member_id}`)
+                    : null
+                ])
+              ])
+            ]),
+            h('td', { class: cellClass }, [
+              h('span', {
+                class: item.archived
+                  ? 'rounded bg-stone-200 px-2 py-1 text-xs text-stone-600 dark:bg-white/10 dark:text-stone-300'
+                  : 'rounded bg-emerald-50 px-2 py-1 text-xs text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'
+              }, statusLabel(item))
+            ]),
+            h('td', { class: numericCellClass }, formatInteger(item.key_count)),
+            h('td', {
+              class: numericCellClass,
+              title: `${t('usage.analytics.budgetUsed')}: ${formatMoney(item.current_used_usd)}; ${t('usage.analytics.reservedBudget')}: ${formatMoney(item.current_reserved_usd)}`
+            }, budgetText(item)),
             h('td', { class: numericCellClass }, formatCompactNumber(item.requests)),
             h('td', { class: numericCellClass, title: formatInteger(item.total_tokens) }, formatCompactNumber(item.total_tokens)),
             h('td', { class: numericCellClass }, h(ProgressCell, { value: item.actual_cost, max: props.maxCost })),
@@ -1290,6 +1581,26 @@ function renderTags(tags: string[] | undefined) {
 
 watch(() => props.apiKeyId, (apiKeyID) => {
   selectedAnalyticsAPIKeyID.value = apiKeyID || null
+})
+
+watch(() => props.memberFilter, (memberFilter) => {
+  if (memberFilter !== selectedAnalyticsMemberFilter.value) {
+    selectedAnalyticsMemberFilter.value = memberFilter
+  }
+})
+
+watch(() => props.enterprise, (enterprise) => {
+  analyticsDimension.value = enterprise ? 'member' : 'key'
+  if (!enterprise) selectedAnalyticsMemberFilter.value = 'all'
+})
+
+watch(selectedAnalyticsMemberFilter, (memberFilter) => {
+  if (selectedAnalyticsAPIKeyID.value && !analyticsAPIKeys.value.some((key) => key.id === selectedAnalyticsAPIKeyID.value)) {
+    selectedAnalyticsAPIKeyID.value = null
+  }
+  if (memberFilter !== props.memberFilter) {
+    emit('update:member-filter', memberFilter)
+  }
 })
 
 watch(requestSignature, scheduleLoad)

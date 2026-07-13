@@ -309,11 +309,25 @@ export default {
     },
     // Usage
     usage: {
+        member: '企业成员',
+        memberFilter: '成员范围',
+        members: {
+            all: '全部成员与未归属请求',
+            assigned: '全部已归属成员',
+            unassigned: '未归属成员的请求',
+            unassignedShort: '未归属成员',
+            option: '{name}（{code}）',
+            optionArchived: '{name}（{code}，已归档）',
+            archived: '已归档'
+        },
         tabs: {
             analytics: '统计分析'
         },
         analytics: {
-            title: 'API 密钥用量分析',
+            title: '企业使用分析',
+            dimensionMember: '按成员',
+            dimensionKey: '按密钥',
+            memberScope: '按成员归属查看所选时间范围内的历史请求；成员归档或密钥删除不会抹除已有记录。',
             scope: '按日期和面板筛选统计当前账号名下 API 密钥；平台管理员成本和上游路由字段不会展示。',
             singleKeyScope: '跟随上方日期筛选，仅分析当前选中的 API 密钥；平台管理员成本和上游路由字段不会展示。',
             loadFailed: '加载用量分析失败',
@@ -326,6 +340,11 @@ export default {
             activeKeysNow: '当前活跃密钥',
             nearQuotaKeys: '当前接近额度',
             nearRateLimitKeys: '当前接近速率限制',
+            memberCount: '成员数',
+            budgetRiskMembers: '预算风险成员',
+            reservedBudget: '已预留预算',
+            budgetUsed: '本期已用预算',
+            memberBudget: '本期预算',
             apiKey: 'API 密钥',
             share: '全量占比',
             change: '环比',
@@ -340,6 +359,7 @@ export default {
                 limit: '显示'
             },
             tabs: {
+                memberLeaderboard: '成员排行',
                 leaderboard: '密钥排行',
                 trend: '消耗趋势',
                 models: '模型分布',

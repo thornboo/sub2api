@@ -1,6 +1,6 @@
 # 企业用量分析中心
 
-> 状态：部分落地。现有 owner API Key 用量分析已经实现；独立成员实体、成员级预算/用量和聚合 Key 的完整目标设计已由 [企业用户成员管理](./enterprise-member-management.md) 与 [ADR-0003](../decisions/adr-0003-enterprise-member-entity.md) 确认，尚待实现。
+> 状态：已按增量兼容方案落地。现有 owner API Key 用量分析保持兼容；企业账号在同一个 Usage 模块中增加成员默认视角、成员筛选、成员排行、请求与错误记录归因，并继续允许下钻到 Key。
 
 ## 1. 文档边界
 
@@ -18,8 +18,10 @@
 
 - 用户侧 Usage 页面已经提供 owner 分析视图，前端组件为 `frontend/src/components/user/UsageAnalyticsPanel.vue`。
 - 用户认证域已经提供：
+  - `GET /api/v1/usage/members`
   - `GET /api/v1/usage/analytics/summary`
   - `GET /api/v1/usage/analytics/leaderboard`
+  - `GET /api/v1/usage/analytics/members`
   - `GET /api/v1/usage/analytics/models`
   - `GET /api/v1/usage/analytics/groups`
   - `GET /api/v1/usage/analytics/tags`
@@ -29,7 +31,7 @@
 - 用户侧 DTO 不返回 `account_cost`、上游账号、渠道或真实上游路由。
 - 管理员已有全站 Usage/Dashboard、用户/Key 下钻和管理员专属成本字段。
 
-最近同步：2026-07-12。
+最近同步：2026-07-13。
 
 ## 3. 领域关系
 
@@ -113,6 +115,8 @@ start_date=YYYY-MM-DD
 end_date=YYYY-MM-DD
 timezone=Asia/Shanghai
 granularity=hour|day|week|month
+member_id=123
+member_scope=all|assigned|unassigned
 group_id=123
 tags=team-a,frontend
 status=active|disabled|quota_exhausted|expired
@@ -121,6 +125,13 @@ limit=20
 ```
 
 日期范围必须由后端校验。历史聚合与当前实时 Key 状态必须分开展示，不能把“当前接近 quota 的 Key 数”误认为历史时间点快照。
+
+`member_id` 与 `member_scope` 是附加、可选参数：
+
+- 普通用户不传时，所有旧接口保持原语义。
+- 企业账号选择某个成员时，成功记录、统计、趋势、模型、实际分组和错误记录使用同一成员范围。
+- `member_scope=assigned` 表示所有已归属成员的事实；`member_scope=unassigned` 表示 `member_id IS NULL` 的企业自身或历史普通 Key 事实。
+- 同时选择 `member_id` 与 `api_key_id` 时，后端必须验证 Key 当前归属与成员一致；不能只依赖前端联动。
 
 ### 5.2 Summary
 
@@ -166,6 +177,16 @@ limit=20
 
 成员排行按 `usage_logs.member_id` 聚合；成员当前名称用于列表，历史名称快照用于审计。
 
+`GET /api/v1/usage/analytics/members` 的汇总字段基于完整筛选结果计算，不受前端 `limit` 截断：
+
+- `total`：成员行与“未归属”事实桶合计的排行对象数。
+- `member_count`：真实成员数，不包含“未归属”事实桶。
+- `budget_risk_member_count`：未归档成员中，当前已用加预留达到自然月预算 80% 的成员数。
+- `total_reserved_usd`：完整筛选范围的当前预留总额。
+- `total_actual_cost`：所选请求时间范围的用户应付金额总额。
+
+成员视角即使选择“全部”，也显式使用 `member_scope=all` 作为分析口径标记：分组按 `usage_logs.group_id` 的请求事实统计，已删除 Key 不会让历史请求消失。切换到 Key 兼容视角且未选择成员范围时，继续保留原有 Key 当前元数据口径。
+
 ### 6.2 预算与请求用量分离
 
 成员页面同时展示但不能混淆：
@@ -182,9 +203,18 @@ limit=20
 
 ### 6.3 成员接口
 
-完整接口以成员设计文档为准，analytics 至少包括：
+成员管理页的单成员预算与快速用量入口仍以成员设计文档为准；企业完整分析统一进入 `/usage`，避免形成两套互不一致的统计中心：
 
 ```text
+GET /api/v1/usage/members
+GET /api/v1/usage?member_id=:id
+GET /api/v1/usage/errors?member_id=:id
+GET /api/v1/usage/stats?member_id=:id
+GET /api/v1/usage/analytics/summary?member_id=:id
+GET /api/v1/usage/analytics/members
+GET /api/v1/usage/analytics/models?member_id=:id
+GET /api/v1/usage/analytics/groups?member_id=:id
+GET /api/v1/usage/analytics/trend?member_id=:id
 GET /api/v1/enterprise/members/usage/summary
 GET /api/v1/enterprise/members/usage/trend
 GET /api/v1/enterprise/members/:id/usage
@@ -197,6 +227,7 @@ GET /api/v1/enterprise/members/:id/budget/entries
 ### 6.4 兼容关系
 
 - 普通 Key analytics 不因成员功能删除。
+- 现有 `/usage/analytics/leaderboard` 始终保持 Key 排行语义；新增 `/usage/analytics/members` 承担成员排行，避免静默改变旧客户端结果。
 - 企业账号升级后，历史普通 Key 继续出现在兼容区。
 - 成员 Key 同时支持成员聚合与单 Key 下钻。
 - 一把成员 Key 跨分组时，usage 记录实际执行分组。
@@ -226,6 +257,14 @@ Usage 页面继续提供：
 
 成员详情再下钻到 Key 和请求，不把一名成员多 Key 拆成多名员工。
 
+企业 Usage 页的交互约束：
+
+- 默认选择“成员”分析维度，仍可切换到“Key”兼容维度。
+- 成员筛选位于 Key 筛选之前；选择成员后，Key 候选只保留该成员当前所属 Key。
+- “企业自身 / 未归属”作为显式事实桶展示，不伪造成成员实体。
+- 已归档成员保留在历史筛选目录中并标注归档，不重新激活，也不丢失历史事实。
+- 成员管理页可携带 `member_id` 跳转到 Usage，日期、成员和后续 Key 下钻在同一 URL 状态中表达。
+
 ### 7.3 平台管理员
 
 管理员继续使用现有 `/admin/usage` 与 `/admin/dashboard`：
@@ -239,6 +278,9 @@ Usage 页面继续提供：
 
 - `usage_logs(user_id, created_at)` 继续支撑 owner 总范围。
 - 新增 `usage_logs(member_id, created_at)` 支撑成员时间窗。
+- `ops_error_logs` 新增可空的 `member_id`、`member_code_snapshot`、`member_name_snapshot`；旧错误记录保持 `NULL`，不做基于当前 Key 的追溯性回填。
+- `ops_error_logs(user_id, member_id, created_at)` 使用独立的并发索引迁移，避免在主事务迁移中长时间锁表。
+- 新字段和索引只通过 `180`、`181_notx` 追加迁移交付；已经应用的 `175`、`177`、`178`、`179` 迁移保持校验和不变。
 - Key、group、model 聚合必须保持 owner/member 过滤在最外层权限条件内。
 - 当真实数据量超过查询 SLO 时，可以增加成员日聚合，但聚合必须可从 usage log 重建。
 - 成员预算实时控制读取 budget period 投影；投影必须可从预算账本重建。
@@ -258,8 +300,11 @@ Usage 页面继续提供：
 
 - 跨企业成员 ID 被拒绝。
 - 一成员多 Key 正确合并。
+- 未归属 Key 只进入 `unassigned` 桶，不污染任意成员。
 - 一 Key 多实际分组正确拆分。
 - 成员改名、禁用、归档后历史仍归属同一 member ID。
+- 错误请求在认证已解析成员 Key 时写入成员 ID 与名称快照；认证前无法可靠识别成员时保持空值。
+- 成功记录与错误记录使用相同的 owner/member 越权校验，跨企业成员 ID 必须返回拒绝结果。
 - 迁移开账只影响预算，不生成请求数、Token 或伪造 usage。
 - 人工调整和对账修复可解释且有 actor/reason。
 - 管理员撤回企业分组后，新请求不再进入该分组，历史统计不被改写。

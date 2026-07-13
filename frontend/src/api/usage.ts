@@ -62,6 +62,8 @@ export interface TrendParams {
   end_time?: string
   granularity?: 'day' | 'hour'
   api_key_id?: number
+  member_id?: number
+  member_scope?: 'all' | 'assigned' | 'unassigned'
   model?: string
   group_id?: number
   request_type?: UsageRequestType
@@ -150,6 +152,8 @@ export interface OwnerApiKeyAnalyticsParams {
   start_time?: string
   end_time?: string
   api_key_id?: number
+  member_id?: number
+  member_scope?: 'all' | 'assigned' | 'unassigned'
   granularity?: ApiKeyUsageTrendGranularity
   timezone?: string
   group_id?: number
@@ -157,6 +161,21 @@ export interface OwnerApiKeyAnalyticsParams {
   status?: 'active' | 'disabled' | 'quota_exhausted' | 'expired'
   search?: string
   limit?: number
+}
+
+export interface OwnerUsageMember {
+  id: number
+  member_code: string
+  name: string
+  status: string
+  archived: boolean
+  key_count: number
+  monthly_limit_usd: number
+  deleted_at?: string
+}
+
+export interface OwnerUsageMembersResponse {
+  members: OwnerUsageMember[]
 }
 
 export interface OwnerApiKeyUsageTotals {
@@ -208,6 +227,32 @@ export interface OwnerApiKeyLeaderboardItem extends OwnerApiKeyUsageTotals {
 export interface OwnerApiKeyLeaderboardResponse extends OwnerApiKeyAnalyticsMeta {
   items: OwnerApiKeyLeaderboardItem[]
   total: number
+  total_actual_cost: number
+  displayed_actual_cost: number
+}
+
+export interface OwnerMemberLeaderboardItem extends OwnerApiKeyUsageTotals {
+  member_id: number | null
+  member_code: string
+  member_name: string
+  status: string
+  archived: boolean
+  key_count: number
+  monthly_limit_usd: number
+  current_used_usd: number
+  current_reserved_usd: number
+  share_percent: number
+  previous_actual_cost: number
+  change_percent: number
+  last_used_at?: string
+}
+
+export interface OwnerMemberLeaderboardResponse extends OwnerApiKeyAnalyticsMeta {
+  items: OwnerMemberLeaderboardItem[]
+  total: number
+  member_count: number
+  budget_risk_member_count: number
+  total_reserved_usd: number
   total_actual_cost: number
   displayed_actual_cost: number
 }
@@ -532,6 +577,22 @@ export async function getOwnerApiKeyAnalyticsLeaderboard(
   return data
 }
 
+export async function listOwnerUsageMembers(): Promise<OwnerUsageMembersResponse> {
+  const { data } = await apiClient.get<OwnerUsageMembersResponse>('/usage/members')
+  return data
+}
+
+export async function getOwnerMemberAnalyticsLeaderboard(
+  params: OwnerApiKeyAnalyticsParams = {},
+  config: { signal?: AbortSignal } = {}
+): Promise<OwnerMemberLeaderboardResponse> {
+  const { data } = await apiClient.get<OwnerMemberLeaderboardResponse>(
+    '/usage/analytics/members',
+    { ...config, params }
+  )
+  return data
+}
+
 export async function getOwnerApiKeyModelAnalytics(
   params: OwnerApiKeyAnalyticsParams = {},
   config: { signal?: AbortSignal } = {}
@@ -641,6 +702,8 @@ export const usageAPI = {
   getDashboardSnapshotV2,
   getOwnerApiKeyAnalyticsSummary,
   getOwnerApiKeyAnalyticsLeaderboard,
+  listOwnerUsageMembers,
+  getOwnerMemberAnalyticsLeaderboard,
   getOwnerApiKeyModelAnalytics,
   getOwnerApiKeyGroupAnalytics,
   getOwnerApiKeyTagAnalytics,

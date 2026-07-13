@@ -55,6 +55,20 @@
           </div>
         </template>
 
+        <template #cell-member="{ row }">
+          <div v-if="row.member_id" class="min-w-0 text-sm">
+            <div class="max-w-44 truncate font-medium text-gray-900 dark:text-white" :title="row.member_name_snapshot || `#${row.member_id}`">
+              {{ row.member_name_snapshot || `#${row.member_id}` }}
+            </div>
+            <div class="mt-0.5 max-w-44 truncate font-mono text-[11px] text-gray-500 dark:text-gray-400">
+              {{ row.member_code_snapshot || `#${row.member_id}` }}
+            </div>
+          </div>
+          <span v-else class="inline-flex rounded-md bg-stone-100 px-2 py-1 text-xs text-stone-600 dark:bg-white/[0.06] dark:text-stone-300">
+            {{ t('usage.members.unassignedShort') }}
+          </span>
+        </template>
+
         <template #cell-api_key="{ row }">
           <div v-if="row.api_key_id" class="space-y-1">
             <button

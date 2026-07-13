@@ -72,6 +72,10 @@
       <div class="card p-6">
         <div class="flex flex-wrap items-end justify-between gap-4">
           <div v-if="activeTab === 'errors'" class="flex flex-1 flex-wrap items-end gap-4">
+            <div v-if="isEnterpriseAccount" class="w-full sm:w-auto sm:min-w-[240px]">
+              <label class="input-label">{{ t('usage.memberFilter') }}</label>
+              <Select v-model="selectedMemberFilter" :options="memberFilterOptions" searchable="auto" @change="onMemberFilterChange" />
+            </div>
             <div class="w-full sm:w-auto sm:min-w-[220px]">
               <label class="input-label">{{ t('usage.errors.keyName') }}</label>
               <Select v-model="errorFilter.api_key_id" :options="errorKeyOptions" @change="applyErrorFilters" />
@@ -98,6 +102,10 @@
             </div>
           </div>
           <div v-else class="flex flex-1 flex-wrap items-end gap-4">
+            <div v-if="isEnterpriseAccount" class="w-full sm:w-auto sm:min-w-[240px]">
+              <label class="input-label">{{ t('usage.memberFilter') }}</label>
+              <Select v-model="selectedMemberFilter" :options="memberFilterOptions" searchable="auto" @change="onMemberFilterChange" />
+            </div>
             <div class="w-full sm:w-auto sm:min-w-[220px]">
               <label class="input-label">{{ t('usage.apiKeyFilter') }}</label>
               <Select v-model="filters.api_key_id" :options="apiKeyOptions" @change="applyFilters" />
@@ -157,7 +165,7 @@
                 </button>
               </div>
             </div>
-            <button v-if="activeTab !== 'errors'" type="button" @click="exportToCSV" :disabled="exporting" class="btn btn-primary">
+            <button type="button" @click="activeTab === 'errors' ? exportErrorsToCSV() : exportToCSV()" :disabled="exporting" class="btn btn-primary">
               {{ exporting ? t('usage.exporting') : t('usage.exportCsv') }}
             </button>
           </div>
@@ -180,10 +188,15 @@
         v-if="activeTab === 'analytics'"
         :api-key-id="selectedApiKeyID"
         :api-keys="apiKeys"
+        :groups="groups"
+        :enterprise="isEnterpriseAccount"
+        :members="usageMembers"
+        :member-filter="selectedMemberFilter"
         :start-date="filters.start_date || startDate"
         :end-date="filters.end_date || endDate"
         :start-time="startTime"
         :end-time="endTime"
+        @update:member-filter="updateMemberFilterFromAnalytics"
       />
 
       <template v-else-if="activeTab === 'usage'">
@@ -218,6 +231,7 @@
         :page="errorPage"
         :page-size="errorPageSize"
         :visible-column-keys="errVisibleColumnKeys"
+        :show-member="isEnterpriseAccount"
         @sort="onErrorSort"
         @update:page="onErrorPage"
         @update:pageSize="onErrorPageSize"
@@ -231,7 +245,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 import { keysAPI, usageAPI, userGroupsAPI } from '@/api'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -246,8 +262,9 @@ import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import Icon from '@/components/icons/Icon.vue'
 import UserErrorRequestsTable from '@/components/user/UserErrorRequestsTable.vue'
 import UsageAnalyticsPanel from '@/components/user/UsageAnalyticsPanel.vue'
-import type { UserModelStat } from '@/api/usage'
+import type { OwnerUsageMember, UserModelStat } from '@/api/usage'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { serializeCSV } from '@/utils/csv'
 import { formatReasoningEffort } from '@/utils/format'
 import { BILLING_MODE_IMAGE, getBillingModeLabel } from '@/utils/billingMode'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
@@ -260,6 +277,7 @@ import type {
   UsageLog,
   UsageQueryParams,
   UsageStatsResponse,
+  UserErrorListParams,
   UserErrorRequest,
 } from '@/types'
 import type { Column } from '@/components/common/types'
@@ -267,6 +285,9 @@ import { COMMON_ERROR_STATUS_CODES } from '@/utils/errorBadges'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const authStore = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
@@ -298,10 +319,52 @@ const errorFilter = ref<{ model: string | null; category: string; api_key_id: nu
   api_key_id: null,
   status_code: null,
 })
+const apiKeys = ref<ApiKey[]>([])
+
+const isEnterpriseAccount = computed(
+  () => authStore.user?.role === 'user' && authStore.user?.account_type === 'enterprise'
+)
+const usageMembers = ref<OwnerUsageMember[]>([])
+const selectedMemberFilter = ref('all')
+
+const memberFilterParams = computed<Pick<UsageQueryParams, 'member_id' | 'member_scope'>>(() => {
+  if (!isEnterpriseAccount.value) return {}
+  const selected = selectedMemberFilter.value
+  if (selected.startsWith('member:')) {
+    const memberID = Number(selected.slice('member:'.length))
+    return Number.isFinite(memberID) && memberID > 0 ? { member_id: memberID } : { member_scope: 'all' }
+  }
+  if (selected === 'assigned' || selected === 'unassigned') {
+    return { member_scope: selected }
+  }
+  return {}
+})
+
+const memberFilterOptions = computed<SelectOption[]>(() => [
+  { value: 'all', label: t('usage.members.all') },
+  { value: 'assigned', label: t('usage.members.assigned') },
+  { value: 'unassigned', label: t('usage.members.unassigned') },
+  ...usageMembers.value.map((member) => ({
+    value: `member:${member.id}`,
+    label: member.archived
+      ? t('usage.members.optionArchived', { name: member.name, code: member.member_code })
+      : t('usage.members.option', { name: member.name, code: member.member_code }),
+  })),
+])
+
+const keyMatchesSelectedMember = (key: ApiKey): boolean => {
+  const selected = selectedMemberFilter.value
+  if (selected === 'assigned') return key.member_id != null
+  if (selected === 'unassigned') return key.member_id == null
+  if (selected.startsWith('member:')) return key.member_id === Number(selected.slice('member:'.length))
+  return true
+}
+
+const filteredApiKeys = computed(() => apiKeys.value.filter(keyMatchesSelectedMember))
 
 const errorKeyOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('usage.errors.allKeys') },
-  ...apiKeys.value.map((k) => ({ value: k.id, label: k.name })),
+  ...filteredApiKeys.value.map((k) => ({ value: k.id, label: k.name })),
 ])
 
 // 模型候选取自当前已加载错误中出现过的模型；creatable 允许输入任意片段做后端模糊。
@@ -417,13 +480,12 @@ const billingModeOptions = computed<SelectOption[]>(() => [
   { value: 'video', label: t('admin.usage.billingModeVideo') },
 ])
 
-const apiKeys = ref<ApiKey[]>([])
 const groups = ref<Group[]>([])
 const modelOptionValues = ref<string[]>([])
 
 const apiKeyOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('usage.allApiKeys') },
-  ...apiKeys.value.map((key) => ({ value: key.id, label: key.name })),
+  ...filteredApiKeys.value.map((key) => ({ value: key.id, label: key.name })),
 ])
 const selectedApiKeyID = computed(() => {
   const raw = filters.value.api_key_id
@@ -445,12 +507,45 @@ const normalizedFilters = computed<UsageQueryParams>(() => {
   const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
   return {
     ...filters.value,
+    ...memberFilterParams.value,
     start_date: startDate.value,
     end_date: endDate.value,
     ...timeParams.value,
     stream: legacyStream === null ? undefined : legacyStream,
   }
 })
+
+const syncMemberFilterToRoute = () => {
+  if (!isEnterpriseAccount.value) return
+  const query = { ...route.query }
+  delete query.member_id
+  delete query.member_scope
+  if (memberFilterParams.value.member_id) {
+    query.member_id = String(memberFilterParams.value.member_id)
+  } else if (memberFilterParams.value.member_scope) {
+    query.member_scope = memberFilterParams.value.member_scope
+  }
+  void router.replace({ query })
+}
+
+const onMemberFilterChange = () => {
+  const selectedKey = apiKeys.value.find((key) => key.id === filters.value.api_key_id)
+  if (selectedKey && !keyMatchesSelectedMember(selectedKey)) {
+    filters.value.api_key_id = undefined
+  }
+  const selectedErrorKey = apiKeys.value.find((key) => key.id === errorFilter.value.api_key_id)
+  if (selectedErrorKey && !keyMatchesSelectedMember(selectedErrorKey)) {
+    errorFilter.value.api_key_id = null
+  }
+  syncMemberFilterToRoute()
+  applyFilters()
+}
+
+const updateMemberFilterFromAnalytics = (value: string) => {
+  if (selectedMemberFilter.value === value) return
+  selectedMemberFilter.value = value
+  onMemberFilterChange()
+}
 
 const buildUsageListParams = (page: number, pageSize: number): UsageQueryParams => ({
   page,
@@ -587,6 +682,8 @@ const resetFilters = () => {
     billing_type: null,
     billing_mode: null,
   }
+  selectedMemberFilter.value = 'all'
+  syncMemberFilterToRoute()
   granularity.value = getGranularityForRange(range.start, range.end)
   applyFilters()
   if (activeTab.value === 'errors') {
@@ -650,15 +747,6 @@ const getDisplayBillingMode = (
   return row?.billing_mode
 }
 
-const escapeCSVValue = (value: unknown): string => {
-  if (value == null) return ''
-  const str = String(value)
-  const escaped = str.replace(/"/g, '""')
-  if (/^[=+\-@\t\r]/.test(str)) return `"\'${escaped}"`
-  if (/[,"\n\r]/.test(str)) return `"${escaped}"`
-  return str
-}
-
 const exportToCSV = async () => {
   if (pagination.total === 0) {
     appStore.showWarning(t('usage.noDataToExport'))
@@ -678,8 +766,14 @@ const exportToCSV = async () => {
       appStore.showWarning(t('usage.noDataToExport'))
       return
     }
+    const memberHeaders = isEnterpriseAccount.value
+      ? ['Member ID', 'Member Code', 'Member Name']
+      : []
+    const keyIDHeaders = isEnterpriseAccount.value ? ['API Key ID'] : []
     const headers = [
       'Time',
+      ...memberHeaders,
+      ...keyIDHeaders,
       'API Key Name',
       'Model',
       'Reasoning Effort',
@@ -699,6 +793,10 @@ const exportToCSV = async () => {
     ]
     const rows = allLogs.map((log) => [
       log.created_at,
+      ...(isEnterpriseAccount.value
+        ? [log.member_id ?? '', log.member_code_snapshot || '', log.member_name_snapshot || '']
+        : []),
+      ...(isEnterpriseAccount.value ? [log.api_key_id ?? ''] : []),
       log.api_key?.name || '',
       log.model,
       formatReasoningEffort(log.reasoning_effort),
@@ -715,11 +813,8 @@ const exportToCSV = async () => {
       log.total_cost.toFixed(8),
       log.first_token_ms ?? '',
       log.duration_ms ?? '',
-    ].map(escapeCSVValue))
-    const csvContent = [
-      headers.map(escapeCSVValue).join(','),
-      ...rows.map((row) => row.join(',')),
-    ].join('\n')
+    ])
+    const csvContent = serializeCSV(headers, rows)
     const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
     const url = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -741,6 +836,9 @@ const DEFAULT_HIDDEN_COLUMNS = ['user_agent']
 const HIDDEN_COLUMNS_KEY = 'user-usage-hidden-columns'
 
 const allColumns = computed<Column[]>(() => [
+  ...(isEnterpriseAccount.value
+    ? [{ key: 'member', label: t('usage.member'), sortable: false }]
+    : []),
   { key: 'api_key', label: t('usage.apiKeyFilter'), sortable: false },
   { key: 'model', label: t('usage.model'), sortable: true },
   { key: 'reasoning_effort', label: t('usage.reasoningEffort'), sortable: false },
@@ -784,6 +882,9 @@ const ERR_HIDDEN_COLUMNS_KEY = 'user-usage-error-hidden-columns'
 
 // key 须与 UserErrorRequestsTable 的 allColumns 一致
 const errAllColumns = computed<Column[]>(() => [
+  ...(isEnterpriseAccount.value
+    ? [{ key: 'member', label: t('usage.member') }]
+    : []),
   { key: 'key_name', label: t('usage.errors.keyName') },
   { key: 'model', label: t('usage.errors.model') },
   { key: 'endpoint', label: t('usage.errors.endpoint') },
@@ -844,15 +945,31 @@ const handleColumnClickOutside = (event: MouseEvent) => {
 
 const loadFilterOptions = async () => {
   try {
-    const [keys, availableGroups] = await Promise.all([
-      keysAPI.list(1, 100),
+    const [keys, availableGroups, memberResponse] = await Promise.all([
+      listAllUsageAPIKeys(),
       userGroupsAPI.getAvailable(),
+      isEnterpriseAccount.value ? usageAPI.listOwnerUsageMembers() : Promise.resolve({ members: [] }),
     ])
-    apiKeys.value = keys.items
+    apiKeys.value = keys
     groups.value = availableGroups
+    usageMembers.value = memberResponse.members
   } catch (error) {
     console.error('Failed to load usage filter options:', error)
   }
+}
+
+const listAllUsageAPIKeys = async (): Promise<ApiKey[]> => {
+  const allKeys: ApiKey[] = []
+  const pageSize = 100
+  let page = 1
+  let totalPages = 1
+  do {
+    const response = await keysAPI.list(page, pageSize)
+    allKeys.push(...response.items)
+    totalPages = Math.max(1, Number(response.pages) || 1)
+    page += 1
+  } while (page <= totalPages)
+  return allKeys
 }
 
 const resetErrorRows = () => {
@@ -865,22 +982,25 @@ const resetErrorRows = () => {
   }
 }
 
+const buildErrorListParams = (page: number, pageSize: number): UserErrorListParams => ({
+  page,
+  page_size: pageSize,
+  start_date: startDate.value,
+  end_date: endDate.value,
+  ...timeParams.value,
+  model: (errorFilter.value.model ?? '').trim() || undefined,
+  category: errorFilter.value.category || undefined,
+  api_key_id: errorFilter.value.api_key_id ?? undefined,
+  ...memberFilterParams.value,
+  status_code: errorFilter.value.status_code ?? undefined,
+  sort_by: errorSortBy.value,
+  sort_order: errorSortOrder.value,
+})
+
 const loadErrors = async () => {
   errorLoading.value = true
   try {
-    const resp = await usageAPI.listMyErrorRequests({
-      page: errorPage.value,
-      page_size: errorPageSize.value,
-      start_date: startDate.value,
-      end_date: endDate.value,
-      ...timeParams.value,
-      model: (errorFilter.value.model ?? '').trim() || undefined,
-      category: errorFilter.value.category || undefined,
-      api_key_id: errorFilter.value.api_key_id ?? undefined,
-      status_code: errorFilter.value.status_code ?? undefined,
-      sort_by: errorSortBy.value,
-      sort_order: errorSortOrder.value,
-    })
+    const resp = await usageAPI.listMyErrorRequests(buildErrorListParams(errorPage.value, errorPageSize.value))
     errorRows.value = resp.items
     errorTotal.value = resp.total
   } catch (error) {
@@ -888,6 +1008,71 @@ const loadErrors = async () => {
     appStore.showError(t('usage.errors.failedToLoad'))
   } finally {
     errorLoading.value = false
+  }
+}
+
+const exportErrorsToCSV = async () => {
+  if (errorTotal.value === 0) {
+    appStore.showWarning(t('usage.noDataToExport'))
+    return
+  }
+  exporting.value = true
+  appStore.showInfo(t('usage.preparingExport'))
+  try {
+    const allRows: UserErrorRequest[] = []
+    const pageSize = 100
+    const totalPages = Math.ceil(errorTotal.value / pageSize)
+    for (let page = 1; page <= totalPages; page++) {
+      const response = await usageAPI.listMyErrorRequests(buildErrorListParams(page, pageSize))
+      allRows.push(...response.items)
+    }
+    const memberHeaders = isEnterpriseAccount.value
+      ? ['Member ID', 'Member Code', 'Member Name']
+      : []
+    const headers = [
+      'Time',
+      ...memberHeaders,
+      'API Key Name',
+      'Model',
+      'Inbound Endpoint',
+      'Status',
+      'Category',
+      'Platform',
+      'IP Address',
+      'Group',
+      'Message',
+      'User Agent',
+    ]
+    const rows = allRows.map((row) => [
+      row.created_at,
+      ...(isEnterpriseAccount.value
+        ? [row.member_id ?? '', row.member_code_snapshot || '', row.member_name_snapshot || '']
+        : []),
+      row.key_name,
+      row.model,
+      row.inbound_endpoint,
+      row.status_code,
+      row.category,
+      row.platform,
+      row.client_ip || '',
+      row.group_name || '',
+      row.message,
+      row.user_agent || '',
+    ])
+    const csvContent = serializeCSV(headers, rows)
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `usage_errors_${startDate.value}_to_${endDate.value}.csv`
+    link.click()
+    window.URL.revokeObjectURL(url)
+    appStore.showSuccess(t('usage.exportSuccess'))
+  } catch (error) {
+    console.error('Error CSV export failed:', error)
+    appStore.showError(t('usage.exportFailed'))
+  } finally {
+    exporting.value = false
   }
 }
 
@@ -914,11 +1099,38 @@ const switchToErrors = () => {
   if (errorRows.value.length === 0) void loadErrors()
 }
 
-onMounted(() => {
+const initializeTabFromRoute = () => {
+  const tab = String(route.query.tab || '')
+  if (tab === 'usage' || tab === 'analytics' || (tab === 'errors' && errorViewEnabled.value)) {
+    activeTab.value = tab
+    return
+  }
+  activeTab.value = 'analytics'
+}
+
+const initializeMemberFilterFromRoute = () => {
+  if (!isEnterpriseAccount.value) return false
+  let nextFilter = 'all'
+  const memberID = Number(route.query.member_id)
+  if (Number.isFinite(memberID) && memberID > 0 && usageMembers.value.some((member) => member.id === memberID)) {
+    nextFilter = `member:${memberID}`
+  } else {
+    const scope = String(route.query.member_scope || '')
+    if (scope === 'assigned' || scope === 'unassigned') nextFilter = scope
+  }
+  if (selectedMemberFilter.value === nextFilter) return false
+  selectedMemberFilter.value = nextFilter
+  return true
+}
+
+onMounted(async () => {
   loadSavedColumns()
   loadSavedErrColumns()
   document.addEventListener('click', handleColumnClickOutside)
-  void loadFilterOptions()
+  initializeTabFromRoute()
+  await loadFilterOptions()
+  initializeMemberFilterFromRoute()
+  syncMemberFilterToRoute()
   refreshData()
 })
 
@@ -930,4 +1142,20 @@ onUnmounted(() => {
 watch(endpointDistributionSource, () => {
   // Endpoint source switching is handled by the chart component using already loaded stats.
 })
+
+watch(activeTab, (tab) => {
+  const query = { ...route.query }
+  if (tab === 'analytics') delete query.tab
+  else query.tab = tab
+  void router.replace({ query })
+})
+
+watch(() => route.query.tab, initializeTabFromRoute)
+
+watch(
+  [() => route.query.member_id, () => route.query.member_scope],
+  () => {
+    if (initializeMemberFilterFromRoute()) onMemberFilterChange()
+  },
+)
 </script>
