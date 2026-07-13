@@ -122,7 +122,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import Select from './Select.vue'
-import { getConfiguredTablePageSizeOptions, normalizeTablePageSize } from '@/utils/tablePreferences'
+import { getConfiguredTablePageSizeOptions } from '@/utils/tablePreferences'
 import { setPersistedPageSize } from '@/composables/usePersistedPageSize'
 
 const { t } = useI18n()
@@ -132,6 +132,7 @@ interface Props {
   page: number
   pageSize: number
   pageSizeOptions?: number[]
+  persistPageSize?: boolean
   showPageSizeSelector?: boolean
   showJump?: boolean
 }
@@ -143,6 +144,7 @@ interface Emits {
 
 const props = withDefaults(defineProps<Props>(), {
   pageSizeOptions: () => getConfiguredTablePageSizeOptions(),
+  persistPageSize: true,
   showPageSizeSelector: true,
   showJump: false
 })
@@ -162,12 +164,14 @@ const toItem = computed(() => {
 })
 
 const pageSizeSelectOptions = computed(() => {
-  const options = Array.from(
-    new Set([
-      ...getConfiguredTablePageSizeOptions(),
-      normalizeTablePageSize(props.pageSize)
-    ])
-  ).sort((a, b) => a - b)
+  const configuredOptions = props.pageSizeOptions
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value > 0)
+  const currentPageSize = Number(props.pageSize)
+  const options = Array.from(new Set([
+    ...configuredOptions,
+    ...(Number.isInteger(currentPageSize) && currentPageSize > 0 ? [currentPageSize] : [])
+  ])).sort((a, b) => a - b)
 
   return options.map((size) => ({
     value: size,
@@ -224,8 +228,11 @@ const goToPage = (newPage: number) => {
 
 const handlePageSizeChange = (value: string | number | boolean | null) => {
   if (value === null || typeof value === 'boolean') return
-  const newPageSize = normalizeTablePageSize(typeof value === 'string' ? parseInt(value, 10) : value)
-  setPersistedPageSize(newPageSize)
+  const parsedValue = typeof value === 'string' ? Number.parseInt(value, 10) : value
+  if (!Number.isInteger(parsedValue) || parsedValue <= 0) return
+  const newPageSize = parsedValue
+  if (!pageSizeSelectOptions.value.some((option) => option.value === newPageSize)) return
+  if (props.persistPageSize) setPersistedPageSize(newPageSize)
   emit('update:pageSize', newPageSize)
 }
 

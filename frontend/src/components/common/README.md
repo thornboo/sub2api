@@ -52,7 +52,8 @@ Pagination component with page numbers, navigation, and page size selector.
 - `total: number` - Total number of items
 - `page: number` - Current page (1-indexed)
 - `pageSize: number` - Items per page
-- `pageSizeOptions?: number[]` - Available page size options (default: [10, 20, 50, 100])
+- `pageSizeOptions?: number[]` - Available page size options; caller-provided values are used as-is (default: system table options)
+- `persistPageSize?: boolean` - Persist changes to the shared table preference (default: `true`); disable for module-specific limits
 
 **Events:**
 

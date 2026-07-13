@@ -101,6 +101,89 @@ const DataTableStubWithAccount = {
   `,
 }
 
+const DataTableContractStub = {
+  name: 'DataTable',
+  props: ['data', 'virtualScroll', 'rowKey'],
+  template: '<div data-test="data-table-contract"></div>',
+}
+
+describe('admin UsageTable rendering contract', () => {
+  it('uses stable natural rendering and leaves horizontal scrolling to DataTable', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [],
+        loading: false,
+        columns: [],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableContractStub,
+          EmptyState: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    const dataTable = wrapper.findComponent(DataTableContractStub)
+    expect(dataTable.props('virtualScroll')).toBe(false)
+    expect(dataTable.props('rowKey')).toBe('id')
+    expect(wrapper.find('.overflow-auto').exists()).toBe(false)
+  })
+
+  it('renders legacy string numbers without aborting the row', () => {
+    const row = {
+      id: 1,
+      request_id: 'legacy-row',
+      model: 'gpt-5.5',
+      model_mapping_chain: 42,
+      inbound_endpoint: 123,
+      input_tokens: '7093',
+      output_tokens: null,
+      cache_creation_tokens: 0,
+      cache_read_tokens: 0,
+      image_output_tokens: 'invalid',
+      actual_cost: '0.144438',
+      total_cost: '0.131307',
+      account_rate_multiplier: '1',
+      billing_mode: 'token',
+    } as any
+    const DataTableLegacyRowStub = {
+      props: ['data'],
+      template: `
+        <div>
+          <div v-for="item in data" :key="item.id">
+            <slot name="cell-model" :row="item" />
+            <slot name="cell-endpoint" :row="item" />
+            <slot name="cell-tokens" :row="item" />
+            <slot name="cell-cost" :row="item" />
+          </div>
+        </div>
+      `,
+    }
+
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [row],
+        loading: false,
+        columns: [],
+        showUpstreamEndpoint: false,
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableLegacyRowStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('123')
+    expect(wrapper.text()).toContain(Number(7093).toLocaleString())
+    expect(wrapper.text()).toContain('$0.144438')
+  })
+})
+
 const baseImageRow = {
   request_id: 'req-admin-image',
   model: 'gpt-image-2',

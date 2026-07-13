@@ -82,6 +82,25 @@ describe('DataTable', () => {
     expect(wrapper.findAll('tbody tr[aria-hidden="true"]')).toHaveLength(0)
   })
 
+  it('keeps natural-height rendering when virtualization is explicitly disabled for a large page', async () => {
+    const data = Array.from({ length: 12 }, (_, i) => ({ id: i + 1, name: `Row ${i + 1}` }))
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [{ key: 'name', label: 'Name' }],
+        data,
+        virtualScroll: false,
+        virtualizeThreshold: 3
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    expect((wrapper.vm as any).shouldVirtualize).toBe(false)
+    expect(wrapper.find('.table-wrapper').classes()).toContain('natural-height')
+    expect(wrapper.findAll('tbody tr[data-index]')).toHaveLength(data.length)
+    expect(wrapper.findAll('tbody tr[aria-hidden="true"]')).toHaveLength(0)
+  })
+
   it('switches to windowed rendering once row count exceeds virtualizeThreshold', async () => {
     const data = Array.from({ length: 12 }, (_, i) => ({ id: i + 1, name: `Row ${i + 1}` }))
     const wrapper = mount(DataTable, {

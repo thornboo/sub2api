@@ -139,7 +139,16 @@
             @apiKeyUsageClick="handleApiKeyUsageClick"
             @ipGeoBatchFailed="handleIpGeoBatchFailed"
           />
-          <Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" />
+          <Pagination
+            v-if="pagination.total > 0"
+            :page="pagination.page"
+            :total="pagination.total"
+            :page-size="pagination.page_size"
+            :page-size-options="USAGE_PAGE_SIZE_OPTIONS"
+            :persist-page-size="false"
+            @update:page="handlePageChange"
+            @update:pageSize="handlePageSizeChange"
+          />
         </div>
         <div v-show="activeTab === 'errors'" class="overflow-hidden rounded-b-2xl">
           <OpsErrorLogTable
@@ -646,7 +655,10 @@ const preciseTimeParams = computed<{ start_time?: string; end_time?: string }>((
   if (endTime.value) p.end_time = endTime.value
   return p
 })
-const pagination = reactive({ page: 1, page_size: getPersistedPageSize(), total: 0 })
+const USAGE_PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
+const normalizeUsagePageSize = (value: number): number =>
+  USAGE_PAGE_SIZE_OPTIONS.find((option) => option >= value) ?? USAGE_PAGE_SIZE_OPTIONS[USAGE_PAGE_SIZE_OPTIONS.length - 1]
+const pagination = reactive({ page: 1, page_size: normalizeUsagePageSize(getPersistedPageSize()), total: 0 })
 const sortState = reactive({
   sort_by: 'created_at',
   sort_order: 'desc' as 'asc' | 'desc'
@@ -867,7 +879,7 @@ const resetFilters = () => {
   applyFilters()
 }
 const handlePageChange = (p: number) => { pagination.page = p; loadLogs() }
-const handlePageSizeChange = (s: number) => { pagination.page_size = s; pagination.page = 1; loadLogs() }
+const handlePageSizeChange = (s: number) => { pagination.page_size = normalizeUsagePageSize(s); pagination.page = 1; loadLogs() }
 const handleSort = (key: string, order: 'asc' | 'desc') => {
   sortState.sort_by = key
   sortState.sort_order = order

@@ -172,6 +172,52 @@ beforeEach(() => {
   })
 })
 
+describe('admin UsageView pagination contract', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    delete window.__APP_CONFIG__
+  })
+
+  it('caps a configured 1000-row global page size at 100 for the detailed usage table', async () => {
+    vi.useFakeTimers()
+    window.__APP_CONFIG__ = {
+      table_default_page_size: 1000,
+      table_page_size_options: [20, 50, 1000],
+    } as any
+    list.mockReset()
+    getStats.mockReset()
+    getSnapshotV2.mockReset()
+    getModelStats.mockReset()
+    list.mockResolvedValue({ items: [], total: 0, pages: 0 })
+    getStats.mockResolvedValue({
+      total_requests: 0, total_input_tokens: 0, total_output_tokens: 0,
+      total_cache_tokens: 0, total_tokens: 0, total_cost: 0, total_actual_cost: 0, average_duration_ms: 0,
+    })
+    getSnapshotV2.mockResolvedValue({ trend: [], models: [], groups: [] })
+    getModelStats.mockResolvedValue({ models: [] })
+
+    const wrapper = mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+        UserBalanceHistoryModal: true, AuditLogModal: true, Pagination: true, Select: true,
+        DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
+        UserTokenRanking: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
+      } },
+    })
+
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ page_size: 100 }),
+      expect.anything(),
+    )
+    wrapper.unmount()
+  })
+})
+
 describe('admin UsageView route query sanitization', () => {
   beforeEach(() => {
     vi.useFakeTimers()
