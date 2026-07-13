@@ -370,14 +370,21 @@ export async function listUsageRecords(memberId: number, page = 1, pageSize = 20
   return data
 }
 
-export async function downloadImportTemplate(format: 'csv' | 'xlsx'): Promise<void> {
-  const response = await apiClient.get('/enterprise/members/import/template', { params: { format }, responseType: 'blob' })
-  const url = URL.createObjectURL(response.data)
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
-  anchor.download = `enterprise-members-template.${format}`
+  anchor.download = filename
+  anchor.style.display = 'none'
+  document.body.appendChild(anchor)
   anchor.click()
-  URL.revokeObjectURL(url)
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+export async function downloadImportTemplate(format: 'csv' | 'xlsx'): Promise<void> {
+  const response = await apiClient.get('/enterprise/members/import/template', { params: { format }, responseType: 'blob' })
+  downloadBlob(response.data, `企业成员导入模板.${format}`)
 }
 
 export async function previewImport(file: File): Promise<EnterpriseMemberImportPreview> {
@@ -410,12 +417,7 @@ export async function consumeImportResultSecrets(jobId: number, resultToken: str
 
 export async function downloadImportErrorReport(jobId: number): Promise<void> {
   const response = await apiClient.get(`/enterprise/members/import/jobs/${jobId}/error-report`, { responseType: 'blob' })
-  const url = URL.createObjectURL(response.data)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = 'enterprise-member-import-errors.csv'
-  anchor.click()
-  URL.revokeObjectURL(url)
+  downloadBlob(response.data, 'enterprise-member-import-errors.csv')
 }
 
 export const enterpriseMembersAPI = {

@@ -10,23 +10,31 @@
         <label class="input-label">{{ t('admin.users.email') }}</label>
         <input v-model="form.email" type="email" class="input" />
       </div>
-	  <div v-if="form.role === 'user'">
-		<label class="input-label">{{ t('admin.users.form.accountType') }}</label>
-		<select v-model="form.account_type" class="input">
-		  <option value="individual">{{ t('admin.users.form.accountTypes.individual') }}</option>
-		  <option value="enterprise">{{ t('admin.users.form.accountTypes.enterprise') }}</option>
-		</select>
-		<p class="input-hint">{{ t('admin.users.form.accountTypeHint') }}</p>
-	  </div>
-	  <div v-if="form.role === 'user' && form.account_type === 'enterprise'" class="rounded-xl border border-gray-200 p-4 dark:border-dark-700">
-		<label class="flex items-start justify-between gap-4">
-		  <span>
-			<span class="block text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('admin.users.form.enterpriseCapability') }}</span>
-			<span class="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.users.form.enterpriseCapabilityHint') }}</span>
-		  </span>
-		  <input v-model="form.enterprise_enabled" type="checkbox" class="mt-0.5 h-5 w-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-		</label>
-	  </div>
+      <div v-if="form.role === 'user'">
+        <label class="input-label">{{ t('admin.users.form.accountType') }}</label>
+        <Select
+          v-model="form.account_type"
+          :options="accountTypeOptions"
+          data-testid="admin-user-account-type"
+        />
+        <p class="input-hint">{{ t('admin.users.form.accountTypeHint') }}</p>
+      </div>
+      <div
+        v-if="form.role === 'user' && form.account_type === 'enterprise'"
+        class="rounded-2xl border border-stone-200/80 bg-stone-50/60 p-4 dark:border-white/10 dark:bg-white/[0.03]"
+      >
+        <label class="flex cursor-pointer items-start justify-between gap-4">
+          <span>
+            <span class="block text-sm font-medium text-stone-900 dark:text-stone-100">{{ t('admin.users.form.enterpriseCapability') }}</span>
+            <span class="mt-1 block text-xs leading-5 text-stone-500 dark:text-stone-400">{{ t('admin.users.form.enterpriseCapabilityHint') }}</span>
+          </span>
+          <BaseCheckbox
+            v-model="form.enterprise_enabled"
+            class="mt-0.5"
+            :aria-label="t('admin.users.form.enterpriseCapability')"
+          />
+        </label>
+      </div>
       <div>
         <label class="input-label">{{ t('admin.users.password') }}</label>
         <div class="flex gap-2">
@@ -48,10 +56,7 @@
       </div>
       <div>
         <label class="input-label">{{ t('admin.users.form.roleLabel') }}</label>
-        <select v-model="form.role" class="input">
-          <option value="user">{{ t('admin.users.roles.user') }}</option>
-          <option value="admin">{{ t('admin.users.roles.admin') }}</option>
-        </select>
+        <Select v-model="form.role" :options="roleOptions" />
       </div>
       <div>
         <label class="input-label">{{ t('admin.users.notes') }}</label>
@@ -87,13 +92,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
+import { computed, ref, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useClipboard } from '@/composables/useClipboard'
 import { adminAPI } from '@/api/admin'
 import type { AdminUser, UserAttributeValuesMap } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import BaseCheckbox from '@/components/common/BaseCheckbox.vue'
+import Select, { type SelectOption } from '@/components/common/Select.vue'
 import UserAttributeForm from '@/components/user/UserAttributeForm.vue'
 import Icon from '@/components/icons/Icon.vue'
 
@@ -103,6 +110,14 @@ const { t } = useI18n(); const appStore = useAppStore(); const { copyToClipboard
 
 const submitting = ref(false); const passwordCopied = ref(false)
 const form = reactive({ email: '', password: '', username: '', notes: '', role: 'user', account_type: 'individual' as 'individual' | 'enterprise', enterprise_enabled: true, concurrency: 1, rpm_limit: 0, customAttributes: {} as UserAttributeValuesMap })
+const accountTypeOptions = computed<SelectOption[]>(() => [
+  { value: 'individual', label: t('admin.users.form.accountTypes.individual') },
+  { value: 'enterprise', label: t('admin.users.form.accountTypes.enterprise') }
+])
+const roleOptions = computed<SelectOption[]>(() => [
+  { value: 'user', label: t('admin.users.roles.user') },
+  { value: 'admin', label: t('admin.users.roles.admin') }
+])
 
 watch(() => props.user, (u) => {
   if (u) {

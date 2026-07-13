@@ -632,10 +632,48 @@ func applyEnterpriseMemberImportReferenceErrors(rows []EnterpriseMemberImportRow
 func importHeaderIndex(headers []string) map[string]int {
 	index := make(map[string]int, len(headers))
 	for i, header := range headers {
-		index[strings.ToLower(strings.TrimSpace(header))] = i
+		index[canonicalEnterpriseMemberImportHeader(header)] = i
 	}
 	return index
 }
+
+var enterpriseMemberImportHeaderAliases = map[string]string{
+	"member_code":       "member_code",
+	"成员编号":              "member_code",
+	"member_name":       "member_name",
+	"成员名称":              "member_name",
+	"rate_limit_5h":     "rate_limit_5h",
+	"5小时限额":             "rate_limit_5h",
+	"rate_limit_1d":     "rate_limit_1d",
+	"1天限额":              "rate_limit_1d",
+	"rate_limit_7d":     "rate_limit_7d",
+	"7天限额":              "rate_limit_7d",
+	"monthly_limit_usd": "monthly_limit_usd",
+	"自然月预算（usd）":        "monthly_limit_usd",
+	"opening_used_usd":  "opening_used_usd",
+	"初始已用额度（usd）":       "opening_used_usd",
+	"key_name":          "key_name",
+	"密钥名称":              "key_name",
+	"api_key":           "api_key",
+	"api密钥":             "api_key",
+	"key_quota_usd":     "key_quota_usd",
+	"密钥额度（usd）":         "key_quota_usd",
+	"groups":            "groups",
+	"可访问分组id（按顺序用|分隔）": "groups",
+	"group_id":   "group_id",
+	"分组id":       "group_id",
+	"sort_order": "sort_order",
+	"顺序":         "sort_order",
+}
+
+func canonicalEnterpriseMemberImportHeader(header string) string {
+	normalized := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(header, "\uFEFF")))
+	if canonical, ok := enterpriseMemberImportHeaderAliases[normalized]; ok {
+		return canonical
+	}
+	return normalized
+}
+
 func importCell(record []string, index map[string]int, name string) string {
 	i, ok := index[name]
 	if !ok || i >= len(record) {
@@ -696,7 +734,8 @@ func hashEnterpriseMemberImportToken(token string) string {
 }
 
 func EnterpriseMemberImportCSVTemplate() []byte {
-	return []byte("member_code,member_name,rate_limit_5h,rate_limit_1d,rate_limit_7d,monthly_limit_usd,opening_used_usd,key_name,api_key,key_quota_usd,groups\nemployee-001,Example Member,25,50,75,100,0,Primary Key,,0,1|2\n")
+	const template = "成员编号,成员名称,5小时限额,1天限额,7天限额,自然月预算（USD）,初始已用额度（USD）,密钥名称,API密钥,密钥额度（USD）,可访问分组ID（按顺序用|分隔）\nemployee-001,示例成员,25,50,75,100,0,主密钥,,0,1|2\n"
+	return append([]byte{0xEF, 0xBB, 0xBF}, []byte(template)...)
 }
 
 type EnterpriseMemberImportCleanupService struct {

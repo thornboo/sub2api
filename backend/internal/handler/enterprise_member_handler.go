@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"io"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -520,7 +521,7 @@ func (h *EnterpriseMemberHandler) ImportTemplate(c *gin.Context) {
 	}
 	format := strings.ToLower(strings.TrimSpace(c.DefaultQuery("format", "csv")))
 	if format == "csv" {
-		c.Header("Content-Disposition", `attachment; filename="enterprise-members-template.csv"`)
+		c.Header("Content-Disposition", enterpriseMemberImportTemplateContentDisposition(format))
 		c.Data(http.StatusOK, "text/csv; charset=utf-8", service.EnterpriseMemberImportCSVTemplate())
 		return
 	}
@@ -530,11 +531,16 @@ func (h *EnterpriseMemberHandler) ImportTemplate(c *gin.Context) {
 			response.ErrorFrom(c, err)
 			return
 		}
-		c.Header("Content-Disposition", `attachment; filename="enterprise-members-template.xlsx"`)
+		c.Header("Content-Disposition", enterpriseMemberImportTemplateContentDisposition(format))
 		c.Data(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", data)
 		return
 	}
 	response.BadRequest(c, "format must be csv or xlsx")
+}
+
+func enterpriseMemberImportTemplateContentDisposition(format string) string {
+	filename := "企业成员导入模板." + format
+	return `attachment; filename="enterprise-members-template.` + format + `"; filename*=UTF-8''` + url.PathEscape(filename)
 }
 
 func (h *EnterpriseMemberHandler) ImportPreview(c *gin.Context) {

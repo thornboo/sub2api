@@ -349,9 +349,9 @@ func EnterpriseMemberImportXLSXTemplate() ([]byte, error) {
 		"_rels/.rels":                `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
 		"xl/workbook.xml":            `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Members" sheetId="1" r:id="rId1"/><sheet name="Keys" sheetId="2" r:id="rId2"/><sheet name="MemberGroups" sheetId="3" r:id="rId3"/></sheets></workbook>`,
 		"xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet3.xml"/></Relationships>`,
-		"xl/worksheets/sheet1.xml":   importXLSXTemplateSheet([][]string{{"member_code", "member_name", "rate_limit_5h", "rate_limit_1d", "rate_limit_7d", "monthly_limit_usd", "opening_used_usd"}, {"employee-001", "Example Member", "25", "50", "75", "100", "0"}}),
-		"xl/worksheets/sheet2.xml":   importXLSXTemplateSheet([][]string{{"member_code", "key_name", "api_key", "key_quota_usd"}, {"employee-001", "Primary Key", "", "0"}}),
-		"xl/worksheets/sheet3.xml":   importXLSXTemplateSheet([][]string{{"member_code", "group_id", "sort_order"}, {"employee-001", "1", "0"}}),
+		"xl/worksheets/sheet1.xml":   importXLSXTemplateSheet([][]string{{"成员编号", "成员名称", "5小时限额", "1天限额", "7天限额", "自然月预算（USD）", "初始已用额度（USD）"}, {"employee-001", "示例成员", "25", "50", "75", "100", "0"}}),
+		"xl/worksheets/sheet2.xml":   importXLSXTemplateSheet([][]string{{"成员编号", "密钥名称", "API密钥", "密钥额度（USD）"}, {"employee-001", "主密钥", "", "0"}}),
+		"xl/worksheets/sheet3.xml":   importXLSXTemplateSheet([][]string{{"成员编号", "分组ID", "顺序"}, {"employee-001", "1", "0"}}),
 	}
 	for name, content := range files {
 		writer, err := archive.Create(name)

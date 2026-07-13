@@ -74,6 +74,15 @@ describe('EnterpriseMembersView layout contract', () => {
     expect(source).toContain("t('enterpriseMembers.copy.processingInBackground')")
   })
 
+  it('offers explicit server-authoritative CSV and XLSX template downloads', () => {
+    expect(source).toContain('data-testid="download-enterprise-member-csv-template"')
+    expect(source).toContain('data-testid="download-enterprise-member-xlsx-template"')
+    expect(source).toContain("t('enterpriseMembers.copy.downloadCsvTemplate')")
+    expect(source).toContain("t('enterpriseMembers.copy.downloadXlsxTemplate')")
+    expect(source).toContain("const templateDownloading = ref<'csv' | 'xlsx' | null>(null)")
+    expect(source).toContain("enterpriseMembersAPI.downloadImportTemplate(format)")
+  })
+
   it('adopts existing keys without silently dropping their original group', () => {
     expect(source).toContain('enterpriseMembersAPI.listAdoptableKeys(member.id)')
     expect(source).toContain('enterpriseMembersAPI.adoptKey(member, key.id)')
@@ -89,6 +98,11 @@ describe('EnterpriseMembersView layout contract', () => {
     expect(source).not.toContain('record.account_id')
     expect(source).not.toContain('record.channel_id')
     expect(source).not.toContain('record.account_cost')
+  })
+
+  it('links the member detail workflow to the unified usage page with a durable member filter', () => {
+    expect(source).toContain("t('enterpriseMembers.copy.viewFullUsageRecords')")
+    expect(source).toContain("router.push({ name: 'Usage', query: { tab: 'usage', member_id: String(member.id) } })")
   })
 
   it('uses formal locale keys instead of a page-local bilingual helper', () => {

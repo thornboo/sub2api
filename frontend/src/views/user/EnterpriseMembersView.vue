@@ -275,7 +275,39 @@
     <BaseDialog :show="importOpen" :title="t('enterpriseMembers.copy.importEnterpriseMembers')" width="extra-wide" @close="importOpen = false">
       <div class="space-y-5">
         <section class="rounded-2xl border border-stone-200 bg-stone-50 p-4 dark:border-white/10 dark:bg-white/[0.04]">
-          <div class="flex flex-wrap items-center justify-between gap-3"><div><h3 class="text-sm font-semibold text-stone-950 dark:text-white">{{ t('enterpriseMembers.copy.useTheServerAuthoritativeTemplate') }}</h3><p class="mt-1 text-xs text-stone-500">{{ t('enterpriseMembers.copy.csvUsesOneRowPerKeyXlsxUsesMembersKeysAndMembergroupsSheetsTheBrowserNeverParsesAndWritesBusines') }}</p></div><div class="flex gap-2"><button class="btn btn-secondary btn-sm" type="button" @click="downloadTemplate('csv')">CSV</button><button class="btn btn-secondary btn-sm" type="button" @click="downloadTemplate('xlsx')">XLSX</button></div></div>
+          <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div class="flex min-w-0 items-start gap-3">
+              <span class="flex h-10 w-10 flex-none items-center justify-center rounded-xl border border-emerald-200/80 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-300">
+                <Icon name="download" size="md" />
+              </span>
+              <div>
+                <h3 class="text-sm font-semibold text-stone-950 dark:text-white">{{ t('enterpriseMembers.copy.downloadImportTemplate') }}</h3>
+                <p class="mt-1 max-w-4xl text-xs leading-5 text-stone-500">{{ t('enterpriseMembers.copy.csvUsesOneRowPerKeyXlsxUsesMembersKeysAndMembergroupsSheetsTheBrowserNeverParsesAndWritesBusines') }}</p>
+              </div>
+            </div>
+            <div class="grid gap-2 sm:grid-cols-2 lg:flex-none">
+              <button
+                class="btn btn-secondary btn-sm justify-center"
+                type="button"
+                data-testid="download-enterprise-member-csv-template"
+                :disabled="Boolean(templateDownloading)"
+                @click="downloadTemplate('csv')"
+              >
+                <Icon :name="templateDownloading === 'csv' ? 'refresh' : 'download'" size="sm" :class="templateDownloading === 'csv' ? 'animate-spin' : ''" />
+                {{ templateDownloading === 'csv' ? t('enterpriseMembers.copy.downloadingTemplate') : t('enterpriseMembers.copy.downloadCsvTemplate') }}
+              </button>
+              <button
+                class="btn btn-secondary btn-sm justify-center"
+                type="button"
+                data-testid="download-enterprise-member-xlsx-template"
+                :disabled="Boolean(templateDownloading)"
+                @click="downloadTemplate('xlsx')"
+              >
+                <Icon :name="templateDownloading === 'xlsx' ? 'refresh' : 'download'" size="sm" :class="templateDownloading === 'xlsx' ? 'animate-spin' : ''" />
+                {{ templateDownloading === 'xlsx' ? t('enterpriseMembers.copy.downloadingTemplate') : t('enterpriseMembers.copy.downloadXlsxTemplate') }}
+              </button>
+            </div>
+          </div>
           <label class="mt-4 block rounded-2xl border border-dashed border-stone-300 p-5 text-center hover:border-amber-400 dark:border-white/15"><span class="block text-sm font-medium text-stone-800 dark:text-stone-100">{{ importFile?.name || t('enterpriseMembers.copy.chooseACsvOrXlsxFile') }}</span><span class="mt-1 block text-xs text-stone-500">{{ t('enterpriseMembers.copy.maximum10MibAnd5000RowsXlsxFormulasMacrosExternalLinksAndEmbeddedObjectsAreRejected') }}</span><input class="sr-only" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" @change="selectImportFile" /></label>
           <div class="mt-3 flex justify-end"><button class="btn btn-primary" type="button" :disabled="!importFile || importPreviewLoading" @click="previewImportFile">{{ importPreviewLoading ? t('enterpriseMembers.copy.validatingOnServer') : t('enterpriseMembers.copy.generateAuthoritativePreview') }}</button></div>
         </section>
@@ -433,7 +465,16 @@
         <section class="rounded-3xl border border-stone-200 p-5 dark:border-white/10">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div><h3 class="font-semibold text-stone-950 dark:text-white">{{ t('enterpriseMembers.copy.requestRecords') }}</h3><p class="mt-1 text-xs text-stone-500">{{ t('enterpriseMembers.copy.showsMemberFacingKeyModelPublicGroupAndBilledCostOnlyUpstreamAccountChannelAndMarginDataRemainPr') }}</p></div>
-            <div class="flex items-center gap-2"><span class="text-xs text-stone-500">{{ usageRecordTotal }} {{ t('enterpriseMembers.copy.records') }}</span><button class="btn btn-secondary btn-sm" type="button" :aria-label="t('enterpriseMembers.copy.previousRequestRecordsPage')" :disabled="usageRecordsLoading || usageRecordPage <= 1" @click="loadUsageRecords(usageRecordPage - 1)">←</button><span class="min-w-14 text-center text-xs text-stone-500">{{ usageRecordPage }} / {{ usageRecordPages }}</span><button class="btn btn-secondary btn-sm" type="button" :aria-label="t('enterpriseMembers.copy.nextRequestRecordsPage')" :disabled="usageRecordsLoading || usageRecordPage >= usageRecordPages" @click="loadUsageRecords(usageRecordPage + 1)">→</button></div>
+            <div class="flex flex-wrap items-center justify-end gap-2">
+              <button class="btn btn-secondary btn-sm" type="button" @click="openUnifiedUsage(budgetMember)">
+                <Icon name="trendingUp" size="sm" />
+                {{ t('enterpriseMembers.copy.viewFullUsageRecords') }}
+              </button>
+              <span class="text-xs text-stone-500">{{ usageRecordTotal }} {{ t('enterpriseMembers.copy.records') }}</span>
+              <button class="btn btn-secondary btn-sm" type="button" :aria-label="t('enterpriseMembers.copy.previousRequestRecordsPage')" :disabled="usageRecordsLoading || usageRecordPage <= 1" @click="loadUsageRecords(usageRecordPage - 1)">←</button>
+              <span class="min-w-14 text-center text-xs text-stone-500">{{ usageRecordPage }} / {{ usageRecordPages }}</span>
+              <button class="btn btn-secondary btn-sm" type="button" :aria-label="t('enterpriseMembers.copy.nextRequestRecordsPage')" :disabled="usageRecordsLoading || usageRecordPage >= usageRecordPages" @click="loadUsageRecords(usageRecordPage + 1)">→</button>
+            </div>
           </div>
           <div class="mt-4 overflow-auto rounded-2xl border border-stone-100 dark:border-white/5">
             <table class="w-full min-w-[980px] text-left text-xs">
@@ -497,6 +538,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
@@ -509,6 +551,7 @@ import { enterpriseMembersAPI, type EnterpriseMember, type EnterpriseMemberAudit
 import type { ApiKey, Group } from '@/types'
 
 const { t, locale } = useI18n()
+const router = useRouter()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 const isEnterprise = computed(() => authStore.user?.role === 'user' && authStore.user?.account_type === 'enterprise' && !authStore.user?.enterprise_disabled_at)
@@ -573,6 +616,7 @@ const adjustment = reactive({ amount: 0, note: '' })
 
 const importOpen = ref(false)
 const importFile = ref<File | null>(null)
+const templateDownloading = ref<'csv' | 'xlsx' | null>(null)
 const importPreviewLoading = ref(false)
 const importCommitting = ref(false)
 const importPreview = ref<EnterpriseMemberImportPreview | null>(null)
@@ -710,8 +754,11 @@ function selectImportFile(event: Event) {
   importResult.value = null
 }
 async function downloadTemplate(format: 'csv' | 'xlsx') {
+  if (templateDownloading.value) return
+  templateDownloading.value = format
   try { await enterpriseMembersAPI.downloadImportTemplate(format) }
   catch (error: any) { appStore.showError(error.message || t('enterpriseMembers.copy.failedToDownloadTemplate')) }
+  finally { templateDownloading.value = null }
 }
 async function previewImportFile() {
   if (!importFile.value) return
@@ -1011,6 +1058,11 @@ async function openBudget(member: EnterpriseMember) {
     usageRecordPage.value = records.page
   } catch (error: any) { appStore.showError(error.response?.data?.message || error.message || t('enterpriseMembers.copy.failedToLoadBudgetAndUsage')) }
   finally { budgetLoading.value = false }
+}
+function openUnifiedUsage(member: EnterpriseMember | null) {
+  if (!member) return
+  budgetOpen.value = false
+  void router.push({ name: 'Usage', query: { tab: 'usage', member_id: String(member.id) } })
 }
 async function loadUsageRecords(page: number) {
   if (!budgetMember.value || page < 1 || page > usageRecordPages.value) return

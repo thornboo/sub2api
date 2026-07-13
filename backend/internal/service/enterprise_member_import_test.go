@@ -101,6 +101,20 @@ func TestParseEnterpriseMemberImportCSVPreservesOrderedGroups(t *testing.T) {
 	require.Equal(t, "abcdefghijklmnop", rows[0].APIKeyCiphertext)
 }
 
+func TestEnterpriseMemberImportCSVTemplateUsesChineseHeadersAndRoundTrips(t *testing.T) {
+	template := EnterpriseMemberImportCSVTemplate()
+	require.True(t, bytes.HasPrefix(template, []byte{0xEF, 0xBB, 0xBF}))
+	require.Contains(t, string(template), "成员编号,成员名称,5小时限额")
+
+	rows, err := parseEnterpriseMemberImportCSV(template)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, "employee-001", rows[0].MemberCode)
+	require.Equal(t, "示例成员", rows[0].MemberName)
+	require.Equal(t, "主密钥", rows[0].KeyName)
+	require.Equal(t, []int64{1, 2}, rows[0].GroupIDs)
+}
+
 func TestParseEnterpriseMemberImportCSVEnforces5000RowCapacityBoundary(t *testing.T) {
 	rows, err := parseEnterpriseMemberImportCSV(buildEnterpriseMemberImportCSV(enterpriseMemberImportMaxRows))
 	require.NoError(t, err)
@@ -194,9 +208,37 @@ func TestEnterpriseMemberImportXLSXTemplateRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	require.Equal(t, "employee-001", rows[0].MemberCode)
-	require.Equal(t, "Example Member", rows[0].MemberName)
+	require.Equal(t, "示例成员", rows[0].MemberName)
 	require.Equal(t, []int64{1}, rows[0].GroupIDs)
-	require.Equal(t, "Primary Key", rows[0].KeyName)
+	require.Equal(t, "主密钥", rows[0].KeyName)
+}
+
+func TestEnterpriseMemberImportXLSXAcceptsLegacyEnglishHeaders(t *testing.T) {
+	template, err := EnterpriseMemberImportXLSXTemplate()
+	require.NoError(t, err)
+
+	legacy := rewriteImportXLSXForTest(t, template, func(_ string, content string) string {
+		return strings.NewReplacer(
+			"成员编号", "member_code",
+			"成员名称", "member_name",
+			"5小时限额", "rate_limit_5h",
+			"1天限额", "rate_limit_1d",
+			"7天限额", "rate_limit_7d",
+			"自然月预算（USD）", "monthly_limit_usd",
+			"初始已用额度（USD）", "opening_used_usd",
+			"密钥名称", "key_name",
+			"API密钥", "api_key",
+			"密钥额度（USD）", "key_quota_usd",
+			"分组ID", "group_id",
+			"顺序", "sort_order",
+		).Replace(content)
+	}, "", "")
+
+	rows, err := parseEnterpriseMemberImportXLSX(legacy)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, "employee-001", rows[0].MemberCode)
+	require.Equal(t, []int64{1}, rows[0].GroupIDs)
 }
 
 func TestEnterpriseMemberImportXLSXRejectsFormulaAndExternalContent(t *testing.T) {

@@ -10,14 +10,15 @@
         <label class="input-label">{{ t('admin.users.email') }}</label>
         <input v-model="form.email" type="email" required class="input" :placeholder="t('admin.users.enterEmail')" />
       </div>
-	  <div v-if="form.role === 'user'">
-		<label class="input-label">{{ t('admin.users.form.accountType') }}</label>
-		<select v-model="form.account_type" class="input">
-		  <option value="individual">{{ t('admin.users.form.accountTypes.individual') }}</option>
-		  <option value="enterprise">{{ t('admin.users.form.accountTypes.enterprise') }}</option>
-		</select>
-		<p class="input-hint">{{ t('admin.users.form.accountTypeHint') }}</p>
-	  </div>
+      <div v-if="form.role === 'user'">
+        <label class="input-label">{{ t('admin.users.form.accountType') }}</label>
+        <Select
+          v-model="form.account_type"
+          :options="accountTypeOptions"
+          data-testid="admin-user-account-type"
+        />
+        <p class="input-hint">{{ t('admin.users.form.accountTypeHint') }}</p>
+      </div>
       <div>
         <label class="input-label">{{ t('admin.users.password') }}</label>
         <div class="flex gap-2">
@@ -35,10 +36,7 @@
       </div>
       <div>
         <label class="input-label">{{ t('admin.users.form.roleLabel') }}</label>
-        <select v-model="form.role" class="input">
-          <option value="user">{{ t('admin.users.roles.user') }}</option>
-          <option value="admin">{{ t('admin.users.roles.admin') }}</option>
-        </select>
+        <Select v-model="form.role" :options="roleOptions" />
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
@@ -75,16 +73,25 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'; import { adminAPI } from '@/api/admin'
 import { useForm } from '@/composables/useForm'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import Select, { type SelectOption } from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 
 const props = defineProps<{ show: boolean }>()
 const emit = defineEmits(['close', 'success']); const { t } = useI18n()
 
 const form = reactive({ email: '', password: '', username: '', notes: '', role: 'user' as 'user' | 'admin', account_type: 'individual' as 'individual' | 'enterprise', balance: '', concurrency: 1, rpm_limit: 0 })
+const accountTypeOptions = computed<SelectOption[]>(() => [
+  { value: 'individual', label: t('admin.users.form.accountTypes.individual') },
+  { value: 'enterprise', label: t('admin.users.form.accountTypes.enterprise') }
+])
+const roleOptions = computed<SelectOption[]>(() => [
+  { value: 'user', label: t('admin.users.roles.user') },
+  { value: 'admin', label: t('admin.users.roles.admin') }
+])
 
 const { loading, submit } = useForm({
   form,
