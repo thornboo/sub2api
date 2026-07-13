@@ -2103,6 +2103,15 @@ func (s *RateLimitService) handleProviderModelUpstreamFailure(ctx context.Contex
 	if !isProviderModelUpstreamFailureStatus(statusCode) {
 		return false
 	}
+	// This payload describes a ChatGPT/Codex plan capability, so only OAuth
+	// accounts may turn it into a model cooldown. Without this guard an API-key
+	// account falls through the dedicated handler above and is incorrectly
+	// captured by the generic provider failure policy.
+	if account.Platform == PlatformOpenAI &&
+		!isOpenAIOAuthAccount(account) &&
+		isOpenAICodexPlanGatedModelError(statusCode, responseBody) {
+		return false
+	}
 	if !account.ShouldHandleErrorCode(statusCode) {
 		slog.Info("provider_model_upstream_failure_skipped_by_error_code_policy", "account_id", account.ID, "platform", account.Platform, "status_code", statusCode)
 		return false

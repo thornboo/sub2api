@@ -2,6 +2,29 @@
 
 这里记录二开分支吸收上游变更的同步工作。
 
+## 2026-07-13 - `bee874106` 合并后 Codex 套餐限流语义复审修复
+
+复审结论：
+- `dev-zz` 精确提交 `bee874106` 的 GitHub Actions 中，frontend、golangci-lint 和 shell job 通过，test job 的 `make test-unit` 唯一失败于 `TestRateLimitService_HandleUpstreamError_CodexPlanGatedModelIgnoresAPIKeyAccount`。
+- 失败不是 CI 环境或时序抖动；该测试文件带有 `//go:build unit`，合并前执行的普通 `go test ./...` 不会编译它，使用 CI 同款 `go test -tags=unit` 可在本地稳定复现。
+- 上游专用处理只允许 OpenAI OAuth 账号把 ChatGPT/Codex 套餐限制 400 转成模型冷却，但 dev-zz 的通用供应商模型失败处理随后又捕获了同一 400，导致 API Key 账号被错误冷却并返回 failover。
+
+修复策略：
+- 在通用供应商模型失败处理入口识别该专用错误；当账号不是 OpenAI OAuth 时直接跳过通用模型冷却，交回普通 400 处理。
+- OpenAI OAuth 的 30 分钟账号/模型冷却、模型映射、请求 failover 保持不变；其他 OpenAI API Key 错误、其他平台和其他 4xx/5xx 通用冷却策略不变。
+- 不通过修改测试接受错误行为；保留上游新增的 OAuth/API Key 边界测试作为长期回归契约。
+
+验证：
+- `go test -tags=unit ./internal/service -run '^TestRateLimitService_HandleUpstreamError_CodexPlanGatedModel' -count=1 -v`
+- `make -C backend test-unit`
+- `mise x -C backend -- go test ./...`
+- `mise x -C backend -- golangci-lint run --timeout=30m`
+- `git diff --check` 和 `git diff --cached --check`。
+
+流程修正：
+- 后续 `main` 合并只要上游或冲突范围包含带 build tag 的测试，最终门禁必须同时执行 `make -C backend test-unit`，不能以普通 `go test ./...` 代替 tagged 单元测试。
+- 本条作为 `dev-zz` CI follow-up 提交；修复推送后再将 `dev-zz-develop` 快进到同一提交，不打 tag、不发布。
+
 ## 2026-07-13 - 增量合并上游 `main`：Grok 媒体、Alpha Search、WebSocket 生命周期与 Apple Container
 
 分支：
