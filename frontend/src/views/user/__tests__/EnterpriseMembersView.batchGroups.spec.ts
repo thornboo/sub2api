@@ -2,11 +2,15 @@ import { shallowMount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { batchReplaceGroups, getOwnerUsageSummary, getAvailableGroups, listMembers, showError, showSuccess } = vi.hoisted(() => ({
+const { archive, batchReplaceGroups, getOwnerUsageSummary, getAvailableGroups, listMembers, permanentlyDelete, restore, setStatus, showError, showSuccess } = vi.hoisted(() => ({
+  archive: vi.fn(),
   batchReplaceGroups: vi.fn(),
   getOwnerUsageSummary: vi.fn(),
   getAvailableGroups: vi.fn(),
   listMembers: vi.fn(),
+  permanentlyDelete: vi.fn(),
+  restore: vi.fn(),
+  setStatus: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
 }))
@@ -44,9 +48,13 @@ vi.mock('@/composables/useClipboard', () => ({
 
 vi.mock('@/api/enterpriseMembers', () => ({
   enterpriseMembersAPI: {
+    archive,
     list: listMembers,
     getOwnerUsageSummary,
     batchReplaceGroups,
+    permanentlyDelete,
+    restore,
+    setStatus,
   },
 }))
 
@@ -95,6 +103,96 @@ describe('EnterpriseMembersView destructive batch group confirmation', () => {
     getAvailableGroups.mockResolvedValue([])
     getOwnerUsageSummary.mockResolvedValue(null)
     batchReplaceGroups.mockResolvedValue([{ id: member.id, version: 4, group_ids: [], status: 'disabled', updated_at: '2026-07-02T00:00:00Z' }])
+    restore.mockResolvedValue({ ...member, status: 'disabled', version: 4 })
+    setStatus.mockResolvedValue({ ...member, status: 'disabled', version: 4 })
+  })
+
+  it('does not change a member status until the explicit confirmation is accepted', async () => {
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+    const vm = wrapper.vm as unknown as {
+      memberStatusChangeRequest: { status: 'active' | 'disabled', members: typeof member[], bulk: boolean } | null
+      memberStatusUpdating: boolean
+      toggleStatus: (target: typeof member) => void
+      cancelMemberStatusChange: () => void
+      confirmMemberStatusChange: () => Promise<void>
+    }
+
+    vm.toggleStatus(member)
+    await nextTick()
+
+    expect(vm.memberStatusChangeRequest).toEqual({ status: 'disabled', members: [member], bulk: false })
+    expect(setStatus).not.toHaveBeenCalled()
+
+    vm.cancelMemberStatusChange()
+    expect(setStatus).not.toHaveBeenCalled()
+
+    vm.toggleStatus(member)
+    await vm.confirmMemberStatusChange()
+
+    expect(setStatus).toHaveBeenCalledTimes(1)
+    expect(setStatus).toHaveBeenCalledWith(member, 'disabled')
+    expect(showSuccess).toHaveBeenCalledWith('enterpriseMembers.copy.memberDisabledSuccess')
+    expect(vm.memberStatusChangeRequest).toBeNull()
+    expect(vm.memberStatusUpdating).toBe(false)
+
+    const disabledMember = { ...member, status: 'disabled' as const, version: 4 }
+    setStatus.mockResolvedValueOnce({ ...disabledMember, status: 'active', version: 5 })
+    vm.toggleStatus(disabledMember)
+    await nextTick()
+
+    expect(vm.memberStatusChangeRequest).toEqual({ status: 'active', members: [disabledMember], bulk: false })
+    expect(setStatus).toHaveBeenCalledTimes(1)
+
+    await vm.confirmMemberStatusChange()
+
+    expect(setStatus).toHaveBeenNthCalledWith(2, disabledMember, 'active')
+    expect(showSuccess).toHaveBeenCalledWith('enterpriseMembers.copy.memberEnabledSuccess')
+  })
+
+  it('uses the project confirmation dialog and permanently removes historical members through the server strategy', async () => {
+    const archivedMember = { ...member, status: 'disabled' as const, deleted_at: '2026-07-03T00:00:00Z', delete_strategy: 'tombstone' as const }
+    listMembers.mockResolvedValue([archivedMember])
+    permanentlyDelete.mockResolvedValue({ archived: false, permanently_deleted: true, deletion_mode: 'tombstone' })
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+    const vm = wrapper.vm as unknown as {
+      memberRemovalTarget: typeof archivedMember | null
+      removeMember: (target: typeof archivedMember) => void
+      confirmRemoveMember: () => Promise<void>
+    }
+
+    vm.removeMember(archivedMember)
+    await nextTick()
+    expect(vm.memberRemovalTarget).toEqual(archivedMember)
+    expect(permanentlyDelete).not.toHaveBeenCalled()
+
+    await vm.confirmRemoveMember()
+
+    expect(permanentlyDelete).toHaveBeenCalledWith(archivedMember)
+    expect(showError).not.toHaveBeenCalled()
+    expect(showSuccess).toHaveBeenCalledWith('enterpriseMembers.copy.memberPermanentlyDeleted')
+    expect(vm.memberRemovalTarget).toBeNull()
+  })
+
+  it('restores an archived member as disabled before the owner explicitly enables it', async () => {
+    const archivedMember = { ...member, status: 'disabled' as const, deleted_at: '2026-07-03T00:00:00Z', delete_strategy: 'hard_delete' as const }
+    listMembers.mockResolvedValue([archivedMember])
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+    const vm = wrapper.vm as unknown as {
+      restoreMember: (target: typeof archivedMember) => Promise<void>
+      restoringMemberId: number | null
+    }
+
+    await vm.restoreMember(archivedMember)
+
+    expect(restore).toHaveBeenCalledWith(archivedMember)
+    expect(showSuccess).toHaveBeenCalledWith('enterpriseMembers.copy.memberRestoredDisabled')
+    expect(vm.restoringMemberId).toBeNull()
   })
 
   it('does not clear access until the explicit danger confirmation is accepted', async () => {

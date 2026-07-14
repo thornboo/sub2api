@@ -2,6 +2,7 @@ import { apiClient } from './client'
 import type { ApiKey } from '@/types'
 
 export type EnterpriseMemberStatus = 'active' | 'disabled'
+export type EnterpriseMemberDeleteStrategy = 'hard_delete' | 'tombstone'
 
 export interface EnterpriseMember {
   id: number
@@ -22,9 +23,17 @@ export interface EnterpriseMember {
   version: number
   group_ids: number[]
   key_count: number
+  delete_strategy?: EnterpriseMemberDeleteStrategy
+  can_permanently_delete?: boolean
   created_at: string
   updated_at: string
   deleted_at?: string | null
+}
+
+export interface EnterpriseMemberDeletionResult {
+  archived: false
+  permanently_deleted: true
+  deletion_mode: EnterpriseMemberDeleteStrategy
 }
 
 export interface EnterpriseMemberDraft {
@@ -344,8 +353,16 @@ export async function archive(member: EnterpriseMember): Promise<void> {
   await apiClient.delete(`/enterprise/members/${member.id}`, { params: { expected_version: member.version } })
 }
 
-export async function permanentlyDelete(member: EnterpriseMember): Promise<void> {
-  await apiClient.delete(`/enterprise/members/${member.id}`, { params: { permanent: true } })
+export async function restore(member: EnterpriseMember): Promise<EnterpriseMember> {
+  const { data } = await apiClient.post<EnterpriseMember>(`/enterprise/members/${member.id}/restore`, {
+    expected_version: member.version,
+  })
+  return data
+}
+
+export async function permanentlyDelete(member: EnterpriseMember): Promise<EnterpriseMemberDeletionResult> {
+  const { data } = await apiClient.delete<EnterpriseMemberDeletionResult>(`/enterprise/members/${member.id}`, { params: { permanent: true } })
+  return data
 }
 
 export async function listKeys(memberId: number): Promise<ApiKey[]> {
@@ -498,6 +515,7 @@ export const enterpriseMembersAPI = {
   batchReplaceGroups,
   setStatus,
   archive,
+  restore,
   permanentlyDelete,
   listKeys,
   listAdoptableKeys,

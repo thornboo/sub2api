@@ -58,8 +58,8 @@
           <p class="text-sm font-medium text-amber-900 dark:text-amber-100">{{ t('enterpriseMembers.dynamic.selectedMembers', { count: selectedIds.size }) }}</p>
           <div class="flex gap-2">
             <button class="btn btn-secondary btn-sm" type="button" @click="openBatchGroups"><Icon name="users" size="sm" />{{ t('enterpriseMembers.copy.setAccessibleGroups') }}</button>
-            <button class="btn btn-secondary btn-sm" type="button" @click="bulkSetStatus('active')">{{ t('enterpriseMembers.copy.enable') }}</button>
-            <button class="btn btn-secondary btn-sm" type="button" @click="bulkSetStatus('disabled')">{{ t('enterpriseMembers.copy.disable') }}</button>
+            <button class="btn btn-secondary btn-sm" type="button" :disabled="memberStatusUpdating" @click="bulkSetStatus('active')">{{ t('enterpriseMembers.copy.enable') }}</button>
+            <button class="btn btn-secondary btn-sm" type="button" :disabled="memberStatusUpdating" @click="bulkSetStatus('disabled')">{{ t('enterpriseMembers.copy.disable') }}</button>
           </div>
         </div>
         </section>
@@ -172,9 +172,10 @@
                     <div class="flex flex-nowrap justify-end gap-1.5">
                       <button class="btn btn-secondary btn-sm shrink-0 whitespace-nowrap" type="button" @click="openBudget(member)"><Icon name="chartBar" size="sm" />{{ t('enterpriseMembers.copy.budgetUsage') }}</button>
                       <button class="btn btn-secondary btn-sm shrink-0 whitespace-nowrap" type="button" @click="openKeys(member)"><Icon name="key" size="sm" />{{ t('enterpriseMembers.copy.keys') }}</button>
-                      <button class="btn btn-secondary btn-sm shrink-0 whitespace-nowrap" type="button" @click="openEdit(member)"><Icon name="edit" size="sm" />{{ t('enterpriseMembers.copy.edit') }}</button>
-                      <button v-if="!member.deleted_at" class="btn btn-secondary btn-sm shrink-0 whitespace-nowrap" type="button" @click="toggleStatus(member)">{{ member.status === 'active' ? t('enterpriseMembers.copy.disable5dac4e9c') : t('enterpriseMembers.copy.enable14891bd4') }}</button>
-                      <button class="shrink-0 whitespace-nowrap rounded-xl px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30" type="button" @click="removeMember(member)">{{ member.deleted_at ? t('enterpriseMembers.copy.deleteForever') : t('enterpriseMembers.copy.archive') }}</button>
+                      <button v-if="!member.deleted_at" class="btn btn-secondary btn-sm shrink-0 whitespace-nowrap" type="button" @click="openEdit(member)"><Icon name="edit" size="sm" />{{ t('enterpriseMembers.copy.edit') }}</button>
+                      <button v-if="!member.deleted_at" class="btn btn-secondary btn-sm shrink-0 whitespace-nowrap" type="button" :disabled="memberStatusUpdating" @click="toggleStatus(member)">{{ member.status === 'active' ? t('enterpriseMembers.copy.disable5dac4e9c') : t('enterpriseMembers.copy.enable14891bd4') }}</button>
+                      <button v-if="member.deleted_at" class="btn btn-secondary btn-sm shrink-0 whitespace-nowrap" type="button" :disabled="restoringMemberId === member.id" @click="restoreMember(member)"><Icon name="refresh" size="sm" :class="restoringMemberId === member.id ? 'animate-spin' : ''" />{{ t('enterpriseMembers.copy.restore') }}</button>
+                      <button class="shrink-0 whitespace-nowrap rounded-xl px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30" type="button" @click="removeMember(member)">{{ member.deleted_at ? t('enterpriseMembers.copy.deleteMember') : t('enterpriseMembers.copy.archive') }}</button>
                     </div>
                   </td>
                 </tr>
@@ -239,9 +240,10 @@
                   <div class="mt-4 flex flex-wrap gap-2 border-t border-stone-100 pt-3 dark:border-white/10">
                     <button class="btn btn-secondary btn-sm" type="button" @click="openBudget(member)"><Icon name="chartBar" size="sm" />{{ t('enterpriseMembers.copy.budgetUsage') }}</button>
                     <button class="btn btn-secondary btn-sm" type="button" @click="openKeys(member)"><Icon name="key" size="sm" />{{ t('enterpriseMembers.copy.keys') }}</button>
-                    <button class="btn btn-secondary btn-sm" type="button" @click="openEdit(member)"><Icon name="edit" size="sm" />{{ t('enterpriseMembers.copy.edit') }}</button>
-                    <button v-if="!member.deleted_at" class="btn btn-secondary btn-sm" type="button" @click="toggleStatus(member)">{{ member.status === 'active' ? t('enterpriseMembers.copy.disable5dac4e9c') : t('enterpriseMembers.copy.enable14891bd4') }}</button>
-                    <button class="rounded-xl px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30" type="button" @click="removeMember(member)">{{ member.deleted_at ? t('enterpriseMembers.copy.deleteForever') : t('enterpriseMembers.copy.archive') }}</button>
+                    <button v-if="!member.deleted_at" class="btn btn-secondary btn-sm" type="button" @click="openEdit(member)"><Icon name="edit" size="sm" />{{ t('enterpriseMembers.copy.edit') }}</button>
+                    <button v-if="!member.deleted_at" class="btn btn-secondary btn-sm" type="button" :disabled="memberStatusUpdating" @click="toggleStatus(member)">{{ member.status === 'active' ? t('enterpriseMembers.copy.disable5dac4e9c') : t('enterpriseMembers.copy.enable14891bd4') }}</button>
+                    <button v-if="member.deleted_at" class="btn btn-secondary btn-sm" type="button" :disabled="restoringMemberId === member.id" @click="restoreMember(member)"><Icon name="refresh" size="sm" :class="restoringMemberId === member.id ? 'animate-spin' : ''" />{{ t('enterpriseMembers.copy.restore') }}</button>
+                    <button class="rounded-xl px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30" type="button" @click="removeMember(member)">{{ member.deleted_at ? t('enterpriseMembers.copy.deleteMember') : t('enterpriseMembers.copy.archive') }}</button>
                   </div>
                 </div>
               </div>
@@ -309,6 +311,26 @@
       :danger="true"
       @confirm="confirmBatchGroupClear"
       @cancel="cancelBatchGroupClear"
+    />
+
+    <ConfirmDialog
+      :show="Boolean(memberStatusChangeRequest)"
+      :title="memberStatusChangeTitle"
+      :message="memberStatusChangeMessage"
+      :confirm-text="memberStatusChangeConfirmText"
+      :danger="memberStatusChangeRequest?.status === 'disabled'"
+      @confirm="confirmMemberStatusChange"
+      @cancel="cancelMemberStatusChange"
+    />
+
+    <ConfirmDialog
+      :show="Boolean(memberRemovalTarget)"
+      :title="memberRemovalTarget?.deleted_at ? t('enterpriseMembers.copy.deleteMember') : t('enterpriseMembers.copy.memberArchived')"
+      :message="memberRemovalMessage(memberRemovalTarget)"
+      :confirm-text="memberRemovalTarget?.deleted_at ? t('enterpriseMembers.copy.deleteMember') : t('enterpriseMembers.copy.archive')"
+      :danger="true"
+      @confirm="confirmRemoveMember"
+      @cancel="cancelRemoveMember"
     />
 
     <BaseDialog :show="importOpen" :title="t('enterpriseMembers.copy.importEnterpriseMembers')" width="extra-wide" @close="importOpen = false">
@@ -443,7 +465,11 @@
           </div>
           <button class="btn btn-secondary btn-sm shrink-0" type="button" @click="openRegularKeys">{{ t('enterpriseMembers.copy.manageRegularKeys') }}</button>
         </section>
-        <form class="grid gap-3 rounded-2xl bg-stone-50 p-4 dark:bg-white/[0.04] sm:grid-cols-[1fr_150px_auto]" @submit.prevent="createMemberKey">
+        <section v-if="keyMember?.deleted_at" class="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-amber-100">
+          <Icon name="lock" size="sm" class="mt-0.5 shrink-0" />
+          <p class="text-xs leading-5">{{ t('enterpriseMembers.copy.archivedMemberReadOnly') }}</p>
+        </section>
+        <form v-if="!keyMember?.deleted_at" class="grid gap-3 rounded-2xl bg-stone-50 p-4 dark:bg-white/[0.04] sm:grid-cols-[1fr_150px_auto]" @submit.prevent="createMemberKey">
           <label><span class="input-label">{{ t('enterpriseMembers.copy.keyName') }}</span><input v-model.trim="keyDraft.name" class="input" required maxlength="100" /></label>
           <label><span class="input-label">{{ t('enterpriseMembers.copy.keyQuota') }}</span><input v-model.number="keyDraft.quota" class="input" type="number" min="0" step="0.01" /></label>
           <button class="btn btn-primary self-end" type="submit" :disabled="keySaving"><Icon name="plus" size="sm" />{{ t('enterpriseMembers.copy.createKey') }}</button>
@@ -451,8 +477,8 @@
         <div v-if="keysLoading" class="py-12 text-center text-sm text-stone-500">{{ t('enterpriseMembers.copy.loadingKeys') }}</div>
         <div v-else class="overflow-hidden rounded-2xl border border-stone-200 dark:border-white/10">
           <div v-if="memberKeys.length" class="overflow-x-auto">
-            <div class="min-w-[920px]">
-              <div class="grid grid-cols-[minmax(210px,1.25fr)_160px_105px_155px_230px] items-center gap-3 border-b border-stone-200 bg-stone-50/80 px-4 py-2.5 text-xs font-medium text-stone-500 dark:border-white/10 dark:bg-white/[0.035]">
+            <div class="min-w-[960px]">
+              <div class="grid grid-cols-[minmax(210px,1.25fr)_160px_105px_155px_250px] items-center gap-3 border-b border-stone-200 bg-stone-50/80 px-4 py-2.5 text-xs font-medium text-stone-500 dark:border-white/10 dark:bg-white/[0.035]">
                 <span>{{ t('enterpriseMembers.copy.key') }}</span>
                 <span>{{ t('enterpriseMembers.copy.keyQuota') }}</span>
                 <span>{{ t('enterpriseMembers.copy.status') }}</span>
@@ -460,7 +486,7 @@
                 <span class="pr-1 text-right">{{ t('enterpriseMembers.copy.action') }}</span>
               </div>
               <div v-for="key in memberKeys" :key="key.id" class="border-b border-stone-100 last:border-b-0 dark:border-white/[0.07]">
-                <div class="grid min-h-16 grid-cols-[minmax(210px,1.25fr)_160px_105px_155px_230px] items-center gap-3 px-4 py-3">
+                <div class="grid min-h-16 grid-cols-[minmax(210px,1.25fr)_160px_105px_155px_250px] items-center gap-3 px-4 py-3">
                   <div class="min-w-0">
                     <p class="truncate text-sm font-semibold text-stone-900 dark:text-white" :title="key.name">{{ key.name }}</p>
                     <code class="mt-0.5 block truncate text-[11px] text-stone-500" :title="key.key">{{ key.key }}</code>
@@ -475,12 +501,12 @@
                     <span class="mt-0.5 block whitespace-nowrap text-[11px] text-stone-400">{{ key.expires_at ? `${t('enterpriseMembers.copy.expiresAt')} ${formatDate(key.expires_at)}` : t('enterpriseMembers.copy.neverExpires') }}</span>
                   </div>
                   <div class="flex flex-nowrap justify-end gap-1.5 pr-1">
-                    <button class="btn btn-secondary btn-sm" type="button" :disabled="copyingMemberKeyId === key.id" :aria-label="t('enterpriseMembers.copy.copyMemberKey')" @click="copyMemberKey(key)"><Icon :name="copiedMemberKeyId === key.id ? 'check' : 'clipboard'" size="sm" />{{ copyingMemberKeyId === key.id ? t('enterpriseMembers.copy.copyingKey') : t('enterpriseMembers.copy.copyMemberKey') }}</button>
-                    <button class="btn btn-secondary btn-sm" type="button" @click="openKeyEdit(key)"><Icon name="edit" size="sm" />{{ t('enterpriseMembers.copy.edit') }}</button>
-                    <button class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-rose-600 transition-colors hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-400/10" type="button" @click="removeKey(key.id)"><Icon name="trash" size="sm" />{{ t('enterpriseMembers.copy.delete') }}</button>
+                    <button class="btn btn-secondary btn-sm w-[76px] shrink-0 whitespace-nowrap disabled:cursor-wait disabled:opacity-100" type="button" :disabled="copyingMemberKeyId === key.id" :aria-busy="copyingMemberKeyId === key.id" :aria-label="t('enterpriseMembers.copy.copyMemberKey')" @click="copyMemberKey(key)"><Icon :name="copyingMemberKeyId === key.id ? 'refresh' : copiedMemberKeyId === key.id ? 'check' : 'clipboard'" size="sm" :class="copyingMemberKeyId === key.id ? 'animate-spin' : copiedMemberKeyId === key.id ? 'text-emerald-500' : ''" />{{ t('enterpriseMembers.copy.copyMemberKey') }}</button>
+                    <button v-if="!keyMember?.deleted_at" class="btn btn-secondary btn-sm shrink-0 whitespace-nowrap" type="button" @click="openKeyEdit(key)"><Icon name="edit" size="sm" />{{ t('enterpriseMembers.copy.edit') }}</button>
+                    <button v-if="!keyMember?.deleted_at" class="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium text-rose-600 transition-colors hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-400/10" type="button" @click="removeKey(key.id)"><Icon name="trash" size="sm" />{{ t('enterpriseMembers.copy.delete') }}</button>
                   </div>
                 </div>
-                <form v-if="editingKey?.id === key.id" class="space-y-4 border-t border-stone-200 bg-stone-50/80 p-4 dark:border-white/10 dark:bg-white/[0.025]" @submit.prevent="saveMemberKey">
+                <form v-if="editingKey?.id === key.id && !keyMember?.deleted_at" class="space-y-4 border-t border-stone-200 bg-stone-50/80 p-4 dark:border-white/10 dark:bg-white/[0.025]" @submit.prevent="saveMemberKey">
                   <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     <label><span class="input-label">{{ t('enterpriseMembers.copy.keyName') }}</span><input v-model.trim="keyEditDraft.name" class="input" required maxlength="100" /></label>
                     <label><span class="input-label">{{ t('enterpriseMembers.copy.status') }}</span><Select v-model="keyEditDraft.status" :options="memberKeyEditableStatusOptions" class="w-full" /></label>
@@ -509,6 +535,10 @@
     <BaseDialog :show="budgetOpen" :title="t('enterpriseMembers.dynamic.budgetUsageTitle', { name: budgetMember?.name || '' })" width="extra-wide" @close="budgetOpen = false">
       <div v-if="budgetLoading" class="py-16 text-center text-sm text-stone-500">{{ t('enterpriseMembers.copy.loadingBudgetAndUsage') }}</div>
       <div v-else-if="budgetSummary && budgetAnalytics" class="space-y-6">
+        <section v-if="budgetMember?.deleted_at" class="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-amber-100">
+          <Icon name="lock" size="sm" class="mt-0.5 shrink-0" />
+          <p class="text-xs leading-5">{{ t('enterpriseMembers.copy.archivedMemberReadOnly') }}</p>
+        </section>
         <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <div class="metric-card"><p>{{ t('enterpriseMembers.copy.calendarMonthLimit') }}</p><strong>{{ budgetSummary.limit_usd > 0 ? formatMoney(budgetSummary.limit_usd) : t('enterpriseMembers.copy.unlimited6381d248') }}</strong></div>
           <div class="metric-card"><p>{{ t('enterpriseMembers.copy.settled') }}</p><strong>{{ formatMoney(budgetSummary.used_usd) }}</strong></div>
@@ -517,7 +547,7 @@
         </section>
 
         <section v-if="hasMigrationBaseline(budgetSummary)" class="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sky-950 dark:border-sky-800/50 dark:bg-sky-950/20 dark:text-sky-100">
-          <div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="text-sm font-semibold">{{ t('enterpriseMembers.copy.migrationBaselineEvidence') }}</h3><p class="mt-1 text-xs leading-5 opacity-70">{{ t('enterpriseMembers.copy.migrationBaselineEvidenceHint') }}</p></div><div class="text-right"><b class="block text-sm">{{ formatMoney(budgetSummary.migration_billed_usd) }} · {{ formatNumber(budgetSummary.migration_total_tokens) }} Token</b><span class="text-xs opacity-70">↓ {{ formatNumber(budgetSummary.migration_input_tokens) }} · ↑ {{ formatNumber(budgetSummary.migration_output_tokens) }} · C {{ formatNumber(budgetSummary.migration_cache_tokens) }}</span></div></div>
+          <div class="flex flex-wrap items-start justify-between gap-3"><h3 class="text-sm font-semibold">{{ t('enterpriseMembers.copy.migrationBaselineEvidence') }}</h3><div class="text-right"><b class="block text-sm">{{ formatMoney(budgetSummary.migration_billed_usd) }} · {{ formatNumber(budgetSummary.migration_total_tokens) }} Token</b><span class="text-xs opacity-70">↓ {{ formatNumber(budgetSummary.migration_input_tokens) }} · ↑ {{ formatNumber(budgetSummary.migration_output_tokens) }} · C {{ formatNumber(budgetSummary.migration_cache_tokens) }}</span></div></div>
         </section>
 
         <section class="grid gap-3 sm:grid-cols-3">
@@ -609,7 +639,7 @@
           <p v-if="auditEventTotal > auditEvents.length" class="mt-3 text-center text-[11px] text-stone-400">{{ t('enterpriseMembers.dynamic.showingLatestAudit', { count: auditEvents.length }) }}</p>
         </section>
 
-        <form class="rounded-3xl border border-dashed border-stone-300 p-5 dark:border-white/15" @submit.prevent="submitAdjustment">
+        <form v-if="!budgetMember?.deleted_at" class="rounded-3xl border border-dashed border-stone-300 p-5 dark:border-white/15" @submit.prevent="submitAdjustment">
           <div class="flex flex-wrap items-end gap-3"><div class="min-w-[180px] flex-1"><label class="input-label">{{ t('enterpriseMembers.copy.manualAdjustmentUsd') }}</label><input v-model.number="adjustment.amount" class="input" type="number" required step="0.00000001" min="-1000000" max="1000000" placeholder="-1.25" /></div><div class="min-w-[260px] flex-[2]"><label class="input-label">{{ t('enterpriseMembers.copy.auditNote') }}</label><input v-model.trim="adjustment.note" class="input" required maxlength="1000" :placeholder="t('enterpriseMembers.copy.stateTheReasonAndEvidence')" /></div><button class="btn btn-secondary" type="submit" :disabled="adjusting">{{ adjusting ? t('enterpriseMembers.copy.writing') : t('enterpriseMembers.copy.postAdjustment') }}</button></div>
           <p class="mt-2 text-xs text-stone-500">{{ t('enterpriseMembers.copy.positiveValuesIncreaseUsedCostNegativeValuesCreditItEntriesCannotBeDeletedAndUsageCannotBeReduce') }}</p>
         </form>
@@ -636,6 +666,7 @@ import Icon from '@/components/icons/Icon.vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import { useAppStore, useAuthStore } from '@/stores'
 import { useClipboard } from '@/composables/useClipboard'
+import { extractI18nErrorMessage } from '@/utils/apiError'
 import { tableSelectionCheckboxClasses as selectionCheckboxClasses } from '@/utils/tableSelectionCheckbox'
 import { userGroupsAPI } from '@/api/groups'
 import { keysAPI } from '@/api/keys'
@@ -665,6 +696,10 @@ const batchClearConfirmOpen = ref(false)
 const batchGroupsSaving = ref(false)
 const batchGroupMode = ref<'replace' | 'append'>('replace')
 const batchGroupIds = ref<number[]>([])
+const memberStatusChangeRequest = ref<{ status: EnterpriseMemberStatus, members: EnterpriseMember[], bulk: boolean } | null>(null)
+const memberStatusUpdating = ref(false)
+const memberRemovalTarget = ref<EnterpriseMember | null>(null)
+const restoringMemberId = ref<number | null>(null)
 const editorOpen = ref(false)
 const editingMember = ref<EnterpriseMember | null>(null)
 const emptyMemberDraft = (): EnterpriseMemberDraft => ({ member_code: '', name: '', monthly_limit_usd: 0, rate_limit_5h: 0, rate_limit_1d: 0, rate_limit_7d: 0, group_ids: [] })
@@ -736,6 +771,30 @@ const totalKeyCount = computed(() => members.value.reduce((sum, item) => sum + i
 const batchGroupTargets = computed(() => members.value.filter(member => selectedIds.value.has(member.id) && !member.deleted_at))
 const batchGroupTargetCount = computed(() => batchGroupTargets.value.length)
 const batchClearIsDestructive = computed(() => batchGroupMode.value === 'replace' && batchGroupIds.value.length === 0)
+const memberStatusChangeTitle = computed(() => {
+  if (!memberStatusChangeRequest.value) return ''
+  return t(memberStatusChangeRequest.value.status === 'disabled'
+    ? 'enterpriseMembers.copy.disableMemberTitle'
+    : 'enterpriseMembers.copy.enableMemberTitle')
+})
+const memberStatusChangeConfirmText = computed(() => {
+  if (!memberStatusChangeRequest.value) return ''
+  return t(memberStatusChangeRequest.value.status === 'disabled'
+    ? 'enterpriseMembers.copy.confirmDisable'
+    : 'enterpriseMembers.copy.confirmEnable')
+})
+const memberStatusChangeMessage = computed(() => {
+  const request = memberStatusChangeRequest.value
+  if (!request) return ''
+  if (request.bulk) {
+    return t(request.status === 'disabled'
+      ? 'enterpriseMembers.dynamic.disableMembersConfirm'
+      : 'enterpriseMembers.dynamic.enableMembersConfirm', { count: request.members.length })
+  }
+  return t(request.status === 'disabled'
+    ? 'enterpriseMembers.dynamic.disableMemberConfirm'
+    : 'enterpriseMembers.dynamic.enableMemberConfirm', { name: request.members[0]?.name || '' })
+})
 const memberArchiveScopeOptions = computed<SelectOption[]>(() => [
   { value: 'current', label: t('enterpriseMembers.copy.currentMembersOnly') },
   { value: 'with_archived', label: t('enterpriseMembers.copy.includeArchivedMembers') }
@@ -1096,8 +1155,8 @@ async function openEdit(member: EnterpriseMember) {
     editorUsage5h.value = editorBudgetSummary.value.usage_5h
     editorUsage1d.value = editorBudgetSummary.value.usage_1d
     editorUsage7d.value = editorBudgetSummary.value.usage_7d
-  } catch (error: any) {
-    appStore.showError(error.response?.data?.message || t('enterpriseMembers.copy.failedToLoadBudgetAndUsage'))
+  } catch (error: unknown) {
+    appStore.showError(extractI18nErrorMessage(error, t, 'enterpriseMembers.errors', t('enterpriseMembers.copy.failedToLoadBudgetAndUsage')))
   } finally { editorBudgetLoading.value = false }
 }
 function toggleDraftGroup(id: number) {
@@ -1153,33 +1212,94 @@ async function saveMember() {
   } finally { saving.value = false }
 }
 
-async function toggleStatus(member: EnterpriseMember) {
-  try {
-    const updated = await enterpriseMembersAPI.setStatus(member, member.status === 'active' ? 'disabled' : 'active')
-    members.value = members.value.map(item => item.id === updated.id ? updated : item)
-  } catch (error: any) { appStore.showError(error.response?.data?.message || t('enterpriseMembers.copy.statusUpdateFailed')) }
-}
-async function bulkSetStatus(status: EnterpriseMemberStatus) {
-  const targets = members.value.filter(item => selectedIds.value.has(item.id) && !item.deleted_at && item.status !== status)
-  const failures: string[] = []
-  for (const target of targets) {
-    try {
-      const updated = await enterpriseMembersAPI.setStatus(target, status)
-      members.value = members.value.map(item => item.id === updated.id ? updated : item)
-    } catch { failures.push(target.name) }
+function toggleStatus(member: EnterpriseMember) {
+  if (member.deleted_at || memberStatusUpdating.value) return
+  memberStatusChangeRequest.value = {
+    status: member.status === 'active' ? 'disabled' : 'active',
+    members: [member],
+    bulk: false
   }
-  selectedIds.value = new Set()
-  failures.length
-    ? appStore.showError(t('enterpriseMembers.dynamic.partialStatusFailures', { members: failures.join(locale.value.startsWith('zh') ? '、' : ', ') }))
-    : appStore.showSuccess(t('enterpriseMembers.copy.bulkStatusUpdated'))
 }
-async function removeMember(member: EnterpriseMember) {
-  const message = member.deleted_at ? t('enterpriseMembers.copy.onlyMembersWithNoKeysOrHistoricalFactsCanBePermanentlyDeletedContinue') : t('enterpriseMembers.copy.archivingImmediatelyInvalidatesAllMemberKeysWhilePreservingAuditHistoryContinue')
-  if (!window.confirm(message)) return
+function bulkSetStatus(status: EnterpriseMemberStatus) {
+  if (memberStatusUpdating.value) return
+  const targets = members.value.filter(item => selectedIds.value.has(item.id) && !item.deleted_at && item.status !== status)
+  if (!targets.length) return
+  memberStatusChangeRequest.value = { status, members: targets, bulk: true }
+}
+function cancelMemberStatusChange() {
+  memberStatusChangeRequest.value = null
+}
+async function confirmMemberStatusChange() {
+  const request = memberStatusChangeRequest.value
+  if (!request || memberStatusUpdating.value) return
+  memberStatusChangeRequest.value = null
+  memberStatusUpdating.value = true
+  const failures: string[] = []
+  try {
+    for (const target of request.members) {
+      try {
+        const updated = await enterpriseMembersAPI.setStatus(target, request.status)
+        members.value = members.value.map(item => item.id === updated.id ? updated : item)
+      } catch (error: unknown) {
+        if (!request.bulk) {
+          appStore.showError(extractI18nErrorMessage(error, t, 'enterpriseMembers.errors', t('enterpriseMembers.copy.statusUpdateFailed')))
+          failures.push(target.name)
+          break
+        }
+        failures.push(target.name)
+      }
+    }
+    if (request.bulk) selectedIds.value = new Set()
+    if (request.bulk && failures.length) {
+      appStore.showError(t('enterpriseMembers.dynamic.partialStatusFailures', { members: failures.join(locale.value.startsWith('zh') ? '、' : ', ') }))
+    } else if (!failures.length) {
+      appStore.showSuccess(t(request.bulk
+        ? 'enterpriseMembers.copy.bulkStatusUpdated'
+        : request.status === 'disabled'
+          ? 'enterpriseMembers.copy.memberDisabledSuccess'
+          : 'enterpriseMembers.copy.memberEnabledSuccess'))
+    }
+  } finally {
+    memberStatusUpdating.value = false
+  }
+}
+function removeMember(member: EnterpriseMember) {
+  memberRemovalTarget.value = member
+}
+function cancelRemoveMember() {
+  memberRemovalTarget.value = null
+}
+function memberRemovalMessage(member: EnterpriseMember | null): string {
+  if (!member) return ''
+  if (!member.deleted_at) return t('enterpriseMembers.copy.archivingImmediatelyInvalidatesAllMemberKeysWhilePreservingAuditHistoryContinue')
+  return member.delete_strategy === 'hard_delete'
+    ? t('enterpriseMembers.copy.deleteCleanMemberConfirm')
+    : t('enterpriseMembers.copy.deleteHistoricalMemberConfirm')
+}
+async function restoreMember(member: EnterpriseMember) {
+  if (!member.deleted_at || restoringMemberId.value !== null) return
+  restoringMemberId.value = member.id
+  try {
+    await enterpriseMembersAPI.restore(member)
+    await loadMembers()
+    appStore.showSuccess(t('enterpriseMembers.copy.memberRestoredDisabled'))
+  } catch (error: unknown) {
+    appStore.showError(extractI18nErrorMessage(error, t, 'enterpriseMembers.errors', t('enterpriseMembers.copy.operationFailed')))
+  } finally {
+    restoringMemberId.value = null
+  }
+}
+async function confirmRemoveMember() {
+  const member = memberRemovalTarget.value
+  if (!member) return
+  memberRemovalTarget.value = null
   try {
     member.deleted_at ? await enterpriseMembersAPI.permanentlyDelete(member) : await enterpriseMembersAPI.archive(member)
     await loadMembers()
-  } catch (error: any) { appStore.showError(error.response?.data?.message || t('enterpriseMembers.copy.operationFailed')) }
+    appStore.showSuccess(t(member.deleted_at ? 'enterpriseMembers.copy.memberPermanentlyDeleted' : 'enterpriseMembers.copy.memberArchived'))
+  } catch (error: unknown) {
+    appStore.showError(extractI18nErrorMessage(error, t, 'enterpriseMembers.errors', t('enterpriseMembers.copy.operationFailed')))
+  }
 }
 function toggleSelected(id: number) {
   const next = new Set(selectedIds.value)
@@ -1210,7 +1330,7 @@ async function openKeys(member: EnterpriseMember) {
   try {
     memberKeys.value = await enterpriseMembersAPI.listKeys(member.id)
   }
-  catch (error: any) { appStore.showError(error.response?.data?.message || t('enterpriseMembers.copy.failedToLoadKeys')) }
+  catch (error: unknown) { appStore.showError(extractI18nErrorMessage(error, t, 'enterpriseMembers.errors', t('enterpriseMembers.copy.failedToLoadKeys'))) }
   finally { keysLoading.value = false }
 }
 
@@ -1220,7 +1340,7 @@ function openRegularKeys() {
 }
 
 async function copyMemberKey(key: ApiKey) {
-  if (!keyMember.value) return
+  if (!keyMember.value || copyingMemberKeyId.value !== null) return
   copyingMemberKeyId.value = key.id
   try {
     const detail = await keysAPI.getById(key.id)
@@ -1232,8 +1352,8 @@ async function copyMemberKey(key: ApiKey) {
         if (copiedMemberKeyId.value === key.id) copiedMemberKeyId.value = null
       }, 1600)
     }
-  } catch (error: any) {
-    appStore.showError(error.response?.data?.message || t('enterpriseMembers.copy.failedToCopyKey'))
+  } catch (error: unknown) {
+    appStore.showError(extractI18nErrorMessage(error, t, 'enterpriseMembers.errors', t('enterpriseMembers.copy.failedToCopyKey')))
   } finally {
     copyingMemberKeyId.value = null
   }
@@ -1297,7 +1417,7 @@ async function openBudget(member: EnterpriseMember) {
     usageRecords.value = records.items
     usageRecordTotal.value = records.total
     usageRecordPage.value = records.page
-  } catch (error: any) { appStore.showError(error.response?.data?.message || error.message || t('enterpriseMembers.copy.failedToLoadBudgetAndUsage')) }
+  } catch (error: unknown) { appStore.showError(extractI18nErrorMessage(error, t, 'enterpriseMembers.errors', t('enterpriseMembers.copy.failedToLoadBudgetAndUsage'))) }
   finally { budgetLoading.value = false }
 }
 function openUnifiedUsage(member: EnterpriseMember | null) {
@@ -1408,6 +1528,8 @@ const auditActionLabel = (action: string) => ({
   'member.enabled': t('enterpriseMembers.copy.memberEnabled'),
   'member.disabled': t('enterpriseMembers.copy.memberDisabled'),
   'member.archived': t('enterpriseMembers.copy.memberArchived'),
+  'member.restored': t('enterpriseMembers.copy.memberRestored'),
+  'member.removed': t('enterpriseMembers.copy.memberRemoved'),
   'member.deleted': t('enterpriseMembers.copy.memberPermanentlyDeleted'),
   'member_group.bound': t('enterpriseMembers.copy.groupAssigned'),
   'member_group.reordered': t('enterpriseMembers.copy.groupOrderChanged'),
@@ -1424,7 +1546,7 @@ const auditActionLabel = (action: string) => ({
 }[action] || action.split('.').join(' · '))
 const auditEntityLabel = (entityType: string) => ({ member: t('enterpriseMembers.copy.member'), group: t('enterpriseMembers.copy.group'), api_key: 'Key', budget_entry: t('enterpriseMembers.copy.ledger'), import_job: t('enterpriseMembers.copy.import') }[entityType] || entityType)
 const auditMemberLabel = (event: EnterpriseMemberAuditEvent) => event.member_id ? members.value.find(member => member.id === event.member_id)?.name || t('enterpriseMembers.copy.historicalMember') : t('enterpriseMembers.copy.enterpriseAccount')
-const auditFieldLabel = (field: string) => ({ member_code: t('enterpriseMembers.copy.code'), name: t('enterpriseMembers.copy.name'), status: t('enterpriseMembers.copy.status'), monthly_limit_usd: t('enterpriseMembers.copy.monthlyBudget'), rate_limit_5h: `5h ${t('enterpriseMembers.copy.limit')}`, rate_limit_1d: `1d ${t('enterpriseMembers.copy.limit')}`, rate_limit_7d: `7d ${t('enterpriseMembers.copy.limit')}`, group_id: t('enterpriseMembers.copy.group'), member_id: t('enterpriseMembers.copy.member'), sort_order: t('enterpriseMembers.copy.order'), quota: t('enterpriseMembers.copy.keyQuota6121f112'), expires_at: t('enterpriseMembers.copy.expiry'), amount_usd: t('enterpriseMembers.copy.amount'), note: t('enterpriseMembers.copy.note'), period_start: t('enterpriseMembers.copy.period'), disabled_reason: t('enterpriseMembers.copy.disabledReason'), deleted_at: t('enterpriseMembers.copy.archivedAt') }[field] || field.split('_').join(' '))
+const auditFieldLabel = (field: string) => ({ member_code: t('enterpriseMembers.copy.code'), name: t('enterpriseMembers.copy.name'), status: t('enterpriseMembers.copy.status'), monthly_limit_usd: t('enterpriseMembers.copy.monthlyBudget'), rate_limit_5h: `5h ${t('enterpriseMembers.copy.limit')}`, rate_limit_1d: `1d ${t('enterpriseMembers.copy.limit')}`, rate_limit_7d: `7d ${t('enterpriseMembers.copy.limit')}`, group_id: t('enterpriseMembers.copy.group'), member_id: t('enterpriseMembers.copy.member'), sort_order: t('enterpriseMembers.copy.order'), quota: t('enterpriseMembers.copy.keyQuota6121f112'), expires_at: t('enterpriseMembers.copy.expiry'), amount_usd: t('enterpriseMembers.copy.amount'), note: t('enterpriseMembers.copy.note'), period_start: t('enterpriseMembers.copy.period'), disabled_reason: t('enterpriseMembers.copy.disabledReason'), deleted_at: t('enterpriseMembers.copy.archivedAt'), removed_at: t('enterpriseMembers.copy.removedAt') }[field] || field.split('_').join(' '))
 function auditValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return t('enterpriseMembers.copy.none')
   if (Array.isArray(value)) return value.length ? value.join(', ') : t('enterpriseMembers.copy.empty')
@@ -1449,7 +1571,11 @@ function auditEventSummary(event: EnterpriseMemberAuditEvent): string {
 const importIssueLabel = (issue: string) => {
   const unauthorizedGroup = issue.match(/^group_(\d+)_not_authorized$/)
   if (unauthorizedGroup) return t('enterpriseMembers.dynamic.legacyGroupNotAuthorized', { id: unauthorizedGroup[1] })
-  return ({ invalid_member_code: t('enterpriseMembers.copy.invalidMemberCode'), invalid_member_name: t('enterpriseMembers.copy.invalidMemberName'), invalid_monthly_limit: t('enterpriseMembers.copy.invalidMonthlyLimit'), invalid_rate_limit_5h: t('enterpriseMembers.copy.invalidRateLimit5h'), invalid_rate_limit_1d: t('enterpriseMembers.copy.invalidRateLimit1d'), invalid_rate_limit_7d: t('enterpriseMembers.copy.invalidRateLimit7d'), invalid_opening_used: t('enterpriseMembers.copy.invalidOpeningAmount'), invalid_key_quota: t('enterpriseMembers.copy.invalidKeyQuota'), invalid_api_key: t('enterpriseMembers.copy.invalidApiKey'), invalid_total_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_input_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_output_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_cache_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_cache_creation_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_cache_read_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), key_name_required: t('enterpriseMembers.copy.keyNameIsRequired'), groups_required: t('enterpriseMembers.copy.atLeastOneGroupIsRequired'), member_fields_conflict: t('enterpriseMembers.copy.memberFieldsConflict'), member_identity_ambiguous: t('enterpriseMembers.copy.memberIdentityAmbiguous'), duplicate_member: t('enterpriseMembers.copy.duplicateMemberInMembersSheet'), member_not_found_in_members_sheet: t('enterpriseMembers.copy.memberNotFoundInMembersSheet'), opening_used_only_first_row: t('enterpriseMembers.copy.openingAmountIsAllowedOnlyOnTheFirstMemberRow'), member_code_exists: t('enterpriseMembers.copy.memberCodeAlreadyExists'), api_key_exists: t('enterpriseMembers.copy.apiKeyAlreadyExistsIncludingDeletedRecords'), budget_exhausted_at_import: t('enterpriseMembers.copy.budgetWillBeExhaustedOnImport'), member_code_generated: t('enterpriseMembers.copy.memberCodeGenerated'), key_name_generated: t('enterpriseMembers.copy.keyNameGenerated'), token_total_mismatch: t('enterpriseMembers.copy.tokenTotalMismatch') }[issue] || issue.split('_').join(' '))
+  const tooShort = issue.match(/^api_key_too_short_(\d+)_(\d+)$/)
+  if (tooShort) return t('enterpriseMembers.dynamic.apiKeyTooShort', { minimum: tooShort[1], actual: tooShort[2] })
+  const tooLong = issue.match(/^api_key_too_long_(\d+)_(\d+)$/)
+  if (tooLong) return t('enterpriseMembers.dynamic.apiKeyTooLong', { maximum: tooLong[1], actual: tooLong[2] })
+  return ({ invalid_member_code: t('enterpriseMembers.copy.invalidMemberCode'), invalid_member_name: t('enterpriseMembers.copy.invalidMemberName'), invalid_monthly_limit: t('enterpriseMembers.copy.invalidMonthlyLimit'), invalid_rate_limit_5h: t('enterpriseMembers.copy.invalidRateLimit5h'), invalid_rate_limit_1d: t('enterpriseMembers.copy.invalidRateLimit1d'), invalid_rate_limit_7d: t('enterpriseMembers.copy.invalidRateLimit7d'), invalid_opening_used: t('enterpriseMembers.copy.invalidOpeningAmount'), invalid_key_quota: t('enterpriseMembers.copy.invalidKeyQuota'), api_key_invalid_characters: t('enterpriseMembers.copy.apiKeyInvalidCharacters'), invalid_api_key: t('enterpriseMembers.copy.invalidApiKey'), invalid_total_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_input_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_output_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_cache_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_cache_creation_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_cache_read_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), key_name_required: t('enterpriseMembers.copy.keyNameIsRequired'), groups_required: t('enterpriseMembers.copy.atLeastOneGroupIsRequired'), member_fields_conflict: t('enterpriseMembers.copy.memberFieldsConflict'), member_identity_ambiguous: t('enterpriseMembers.copy.memberIdentityAmbiguous'), duplicate_member: t('enterpriseMembers.copy.duplicateMemberInMembersSheet'), member_not_found_in_members_sheet: t('enterpriseMembers.copy.memberNotFoundInMembersSheet'), opening_used_only_first_row: t('enterpriseMembers.copy.openingAmountIsAllowedOnlyOnTheFirstMemberRow'), member_code_exists: t('enterpriseMembers.copy.memberCodeAlreadyExists'), api_key_exists: t('enterpriseMembers.copy.apiKeyAlreadyExistsIncludingDeletedRecords'), budget_exhausted_at_import: t('enterpriseMembers.copy.budgetWillBeExhaustedOnImport'), member_code_generated: t('enterpriseMembers.copy.memberCodeGenerated'), key_name_generated: t('enterpriseMembers.copy.keyNameGenerated'), token_total_mismatch: t('enterpriseMembers.copy.tokenTotalMismatch') }[issue] || issue.split('_').join(' '))
 }
 const maskKey = (value: string) => value.length > 12 ? `${value.slice(0, 6)}…${value.slice(-4)}` : '***'
 const splitIPRules = (value: string) => [...new Set(value.split(/[\n,]/).map(item => item.trim()).filter(Boolean))]
