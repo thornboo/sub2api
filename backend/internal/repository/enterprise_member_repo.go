@@ -32,7 +32,10 @@ func (r *enterpriseMemberRepository) ListByOwner(ctx context.Context, ownerID in
 		queryCtx = mixins.SkipSoftDelete(ctx)
 	}
 	rows, err := r.client.EnterpriseMember.Query().
-		Where(enterprisemember.EnterpriseUserIDEQ(ownerID)).
+		Where(
+			enterprisemember.EnterpriseUserIDEQ(ownerID),
+			enterprisemember.RemovedAtIsNil(),
+		).
 		Order(dbent.Asc(enterprisemember.FieldID)).
 		All(queryCtx)
 	if err != nil {
@@ -57,6 +60,7 @@ func (r *enterpriseMemberRepository) GetByOwnerAndID(ctx context.Context, ownerI
 		Where(
 			enterprisemember.IDEQ(memberID),
 			enterprisemember.EnterpriseUserIDEQ(ownerID),
+			enterprisemember.RemovedAtIsNil(),
 		).
 		Only(queryCtx)
 	if err != nil {
@@ -186,6 +190,7 @@ func (r *enterpriseMemberRepository) Update(ctx context.Context, member *service
 			enterprisemember.EnterpriseUserIDEQ(member.EnterpriseUserID),
 			enterprisemember.VersionEQ(expectedVersion),
 			enterprisemember.DeletedAtIsNil(),
+			enterprisemember.RemovedAtIsNil(),
 		).
 		SetName(member.Name).
 		SetMonthlyLimitUsd(member.MonthlyLimitUSD).
@@ -214,6 +219,7 @@ func (r *enterpriseMemberRepository) SetStatus(ctx context.Context, ownerID, mem
 			enterprisemember.EnterpriseUserIDEQ(ownerID),
 			enterprisemember.VersionEQ(expectedVersion),
 			enterprisemember.DeletedAtIsNil(),
+			enterprisemember.RemovedAtIsNil(),
 		).
 		SetStatus(status).
 		AddVersion(1).
@@ -236,6 +242,7 @@ func (r *enterpriseMemberRepository) Archive(ctx context.Context, ownerID, membe
 			enterprisemember.EnterpriseUserIDEQ(ownerID),
 			enterprisemember.VersionEQ(expectedVersion),
 			enterprisemember.DeletedAtIsNil(),
+			enterprisemember.RemovedAtIsNil(),
 		).
 		SetStatus(service.EnterpriseMemberStatusDisabled).
 		SetDeletedAt(now).
@@ -251,50 +258,110 @@ func (r *enterpriseMemberRepository) Archive(ctx context.Context, ownerID, membe
 	return nil
 }
 
-func (r *enterpriseMemberRepository) HardDeleteIfUnused(ctx context.Context, ownerID, memberID int64) error {
+func (r *enterpriseMemberRepository) Restore(ctx context.Context, ownerID, memberID, expectedVersion int64) (*service.EnterpriseMember, error) {
+	queryCtx := mixins.SkipSoftDelete(ctx)
+	now := time.Now()
+	affected, err := r.client.EnterpriseMember.Update().
+		Where(
+			enterprisemember.IDEQ(memberID),
+			enterprisemember.EnterpriseUserIDEQ(ownerID),
+			enterprisemember.VersionEQ(expectedVersion),
+			enterprisemember.DeletedAtNotNil(),
+			enterprisemember.RemovedAtIsNil(),
+		).
+		SetStatus(service.EnterpriseMemberStatusDisabled).
+		ClearDeletedAt().
+		AddVersion(1).
+		SetUpdatedAt(now).
+		Save(queryCtx)
+	if err != nil {
+		return nil, err
+	}
+	if affected == 0 {
+		return nil, service.ErrEnterpriseMemberVersion
+	}
+	return r.GetByOwnerAndID(ctx, ownerID, memberID, false)
+}
+
+func (r *enterpriseMemberRepository) DeletePermanently(ctx context.Context, ownerID, memberID int64) (*service.EnterpriseMemberDeletionResult, error) {
 	if r == nil || r.db == nil {
-		return errors.New("enterprise member repository sql db is nil")
+		return nil, errors.New("enterprise member repository sql db is nil")
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
 	var lockedID int64
-	if err := tx.QueryRowContext(ctx, `SELECT id FROM enterprise_members WHERE id = $1 AND enterprise_user_id = $2 FOR UPDATE`, memberID, ownerID).Scan(&lockedID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return service.ErrEnterpriseMemberNotFound
-		}
-		return err
-	}
-	var inUse bool
 	if err := tx.QueryRowContext(ctx, `
-		SELECT EXISTS (SELECT 1 FROM api_keys WHERE member_id = $1)
-			OR EXISTS (SELECT 1 FROM usage_logs WHERE member_id = $1)
-			OR EXISTS (SELECT 1 FROM enterprise_member_import_usage_baselines WHERE member_id = $1)
-			OR EXISTS (SELECT 1 FROM enterprise_member_budget_entries WHERE member_id = $1)
-			OR EXISTS (SELECT 1 FROM enterprise_member_budget_reservations WHERE member_id = $1)
-			OR EXISTS (SELECT 1 FROM enterprise_member_budget_periods WHERE member_id = $1)`, memberID).Scan(&inUse); err != nil {
-		return err
+		SELECT id
+		FROM enterprise_members
+		WHERE id = $1 AND enterprise_user_id = $2
+		  AND deleted_at IS NOT NULL AND removed_at IS NULL
+		FOR UPDATE`, memberID, ownerID).Scan(&lockedID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, service.ErrEnterpriseMemberNotFound
+		}
+		return nil, err
 	}
-	if inUse {
-		return service.ErrEnterpriseMemberInUse
+	historicalMemberIDs, err := enterpriseMembersWithHistoricalFacts(ctx, tx, []int64{memberID})
+	if err != nil {
+		return nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM enterprise_member_group_bindings WHERE member_id = $1`, memberID); err != nil {
-		return err
+		return nil, err
+	}
+	if _, hasHistoricalFacts := historicalMemberIDs[memberID]; hasHistoricalFacts {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE api_keys
+			SET status = $2,
+			    disabled_reason = $3,
+			    deleted_at = COALESCE(deleted_at, NOW()),
+			    updated_at = NOW()
+			WHERE member_id = $1 AND deleted_at IS NULL`,
+			memberID, service.StatusAPIKeyDisabled, service.APIKeyDisabledReasonMemberRemoved); err != nil {
+			return nil, err
+		}
+		result, err := tx.ExecContext(ctx, `
+			UPDATE enterprise_members
+			SET member_code = '~deleted~' || id::text,
+			    name = 'Deleted member #' || id::text,
+			    status = 'disabled',
+			    removed_at = NOW(),
+			    deleted_at = COALESCE(deleted_at, NOW()),
+			    version = version + 1,
+			    updated_at = NOW()
+			WHERE id = $1 AND enterprise_user_id = $2 AND removed_at IS NULL`, memberID, ownerID)
+		if err != nil {
+			return nil, err
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return nil, err
+		}
+		if affected == 0 {
+			return nil, service.ErrEnterpriseMemberNotFound
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return &service.EnterpriseMemberDeletionResult{Mode: service.EnterpriseMemberDeletionModeTombstone}, nil
 	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM enterprise_members WHERE id = $1 AND enterprise_user_id = $2`, memberID, ownerID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if affected == 0 {
-		return service.ErrEnterpriseMemberNotFound
+		return nil, service.ErrEnterpriseMemberNotFound
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &service.EnterpriseMemberDeletionResult{Mode: service.EnterpriseMemberDeletionModeHardDelete}, nil
 }
 
 func (r *enterpriseMemberRepository) ReplaceGroups(ctx context.Context, ownerID, memberID, expectedVersion int64, groupIDs []int64) (*service.EnterpriseMember, error) {
@@ -728,6 +795,24 @@ func (r *enterpriseMemberRepository) enrichMembers(ctx context.Context, members 
 			members[idx].KeyCount = count.Count
 		}
 	}
+	archivedIDs := make([]int64, 0, len(members))
+	for i := range members {
+		if members[i].DeletedAt == nil {
+			continue
+		}
+		members[i].CanPermanentlyDelete = true
+		members[i].DeleteStrategy = service.EnterpriseMemberDeletionModeHardDelete
+		archivedIDs = append(archivedIDs, members[i].ID)
+	}
+	historicalMemberIDs, err := enterpriseMembersWithHistoricalFacts(ctx, r.db, archivedIDs)
+	if err != nil {
+		return err
+	}
+	for memberID := range historicalMemberIDs {
+		if idx, ok := byID[memberID]; ok {
+			members[idx].DeleteStrategy = service.EnterpriseMemberDeletionModeTombstone
+		}
+	}
 	rateRows, err := r.db.QueryContext(ctx, `
 		SELECT member_id, usage_5h, usage_1d, usage_7d,
 		       window_5h_start, window_1d_start, window_7d_start
@@ -772,6 +857,49 @@ func (r *enterpriseMemberRepository) enrichMembers(ctx context.Context, members 
 		return err
 	}
 	return nil
+}
+
+type enterpriseMemberSQLQueryer interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+// enterpriseMembersWithHistoricalFacts is the single source of truth for the
+// list deletion hint and the final transactional deletion strategy. Members
+// without facts can be physically deleted; members with facts become hidden
+// tombstones so billing and audit relationships remain intact.
+func enterpriseMembersWithHistoricalFacts(ctx context.Context, queryer enterpriseMemberSQLQueryer, memberIDs []int64) (map[int64]struct{}, error) {
+	result := make(map[int64]struct{})
+	if len(memberIDs) == 0 {
+		return result, nil
+	}
+	rows, err := queryer.QueryContext(ctx, `
+		SELECT candidate.member_id
+		FROM unnest($1::bigint[]) AS candidate(member_id)
+		WHERE EXISTS (SELECT 1 FROM api_keys WHERE member_id = candidate.member_id)
+			OR EXISTS (SELECT 1 FROM usage_logs WHERE member_id = candidate.member_id)
+			OR EXISTS (SELECT 1 FROM enterprise_member_import_usage_baselines WHERE member_id = candidate.member_id)
+			OR EXISTS (SELECT 1 FROM enterprise_member_budget_entries WHERE member_id = candidate.member_id)
+			OR EXISTS (SELECT 1 FROM enterprise_member_budget_reservations WHERE member_id = candidate.member_id)
+			OR EXISTS (SELECT 1 FROM enterprise_member_budget_periods WHERE member_id = candidate.member_id)
+			OR EXISTS (SELECT 1 FROM enterprise_member_rate_limit_periods WHERE member_id = candidate.member_id)
+			OR EXISTS (SELECT 1 FROM ops_error_logs WHERE member_id = candidate.member_id)
+			OR EXISTS (SELECT 1 FROM batch_image_jobs WHERE member_id = candidate.member_id)
+			OR EXISTS (SELECT 1 FROM grok_media_tasks WHERE member_id = candidate.member_id)`, pq.Array(memberIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var memberID int64
+		if err := rows.Scan(&memberID); err != nil {
+			return nil, err
+		}
+		result[memberID] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func createEnterpriseMemberBindings(ctx context.Context, client *dbent.Client, memberID int64, groupIDs []int64) error {

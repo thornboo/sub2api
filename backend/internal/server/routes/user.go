@@ -97,6 +97,7 @@ func RegisterUserRoutes(
 			enterpriseMembers.PATCH("/:id", h.EnterpriseMember.Update)
 			enterpriseMembers.POST("/:id/disable", h.EnterpriseMember.Disable)
 			enterpriseMembers.POST("/:id/enable", h.EnterpriseMember.Enable)
+			enterpriseMembers.POST("/:id/restore", h.EnterpriseMember.Restore)
 			enterpriseMembers.DELETE("/:id", h.EnterpriseMember.Delete)
 			enterpriseMembers.GET("/:id/groups", h.EnterpriseMember.GetGroups)
 			enterpriseMembers.PUT("/:id/groups", h.EnterpriseMember.ReplaceGroups)

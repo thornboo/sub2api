@@ -117,3 +117,16 @@ func TestEnterpriseMemberLedgerIntegrityMigrationProtectsAccountingFacts(t *test
 	require.Contains(t, sql, "NEW.usage_log_id IS NOT NULL")
 	require.Contains(t, sql, "NEW IS NOT DISTINCT FROM OLD")
 }
+
+func TestEnterpriseMemberRemovalLifecycleSeparatesArchiveFromDeletion(t *testing.T) {
+	content, err := FS.ReadFile("186_enterprise_member_removal_lifecycle.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ")
+	require.Contains(t, sql, "CHECK (removed_at IS NULL OR deleted_at IS NOT NULL)")
+	require.Contains(t, sql, "WHEN OLD.removed_at IS NULL AND NEW.removed_at IS NOT NULL THEN 'member.removed'")
+	require.Contains(t, sql, "WHEN OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL THEN 'member.restored'")
+	require.Contains(t, sql, "'removed_at', NEW.removed_at")
+	require.NotContains(t, sql, "ON DELETE CASCADE")
+}

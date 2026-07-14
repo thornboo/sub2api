@@ -228,6 +228,20 @@ func TestEnterpriseMemberImportPreviewAcceptsCustomerUsageExportWithoutSystemFie
 	require.NotContains(t, row.Warnings, "token_total_mismatch")
 }
 
+func TestEnterpriseMemberImportPreviewReportsSpecificAPIKeyValidationReasons(t *testing.T) {
+	repo := &importPreviewRepoCapture{}
+	svc := NewEnterpriseMemberImportService(repo, importTestEncryptor{}, &APIKeyService{})
+	data := []byte("用户名称,api_key\n短密钥,sk-123456\n超长密钥," + strings.Repeat("a", 129) + "\n非法字符,abcdefghijklmnop!\n")
+
+	preview, err := svc.Preview(context.Background(), 7, "csv", data)
+	require.NoError(t, err)
+	require.Zero(t, preview.ValidRows)
+	require.Equal(t, 3, preview.InvalidRows)
+	require.Equal(t, []string{"api_key_too_short_16_9"}, preview.Rows[0].Errors)
+	require.Equal(t, []string{"api_key_too_long_128_129"}, preview.Rows[1].Errors)
+	require.Equal(t, []string{"api_key_invalid_characters"}, preview.Rows[2].Errors)
+}
+
 func TestEnterpriseMemberImportPreviewRejectsAmbiguousSameNameRowsWithoutMemberCodes(t *testing.T) {
 	repo := &importPreviewRepoCapture{}
 	svc := NewEnterpriseMemberImportService(repo, importTestEncryptor{}, &APIKeyService{})

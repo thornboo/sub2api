@@ -128,6 +128,24 @@ func (h *EnterpriseMemberHandler) Enable(c *gin.Context) {
 	h.setStatus(c, service.EnterpriseMemberStatusActive)
 }
 
+func (h *EnterpriseMemberHandler) Restore(c *gin.Context) {
+	ownerID, memberID, ok := enterpriseMemberIDs(c)
+	if !ok {
+		return
+	}
+	var req enterpriseMemberStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	member, err := h.service.Restore(c.Request.Context(), ownerID, memberID, req.ExpectedVersion)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, member)
+}
+
 func (h *EnterpriseMemberHandler) setStatus(c *gin.Context, status string) {
 	ownerID, memberID, ok := enterpriseMemberIDs(c)
 	if !ok {
@@ -157,20 +175,28 @@ func (h *EnterpriseMemberHandler) Delete(c *gin.Context) {
 		return
 	}
 	if permanent {
-		err = h.service.HardDeleteIfUnused(c.Request.Context(), ownerID, memberID)
-	} else {
-		expectedVersion, parseErr := strconv.ParseInt(c.Query("expected_version"), 10, 64)
-		if parseErr != nil || expectedVersion <= 0 {
-			response.BadRequest(c, "expected_version is required")
+		result, deleteErr := h.service.DeletePermanently(c.Request.Context(), ownerID, memberID)
+		if deleteErr != nil {
+			response.ErrorFrom(c, deleteErr)
 			return
 		}
-		err = h.service.Archive(c.Request.Context(), ownerID, memberID, expectedVersion)
+		response.Success(c, gin.H{
+			"archived":            false,
+			"permanently_deleted": true,
+			"deletion_mode":       result.Mode,
+		})
+		return
 	}
-	if err != nil {
+	expectedVersion, parseErr := strconv.ParseInt(c.Query("expected_version"), 10, 64)
+	if parseErr != nil || expectedVersion <= 0 {
+		response.BadRequest(c, "expected_version is required")
+		return
+	}
+	if err := h.service.Archive(c.Request.Context(), ownerID, memberID, expectedVersion); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, gin.H{"archived": !permanent, "permanently_deleted": permanent})
+	response.Success(c, gin.H{"archived": true, "permanently_deleted": false})
 }
 
 func (h *EnterpriseMemberHandler) GetGroups(c *gin.Context) {

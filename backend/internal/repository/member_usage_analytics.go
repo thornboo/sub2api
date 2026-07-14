@@ -31,6 +31,7 @@ func (r *usageLogRepository) ListOwnerUsageMembers(ctx context.Context, ownerID 
 		 AND ak.user_id = em.enterprise_user_id
 		 AND ak.deleted_at IS NULL
 		WHERE em.enterprise_user_id = $1
+		  AND em.removed_at IS NULL
 		GROUP BY em.id
 		ORDER BY (em.deleted_at IS NOT NULL) ASC, LOWER(em.name) ASC, em.id ASC
 	`, ownerID)

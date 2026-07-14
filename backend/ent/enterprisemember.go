@@ -42,6 +42,8 @@ type EnterpriseMember struct {
 	RateLimit7d float64 `json:"rate_limit_7d,omitempty"`
 	// Version holds the value of the "version" field.
 	Version int64 `json:"version,omitempty"`
+	// RemovedAt holds the value of the "removed_at" field.
+	RemovedAt *time.Time `json:"removed_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the EnterpriseMemberQuery when eager-loading is set.
 	Edges        EnterpriseMemberEdges `json:"edges"`
@@ -156,7 +158,7 @@ func (*EnterpriseMember) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullInt64)
 		case enterprisemember.FieldMemberCode, enterprisemember.FieldName, enterprisemember.FieldStatus:
 			values[i] = new(sql.NullString)
-		case enterprisemember.FieldCreatedAt, enterprisemember.FieldUpdatedAt, enterprisemember.FieldDeletedAt:
+		case enterprisemember.FieldCreatedAt, enterprisemember.FieldUpdatedAt, enterprisemember.FieldDeletedAt, enterprisemember.FieldRemovedAt:
 			values[i] = new(sql.NullTime)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -251,6 +253,13 @@ func (_m *EnterpriseMember) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field version", values[i])
 			} else if value.Valid {
 				_m.Version = value.Int64
+			}
+		case enterprisemember.FieldRemovedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field removed_at", values[i])
+			} else if value.Valid {
+				_m.RemovedAt = new(time.Time)
+				*_m.RemovedAt = value.Time
 			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
@@ -365,6 +374,11 @@ func (_m *EnterpriseMember) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("version=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Version))
+	builder.WriteString(", ")
+	if v := _m.RemovedAt; v != nil {
+		builder.WriteString("removed_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
 	builder.WriteByte(')')
 	return builder.String()
 }

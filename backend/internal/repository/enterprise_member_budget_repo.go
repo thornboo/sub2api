@@ -120,7 +120,7 @@ func (r *enterpriseMemberBudgetRepository) GetSummary(ctx context.Context, membe
 		FROM enterprise_members m
 		LEFT JOIN enterprise_member_budget_periods p ON p.member_id = m.id AND p.period_start = $2
 		LEFT JOIN enterprise_member_rate_limit_periods r ON r.member_id = m.id
-		WHERE m.id = $1 AND m.deleted_at IS NULL`, memberID, periodStart.Format("2006-01-02")).
+		WHERE m.id = $1`, memberID, periodStart.Format("2006-01-02")).
 		Scan(&summary.LimitUSD, &summary.UsedUSD, &summary.ReservedUSD,
 			&summary.RateLimit5h, &summary.RateLimit1d, &summary.RateLimit7d,
 			&summary.Usage5h, &summary.Usage1d, &summary.Usage7d,
@@ -439,7 +439,7 @@ func (r *enterpriseMemberBudgetRepository) GetOwnerUsageSummary(ctx context.Cont
 	}
 	summary := &service.EnterpriseMemberOwnerUsageSummary{PeriodStart: periodStart, PeriodEnd: periodEnd, Timezone: enterpriseBudgetTimezone(), Members: []service.EnterpriseMemberOwnerUsageItem{}}
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT m.id, m.member_code, m.name, m.status, m.monthly_limit_usd,
+		SELECT m.id, m.member_code, m.name, m.status, m.monthly_limit_usd, m.removed_at,
 		       COALESCE(p.used_usd, 0), COALESCE(p.reserved_usd, 0),
 		       COALESCE(u.request_count, 0), COALESCE(u.input_tokens, 0), COALESCE(u.output_tokens, 0),
 		       COALESCE(b.billed_usd, 0), COALESCE(b.total_tokens, 0), COALESCE(b.input_tokens, 0),
@@ -467,7 +467,9 @@ func (r *enterpriseMemberBudgetRepository) GetOwnerUsageSummary(ctx context.Cont
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var item service.EnterpriseMemberOwnerUsageItem
+		var removedAt sql.NullTime
 		if err := rows.Scan(&item.MemberID, &item.MemberCode, &item.MemberName, &item.Status, &item.LimitUSD,
+			&removedAt,
 			&item.UsedUSD, &item.ReservedUSD, &item.RequestCount, &item.InputTokens, &item.OutputTokens,
 			&item.MigrationBilledUSD, &item.MigrationTotalTokens, &item.MigrationInputTokens,
 			&item.MigrationOutputTokens, &item.MigrationCacheTokens, &item.MigrationCacheWriteTokens,
@@ -494,7 +496,9 @@ func (r *enterpriseMemberBudgetRepository) GetOwnerUsageSummary(ctx context.Cont
 		summary.MigrationCacheTokens += item.MigrationCacheTokens
 		summary.MigrationCacheWriteTokens += item.MigrationCacheWriteTokens
 		summary.MigrationCacheReadTokens += item.MigrationCacheReadTokens
-		summary.Members = append(summary.Members, item)
+		if !removedAt.Valid {
+			summary.Members = append(summary.Members, item)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

@@ -58,6 +58,10 @@ func (EnterpriseMember) Fields() []ent.Field {
 		field.Int64("version").
 			Default(1).
 			Positive(),
+		field.Time("removed_at").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
 	}
 }
 
@@ -80,11 +84,14 @@ func (EnterpriseMember) Edges() []ent.Edge {
 
 func (EnterpriseMember) Indexes() []ent.Index {
 	return []ent.Index{
-		// A stable member code is never reused, including after soft deletion.
+		// Archived members keep their code. A permanently removed tombstone is
+		// assigned a server-only code before the original code can be reused.
 		index.Fields("enterprise_user_id", "member_code").Unique(),
 		// Composite tenant identity used by api_keys(member_id, user_id).
 		index.Fields("id", "enterprise_user_id").Unique(),
 		index.Fields("enterprise_user_id", "status"),
 		index.Fields("deleted_at"),
+		index.Fields("enterprise_user_id", "id").
+			Annotations(entsql.IndexWhere("removed_at IS NULL")),
 	}
 }

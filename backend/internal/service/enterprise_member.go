@@ -18,13 +18,15 @@ var (
 	ErrEnterpriseMemberConflict        = infraerrors.Conflict("ENTERPRISE_MEMBER_CONFLICT", "enterprise member already exists")
 	ErrEnterpriseMemberVersion         = infraerrors.Conflict("ENTERPRISE_MEMBER_VERSION_CONFLICT", "enterprise member was modified; reload and retry")
 	ErrEnterpriseMemberInvalid         = infraerrors.BadRequest("ENTERPRISE_MEMBER_INVALID", "enterprise member input is invalid")
-	ErrEnterpriseMemberInUse           = infraerrors.Conflict("ENTERPRISE_MEMBER_IN_USE", "enterprise member has historical facts and must be archived")
 	ErrEnterpriseMemberKeyNotAdoptable = infraerrors.Conflict("ENTERPRISE_MEMBER_KEY_NOT_ADOPTABLE", "api key is not eligible for enterprise member adoption")
 )
 
 const (
 	EnterpriseMemberStatusActive   = "active"
 	EnterpriseMemberStatusDisabled = "disabled"
+
+	EnterpriseMemberDeletionModeHardDelete = "hard_delete"
+	EnterpriseMemberDeletionModeTombstone  = "tombstone"
 )
 
 var enterpriseMemberCodePattern = regexp.MustCompile("^[A-Za-z0-9._-]+$")
@@ -49,9 +51,18 @@ type EnterpriseMember struct {
 	GroupIDs         []int64    `json:"group_ids"`
 	Groups           []Group    `json:"-"`
 	KeyCount         int64      `json:"key_count"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-	DeletedAt        *time.Time `json:"deleted_at,omitempty"`
+	DeleteStrategy   string     `json:"delete_strategy,omitempty"`
+	// CanPermanentlyDelete is retained for rolling compatibility with older
+	// frontends. Every archived member can now be removed from the owner's
+	// workspace; DeleteStrategy describes how the server preserves evidence.
+	CanPermanentlyDelete bool       `json:"can_permanently_delete"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	DeletedAt            *time.Time `json:"deleted_at,omitempty"`
+}
+
+type EnterpriseMemberDeletionResult struct {
+	Mode string `json:"mode"`
 }
 
 type EnterpriseMemberGroupBinding struct {
@@ -173,7 +184,8 @@ type EnterpriseMemberRepository interface {
 	Update(ctx context.Context, member *EnterpriseMember, expectedVersion int64) error
 	SetStatus(ctx context.Context, ownerID, memberID, expectedVersion int64, status string) (*EnterpriseMember, error)
 	Archive(ctx context.Context, ownerID, memberID, expectedVersion int64) error
-	HardDeleteIfUnused(ctx context.Context, ownerID, memberID int64) error
+	Restore(ctx context.Context, ownerID, memberID, expectedVersion int64) (*EnterpriseMember, error)
+	DeletePermanently(ctx context.Context, ownerID, memberID int64) (*EnterpriseMemberDeletionResult, error)
 	ReplaceGroups(ctx context.Context, ownerID, memberID, expectedVersion int64, groupIDs []int64) (*EnterpriseMember, error)
 	BatchReplaceGroups(ctx context.Context, ownerID int64, targets []BatchEnterpriseMemberGroupTarget) ([]BatchEnterpriseMemberGroupUpdate, error)
 	ListKeys(ctx context.Context, ownerID, memberID int64) ([]APIKey, error)
@@ -453,22 +465,38 @@ func (s *EnterpriseMemberService) Archive(ctx context.Context, ownerID, memberID
 	return nil
 }
 
-func (s *EnterpriseMemberService) HardDeleteIfUnused(ctx context.Context, ownerID, memberID int64) error {
+func (s *EnterpriseMemberService) Restore(ctx context.Context, ownerID, memberID, expectedVersion int64) (*EnterpriseMember, error) {
 	if _, err := s.requireEnterpriseOwner(ctx, ownerID); err != nil {
-		return err
+		return nil, err
 	}
-	if err := s.repo.HardDeleteIfUnused(ctx, ownerID, memberID); err != nil {
-		return err
+	if expectedVersion <= 0 {
+		return nil, ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{"field": "expected_version"})
+	}
+	member, err := s.repo.Restore(ctx, ownerID, memberID, expectedVersion)
+	if err != nil {
+		return nil, err
 	}
 	s.invalidateOwner(ctx, ownerID)
-	return nil
+	return member, nil
+}
+
+func (s *EnterpriseMemberService) DeletePermanently(ctx context.Context, ownerID, memberID int64) (*EnterpriseMemberDeletionResult, error) {
+	if _, err := s.requireEnterpriseOwner(ctx, ownerID); err != nil {
+		return nil, err
+	}
+	result, err := s.repo.DeletePermanently(ctx, ownerID, memberID)
+	if err != nil {
+		return nil, err
+	}
+	s.invalidateOwner(ctx, ownerID)
+	return result, nil
 }
 
 func (s *EnterpriseMemberService) ListKeys(ctx context.Context, ownerID, memberID int64) ([]APIKey, error) {
 	if _, err := s.requireEnterpriseOwner(ctx, ownerID); err != nil {
 		return nil, err
 	}
-	if _, err := s.repo.GetByOwnerAndID(ctx, ownerID, memberID, false); err != nil {
+	if _, err := s.repo.GetByOwnerAndID(ctx, ownerID, memberID, true); err != nil {
 		return nil, err
 	}
 	return s.repo.ListKeys(ctx, ownerID, memberID)
@@ -570,6 +598,9 @@ func (s *EnterpriseMemberService) UpdateKey(ctx context.Context, ownerID, member
 	if _, err := s.requireEnterpriseOwner(ctx, ownerID); err != nil {
 		return nil, err
 	}
+	if _, err := s.repo.GetByOwnerAndID(ctx, ownerID, memberID, false); err != nil {
+		return nil, err
+	}
 	if input.GroupID != nil {
 		return nil, ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{"field": "group_id"})
 	}
@@ -592,6 +623,9 @@ func (s *EnterpriseMemberService) UpdateKey(ctx context.Context, ownerID, member
 
 func (s *EnterpriseMemberService) DeleteKey(ctx context.Context, ownerID, memberID, keyID int64) error {
 	if _, err := s.requireEnterpriseOwner(ctx, ownerID); err != nil {
+		return err
+	}
+	if _, err := s.repo.GetByOwnerAndID(ctx, ownerID, memberID, false); err != nil {
 		return err
 	}
 	keys, err := s.repo.ListKeys(ctx, ownerID, memberID)

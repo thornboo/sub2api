@@ -20176,6 +20176,7 @@ type EnterpriseMemberMutation struct {
 	addrate_limit_7d           *float64
 	version                    *int64
 	addversion                 *int64
+	removed_at                 *time.Time
 	clearedFields              map[string]struct{}
 	enterprise_user            *int64
 	clearedenterprise_user     bool
@@ -20845,6 +20846,55 @@ func (m *EnterpriseMemberMutation) ResetVersion() {
 	m.addversion = nil
 }
 
+// SetRemovedAt sets the "removed_at" field.
+func (m *EnterpriseMemberMutation) SetRemovedAt(t time.Time) {
+	m.removed_at = &t
+}
+
+// RemovedAt returns the value of the "removed_at" field in the mutation.
+func (m *EnterpriseMemberMutation) RemovedAt() (r time.Time, exists bool) {
+	v := m.removed_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRemovedAt returns the old "removed_at" field's value of the EnterpriseMember entity.
+// If the EnterpriseMember object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *EnterpriseMemberMutation) OldRemovedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRemovedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRemovedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRemovedAt: %w", err)
+	}
+	return oldValue.RemovedAt, nil
+}
+
+// ClearRemovedAt clears the value of the "removed_at" field.
+func (m *EnterpriseMemberMutation) ClearRemovedAt() {
+	m.removed_at = nil
+	m.clearedFields[enterprisemember.FieldRemovedAt] = struct{}{}
+}
+
+// RemovedAtCleared returns if the "removed_at" field was cleared in this mutation.
+func (m *EnterpriseMemberMutation) RemovedAtCleared() bool {
+	_, ok := m.clearedFields[enterprisemember.FieldRemovedAt]
+	return ok
+}
+
+// ResetRemovedAt resets all changes to the "removed_at" field.
+func (m *EnterpriseMemberMutation) ResetRemovedAt() {
+	m.removed_at = nil
+	delete(m.clearedFields, enterprisemember.FieldRemovedAt)
+}
+
 // ClearEnterpriseUser clears the "enterprise_user" edge to the User entity.
 func (m *EnterpriseMemberMutation) ClearEnterpriseUser() {
 	m.clearedenterprise_user = true
@@ -21230,7 +21280,7 @@ func (m *EnterpriseMemberMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *EnterpriseMemberMutation) Fields() []string {
-	fields := make([]string, 0, 12)
+	fields := make([]string, 0, 13)
 	if m.created_at != nil {
 		fields = append(fields, enterprisemember.FieldCreatedAt)
 	}
@@ -21267,6 +21317,9 @@ func (m *EnterpriseMemberMutation) Fields() []string {
 	if m.version != nil {
 		fields = append(fields, enterprisemember.FieldVersion)
 	}
+	if m.removed_at != nil {
+		fields = append(fields, enterprisemember.FieldRemovedAt)
+	}
 	return fields
 }
 
@@ -21299,6 +21352,8 @@ func (m *EnterpriseMemberMutation) Field(name string) (ent.Value, bool) {
 		return m.RateLimit7d()
 	case enterprisemember.FieldVersion:
 		return m.Version()
+	case enterprisemember.FieldRemovedAt:
+		return m.RemovedAt()
 	}
 	return nil, false
 }
@@ -21332,6 +21387,8 @@ func (m *EnterpriseMemberMutation) OldField(ctx context.Context, name string) (e
 		return m.OldRateLimit7d(ctx)
 	case enterprisemember.FieldVersion:
 		return m.OldVersion(ctx)
+	case enterprisemember.FieldRemovedAt:
+		return m.OldRemovedAt(ctx)
 	}
 	return nil, fmt.Errorf("unknown EnterpriseMember field %s", name)
 }
@@ -21424,6 +21481,13 @@ func (m *EnterpriseMemberMutation) SetField(name string, value ent.Value) error 
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetVersion(v)
+		return nil
+	case enterprisemember.FieldRemovedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRemovedAt(v)
 		return nil
 	}
 	return fmt.Errorf("unknown EnterpriseMember field %s", name)
@@ -21521,6 +21585,9 @@ func (m *EnterpriseMemberMutation) ClearedFields() []string {
 	if m.FieldCleared(enterprisemember.FieldDeletedAt) {
 		fields = append(fields, enterprisemember.FieldDeletedAt)
 	}
+	if m.FieldCleared(enterprisemember.FieldRemovedAt) {
+		fields = append(fields, enterprisemember.FieldRemovedAt)
+	}
 	return fields
 }
 
@@ -21537,6 +21604,9 @@ func (m *EnterpriseMemberMutation) ClearField(name string) error {
 	switch name {
 	case enterprisemember.FieldDeletedAt:
 		m.ClearDeletedAt()
+		return nil
+	case enterprisemember.FieldRemovedAt:
+		m.ClearRemovedAt()
 		return nil
 	}
 	return fmt.Errorf("unknown EnterpriseMember nullable field %s", name)
@@ -21581,6 +21651,9 @@ func (m *EnterpriseMemberMutation) ResetField(name string) error {
 		return nil
 	case enterprisemember.FieldVersion:
 		m.ResetVersion()
+		return nil
+	case enterprisemember.FieldRemovedAt:
+		m.ResetRemovedAt()
 		return nil
 	}
 	return fmt.Errorf("unknown EnterpriseMember field %s", name)

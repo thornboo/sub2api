@@ -58,6 +58,7 @@ var (
 )
 
 const (
+	apiKeyMinimumLength          = 16
 	apiKeyMaxErrorsPerHour       = 20
 	apiKeyLastUsedMinTouch       = 30 * time.Second
 	apiKeyNameMaxLength          = 100
@@ -327,7 +328,7 @@ func (s *APIKeyService) GenerateKey() (string, error) {
 // ValidateCustomKey 验证自定义API Key格式
 func (s *APIKeyService) ValidateCustomKey(key string) error {
 	// 检查长度
-	if len(key) < 16 {
+	if len(key) < apiKeyMinimumLength {
 		return ErrAPIKeyTooShort
 	}
 

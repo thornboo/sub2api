@@ -115,6 +115,11 @@ func Version(v int64) predicate.EnterpriseMember {
 	return predicate.EnterpriseMember(sql.FieldEQ(FieldVersion, v))
 }
 
+// RemovedAt applies equality check predicate on the "removed_at" field. It's identical to RemovedAtEQ.
+func RemovedAt(v time.Time) predicate.EnterpriseMember {
+	return predicate.EnterpriseMember(sql.FieldEQ(FieldRemovedAt, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.EnterpriseMember {
 	return predicate.EnterpriseMember(sql.FieldEQ(FieldCreatedAt, v))
@@ -658,6 +663,56 @@ func VersionLT(v int64) predicate.EnterpriseMember {
 // VersionLTE applies the LTE predicate on the "version" field.
 func VersionLTE(v int64) predicate.EnterpriseMember {
 	return predicate.EnterpriseMember(sql.FieldLTE(FieldVersion, v))
+}
+
+// RemovedAtEQ applies the EQ predicate on the "removed_at" field.
+func RemovedAtEQ(v time.Time) predicate.EnterpriseMember {
+	return predicate.EnterpriseMember(sql.FieldEQ(FieldRemovedAt, v))
+}
+
+// RemovedAtNEQ applies the NEQ predicate on the "removed_at" field.
+func RemovedAtNEQ(v time.Time) predicate.EnterpriseMember {
+	return predicate.EnterpriseMember(sql.FieldNEQ(FieldRemovedAt, v))
+}
+
+// RemovedAtIn applies the In predicate on the "removed_at" field.
+func RemovedAtIn(vs ...time.Time) predicate.EnterpriseMember {
+	return predicate.EnterpriseMember(sql.FieldIn(FieldRemovedAt, vs...))
+}
+
+// RemovedAtNotIn applies the NotIn predicate on the "removed_at" field.
+func RemovedAtNotIn(vs ...time.Time) predicate.EnterpriseMember {
+	return predicate.EnterpriseMember(sql.FieldNotIn(FieldRemovedAt, vs...))
+}
+
+// RemovedAtGT applies the GT predicate on the "removed_at" field.
+func RemovedAtGT(v time.Time) predicate.EnterpriseMember {
+	return predicate.EnterpriseMember(sql.FieldGT(FieldRemovedAt, v))
+}
+
+// RemovedAtGTE applies the GTE predicate on the "removed_at" field.
+func RemovedAtGTE(v time.Time) predicate.EnterpriseMember {
+	return predicate.EnterpriseMember(sql.FieldGTE(FieldRemovedAt, v))
+}
+
+// RemovedAtLT applies the LT predicate on the "removed_at" field.
+func RemovedAtLT(v time.Time) predicate.EnterpriseMember {
+	return predicate.EnterpriseMember(sql.FieldLT(FieldRemovedAt, v))
+}
+
+// RemovedAtLTE applies the LTE predicate on the "removed_at" field.
+func RemovedAtLTE(v time.Time) predicate.EnterpriseMember {
+	return predicate.EnterpriseMember(sql.FieldLTE(FieldRemovedAt, v))
+}
+
+// RemovedAtIsNil applies the IsNil predicate on the "removed_at" field.
+func RemovedAtIsNil() predicate.EnterpriseMember {
+	return predicate.EnterpriseMember(sql.FieldIsNull(FieldRemovedAt))
+}
+
+// RemovedAtNotNil applies the NotNil predicate on the "removed_at" field.
+func RemovedAtNotNil() predicate.EnterpriseMember {
+	return predicate.EnterpriseMember(sql.FieldNotNull(FieldRemovedAt))
 }
 
 // HasEnterpriseUser applies the HasEdge predicate on the "enterprise_user" edge.

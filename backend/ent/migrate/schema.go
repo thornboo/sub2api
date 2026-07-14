@@ -831,6 +831,7 @@ var (
 		{Name: "rate_limit_1d", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
 		{Name: "rate_limit_7d", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
 		{Name: "version", Type: field.TypeInt64, Default: 1},
+		{Name: "removed_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "enterprise_user_id", Type: field.TypeInt64},
 	}
 	// EnterpriseMembersTable holds the schema information for the "enterprise_members" table.
@@ -841,7 +842,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "enterprise_members_users_enterprise_members",
-				Columns:    []*schema.Column{EnterpriseMembersColumns[12]},
+				Columns:    []*schema.Column{EnterpriseMembersColumns[13]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -850,22 +851,30 @@ var (
 			{
 				Name:    "enterprisemember_enterprise_user_id_member_code",
 				Unique:  true,
-				Columns: []*schema.Column{EnterpriseMembersColumns[12], EnterpriseMembersColumns[4]},
+				Columns: []*schema.Column{EnterpriseMembersColumns[13], EnterpriseMembersColumns[4]},
 			},
 			{
 				Name:    "enterprisemember_id_enterprise_user_id",
 				Unique:  true,
-				Columns: []*schema.Column{EnterpriseMembersColumns[0], EnterpriseMembersColumns[12]},
+				Columns: []*schema.Column{EnterpriseMembersColumns[0], EnterpriseMembersColumns[13]},
 			},
 			{
 				Name:    "enterprisemember_enterprise_user_id_status",
 				Unique:  false,
-				Columns: []*schema.Column{EnterpriseMembersColumns[12], EnterpriseMembersColumns[6]},
+				Columns: []*schema.Column{EnterpriseMembersColumns[13], EnterpriseMembersColumns[6]},
 			},
 			{
 				Name:    "enterprisemember_deleted_at",
 				Unique:  false,
 				Columns: []*schema.Column{EnterpriseMembersColumns[3]},
+			},
+			{
+				Name:    "enterprisemember_enterprise_user_id_id",
+				Unique:  false,
+				Columns: []*schema.Column{EnterpriseMembersColumns[13], EnterpriseMembersColumns[0]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "removed_at IS NULL",
+				},
 			},
 		},
 	}

@@ -34,6 +34,7 @@ const (
 	enterpriseMemberImportMaxFileBytes = 10 << 20
 	enterpriseMemberImportMaxRows      = 5000
 	enterpriseMemberImportMaxCellBytes = 4096
+	enterpriseMemberImportMaxKeyBytes  = 128
 
 	EnterpriseMemberImportPolicyLegacyAutoActivate = 1
 	EnterpriseMemberImportPolicyExplicitActivation = 2
@@ -528,8 +529,8 @@ func (s *EnterpriseMemberImportService) encryptImportedKeys(rows []EnterpriseMem
 		if plaintext == "" {
 			continue
 		}
-		if len(plaintext) > 128 || s.apiKeyService.ValidateCustomKey(plaintext) != nil {
-			rows[i].Errors = append(rows[i].Errors, "invalid_api_key")
+		if issue := enterpriseMemberImportAPIKeyIssue(s.apiKeyService, plaintext); issue != "" {
+			rows[i].Errors = append(rows[i].Errors, issue)
 			continue
 		}
 		if previous, exists := seen[plaintext]; exists {
@@ -545,6 +546,25 @@ func (s *EnterpriseMemberImportService) encryptImportedKeys(rows []EnterpriseMem
 		rows[i].KeyPresent = true
 	}
 	return nil
+}
+
+func enterpriseMemberImportAPIKeyIssue(apiKeyService *APIKeyService, plaintext string) string {
+	if len(plaintext) > enterpriseMemberImportMaxKeyBytes {
+		return fmt.Sprintf("api_key_too_long_%d_%d", enterpriseMemberImportMaxKeyBytes, len(plaintext))
+	}
+	err := apiKeyService.ValidateCustomKey(plaintext)
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, ErrAPIKeyTooShort):
+		return fmt.Sprintf("api_key_too_short_%d_%d", apiKeyMinimumLength, len(plaintext))
+	case errors.Is(err, ErrAPIKeyInvalidChars):
+		return "api_key_invalid_characters"
+	default:
+		// Preserve the legacy catch-all for future validators until they receive
+		// an explicit, localized import issue contract.
+		return "invalid_api_key"
+	}
 }
 
 func parseEnterpriseMemberImportCSV(data []byte) ([]EnterpriseMemberImportRow, error) {

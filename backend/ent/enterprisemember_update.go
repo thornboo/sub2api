@@ -222,6 +222,26 @@ func (_u *EnterpriseMemberUpdate) AddVersion(v int64) *EnterpriseMemberUpdate {
 	return _u
 }
 
+// SetRemovedAt sets the "removed_at" field.
+func (_u *EnterpriseMemberUpdate) SetRemovedAt(v time.Time) *EnterpriseMemberUpdate {
+	_u.mutation.SetRemovedAt(v)
+	return _u
+}
+
+// SetNillableRemovedAt sets the "removed_at" field if the given value is not nil.
+func (_u *EnterpriseMemberUpdate) SetNillableRemovedAt(v *time.Time) *EnterpriseMemberUpdate {
+	if v != nil {
+		_u.SetRemovedAt(*v)
+	}
+	return _u
+}
+
+// ClearRemovedAt clears the value of the "removed_at" field.
+func (_u *EnterpriseMemberUpdate) ClearRemovedAt() *EnterpriseMemberUpdate {
+	_u.mutation.ClearRemovedAt()
+	return _u
+}
+
 // SetEnterpriseUser sets the "enterprise_user" edge to the User entity.
 func (_u *EnterpriseMemberUpdate) SetEnterpriseUser(v *User) *EnterpriseMemberUpdate {
 	return _u.SetEnterpriseUserID(v.ID)
@@ -583,6 +603,12 @@ func (_u *EnterpriseMemberUpdate) sqlSave(ctx context.Context) (_node int, err e
 	}
 	if value, ok := _u.mutation.AddedVersion(); ok {
 		_spec.AddField(enterprisemember.FieldVersion, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.RemovedAt(); ok {
+		_spec.SetField(enterprisemember.FieldRemovedAt, field.TypeTime, value)
+	}
+	if _u.mutation.RemovedAtCleared() {
+		_spec.ClearField(enterprisemember.FieldRemovedAt, field.TypeTime)
 	}
 	if _u.mutation.EnterpriseUserCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -1102,6 +1128,26 @@ func (_u *EnterpriseMemberUpdateOne) AddVersion(v int64) *EnterpriseMemberUpdate
 	return _u
 }
 
+// SetRemovedAt sets the "removed_at" field.
+func (_u *EnterpriseMemberUpdateOne) SetRemovedAt(v time.Time) *EnterpriseMemberUpdateOne {
+	_u.mutation.SetRemovedAt(v)
+	return _u
+}
+
+// SetNillableRemovedAt sets the "removed_at" field if the given value is not nil.
+func (_u *EnterpriseMemberUpdateOne) SetNillableRemovedAt(v *time.Time) *EnterpriseMemberUpdateOne {
+	if v != nil {
+		_u.SetRemovedAt(*v)
+	}
+	return _u
+}
+
+// ClearRemovedAt clears the value of the "removed_at" field.
+func (_u *EnterpriseMemberUpdateOne) ClearRemovedAt() *EnterpriseMemberUpdateOne {
+	_u.mutation.ClearRemovedAt()
+	return _u
+}
+
 // SetEnterpriseUser sets the "enterprise_user" edge to the User entity.
 func (_u *EnterpriseMemberUpdateOne) SetEnterpriseUser(v *User) *EnterpriseMemberUpdateOne {
 	return _u.SetEnterpriseUserID(v.ID)
@@ -1493,6 +1539,12 @@ func (_u *EnterpriseMemberUpdateOne) sqlSave(ctx context.Context) (_node *Enterp
 	}
 	if value, ok := _u.mutation.AddedVersion(); ok {
 		_spec.AddField(enterprisemember.FieldVersion, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.RemovedAt(); ok {
+		_spec.SetField(enterprisemember.FieldRemovedAt, field.TypeTime, value)
+	}
+	if _u.mutation.RemovedAtCleared() {
+		_spec.ClearField(enterprisemember.FieldRemovedAt, field.TypeTime)
 	}
 	if _u.mutation.EnterpriseUserCleared() {
 		edge := &sqlgraph.EdgeSpec{

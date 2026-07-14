@@ -15,7 +15,8 @@ const (
 )
 
 const (
-	APIKeyDisabledReasonRateChanged = "rate_changed"
+	APIKeyDisabledReasonRateChanged   = "rate_changed"
+	APIKeyDisabledReasonMemberRemoved = "member_removed"
 )
 
 // Rate limit window durations

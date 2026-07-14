@@ -39,6 +39,8 @@ const (
 	FieldRateLimit7d = "rate_limit_7d"
 	// FieldVersion holds the string denoting the version field in the database.
 	FieldVersion = "version"
+	// FieldRemovedAt holds the string denoting the removed_at field in the database.
+	FieldRemovedAt = "removed_at"
 	// EdgeEnterpriseUser holds the string denoting the enterprise_user edge name in mutations.
 	EdgeEnterpriseUser = "enterprise_user"
 	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
@@ -128,6 +130,7 @@ var Columns = []string{
 	FieldRateLimit1d,
 	FieldRateLimit7d,
 	FieldVersion,
+	FieldRemovedAt,
 }
 
 var (
@@ -248,6 +251,11 @@ func ByRateLimit7d(opts ...sql.OrderTermOption) OrderOption {
 // ByVersion orders the results by the version field.
 func ByVersion(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldVersion, opts...).ToFunc()
+}
+
+// ByRemovedAt orders the results by the removed_at field.
+func ByRemovedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRemovedAt, opts...).ToFunc()
 }
 
 // ByEnterpriseUserField orders the results by enterprise_user field.

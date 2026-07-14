@@ -173,6 +173,20 @@ func (_c *EnterpriseMemberCreate) SetNillableVersion(v *int64) *EnterpriseMember
 	return _c
 }
 
+// SetRemovedAt sets the "removed_at" field.
+func (_c *EnterpriseMemberCreate) SetRemovedAt(v time.Time) *EnterpriseMemberCreate {
+	_c.mutation.SetRemovedAt(v)
+	return _c
+}
+
+// SetNillableRemovedAt sets the "removed_at" field if the given value is not nil.
+func (_c *EnterpriseMemberCreate) SetNillableRemovedAt(v *time.Time) *EnterpriseMemberCreate {
+	if v != nil {
+		_c.SetRemovedAt(*v)
+	}
+	return _c
+}
+
 // SetEnterpriseUser sets the "enterprise_user" edge to the User entity.
 func (_c *EnterpriseMemberCreate) SetEnterpriseUser(v *User) *EnterpriseMemberCreate {
 	return _c.SetEnterpriseUserID(v.ID)
@@ -474,6 +488,10 @@ func (_c *EnterpriseMemberCreate) createSpec() (*EnterpriseMember, *sqlgraph.Cre
 	if value, ok := _c.mutation.Version(); ok {
 		_spec.SetField(enterprisemember.FieldVersion, field.TypeInt64, value)
 		_node.Version = value
+	}
+	if value, ok := _c.mutation.RemovedAt(); ok {
+		_spec.SetField(enterprisemember.FieldRemovedAt, field.TypeTime, value)
+		_node.RemovedAt = &value
 	}
 	if nodes := _c.mutation.EnterpriseUserIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -812,6 +830,24 @@ func (u *EnterpriseMemberUpsert) AddVersion(v int64) *EnterpriseMemberUpsert {
 	return u
 }
 
+// SetRemovedAt sets the "removed_at" field.
+func (u *EnterpriseMemberUpsert) SetRemovedAt(v time.Time) *EnterpriseMemberUpsert {
+	u.Set(enterprisemember.FieldRemovedAt, v)
+	return u
+}
+
+// UpdateRemovedAt sets the "removed_at" field to the value that was provided on create.
+func (u *EnterpriseMemberUpsert) UpdateRemovedAt() *EnterpriseMemberUpsert {
+	u.SetExcluded(enterprisemember.FieldRemovedAt)
+	return u
+}
+
+// ClearRemovedAt clears the value of the "removed_at" field.
+func (u *EnterpriseMemberUpsert) ClearRemovedAt() *EnterpriseMemberUpsert {
+	u.SetNull(enterprisemember.FieldRemovedAt)
+	return u
+}
+
 // UpdateNewValues updates the mutable fields using the new values that were set on create.
 // Using this option is equivalent to using:
 //
@@ -1050,6 +1086,27 @@ func (u *EnterpriseMemberUpsertOne) AddVersion(v int64) *EnterpriseMemberUpsertO
 func (u *EnterpriseMemberUpsertOne) UpdateVersion() *EnterpriseMemberUpsertOne {
 	return u.Update(func(s *EnterpriseMemberUpsert) {
 		s.UpdateVersion()
+	})
+}
+
+// SetRemovedAt sets the "removed_at" field.
+func (u *EnterpriseMemberUpsertOne) SetRemovedAt(v time.Time) *EnterpriseMemberUpsertOne {
+	return u.Update(func(s *EnterpriseMemberUpsert) {
+		s.SetRemovedAt(v)
+	})
+}
+
+// UpdateRemovedAt sets the "removed_at" field to the value that was provided on create.
+func (u *EnterpriseMemberUpsertOne) UpdateRemovedAt() *EnterpriseMemberUpsertOne {
+	return u.Update(func(s *EnterpriseMemberUpsert) {
+		s.UpdateRemovedAt()
+	})
+}
+
+// ClearRemovedAt clears the value of the "removed_at" field.
+func (u *EnterpriseMemberUpsertOne) ClearRemovedAt() *EnterpriseMemberUpsertOne {
+	return u.Update(func(s *EnterpriseMemberUpsert) {
+		s.ClearRemovedAt()
 	})
 }
 
@@ -1457,6 +1514,27 @@ func (u *EnterpriseMemberUpsertBulk) AddVersion(v int64) *EnterpriseMemberUpsert
 func (u *EnterpriseMemberUpsertBulk) UpdateVersion() *EnterpriseMemberUpsertBulk {
 	return u.Update(func(s *EnterpriseMemberUpsert) {
 		s.UpdateVersion()
+	})
+}
+
+// SetRemovedAt sets the "removed_at" field.
+func (u *EnterpriseMemberUpsertBulk) SetRemovedAt(v time.Time) *EnterpriseMemberUpsertBulk {
+	return u.Update(func(s *EnterpriseMemberUpsert) {
+		s.SetRemovedAt(v)
+	})
+}
+
+// UpdateRemovedAt sets the "removed_at" field to the value that was provided on create.
+func (u *EnterpriseMemberUpsertBulk) UpdateRemovedAt() *EnterpriseMemberUpsertBulk {
+	return u.Update(func(s *EnterpriseMemberUpsert) {
+		s.UpdateRemovedAt()
+	})
+}
+
+// ClearRemovedAt clears the value of the "removed_at" field.
+func (u *EnterpriseMemberUpsertBulk) ClearRemovedAt() *EnterpriseMemberUpsertBulk {
+	return u.Update(func(s *EnterpriseMemberUpsert) {
+		s.ClearRemovedAt()
 	})
 }
 
