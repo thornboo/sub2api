@@ -4,6 +4,8 @@ import type { ApiKey } from '@/types'
 export type EnterpriseMemberStatus = 'active' | 'disabled'
 export type EnterpriseMemberDeleteStrategy = 'hard_delete' | 'tombstone'
 
+export const ENTERPRISE_MEMBER_MAX_MONETARY_VALUE = 999_999_999_999.99
+
 export interface EnterpriseMember {
   id: number
   enterprise_user_id: number
@@ -52,6 +54,49 @@ export interface EnterpriseMemberGroupBatchUpdate {
   group_ids: number[]
   status: EnterpriseMemberStatus
   updated_at: string
+}
+
+export type EnterpriseMemberBatchGroupMode = 'keep' | 'replace' | 'append'
+
+export interface EnterpriseMemberBatchPolicyInput {
+  monthly_limit_usd?: number
+  rate_limit_5h?: number
+  rate_limit_1d?: number
+  rate_limit_7d?: number
+  status?: EnterpriseMemberStatus
+  group_mode?: EnterpriseMemberBatchGroupMode
+  group_ids?: number[]
+}
+
+export interface EnterpriseMemberBatchUpdate {
+  id: number
+  version: number
+  status: EnterpriseMemberStatus
+  monthly_limit_usd: number
+  rate_limit_5h: number
+  rate_limit_1d: number
+  rate_limit_7d: number
+  group_ids: number[]
+  updated_at: string
+}
+
+export interface EnterpriseMemberUsageDeltaInput {
+  monthly_used_delta: number
+  usage_5h_delta: number
+  usage_1d_delta: number
+  usage_7d_delta: number
+}
+
+export interface EnterpriseMemberBatchUsageUpdate {
+  id: number
+  monthly_used_usd: number
+  usage_5h: number
+  usage_1d: number
+  usage_7d: number
+}
+
+export interface EnterpriseMemberBatchMutationSummary {
+  updated_count: number
 }
 
 export interface CreateEnterpriseMemberInput extends EnterpriseMemberDraft {
@@ -306,6 +351,10 @@ function idempotencyKey(prefix: string): string {
     : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
+export function createEnterpriseMemberOperationIdempotencyKey(prefix: 'member-batch' | 'member-usage-batch'): string {
+  return idempotencyKey(prefix)
+}
+
 export async function list(includeArchived = false): Promise<EnterpriseMember[]> {
   const { data } = await apiClient.get<EnterpriseMember[]>('/enterprise/members', { params: { include_archived: includeArchived } })
   return data
@@ -339,6 +388,30 @@ export async function batchReplaceGroups(
     group_ids: groupIds,
     mode
   })
+  return data
+}
+
+export async function batchUpdate(
+  members: EnterpriseMember[],
+  input: EnterpriseMemberBatchPolicyInput,
+  operationKey: string
+): Promise<EnterpriseMemberBatchMutationSummary> {
+  const { data } = await apiClient.patch<EnterpriseMemberBatchMutationSummary>('/enterprise/members/batch', {
+    members: members.map(member => ({ id: member.id, expected_version: member.version })),
+    ...input
+  }, { headers: { 'Idempotency-Key': operationKey } })
+  return data
+}
+
+export async function batchAdjustUsage(
+  members: EnterpriseMember[],
+  input: EnterpriseMemberUsageDeltaInput,
+  operationKey: string
+): Promise<EnterpriseMemberBatchMutationSummary> {
+  const { data } = await apiClient.post<EnterpriseMemberBatchMutationSummary>('/enterprise/members/batch/usage-adjustments', {
+    members: members.map(member => ({ id: member.id, expected_version: member.version })),
+    ...input
+  }, { headers: { 'Idempotency-Key': operationKey } })
   return data
 }
 
@@ -513,6 +586,9 @@ export const enterpriseMembersAPI = {
   update,
   replaceGroups,
   batchReplaceGroups,
+  batchUpdate,
+  batchAdjustUsage,
+  createEnterpriseMemberOperationIdempotencyKey,
   setStatus,
   archive,
   restore,

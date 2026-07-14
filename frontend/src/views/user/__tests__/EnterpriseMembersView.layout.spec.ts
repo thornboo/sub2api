@@ -110,6 +110,13 @@ describe('EnterpriseMembersView layout contract', () => {
     expect(source).toContain('async function confirmBatchGroupClear()')
   })
 
+  it('uses user-facing success copy for batch member updates', () => {
+    expect(source).toContain('batchPolicySuccessMessage(input, updated.updated_count)')
+    expect(source).toContain("'enterpriseMembers.dynamic.batchMembersEnabled'")
+    expect(source).toContain("'enterpriseMembers.dynamic.batchMembersDisabled'")
+    expect(source).toContain("'enterpriseMembers.dynamic.batchMembersUpdated'")
+  })
+
   it('keeps the frozen import billing period visible in the successful result', () => {
     expect(source).toContain('importResult.period_start')
     expect(source).toContain('importResult.timezone')
@@ -173,7 +180,10 @@ describe('EnterpriseMembersView layout contract', () => {
     expect(source).toContain('@cancel="cancelMemberStatusChange"')
     expect(source).toContain('memberStatusChangeRequest.value = {')
     expect(source).toContain('async function confirmMemberStatusChange()')
-    expect(source).toContain("enterpriseMembersAPI.setStatus(target, request.status)")
+    expect(source).toContain("enterpriseMembersAPI.setStatus(request.members[0], request.status)")
+    expect(source).toContain("enterpriseMembersAPI.createEnterpriseMemberOperationIdempotencyKey('member-batch')")
+    expect(source).toContain('enterpriseMembersAPI.batchUpdate(operation.members, operation.input, operation.idempotencyKey)')
+    expect(source).not.toContain('partialStatusFailures')
   })
 
   it('shows member request records without exposing upstream routing internals', () => {

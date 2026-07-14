@@ -2,9 +2,11 @@ import { shallowMount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { archive, batchReplaceGroups, getOwnerUsageSummary, getAvailableGroups, listMembers, permanentlyDelete, restore, setStatus, showError, showSuccess } = vi.hoisted(() => ({
+const { archive, batchReplaceGroups, batchUpdate, createEnterpriseMemberOperationIdempotencyKey, getOwnerUsageSummary, getAvailableGroups, listMembers, permanentlyDelete, restore, setStatus, showError, showSuccess } = vi.hoisted(() => ({
   archive: vi.fn(),
   batchReplaceGroups: vi.fn(),
+  batchUpdate: vi.fn(),
+  createEnterpriseMemberOperationIdempotencyKey: vi.fn(() => 'stable-operation-key'),
   getOwnerUsageSummary: vi.fn(),
   getAvailableGroups: vi.fn(),
   listMembers: vi.fn(),
@@ -47,11 +49,14 @@ vi.mock('@/composables/useClipboard', () => ({
 }))
 
 vi.mock('@/api/enterpriseMembers', () => ({
+  ENTERPRISE_MEMBER_MAX_MONETARY_VALUE: 999_999_999_999.99,
   enterpriseMembersAPI: {
     archive,
     list: listMembers,
     getOwnerUsageSummary,
     batchReplaceGroups,
+    batchUpdate,
+    createEnterpriseMemberOperationIdempotencyKey,
     permanentlyDelete,
     restore,
     setStatus,
@@ -103,6 +108,7 @@ describe('EnterpriseMembersView destructive batch group confirmation', () => {
     getAvailableGroups.mockResolvedValue([])
     getOwnerUsageSummary.mockResolvedValue(null)
     batchReplaceGroups.mockResolvedValue([{ id: member.id, version: 4, group_ids: [], status: 'disabled', updated_at: '2026-07-02T00:00:00Z' }])
+    batchUpdate.mockResolvedValue({ updated_count: 1 })
     restore.mockResolvedValue({ ...member, status: 'disabled', version: 4 })
     setStatus.mockResolvedValue({ ...member, status: 'disabled', version: 4 })
   })
@@ -149,6 +155,33 @@ describe('EnterpriseMembersView destructive batch group confirmation', () => {
 
     expect(setStatus).toHaveBeenNthCalledWith(2, disabledMember, 'active')
     expect(showSuccess).toHaveBeenCalledWith('enterpriseMembers.copy.memberEnabledSuccess')
+  })
+
+  it('reuses the same batch operation key and frozen target after an unknown response failure', async () => {
+    batchUpdate.mockRejectedValueOnce(new Error('network response lost')).mockResolvedValueOnce({ updated_count: 1 })
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+    const vm = wrapper.vm as unknown as {
+      selectedIds: Set<number>
+      bulkSetStatus: (status: 'active' | 'disabled') => void
+      confirmMemberStatusChange: () => Promise<void>
+    }
+
+    vm.selectedIds.add(member.id)
+    vm.bulkSetStatus('disabled')
+    await vm.confirmMemberStatusChange()
+    vm.bulkSetStatus('disabled')
+    await vm.confirmMemberStatusChange()
+
+    expect(createEnterpriseMemberOperationIdempotencyKey).toHaveBeenCalledTimes(1)
+    expect(batchUpdate).toHaveBeenCalledTimes(2)
+    expect(batchUpdate.mock.calls[0]).toEqual(batchUpdate.mock.calls[1])
+    expect(batchUpdate).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: member.id, version: member.version })],
+      { status: 'disabled', group_mode: 'keep' },
+      'stable-operation-key'
+    )
   })
 
   it('uses the project confirmation dialog and permanently removes historical members through the server strategy', async () => {

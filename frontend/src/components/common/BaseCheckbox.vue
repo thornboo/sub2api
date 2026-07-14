@@ -2,8 +2,10 @@
   <span
     class="inline-flex shrink-0 items-center justify-center"
     :class="disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'"
+    @click="activateInput"
   >
     <input
+      ref="inputRef"
       type="checkbox"
       class="peer sr-only"
       :checked="modelValue"
@@ -29,7 +31,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import Icon from '@/components/icons/Icon.vue'
 
 const props = withDefaults(defineProps<{
@@ -50,6 +52,7 @@ const emit = defineEmits<{
   change: [value: boolean]
 }>()
 
+const inputRef = ref<HTMLInputElement | null>(null)
 const active = computed(() => props.modelValue || props.indeterminate)
 
 const boxClasses = computed(() => [
@@ -63,7 +66,18 @@ const boxClasses = computed(() => [
 
 function handleChange(event: Event) {
   const checked = (event.target as HTMLInputElement).checked
+  emitChecked(checked)
+}
+
+function emitChecked(checked: boolean) {
   emit('update:modelValue', checked)
   emit('change', checked)
+}
+
+function activateInput(event: MouseEvent) {
+  if (props.disabled || event.target === inputRef.value) return
+  event.preventDefault()
+  inputRef.value?.focus()
+  emitChecked(!props.modelValue)
 }
 </script>

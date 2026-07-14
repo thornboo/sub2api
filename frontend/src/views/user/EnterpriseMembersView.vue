@@ -56,11 +56,14 @@
 
         <div v-if="selectedIds.size" class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/50 dark:bg-amber-950/20">
           <p class="text-sm font-medium text-amber-900 dark:text-amber-100">{{ t('enterpriseMembers.dynamic.selectedMembers', { count: selectedIds.size }) }}</p>
-          <div class="flex gap-2">
-            <button class="btn btn-secondary btn-sm" type="button" @click="openBatchGroups"><Icon name="users" size="sm" />{{ t('enterpriseMembers.copy.setAccessibleGroups') }}</button>
-            <button class="btn btn-secondary btn-sm" type="button" :disabled="memberStatusUpdating" @click="bulkSetStatus('active')">{{ t('enterpriseMembers.copy.enable') }}</button>
-            <button class="btn btn-secondary btn-sm" type="button" :disabled="memberStatusUpdating" @click="bulkSetStatus('disabled')">{{ t('enterpriseMembers.copy.disable') }}</button>
+          <div class="flex flex-wrap gap-2">
+            <button class="btn btn-primary btn-sm" type="button" :disabled="!batchEditableTargets.length || batchTargetLimitExceeded" @click="batchPolicyOpen = true"><Icon name="edit" size="sm" />{{ t('enterpriseMembers.copy.batchEdit') }}</button>
+            <button class="btn btn-secondary btn-sm" type="button" :disabled="!batchEditableTargets.length || batchTargetLimitExceeded" @click="batchUsageOpen = true"><Icon name="chartBar" size="sm" />{{ t('enterpriseMembers.copy.adjustUsedUsage') }}</button>
+            <button class="btn btn-secondary btn-sm" type="button" :disabled="!batchEditableTargets.length || batchTargetLimitExceeded" @click="openBatchGroups()"><Icon name="users" size="sm" />{{ t('enterpriseMembers.copy.setAccessibleGroups') }}</button>
+            <button class="btn btn-secondary btn-sm" type="button" :disabled="memberStatusUpdating || !batchEditableTargets.length || batchTargetLimitExceeded" @click="bulkSetStatus('active')">{{ t('enterpriseMembers.copy.enable') }}</button>
+            <button class="btn btn-secondary btn-sm" type="button" :disabled="memberStatusUpdating || !batchEditableTargets.length || batchTargetLimitExceeded" @click="bulkSetStatus('disabled')">{{ t('enterpriseMembers.copy.disable') }}</button>
           </div>
+          <p v-if="batchTargetLimitExceeded" class="basis-full text-xs text-rose-700 dark:text-rose-300">{{ t('enterpriseMembers.copy.batchMaximum500Members') }}</p>
         </div>
         </section>
 
@@ -311,6 +314,23 @@
       :danger="true"
       @confirm="confirmBatchGroupClear"
       @cancel="cancelBatchGroupClear"
+    />
+
+    <EnterpriseMemberBatchPolicyDialog
+      :show="batchPolicyOpen"
+      :member-count="batchEditableTargets.length"
+      :available-groups="availableGroups"
+      :saving="batchPolicySaving"
+      @close="closeBatchPolicy"
+      @submit="saveBatchPolicy"
+    />
+
+    <EnterpriseMemberBatchUsageDialog
+      :show="batchUsageOpen"
+      :targets="batchUsageTargets"
+      :saving="batchUsageSaving"
+      @close="closeBatchUsage"
+      @submit="saveBatchUsage"
     />
 
     <ConfirmDialog
@@ -662,6 +682,8 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
+import EnterpriseMemberBatchPolicyDialog from '@/components/enterprise/EnterpriseMemberBatchPolicyDialog.vue'
+import EnterpriseMemberBatchUsageDialog, { type EnterpriseMemberBatchUsageTarget } from '@/components/enterprise/EnterpriseMemberBatchUsageDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import { useAppStore, useAuthStore } from '@/stores'
@@ -670,7 +692,7 @@ import { extractI18nErrorMessage } from '@/utils/apiError'
 import { tableSelectionCheckboxClasses as selectionCheckboxClasses } from '@/utils/tableSelectionCheckbox'
 import { userGroupsAPI } from '@/api/groups'
 import { keysAPI } from '@/api/keys'
-import { enterpriseMembersAPI, type EnterpriseMember, type EnterpriseMemberAuditEvent, type EnterpriseMemberBudgetEntry, type EnterpriseMemberBudgetSummary, type EnterpriseMemberDraft, type EnterpriseMemberImportJob, type EnterpriseMemberImportPreview, type EnterpriseMemberImportResult, type EnterpriseMemberKeyUpdate, type EnterpriseMemberOwnerUsageItem, type EnterpriseMemberOwnerUsageSummary, type EnterpriseMemberStatus, type EnterpriseMemberUsageAnalytics, type EnterpriseMemberUsageRecord } from '@/api/enterpriseMembers'
+import { enterpriseMembersAPI, type EnterpriseMember, type EnterpriseMemberAuditEvent, type EnterpriseMemberBatchPolicyInput, type EnterpriseMemberBudgetEntry, type EnterpriseMemberBudgetSummary, type EnterpriseMemberDraft, type EnterpriseMemberImportJob, type EnterpriseMemberImportPreview, type EnterpriseMemberImportResult, type EnterpriseMemberKeyUpdate, type EnterpriseMemberOwnerUsageItem, type EnterpriseMemberOwnerUsageSummary, type EnterpriseMemberStatus, type EnterpriseMemberUsageAnalytics, type EnterpriseMemberUsageDeltaInput, type EnterpriseMemberUsageRecord } from '@/api/enterpriseMembers'
 import type { ApiKey, Group } from '@/types'
 
 const { t, locale } = useI18n()
@@ -696,6 +718,26 @@ const batchClearConfirmOpen = ref(false)
 const batchGroupsSaving = ref(false)
 const batchGroupMode = ref<'replace' | 'append'>('replace')
 const batchGroupIds = ref<number[]>([])
+const batchPolicyOpen = ref(false)
+const batchPolicySaving = ref(false)
+const batchUsageOpen = ref(false)
+const batchUsageSaving = ref(false)
+type PendingBatchPolicyOperation = {
+  memberIDsKey: string
+  inputKey: string
+  members: EnterpriseMember[]
+  input: EnterpriseMemberBatchPolicyInput
+  idempotencyKey: string
+}
+type PendingBatchUsageOperation = {
+  memberIDsKey: string
+  inputKey: string
+  members: EnterpriseMember[]
+  input: EnterpriseMemberUsageDeltaInput
+  idempotencyKey: string
+}
+const pendingBatchPolicyOperation = ref<PendingBatchPolicyOperation | null>(null)
+const pendingBatchUsageOperation = ref<PendingBatchUsageOperation | null>(null)
 const memberStatusChangeRequest = ref<{ status: EnterpriseMemberStatus, members: EnterpriseMember[], bulk: boolean } | null>(null)
 const memberStatusUpdating = ref(false)
 const memberRemovalTarget = ref<EnterpriseMember | null>(null)
@@ -770,6 +812,16 @@ const activeCount = computed(() => members.value.filter(item => !item.deleted_at
 const totalKeyCount = computed(() => members.value.reduce((sum, item) => sum + item.key_count, 0))
 const batchGroupTargets = computed(() => members.value.filter(member => selectedIds.value.has(member.id) && !member.deleted_at))
 const batchGroupTargetCount = computed(() => batchGroupTargets.value.length)
+const batchEditableTargets = computed(() => members.value.filter(member => selectedIds.value.has(member.id) && !member.deleted_at))
+const batchTargetLimitExceeded = computed(() => batchEditableTargets.value.length > 500)
+const batchUsageTargets = computed<EnterpriseMemberBatchUsageTarget[]>(() => batchEditableTargets.value.map(member => ({
+  id: member.id,
+  name: member.name,
+  monthlyUsed: ownerUsageSummary.value?.members.find(item => item.member_id === member.id)?.used_usd || 0,
+  usage5h: member.usage_5h,
+  usage1d: member.usage_1d,
+  usage7d: member.usage_7d
+})))
 const batchClearIsDestructive = computed(() => batchGroupMode.value === 'replace' && batchGroupIds.value.length === 0)
 const memberStatusChangeTitle = computed(() => {
   if (!memberStatusChangeRequest.value) return ''
@@ -1024,7 +1076,68 @@ function moveImportDefaultGroup(groupId: number, direction: -1 | 1) {
   importDefaultGroupIds.value = moveOrderedGroup(importDefaultGroupIds.value, groupId, direction)
 }
 
-function openBatchGroups() {
+function batchMemberIDsKey(targets: EnterpriseMember[]): string {
+  return targets.map(member => member.id).sort((left, right) => left - right).join(',')
+}
+
+function cloneBatchMembers(targets: EnterpriseMember[]): EnterpriseMember[] {
+  return targets.map(member => ({ ...member, group_ids: [...member.group_ids] }))
+}
+
+// If a response is lost after commit, a later member-list refresh must not
+// replace the original optimistic versions. Retrying the same logical action
+// therefore reuses the frozen request and key until the user changes its scope.
+function prepareBatchPolicyOperation(targets: EnterpriseMember[], input: EnterpriseMemberBatchPolicyInput): PendingBatchPolicyOperation {
+  const memberIDsKey = batchMemberIDsKey(targets)
+  const frozenInput: EnterpriseMemberBatchPolicyInput = {
+    ...input,
+    ...(input.group_ids ? { group_ids: [...input.group_ids] } : {})
+  }
+  const inputKey = JSON.stringify(frozenInput)
+  const pending = pendingBatchPolicyOperation.value
+  if (pending?.memberIDsKey === memberIDsKey && pending.inputKey === inputKey) return pending
+
+  const operation: PendingBatchPolicyOperation = {
+    memberIDsKey,
+    inputKey,
+    members: cloneBatchMembers(targets),
+    input: frozenInput,
+    idempotencyKey: enterpriseMembersAPI.createEnterpriseMemberOperationIdempotencyKey('member-batch')
+  }
+  pendingBatchPolicyOperation.value = operation
+  return operation
+}
+
+function prepareBatchUsageOperation(targets: EnterpriseMember[], input: EnterpriseMemberUsageDeltaInput): PendingBatchUsageOperation {
+  const memberIDsKey = batchMemberIDsKey(targets)
+  const frozenInput = { ...input }
+  const inputKey = JSON.stringify(frozenInput)
+  const pending = pendingBatchUsageOperation.value
+  if (pending?.memberIDsKey === memberIDsKey && pending.inputKey === inputKey) return pending
+
+  const operation: PendingBatchUsageOperation = {
+    memberIDsKey,
+    inputKey,
+    members: cloneBatchMembers(targets),
+    input: frozenInput,
+    idempotencyKey: enterpriseMembersAPI.createEnterpriseMemberOperationIdempotencyKey('member-usage-batch')
+  }
+  pendingBatchUsageOperation.value = operation
+  return operation
+}
+
+function closeBatchPolicy() {
+  batchPolicyOpen.value = false
+  pendingBatchPolicyOperation.value = null
+}
+
+function closeBatchUsage() {
+  batchUsageOpen.value = false
+  pendingBatchUsageOperation.value = null
+}
+
+function openBatchGroups(allowImportedBatch = false) {
+  if (!batchGroupTargets.value.length || (batchGroupTargets.value.length > 500 && !allowImportedBatch)) return
   batchGroupMode.value = 'replace'
   batchGroupIds.value = []
   batchClearConfirmOpen.value = false
@@ -1079,6 +1192,55 @@ async function saveBatchGroups() {
     batchGroupsSaving.value = false
   }
 }
+
+async function saveBatchPolicy(input: EnterpriseMemberBatchPolicyInput) {
+  const targets = batchEditableTargets.value
+  if (!targets.length || batchPolicySaving.value) return
+  const operation = prepareBatchPolicyOperation(targets, input)
+  batchPolicySaving.value = true
+  try {
+    const updated = await enterpriseMembersAPI.batchUpdate(operation.members, operation.input, operation.idempotencyKey)
+    pendingBatchPolicyOperation.value = null
+    await loadMembers()
+    selectedIds.value = new Set()
+    batchPolicyOpen.value = false
+    appStore.showSuccess(batchPolicySuccessMessage(input, updated.updated_count))
+  } catch (error: unknown) {
+    appStore.showError(extractI18nErrorMessage(error, t, 'enterpriseMembers.errors', t('enterpriseMembers.copy.batchEditFailed')))
+  } finally {
+    batchPolicySaving.value = false
+  }
+}
+
+function batchPolicySuccessMessage(input: EnterpriseMemberBatchPolicyInput, count: number): string {
+  const changesLimits = input.monthly_limit_usd !== undefined || input.rate_limit_5h !== undefined || input.rate_limit_1d !== undefined || input.rate_limit_7d !== undefined
+  const changesGroups = input.group_mode !== undefined && input.group_mode !== 'keep'
+  if (input.status && !changesLimits && !changesGroups) {
+    return t(input.status === 'active'
+      ? 'enterpriseMembers.dynamic.batchMembersEnabled'
+      : 'enterpriseMembers.dynamic.batchMembersDisabled', { count })
+  }
+  return t('enterpriseMembers.dynamic.batchMembersUpdated', { count })
+}
+
+async function saveBatchUsage(input: EnterpriseMemberUsageDeltaInput) {
+  const targets = batchEditableTargets.value
+  if (!targets.length || batchUsageSaving.value) return
+  const operation = prepareBatchUsageOperation(targets, input)
+  batchUsageSaving.value = true
+  try {
+    const updated = await enterpriseMembersAPI.batchAdjustUsage(operation.members, operation.input, operation.idempotencyKey)
+    pendingBatchUsageOperation.value = null
+    await loadMembers()
+    selectedIds.value = new Set()
+    batchUsageOpen.value = false
+    appStore.showSuccess(t('enterpriseMembers.dynamic.batchUsageAdjusted', { count: updated.updated_count }))
+  } catch (error: unknown) {
+    appStore.showError(extractI18nErrorMessage(error, t, 'enterpriseMembers.errors', t('enterpriseMembers.copy.batchUsageAdjustmentFailed')))
+  } finally {
+    batchUsageSaving.value = false
+  }
+}
 async function pollImportJob(jobId: number, resultToken: string) {
   try {
     const job = await enterpriseMembersAPI.getImportJob(jobId)
@@ -1114,7 +1276,7 @@ function configureImportedMembers() {
   if (!importResult.value) return
   selectedIds.value = new Set(importResult.value.member_ids)
   importOpen.value = false
-  openBatchGroups()
+  openBatchGroups(true)
 }
 
 function hasMigrationBaseline(summary: EnterpriseMemberBudgetSummary): boolean {
@@ -1221,44 +1383,41 @@ function toggleStatus(member: EnterpriseMember) {
   }
 }
 function bulkSetStatus(status: EnterpriseMemberStatus) {
-  if (memberStatusUpdating.value) return
+  if (memberStatusUpdating.value || batchTargetLimitExceeded.value) return
   const targets = members.value.filter(item => selectedIds.value.has(item.id) && !item.deleted_at && item.status !== status)
   if (!targets.length) return
   memberStatusChangeRequest.value = { status, members: targets, bulk: true }
 }
 function cancelMemberStatusChange() {
   memberStatusChangeRequest.value = null
+  pendingBatchPolicyOperation.value = null
 }
 async function confirmMemberStatusChange() {
   const request = memberStatusChangeRequest.value
   if (!request || memberStatusUpdating.value) return
   memberStatusChangeRequest.value = null
   memberStatusUpdating.value = true
-  const failures: string[] = []
   try {
-    for (const target of request.members) {
-      try {
-        const updated = await enterpriseMembersAPI.setStatus(target, request.status)
-        members.value = members.value.map(item => item.id === updated.id ? updated : item)
-      } catch (error: unknown) {
-        if (!request.bulk) {
-          appStore.showError(extractI18nErrorMessage(error, t, 'enterpriseMembers.errors', t('enterpriseMembers.copy.statusUpdateFailed')))
-          failures.push(target.name)
-          break
-        }
-        failures.push(target.name)
-      }
+    if (request.bulk) {
+      const input: EnterpriseMemberBatchPolicyInput = { status: request.status, group_mode: 'keep' }
+      const operation = prepareBatchPolicyOperation(request.members, input)
+      const updated = await enterpriseMembersAPI.batchUpdate(operation.members, operation.input, operation.idempotencyKey)
+      pendingBatchPolicyOperation.value = null
+      await loadMembers()
+      selectedIds.value = new Set()
+      appStore.showSuccess(t(request.status === 'active'
+        ? 'enterpriseMembers.dynamic.batchMembersEnabled'
+        : 'enterpriseMembers.dynamic.batchMembersDisabled', { count: updated.updated_count }))
+      return
     }
-    if (request.bulk) selectedIds.value = new Set()
-    if (request.bulk && failures.length) {
-      appStore.showError(t('enterpriseMembers.dynamic.partialStatusFailures', { members: failures.join(locale.value.startsWith('zh') ? '、' : ', ') }))
-    } else if (!failures.length) {
-      appStore.showSuccess(t(request.bulk
-        ? 'enterpriseMembers.copy.bulkStatusUpdated'
-        : request.status === 'disabled'
-          ? 'enterpriseMembers.copy.memberDisabledSuccess'
-          : 'enterpriseMembers.copy.memberEnabledSuccess'))
-    }
+
+    const updated = await enterpriseMembersAPI.setStatus(request.members[0], request.status)
+    members.value = members.value.map(item => item.id === updated.id ? updated : item)
+    appStore.showSuccess(t(request.status === 'disabled'
+      ? 'enterpriseMembers.copy.memberDisabledSuccess'
+      : 'enterpriseMembers.copy.memberEnabledSuccess'))
+  } catch (error: unknown) {
+    appStore.showError(extractI18nErrorMessage(error, t, 'enterpriseMembers.errors', t('enterpriseMembers.copy.statusUpdateFailed')))
   } finally {
     memberStatusUpdating.value = false
   }
