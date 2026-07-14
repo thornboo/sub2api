@@ -41,6 +41,7 @@
   - Let enterprise owners manage durable, non-login member identities that may each own multiple API Keys.
   - Let enterprise owners migrate external member identities, API Keys, current-period spending, and aggregate token baselines without requiring external systems to know sub2api group IDs.
   - Give each member one shared set of 5h, 1d, 7d, and calendar-month spending limits across all assigned Keys.
+  - Let enterprise owners apply shared member policy changes in one atomic batch without overwriting fields they did not explicitly select.
   - Preserve platform administrator-only visibility into upstream account cost, routing, and operational internals.
   - Keep future feature work grounded in small, reviewable slices that fit the dev-zz branch discipline.
 - Non-goals:
@@ -105,6 +106,10 @@
 - Principle 6: The owner chooses the lifecycle outcome; storage mechanics stay a server concern.
   - Disable is reversible operational control. Archive is reversible removal from the default workspace. Delete is an irreversible owner-facing removal and is always available after archive.
   - A clean member may be physically deleted. A member with historical facts becomes an invisible tombstone so billing, usage, and audit relationships remain valid; the UI must not turn evidence retention into an undeletable-member dead end.
+- Principle 7: Bulk policy changes and usage reconciliation are different jobs.
+  - Bulk policy editing may change selected limits, status, and ordered group delegation; every field is opt-in and omitted fields remain unchanged.
+  - Bulk usage adjustment changes accounting projections and therefore lives in a separate destructive flow with immutable ledger/audit evidence.
+  - Both flows are all-or-nothing, carry every selected member's expected version, and show the affected member count before submission.
 - Tradeoffs:
   - First versions may use raw `usage_logs` with strict date limits.
   - Add pre-aggregation only when a measured query path needs it.
@@ -130,6 +135,9 @@
   - Member limit editing shows limit and consumed amount together for 5h, 1d, 7d, and calendar month; consumed changes write system-attributed before/after audit evidence without requiring extra operator input.
   - Enterprise member import is a guided flow: upload and authoritative preview, system-side access policy, confirmation, then one-click follow-up for any members left pending.
   - Bulk member actions include ordered group replacement in addition to enable/disable. Group replacement must state that it overwrites the selected members' current routing policy and must never enable members implicitly.
+  - Bulk policy editing uses explicit field toggles for the calendar-month, 5h, 1d, and 7d limits; `0` means unlimited only when the corresponding field toggle is enabled.
+  - Bulk policy group mode is one of keep, replace, or append. Replacing with an empty set disables affected members; enabling is rejected when the resulting group route is empty.
+  - Bulk usage adjustment applies signed deltas to the selected members' current month and rate-limit windows. It never rewrites request logs, cannot reduce any projection below zero, and displays the aggregate adjustment before confirmation.
   - Archived members are read-only but provide two explicit exits: restore as disabled, or permanently remove. Destructive confirmation explains that historical billing/audit evidence can remain even though the member disappears from management.
   - Tables need compact numeric formatting with full values available in tooltip/title.
 - Token/component ownership:
@@ -210,6 +218,8 @@
   - Delete is allowed only after archive. The server rechecks historical facts under a row lock and chooses physical deletion or an invisible tombstone atomically; current member Keys are revoked during tombstoning, and restrictive evidence foreign keys remain intact.
   - Member 5h/1d/7d/month limits are aggregate controls shared by all member Keys and use durable reservations; per-Key quota/rate limits remain an additional stricter layer.
   - Consumed-amount corrections must be auditable. Calendar-month corrections are immutable ledger deltas; window projections retain before/after evidence plus a stable system source and note.
+  - Bulk member policy updates are limited to current, non-removed members, accept no more than 500 targets, lock targets in deterministic ID order, revalidate both newly selected and retained group authorization in the write transaction, and roll back the complete batch on any version or validation failure.
+  - Bulk usage adjustments accept no more than 500 current members and one signed delta per supported window. Expired 5h/1d/7d projections are treated as zero before applying the delta. The transaction locks members and projections in deterministic ID order, writes one calendar-month ledger entry and one before/after audit event per affected member, and requires one request idempotency key to make the whole operation replay-safe. A client must retain that key, target versions, and payload while the result is unknown; successful responses return only the committed member count so idempotency storage remains bounded.
   - Member creation may establish non-zero current-period usage for 5h/1d/7d/month without an extra reason field, while the backend commits the member, group bindings, opening ledger/projections, and system-attributed audit evidence atomically. Calendar-month opening usage is `migration_opening`, not fabricated request usage.
   - Member group delegation must reuse current group authorization semantics: public vs exclusive groups, `users.AllowedGroups`, subscription eligibility, and group fallback behavior.
   - New public import templates omit group IDs. Historical CSV `groups` columns and XLSX `MemberGroups` sheets remain accepted for backward-compatible policy-version-1 jobs and are always server-authorized; policy-version-2 jobs use only the owner-selected system policy, including an intentionally empty selection.
