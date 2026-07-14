@@ -465,6 +465,177 @@ func (r *enterpriseMemberRepository) BatchReplaceGroups(ctx context.Context, own
 	return updated, nil
 }
 
+func (r *enterpriseMemberRepository) BatchUpdate(ctx context.Context, ownerID int64, targets []service.EnterpriseMemberBatchTarget, patch service.BatchEnterpriseMemberPolicyPatch) ([]service.BatchEnterpriseMemberUpdate, error) {
+	if r == nil || r.db == nil {
+		return nil, service.ErrEnterpriseMemberInvalid
+	}
+	ordered := append([]service.EnterpriseMemberBatchTarget(nil), targets...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].ID < ordered[j].ID })
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if patch.GroupMode != "keep" {
+		if err := validateEnterpriseMemberGroupAuthorization(ctx, tx, ownerID, patch.GroupIDs); err != nil {
+			return nil, err
+		}
+	}
+
+	updatesByID := make(map[int64]service.BatchEnterpriseMemberUpdate, len(ordered))
+	for _, target := range ordered {
+		var currentStatus string
+		var currentVersion int64
+		if err := tx.QueryRowContext(ctx, `
+			SELECT status, version
+			FROM enterprise_members
+			WHERE id = $1 AND enterprise_user_id = $2
+			  AND deleted_at IS NULL AND removed_at IS NULL
+			FOR UPDATE`, target.ID, ownerID).Scan(&currentStatus, &currentVersion); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, service.ErrEnterpriseMemberNotFound
+			}
+			return nil, err
+		}
+		if currentVersion != target.ExpectedVersion {
+			return nil, service.ErrEnterpriseMemberVersion
+		}
+
+		currentGroups, err := enterpriseMemberGroupIDsInTx(ctx, tx, target.ID)
+		if err != nil {
+			return nil, err
+		}
+		desiredGroups := append([]int64(nil), currentGroups...)
+		switch patch.GroupMode {
+		case "replace":
+			desiredGroups = append([]int64(nil), patch.GroupIDs...)
+		case "append":
+			desiredGroups = appendUniqueEnterpriseMemberGroupIDsForBatch(currentGroups, patch.GroupIDs)
+			if err := validateEnterpriseMemberGroupAuthorization(ctx, tx, ownerID, desiredGroups); err != nil {
+				return nil, err
+			}
+		}
+
+		desiredStatus := currentStatus
+		if patch.Status != nil {
+			desiredStatus = *patch.Status
+		}
+		if len(desiredGroups) == 0 {
+			if desiredStatus == service.EnterpriseMemberStatusActive {
+				return nil, service.ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{
+					"field": "group_ids", "reason": "required_to_enable", "member_id": fmt.Sprint(target.ID),
+				})
+			}
+			if patch.GroupMode != "keep" {
+				desiredStatus = service.EnterpriseMemberStatusDisabled
+			}
+		}
+		if desiredStatus == service.EnterpriseMemberStatusActive && patch.GroupMode == "keep" {
+			if err := validateEnterpriseMemberGroupAuthorization(ctx, tx, ownerID, desiredGroups); err != nil {
+				return nil, err
+			}
+		}
+
+		var updated service.BatchEnterpriseMemberUpdate
+		updated.ID = target.ID
+		if err := tx.QueryRowContext(ctx, `
+			UPDATE enterprise_members
+			SET monthly_limit_usd = COALESCE($4, monthly_limit_usd),
+			    rate_limit_5h = COALESCE($5, rate_limit_5h),
+			    rate_limit_1d = COALESCE($6, rate_limit_1d),
+			    rate_limit_7d = COALESCE($7, rate_limit_7d),
+			    status = $8,
+			    version = version + 1,
+			    updated_at = NOW()
+			WHERE id = $1 AND enterprise_user_id = $2 AND version = $3
+			  AND deleted_at IS NULL AND removed_at IS NULL
+			RETURNING version, status, monthly_limit_usd, rate_limit_5h,
+			          rate_limit_1d, rate_limit_7d, updated_at`,
+			target.ID, ownerID, target.ExpectedVersion,
+			optionalBatchFloat(patch.MonthlyLimitUSD), optionalBatchFloat(patch.RateLimit5h),
+			optionalBatchFloat(patch.RateLimit1d), optionalBatchFloat(patch.RateLimit7d), desiredStatus).
+			Scan(&updated.Version, &updated.Status, &updated.MonthlyLimitUSD, &updated.RateLimit5h,
+				&updated.RateLimit1d, &updated.RateLimit7d, &updated.UpdatedAt); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, service.ErrEnterpriseMemberVersion
+			}
+			return nil, err
+		}
+
+		if patch.GroupMode != "keep" {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM enterprise_member_group_bindings WHERE member_id = $1`, target.ID); err != nil {
+				return nil, err
+			}
+			for order, groupID := range desiredGroups {
+				if _, err := tx.ExecContext(ctx, `
+					INSERT INTO enterprise_member_group_bindings (member_id, group_id, sort_order)
+					VALUES ($1, $2, $3)`, target.ID, groupID, order); err != nil {
+					return nil, err
+				}
+			}
+		}
+		updated.GroupIDs = append([]int64{}, desiredGroups...)
+		updatesByID[target.ID] = updated
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	updated := make([]service.BatchEnterpriseMemberUpdate, 0, len(targets))
+	for _, target := range targets {
+		updated = append(updated, updatesByID[target.ID])
+	}
+	return updated, nil
+}
+
+func enterpriseMemberGroupIDsInTx(ctx context.Context, tx *sql.Tx, memberID int64) ([]int64, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT group_id
+		FROM enterprise_member_group_bindings
+		WHERE member_id = $1
+		ORDER BY sort_order, group_id`, memberID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	groupIDs := make([]int64, 0)
+	for rows.Next() {
+		var groupID int64
+		if err := rows.Scan(&groupID); err != nil {
+			return nil, err
+		}
+		groupIDs = append(groupIDs, groupID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return groupIDs, nil
+}
+
+func optionalBatchFloat(value *float64) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func appendUniqueEnterpriseMemberGroupIDsForBatch(existing, appended []int64) []int64 {
+	result := append([]int64(nil), existing...)
+	seen := make(map[int64]struct{}, len(existing)+len(appended))
+	for _, groupID := range existing {
+		seen[groupID] = struct{}{}
+	}
+	for _, groupID := range appended {
+		if _, exists := seen[groupID]; exists {
+			continue
+		}
+		seen[groupID] = struct{}{}
+		result = append(result, groupID)
+	}
+	return result
+}
+
 func validateEnterpriseMemberGroupAuthorization(ctx context.Context, tx *sql.Tx, ownerID int64, groupIDs []int64) error {
 	if len(groupIDs) == 0 {
 		return nil

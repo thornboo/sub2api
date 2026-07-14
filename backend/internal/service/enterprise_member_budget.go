@@ -153,6 +153,7 @@ type EnterpriseMemberBudgetRepository interface {
 	ListEntries(ctx context.Context, memberID int64, periodStart time.Time, limit, offset int) ([]EnterpriseMemberBudgetEntry, int64, error)
 	CreateAdjustment(ctx context.Context, memberID int64, periodStart time.Time, amount float64, actorUserID int64, idempotencyKey, note string) error
 	SetUsage(ctx context.Context, ownerID, memberID int64, periodStart time.Time, monthlyUsed, usage5h, usage1d, usage7d float64, actorUserID int64, idempotencyKey, note string) error
+	BatchAdjustUsage(ctx context.Context, ownerID int64, periodStart time.Time, targets []EnterpriseMemberBatchTarget, delta EnterpriseMemberUsageDelta, actorUserID int64, idempotencyKey, note string) ([]BatchEnterpriseMemberUsageUpdate, error)
 	GetUsageAnalytics(ctx context.Context, memberID int64, start, end time.Time) (*EnterpriseMemberUsageAnalytics, error)
 	GetOwnerUsageSummary(ctx context.Context, ownerID int64, periodStart, periodEnd time.Time) (*EnterpriseMemberOwnerUsageSummary, error)
 	GetOwnerUsageTrend(ctx context.Context, ownerID int64, start, end time.Time) ([]EnterpriseMemberUsageTrendPoint, error)
@@ -166,6 +167,26 @@ type EnterpriseMemberUsageAdjustmentInput struct {
 	Usage1d        float64 `json:"usage_1d"`
 	Usage7d        float64 `json:"usage_7d"`
 	Note           string  `json:"note"`
+}
+
+type EnterpriseMemberUsageDelta struct {
+	MonthlyUsedUSD float64 `json:"monthly_used_delta"`
+	Usage5h        float64 `json:"usage_5h_delta"`
+	Usage1d        float64 `json:"usage_1d_delta"`
+	Usage7d        float64 `json:"usage_7d_delta"`
+}
+
+type BatchAdjustEnterpriseMemberUsageInput struct {
+	Members []EnterpriseMemberBatchTarget `json:"members"`
+	EnterpriseMemberUsageDelta
+}
+
+type BatchEnterpriseMemberUsageUpdate struct {
+	ID             int64   `json:"id"`
+	MonthlyUsedUSD float64 `json:"monthly_used_usd"`
+	Usage5h        float64 `json:"usage_5h"`
+	Usage1d        float64 `json:"usage_1d"`
+	Usage7d        float64 `json:"usage_7d"`
 }
 
 type EnterpriseMemberBudgetReconciliationResult struct {
@@ -246,6 +267,26 @@ func (s *EnterpriseMemberBudgetService) SetUsage(ctx context.Context, ownerID, m
 	return s.repo.SetUsage(ctx, ownerID, memberID, start, input.MonthlyUsedUSD, input.Usage5h, input.Usage1d, input.Usage7d, ownerID, ledgerKey, note)
 }
 
+func (s *EnterpriseMemberBudgetService) BatchAdjustUsage(ctx context.Context, ownerID int64, input BatchAdjustEnterpriseMemberUsageInput, idempotencyKey string) ([]BatchEnterpriseMemberUsageUpdate, error) {
+	if err := validateEnterpriseMemberBatchTargets(input.Members); err != nil {
+		return nil, err
+	}
+	delta := input.EnterpriseMemberUsageDelta
+	if err := validateEnterpriseUsageDeltas(delta.MonthlyUsedUSD, delta.Usage5h, delta.Usage1d, delta.Usage7d); err != nil {
+		return nil, err
+	}
+	idempotencyKey, err := NormalizeIdempotencyKey(idempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+	if idempotencyKey == "" {
+		return nil, ErrIdempotencyKeyRequired
+	}
+	start, _ := enterpriseMemberCurrentBudgetPeriod(time.Now())
+	ledgerKey := fmt.Sprintf("usage-batch:%d:%s", ownerID, HashIdempotencyKey(idempotencyKey))
+	return s.repo.BatchAdjustUsage(ctx, ownerID, start, input.Members, delta, ownerID, ledgerKey, enterpriseMemberSystemUsageNote(true, "batch member editor"))
+}
+
 func enterpriseMemberSystemUsageNote(hasUsage bool, source string) string {
 	if !hasUsage {
 		return ""
@@ -255,9 +296,25 @@ func enterpriseMemberSystemUsageNote(hasUsage bool, source string) string {
 
 func validateEnterpriseUsageValues(values ...float64) error {
 	for _, value := range values {
-		if value < 0 || math.IsNaN(value) || math.IsInf(value, 0) || value > 1_000_000_000_000 {
-			return ErrEnterpriseMemberInvalid
+		if value < 0 || math.IsNaN(value) || math.IsInf(value, 0) || value > EnterpriseMemberMaxMonetaryValue {
+			return ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{"field": "usage", "reason": "out_of_range"})
 		}
+	}
+	return nil
+}
+
+func validateEnterpriseUsageDeltas(values ...float64) error {
+	hasChange := false
+	for _, value := range values {
+		if math.IsNaN(value) || math.IsInf(value, 0) || math.Abs(value) > EnterpriseMemberMaxMonetaryValue {
+			return ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{"field": "usage_delta", "reason": "out_of_range"})
+		}
+		if math.Abs(value) > 1e-8 {
+			hasChange = true
+		}
+	}
+	if !hasChange {
+		return ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{"field": "changes"})
 	}
 	return nil
 }

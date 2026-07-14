@@ -24,6 +24,11 @@ var (
 const (
 	EnterpriseMemberStatusActive   = "active"
 	EnterpriseMemberStatusDisabled = "disabled"
+	EnterpriseMemberBatchMaxSize   = 500
+	// EnterpriseMemberMaxMonetaryValue stays below PostgreSQL NUMERIC(20,8)'s
+	// twelve-integer-digit ceiling while remaining exactly inside the product's
+	// accepted money/rate range after float64 conversion.
+	EnterpriseMemberMaxMonetaryValue = 999_999_999_999.99
 
 	EnterpriseMemberDeletionModeHardDelete = "hard_delete"
 	EnterpriseMemberDeletionModeTombstone  = "tombstone"
@@ -142,6 +147,44 @@ type BatchEnterpriseMemberGroupUpdate struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+type EnterpriseMemberBatchTarget struct {
+	ID              int64 `json:"id"`
+	ExpectedVersion int64 `json:"expected_version"`
+}
+
+type BatchUpdateEnterpriseMembersInput struct {
+	Members         []EnterpriseMemberBatchTarget `json:"members"`
+	MonthlyLimitUSD *float64                      `json:"monthly_limit_usd"`
+	RateLimit5h     *float64                      `json:"rate_limit_5h"`
+	RateLimit1d     *float64                      `json:"rate_limit_1d"`
+	RateLimit7d     *float64                      `json:"rate_limit_7d"`
+	Status          *string                       `json:"status"`
+	GroupMode       string                        `json:"group_mode"`
+	GroupIDs        []int64                       `json:"group_ids"`
+}
+
+type BatchEnterpriseMemberPolicyPatch struct {
+	MonthlyLimitUSD *float64
+	RateLimit5h     *float64
+	RateLimit1d     *float64
+	RateLimit7d     *float64
+	Status          *string
+	GroupMode       string
+	GroupIDs        []int64
+}
+
+type BatchEnterpriseMemberUpdate struct {
+	ID              int64     `json:"id"`
+	Version         int64     `json:"version"`
+	Status          string    `json:"status"`
+	MonthlyLimitUSD float64   `json:"monthly_limit_usd"`
+	RateLimit5h     float64   `json:"rate_limit_5h"`
+	RateLimit1d     float64   `json:"rate_limit_1d"`
+	RateLimit7d     float64   `json:"rate_limit_7d"`
+	GroupIDs        []int64   `json:"group_ids"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
 type AdoptEnterpriseMemberKeyInput struct {
 	ExpectedVersion int64 `json:"expected_version"`
 }
@@ -188,6 +231,7 @@ type EnterpriseMemberRepository interface {
 	DeletePermanently(ctx context.Context, ownerID, memberID int64) (*EnterpriseMemberDeletionResult, error)
 	ReplaceGroups(ctx context.Context, ownerID, memberID, expectedVersion int64, groupIDs []int64) (*EnterpriseMember, error)
 	BatchReplaceGroups(ctx context.Context, ownerID int64, targets []BatchEnterpriseMemberGroupTarget) ([]BatchEnterpriseMemberGroupUpdate, error)
+	BatchUpdate(ctx context.Context, ownerID int64, targets []EnterpriseMemberBatchTarget, patch BatchEnterpriseMemberPolicyPatch) ([]BatchEnterpriseMemberUpdate, error)
 	ListKeys(ctx context.Context, ownerID, memberID int64) ([]APIKey, error)
 	ListAdoptableKeys(ctx context.Context, ownerID int64) ([]APIKey, error)
 	AdoptKey(ctx context.Context, ownerID, memberID, keyID, expectedVersion int64) (*EnterpriseMemberKeyAdoptionResult, error)
@@ -409,6 +453,90 @@ func (s *EnterpriseMemberService) BatchReplaceGroups(ctx context.Context, ownerI
 		return nil, err
 	}
 	return updated, nil
+}
+
+func (s *EnterpriseMemberService) BatchUpdate(ctx context.Context, ownerID int64, input BatchUpdateEnterpriseMembersInput) ([]BatchEnterpriseMemberUpdate, error) {
+	if _, err := s.requireEnterpriseOwner(ctx, ownerID); err != nil {
+		return nil, err
+	}
+	if err := validateEnterpriseMemberBatchTargets(input.Members); err != nil {
+		return nil, err
+	}
+	groupMode := strings.TrimSpace(input.GroupMode)
+	if groupMode == "" {
+		groupMode = "keep"
+	}
+	if groupMode != "keep" && groupMode != "replace" && groupMode != "append" {
+		return nil, ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{"field": "group_mode"})
+	}
+	if groupMode == "keep" && len(input.GroupIDs) > 0 {
+		return nil, ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{"field": "group_ids", "reason": "requires_group_mode"})
+	}
+	if input.MonthlyLimitUSD == nil && input.RateLimit5h == nil && input.RateLimit1d == nil && input.RateLimit7d == nil && input.Status == nil &&
+		(groupMode == "keep" || (groupMode == "append" && len(input.GroupIDs) == 0)) {
+		return nil, ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{"field": "changes"})
+	}
+	for field, value := range map[string]*float64{
+		"monthly_limit_usd": input.MonthlyLimitUSD,
+		"rate_limit_5h":     input.RateLimit5h,
+		"rate_limit_1d":     input.RateLimit1d,
+		"rate_limit_7d":     input.RateLimit7d,
+	} {
+		if value != nil {
+			if err := validateEnterpriseSpendingLimit(field, *value); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if input.Status != nil && *input.Status != EnterpriseMemberStatusActive && *input.Status != EnterpriseMemberStatusDisabled {
+		return nil, ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{"field": "status"})
+	}
+	groupIDs := []int64(nil)
+	if groupMode != "keep" {
+		var err error
+		groupIDs, err = s.validateAndNormalizeGroupIDs(ctx, ownerID, input.GroupIDs)
+		if err != nil {
+			return nil, err
+		}
+	}
+	updated, err := s.repo.BatchUpdate(ctx, ownerID, input.Members, BatchEnterpriseMemberPolicyPatch{
+		MonthlyLimitUSD: input.MonthlyLimitUSD,
+		RateLimit5h:     input.RateLimit5h,
+		RateLimit1d:     input.RateLimit1d,
+		RateLimit7d:     input.RateLimit7d,
+		Status:          input.Status,
+		GroupMode:       groupMode,
+		GroupIDs:        groupIDs,
+	})
+	// Policy changes may affect authorization and the commit result can be
+	// ambiguous, so evict owner snapshots even when the repository returns an error.
+	s.invalidateOwner(ctx, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+func (s *EnterpriseMemberService) EnsureEnterpriseOwner(ctx context.Context, ownerID int64) error {
+	_, err := s.requireEnterpriseOwner(ctx, ownerID)
+	return err
+}
+
+func validateEnterpriseMemberBatchTargets(targets []EnterpriseMemberBatchTarget) error {
+	if len(targets) == 0 || len(targets) > EnterpriseMemberBatchMaxSize {
+		return ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{"field": "members"})
+	}
+	seen := make(map[int64]struct{}, len(targets))
+	for _, target := range targets {
+		if target.ID <= 0 || target.ExpectedVersion <= 0 {
+			return ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{"field": "members"})
+		}
+		if _, exists := seen[target.ID]; exists {
+			return ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{"field": "members", "reason": "duplicate"})
+		}
+		seen[target.ID] = struct{}{}
+	}
+	return nil
 }
 
 func appendUniqueEnterpriseMemberGroupIDs(existing, appended []int64) []int64 {
@@ -707,8 +835,8 @@ func normalizeEnterpriseMemberIdentity(memberCode, name string) (string, string,
 }
 
 func validateEnterpriseSpendingLimit(field string, limit float64) error {
-	if math.IsNaN(limit) || math.IsInf(limit, 0) || limit < 0 {
-		return ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{"field": field})
+	if math.IsNaN(limit) || math.IsInf(limit, 0) || limit < 0 || limit > EnterpriseMemberMaxMonetaryValue {
+		return ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{"field": field, "reason": "out_of_range"})
 	}
 	return nil
 }

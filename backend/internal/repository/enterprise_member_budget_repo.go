@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -362,6 +364,240 @@ func (r *enterpriseMemberBudgetRepository) SetUsage(ctx context.Context, ownerID
 		return err
 	}
 	return tx.Commit()
+}
+
+func (r *enterpriseMemberBudgetRepository) BatchAdjustUsage(ctx context.Context, ownerID int64, periodStart time.Time, targets []service.EnterpriseMemberBatchTarget, delta service.EnterpriseMemberUsageDelta, actorUserID int64, idempotencyKey, note string) ([]service.BatchEnterpriseMemberUsageUpdate, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("enterprise member budget repository db is nil")
+	}
+	ordered := append([]service.EnterpriseMemberBatchTarget(nil), targets...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].ID < ordered[j].ID })
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	// Serialize retries for the same batch key before checking durable audit evidence.
+	// Without this lock, concurrent first attempts could both observe no audit row and
+	// apply the same signed delta twice because usage writes do not advance policy versions.
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, idempotencyKey); err != nil {
+		return nil, err
+	}
+
+	replayedByID := make(map[int64]service.BatchEnterpriseMemberUsageUpdate, len(ordered))
+	for _, target := range ordered {
+		memberKey := fmt.Sprintf("%s:%d", idempotencyKey, target.ID)
+		var replay service.BatchEnterpriseMemberUsageUpdate
+		replay.ID = target.ID
+		var monthlyDelta, usage5hDelta, usage1dDelta, usage7dDelta float64
+		var expectedVersion int64
+		err := tx.QueryRowContext(ctx, `
+			SELECT (after_data->>'monthly_used_usd')::numeric,
+			       (after_data->>'usage_5h')::numeric,
+			       (after_data->>'usage_1d')::numeric,
+			       (after_data->>'usage_7d')::numeric,
+			       (metadata->>'monthly_used_delta')::numeric,
+			       (metadata->>'usage_5h_delta')::numeric,
+			       (metadata->>'usage_1d_delta')::numeric,
+			       (metadata->>'usage_7d_delta')::numeric,
+			       (metadata->>'expected_version')::bigint
+			FROM enterprise_member_audit_logs
+			WHERE enterprise_user_id = $1 AND member_id = $2
+			  AND action = 'member.usage_adjusted'
+			  AND metadata->>'idempotency_key' = $3
+			FOR UPDATE`, ownerID, target.ID, memberKey).
+			Scan(&replay.MonthlyUsedUSD, &replay.Usage5h, &replay.Usage1d, &replay.Usage7d,
+				&monthlyDelta, &usage5hDelta, &usage1dDelta, &usage7dDelta, &expectedVersion)
+		if err == nil {
+			if expectedVersion != target.ExpectedVersion ||
+				mathAbs(monthlyDelta-delta.MonthlyUsedUSD) > 1e-8 ||
+				mathAbs(usage5hDelta-delta.Usage5h) > 1e-8 ||
+				mathAbs(usage1dDelta-delta.Usage1d) > 1e-8 ||
+				mathAbs(usage7dDelta-delta.Usage7d) > 1e-8 {
+				return nil, service.ErrEnterpriseMemberBudgetConflict
+			}
+			replayedByID[target.ID] = replay
+			continue
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+	}
+	if len(replayedByID) > 0 {
+		if len(replayedByID) != len(ordered) {
+			return nil, service.ErrEnterpriseMemberBudgetConflict
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return orderBatchUsageUpdates(targets, replayedByID), nil
+	}
+
+	updatedByID := make(map[int64]service.BatchEnterpriseMemberUsageUpdate, len(ordered))
+	for _, target := range ordered {
+		var currentVersion int64
+		if err := tx.QueryRowContext(ctx, `
+			SELECT version
+			FROM enterprise_members
+			WHERE id = $1 AND enterprise_user_id = $2
+			  AND deleted_at IS NULL AND removed_at IS NULL
+			FOR UPDATE`, target.ID, ownerID).Scan(&currentVersion); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, service.ErrEnterpriseMemberNotFound
+			}
+			return nil, err
+		}
+		if currentVersion != target.ExpectedVersion {
+			return nil, service.ErrEnterpriseMemberVersion
+		}
+
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO enterprise_member_budget_periods (member_id, period_start, timezone)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (member_id, period_start) DO NOTHING`, target.ID, periodStart.Format("2006-01-02"), enterpriseBudgetTimezone()); err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO enterprise_member_rate_limit_periods (member_id)
+			VALUES ($1) ON CONFLICT (member_id) DO NOTHING`, target.ID); err != nil {
+			return nil, err
+		}
+
+		var beforeMonthly, before5h, before1d, before7d float64
+		if err := tx.QueryRowContext(ctx, `
+			SELECT used_usd
+			FROM enterprise_member_budget_periods
+			WHERE member_id = $1 AND period_start = $2
+			FOR UPDATE`, target.ID, periodStart.Format("2006-01-02")).Scan(&beforeMonthly); err != nil {
+			return nil, err
+		}
+		if err := tx.QueryRowContext(ctx, `
+			SELECT CASE
+			         WHEN window_5h_start IS NULL OR window_5h_start + INTERVAL '5 hours' <= NOW() THEN 0
+			         ELSE usage_5h
+			       END,
+			       CASE
+			         WHEN window_1d_start IS NULL OR window_1d_start + INTERVAL '1 day' <= NOW() THEN 0
+			         ELSE usage_1d
+			       END,
+			       CASE
+			         WHEN window_7d_start IS NULL OR window_7d_start + INTERVAL '7 days' <= NOW() THEN 0
+			         ELSE usage_7d
+			       END
+			FROM enterprise_member_rate_limit_periods
+			WHERE member_id = $1
+			FOR UPDATE`, target.ID).Scan(&before5h, &before1d, &before7d); err != nil {
+			return nil, err
+		}
+
+		update := service.BatchEnterpriseMemberUsageUpdate{
+			ID:             target.ID,
+			MonthlyUsedUSD: beforeMonthly + delta.MonthlyUsedUSD,
+			Usage5h:        before5h + delta.Usage5h,
+			Usage1d:        before1d + delta.Usage1d,
+			Usage7d:        before7d + delta.Usage7d,
+		}
+		if update.MonthlyUsedUSD < -1e-8 || update.Usage5h < -1e-8 || update.Usage1d < -1e-8 || update.Usage7d < -1e-8 {
+			return nil, service.ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{
+				"field": "usage_delta", "reason": "negative_result", "member_id": fmt.Sprint(target.ID),
+			})
+		}
+		if update.MonthlyUsedUSD > service.EnterpriseMemberMaxMonetaryValue ||
+			update.Usage5h > service.EnterpriseMemberMaxMonetaryValue ||
+			update.Usage1d > service.EnterpriseMemberMaxMonetaryValue ||
+			update.Usage7d > service.EnterpriseMemberMaxMonetaryValue {
+			return nil, service.ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{
+				"field": "usage_delta", "reason": "out_of_range", "member_id": fmt.Sprint(target.ID),
+			})
+		}
+		update.MonthlyUsedUSD = clampBatchUsageZero(update.MonthlyUsedUSD)
+		update.Usage5h = clampBatchUsageZero(update.Usage5h)
+		update.Usage1d = clampBatchUsageZero(update.Usage1d)
+		update.Usage7d = clampBatchUsageZero(update.Usage7d)
+
+		memberKey := fmt.Sprintf("%s:%d", idempotencyKey, target.ID)
+		if mathAbs(delta.MonthlyUsedUSD) > 1e-8 {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE enterprise_member_budget_periods
+				SET used_usd = $1, version = version + 1, updated_at = NOW()
+				WHERE member_id = $2 AND period_start = $3`, update.MonthlyUsedUSD, target.ID, periodStart.Format("2006-01-02")); err != nil {
+				return nil, err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO enterprise_member_budget_entries
+				(member_id, period_start, kind, amount_usd, idempotency_key, actor_user_id, note)
+				VALUES ($1, $2, 'manual_adjustment', $3, $4, $5, $6)`,
+				target.ID, periodStart.Format("2006-01-02"), delta.MonthlyUsedUSD, memberKey, actorUserID, note); err != nil {
+				if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+					return nil, service.ErrEnterpriseMemberBudgetConflict
+				}
+				return nil, err
+			}
+		}
+		if mathAbs(delta.Usage5h) > 1e-8 || mathAbs(delta.Usage1d) > 1e-8 || mathAbs(delta.Usage7d) > 1e-8 {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE enterprise_member_rate_limit_periods
+				SET usage_5h = $1, usage_1d = $2, usage_7d = $3,
+				    window_5h_start = CASE WHEN $4 THEN NOW() ELSE window_5h_start END,
+				    window_1d_start = CASE WHEN $5 THEN NOW() ELSE window_1d_start END,
+				    window_7d_start = CASE WHEN $6 THEN NOW() ELSE window_7d_start END,
+				    updated_at = NOW()
+				WHERE member_id = $7`, update.Usage5h, update.Usage1d, update.Usage7d,
+				mathAbs(delta.Usage5h) > 1e-8, mathAbs(delta.Usage1d) > 1e-8, mathAbs(delta.Usage7d) > 1e-8, target.ID); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO enterprise_member_audit_logs
+			(enterprise_user_id, member_id, actor_user_id, action, entity_type, entity_id, before_data, after_data, metadata)
+			VALUES ($1, $2, $3, 'member.usage_adjusted', 'member', $2,
+				jsonb_build_object(
+					'monthly_used_usd', CAST($4 AS NUMERIC),
+					'usage_5h', CAST($5 AS NUMERIC),
+					'usage_1d', CAST($6 AS NUMERIC),
+					'usage_7d', CAST($7 AS NUMERIC)),
+				jsonb_build_object(
+					'monthly_used_usd', CAST($8 AS NUMERIC),
+					'usage_5h', CAST($9 AS NUMERIC),
+					'usage_1d', CAST($10 AS NUMERIC),
+					'usage_7d', CAST($11 AS NUMERIC)),
+				jsonb_build_object(
+					'note', CAST($12 AS TEXT),
+					'idempotency_key', CAST($13 AS TEXT),
+					'batch_idempotency_key', CAST($14 AS TEXT),
+					'monthly_used_delta', CAST($15 AS NUMERIC),
+					'usage_5h_delta', CAST($16 AS NUMERIC),
+					'usage_1d_delta', CAST($17 AS NUMERIC),
+					'usage_7d_delta', CAST($18 AS NUMERIC),
+					'expected_version', CAST($19 AS BIGINT)))`,
+			ownerID, target.ID, actorUserID,
+			beforeMonthly, before5h, before1d, before7d,
+			update.MonthlyUsedUSD, update.Usage5h, update.Usage1d, update.Usage7d,
+			note, memberKey, idempotencyKey,
+			delta.MonthlyUsedUSD, delta.Usage5h, delta.Usage1d, delta.Usage7d, target.ExpectedVersion); err != nil {
+			return nil, err
+		}
+		updatedByID[target.ID] = update
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return orderBatchUsageUpdates(targets, updatedByID), nil
+}
+
+func orderBatchUsageUpdates(targets []service.EnterpriseMemberBatchTarget, updates map[int64]service.BatchEnterpriseMemberUsageUpdate) []service.BatchEnterpriseMemberUsageUpdate {
+	ordered := make([]service.BatchEnterpriseMemberUsageUpdate, 0, len(targets))
+	for _, target := range targets {
+		ordered = append(ordered, updates[target.ID])
+	}
+	return ordered
+}
+
+func clampBatchUsageZero(value float64) float64 {
+	if mathAbs(value) <= 1e-8 {
+		return 0
+	}
+	return value
 }
 
 func (r *enterpriseMemberBudgetRepository) GetUsageAnalytics(ctx context.Context, memberID int64, start, end time.Time) (*service.EnterpriseMemberUsageAnalytics, error) {

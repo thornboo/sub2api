@@ -248,6 +248,72 @@ func (h *EnterpriseMemberHandler) BatchReplaceGroups(c *gin.Context) {
 	response.Success(c, members)
 }
 
+func (h *EnterpriseMemberHandler) BatchUpdate(c *gin.Context) {
+	ownerID, ok := enterpriseOwnerID(c)
+	if !ok {
+		return
+	}
+	if _, ok := requireEnterpriseMemberBatchIdempotencyKey(c); !ok {
+		return
+	}
+	var req service.BatchUpdateEnterpriseMembersInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	executeUserIdempotentJSON(c, "user.enterprise_members.batch_update", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
+		updated, err := h.service.BatchUpdate(ctx, ownerID, req)
+		if err != nil {
+			return nil, err
+		}
+		return enterpriseMemberBatchMutationSummary{UpdatedCount: len(updated)}, nil
+	})
+}
+
+func (h *EnterpriseMemberHandler) BatchAdjustUsage(c *gin.Context) {
+	ownerID, ok := enterpriseOwnerID(c)
+	if !ok {
+		return
+	}
+	idempotencyKey, ok := requireEnterpriseMemberBatchIdempotencyKey(c)
+	if !ok {
+		return
+	}
+	var req service.BatchAdjustEnterpriseMemberUsageInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if err := h.service.EnsureEnterpriseOwner(c.Request.Context(), ownerID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	executeUserIdempotentJSON(c, "user.enterprise_members.usage.batch_adjust", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
+		updated, err := h.budgetService.BatchAdjustUsage(ctx, ownerID, req, idempotencyKey)
+		if err != nil {
+			return nil, err
+		}
+		return enterpriseMemberBatchMutationSummary{UpdatedCount: len(updated)}, nil
+	})
+}
+
+type enterpriseMemberBatchMutationSummary struct {
+	UpdatedCount int `json:"updated_count"`
+}
+
+func requireEnterpriseMemberBatchIdempotencyKey(c *gin.Context) (string, bool) {
+	key, err := service.NormalizeIdempotencyKey(c.GetHeader("Idempotency-Key"))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return "", false
+	}
+	if key == "" {
+		response.ErrorFrom(c, service.ErrIdempotencyKeyRequired)
+		return "", false
+	}
+	return key, true
+}
+
 func (h *EnterpriseMemberHandler) ListKeys(c *gin.Context) {
 	ownerID, memberID, ok := enterpriseMemberIDs(c)
 	if !ok {

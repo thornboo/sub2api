@@ -82,6 +82,104 @@ func TestEnterpriseMemberBatchReplaceGroupsReturnsTransactionResultWithoutPostCo
 	require.NoError(t, mock.ExpectationsWereMet(), "authorization updates must not depend on a post-commit list query")
 }
 
+func TestEnterpriseMemberBatchUpdateReturnsTransactionResultWithoutPostCommitRead(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	repo := &enterpriseMemberRepository{db: db}
+	now := time.Now()
+	limit := 100.0
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT status, version FROM enterprise_members").
+		WithArgs(int64(12), int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"status", "version"}).AddRow(service.EnterpriseMemberStatusActive, int64(3)))
+	mock.ExpectQuery(`SELECT group_id\s+FROM enterprise_member_group_bindings\s+WHERE member_id = \$1\s+ORDER BY sort_order, group_id`).
+		WithArgs(int64(12)).
+		WillReturnRows(sqlmock.NewRows([]string{"group_id"}).AddRow(int64(9)))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM groups`).
+		WithArgs(int64(7), pq.Array([]int64{9})).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery("UPDATE enterprise_members").
+		WithArgs(int64(12), int64(7), int64(3), limit, nil, nil, nil, service.EnterpriseMemberStatusActive).
+		WillReturnRows(sqlmock.NewRows([]string{"version", "status", "monthly_limit_usd", "rate_limit_5h", "rate_limit_1d", "rate_limit_7d", "updated_at"}).
+			AddRow(int64(4), service.EnterpriseMemberStatusActive, limit, 0.0, 0.0, 0.0, now))
+	mock.ExpectCommit()
+
+	updated, err := repo.BatchUpdate(context.Background(), 7, []service.EnterpriseMemberBatchTarget{{
+		ID: 12, ExpectedVersion: 3,
+	}}, service.BatchEnterpriseMemberPolicyPatch{MonthlyLimitUSD: &limit, GroupMode: "keep"})
+
+	require.NoError(t, err)
+	require.Equal(t, []service.BatchEnterpriseMemberUpdate{{
+		ID: 12, Version: 4, Status: service.EnterpriseMemberStatusActive, MonthlyLimitUSD: limit,
+		GroupIDs: []int64{9}, UpdatedAt: now,
+	}}, updated)
+	require.NoError(t, mock.ExpectationsWereMet(), "batch policy updates must return the committed transaction state")
+}
+
+func TestEnterpriseMemberBatchUpdateRollsBackEarlierRowsOnVersionConflict(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	repo := &enterpriseMemberRepository{db: db}
+	limit := 100.0
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT status, version FROM enterprise_members").
+		WithArgs(int64(12), int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"status", "version"}).AddRow(service.EnterpriseMemberStatusActive, int64(3)))
+	mock.ExpectQuery(`SELECT group_id\s+FROM enterprise_member_group_bindings\s+WHERE member_id = \$1\s+ORDER BY sort_order, group_id`).
+		WithArgs(int64(12)).
+		WillReturnRows(sqlmock.NewRows([]string{"group_id"}).AddRow(int64(9)))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM groups`).
+		WithArgs(int64(7), pq.Array([]int64{9})).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery("UPDATE enterprise_members").
+		WithArgs(int64(12), int64(7), int64(3), limit, nil, nil, nil, service.EnterpriseMemberStatusActive).
+		WillReturnRows(sqlmock.NewRows([]string{"version", "status", "monthly_limit_usd", "rate_limit_5h", "rate_limit_1d", "rate_limit_7d", "updated_at"}).
+			AddRow(int64(4), service.EnterpriseMemberStatusActive, limit, 0.0, 0.0, 0.0, time.Now()))
+	mock.ExpectQuery("SELECT status, version FROM enterprise_members").
+		WithArgs(int64(24), int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"status", "version"}).AddRow(service.EnterpriseMemberStatusActive, int64(9)))
+	mock.ExpectRollback()
+
+	_, err = repo.BatchUpdate(context.Background(), 7, []service.EnterpriseMemberBatchTarget{
+		{ID: 24, ExpectedVersion: 4},
+		{ID: 12, ExpectedVersion: 3},
+	}, service.BatchEnterpriseMemberPolicyPatch{MonthlyLimitUSD: &limit, GroupMode: "keep"})
+
+	require.ErrorIs(t, err, service.ErrEnterpriseMemberVersion)
+	require.NoError(t, mock.ExpectationsWereMet(), "a later optimistic-lock conflict must roll back earlier member updates")
+}
+
+func TestEnterpriseMemberBatchUpdateRejectsActiveMemberWithUnauthorizedExistingGroup(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	repo := &enterpriseMemberRepository{db: db}
+	limit := 100.0
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT status, version FROM enterprise_members").
+		WithArgs(int64(12), int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"status", "version"}).AddRow(service.EnterpriseMemberStatusActive, int64(3)))
+	mock.ExpectQuery(`SELECT group_id\s+FROM enterprise_member_group_bindings\s+WHERE member_id = \$1\s+ORDER BY sort_order, group_id`).
+		WithArgs(int64(12)).
+		WillReturnRows(sqlmock.NewRows([]string{"group_id"}).AddRow(int64(9)))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM groups`).
+		WithArgs(int64(7), pq.Array([]int64{9})).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectRollback()
+
+	_, err = repo.BatchUpdate(context.Background(), 7, []service.EnterpriseMemberBatchTarget{{
+		ID: 12, ExpectedVersion: 3,
+	}}, service.BatchEnterpriseMemberPolicyPatch{MonthlyLimitUSD: &limit, GroupMode: "keep"})
+
+	require.ErrorIs(t, err, service.ErrGroupNotAllowed)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestEnterpriseMemberImportEffectiveTokenTotalMatchesPersistedSummary(t *testing.T) {
 	row := service.EnterpriseMemberImportRow{InputTokens: 50, OutputTokens: 30, CacheTokens: 20}
 	require.Equal(t, int64(80), enterpriseMemberImportSummaryTokens(row))
