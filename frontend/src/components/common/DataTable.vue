@@ -73,7 +73,10 @@
     }"
   >
     <table class="w-full min-w-max divide-y divide-stone-200/80 dark:divide-white/10">
-      <thead class="table-header bg-stone-50/90 dark:bg-neutral-900/85">
+      <thead
+        class="table-header bg-stone-50/90 dark:bg-neutral-900/85"
+        :class="{ 'sticky-table-header': props.stickyHeader }"
+      >
         <tr>
           <th
             v-for="(column, index) in columns"
@@ -81,7 +84,8 @@
             scope="col"
             :aria-sort="column.sortable ? getColumnAriaSort(column.key) : undefined"
             :class="[
-              'sticky-header-cell py-3 text-left text-xs font-medium uppercase tracking-wider text-stone-500 dark:text-stone-400',
+              'py-3 text-left text-xs font-medium uppercase tracking-wider text-stone-500 dark:text-stone-400',
+              { 'sticky-header-cell': props.stickyHeader },
               getAdaptivePaddingClass(),
               { 'cursor-pointer hover:bg-stone-100/80 dark:hover:bg-white/[0.06]': column.sortable },
               getStickyColumnClass(column, index),
@@ -373,6 +377,7 @@ interface Props {
   columns: Column[]
   data: any[]
   loading?: boolean
+  stickyHeader?: boolean
   stickyFirstColumn?: boolean
   stickyActionsColumn?: boolean
   expandableActions?: boolean
@@ -411,6 +416,7 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   loading: false,
+  stickyHeader: true,
   stickyFirstColumn: true,
   stickyActionsColumn: true,
   expandableActions: true,
@@ -820,12 +826,15 @@ defineExpose({
   min-height: auto;
 }
 
-/* 表头容器，确保在滚动时覆盖表体内容 */
+/* 表头背景默认跟随原生表格流，仅在显式启用时创建 sticky 合成层。 */
 .table-wrapper .table-header {
+  background-color: rgb(250 250 249 / 0.92);
+}
+
+.table-wrapper .table-header.sticky-table-header {
   position: sticky;
   top: 0;
   z-index: 200;
-  background-color: rgb(250 250 249 / 0.92);
   backdrop-filter: blur(18px);
 }
 
@@ -878,9 +887,14 @@ defineExpose({
   right: 0;
 }
 
-/* 表头 sticky 列 - 需要比普通表头单元格更高的 z-index */
-.sticky-header-cell.sticky-col {
-  z-index: 220; /* 高于普通表头单元格和表体固定列 */
+/* 表头内的横向 sticky 列始终高于表体 sticky 列，与表头是否纵向 sticky 无关。 */
+.table-header .sticky-col {
+  z-index: 220;
+  background-color: rgb(250 250 249 / 0.92);
+}
+
+.dark .table-header .sticky-col {
+  background-color: rgb(10 10 10 / 0.96);
 }
 
 /* 表体 sticky 列背景 */

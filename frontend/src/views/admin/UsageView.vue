@@ -156,6 +156,10 @@
             :rows="errRows" :total="errTotal" :loading="errLoading"
             :page="errPage" :page-size="errPageSize"
             :visible-column-keys="errVisibleColumnKeys"
+            :virtual-scroll="false"
+            :sticky-header="false"
+            :sticky-first-column="false"
+            :sticky-actions-column="false"
             user-clickable
             @userClick="handleUserClick"
             @openErrorDetail="openError"

@@ -101,6 +101,75 @@ describe('DataTable', () => {
     expect(wrapper.findAll('tbody tr[aria-hidden="true"]')).toHaveLength(0)
   })
 
+  it('removes sticky compositor layers when sticky headers and columns are disabled', async () => {
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [
+          { key: 'user', label: 'User' },
+          { key: 'model', label: 'Model' }
+        ],
+        data: [{ id: 1, user: 'Alice', model: 'gpt-5.5' }],
+        stickyHeader: false,
+        stickyFirstColumn: false,
+        stickyActionsColumn: false,
+        virtualScroll: false
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('thead').classes()).not.toContain('sticky-table-header')
+    expect(wrapper.findAll('th').every((header) => !header.classes().includes('sticky-header-cell'))).toBe(true)
+    expect(wrapper.findAll('.sticky-col')).toHaveLength(0)
+  })
+
+  it('keeps horizontal sticky columns valid when the vertical sticky header is disabled', async () => {
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [
+          { key: 'user', label: 'User' },
+          { key: 'model', label: 'Model' },
+          { key: 'actions', label: 'Actions' }
+        ],
+        data: [{ id: 1, user: 'Alice', model: 'gpt-5.5' }],
+        stickyHeader: false,
+        stickyFirstColumn: true,
+        stickyActionsColumn: true,
+        virtualScroll: false
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    const headers = wrapper.findAll('th')
+    expect(wrapper.find('thead').classes()).not.toContain('sticky-table-header')
+    expect(headers.every((header) => !header.classes().includes('sticky-header-cell'))).toBe(true)
+    expect(headers[0].classes()).toContain('sticky-col-left')
+    expect(headers[2].classes()).toContain('sticky-col-right')
+  })
+
+  it('keeps a vertical sticky header without creating horizontal sticky columns', async () => {
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [
+          { key: 'user', label: 'User' },
+          { key: 'model', label: 'Model' }
+        ],
+        data: [{ id: 1, user: 'Alice', model: 'gpt-5.5' }],
+        stickyHeader: true,
+        stickyFirstColumn: false,
+        stickyActionsColumn: false,
+        virtualScroll: false
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('thead').classes()).toContain('sticky-table-header')
+    expect(wrapper.findAll('th').every((header) => header.classes().includes('sticky-header-cell'))).toBe(true)
+    expect(wrapper.findAll('.sticky-col')).toHaveLength(0)
+  })
+
   it('switches to windowed rendering once row count exceeds virtualizeThreshold', async () => {
     const data = Array.from({ length: 12 }, (_, i) => ({ id: i + 1, name: `Row ${i + 1}` }))
     const wrapper = mount(DataTable, {

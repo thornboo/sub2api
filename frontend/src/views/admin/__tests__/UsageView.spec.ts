@@ -139,6 +139,11 @@ const UserTokenRankingStub = {
   emits: ['select-user'],
   template: '<div data-test="ranking"><button class="pick-user" @click="$emit(\'select-user\', 5, \'rank@test.com\')">pick</button></div>',
 }
+const OpsErrorLogTableContractStub = {
+  name: 'OpsErrorLogTable',
+  props: ['virtualScroll', 'stickyHeader', 'stickyFirstColumn', 'stickyActionsColumn'],
+  template: '<div data-test="ops-error-log-table-contract" />',
+}
 const ModelDistributionChartStub = {
   props: ['metric', 'showExpandButton'],
   emits: ['update:metric', 'expand'],
@@ -867,6 +872,28 @@ describe('admin UsageView errors tab filter forwarding', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('uses the same stable native table flow as the usage detail tab', async () => {
+    const wrapper = mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+        UserBalanceHistoryModal: true, AuditLogModal: true, Pagination: true, Select: true,
+        DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
+        UserTokenRanking: true, OpsErrorLogTable: OpsErrorLogTableContractStub, OpsErrorDetailModal: true,
+      } },
+    })
+
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    const errorTable = wrapper.findComponent(OpsErrorLogTableContractStub)
+    expect(errorTable.props('virtualScroll')).toBe(false)
+    expect(errorTable.props('stickyHeader')).toBe(false)
+    expect(errorTable.props('stickyFirstColumn')).toBe(false)
+    expect(errorTable.props('stickyActionsColumn')).toBe(false)
   })
 
   it('forwards model/account_id/group_id to listErrorLogs on the errors tab', async () => {

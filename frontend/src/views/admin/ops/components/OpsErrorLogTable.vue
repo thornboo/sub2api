@@ -11,6 +11,11 @@
         server-side-sort
         default-sort-key="created_at"
         default-sort-order="desc"
+        :virtual-scroll="virtualScroll"
+        :sticky-header="stickyHeader"
+        :sticky-first-column="stickyFirstColumn"
+        :sticky-actions-column="stickyActionsColumn"
+        row-key="id"
         @sort="onSort"
         @rowClick="(row) => emit('openErrorDetail', row.id)"
       >
@@ -300,6 +305,14 @@ interface Props {
   visibleColumnKeys?: string[]
   /** 嵌入统一卡片内使用：去掉自身卡片外观 */
   flat?: boolean
+  /** 是否启用 DataTable 的内部虚拟滚动。 */
+  virtualScroll?: boolean
+  /** 是否固定表头。宽表嵌入页面时可关闭以规避浏览器合成层绘制异常。 */
+  stickyHeader?: boolean
+  /** 是否固定首列。 */
+  stickyFirstColumn?: boolean
+  /** 是否固定操作列。 */
+  stickyActionsColumn?: boolean
 }
 
 interface Emits {
@@ -311,7 +324,12 @@ interface Emits {
   (e: 'userClick', userId: number, email?: string): void
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  virtualScroll: true,
+  stickyHeader: true,
+  stickyFirstColumn: true,
+  stickyActionsColumn: true,
+})
 const emit = defineEmits<Emits>()
 
 function onSort(key: string, order: 'asc' | 'desc') {

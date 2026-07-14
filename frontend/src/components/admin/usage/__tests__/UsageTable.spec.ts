@@ -103,7 +103,14 @@ const DataTableStubWithAccount = {
 
 const DataTableContractStub = {
   name: 'DataTable',
-  props: ['data', 'virtualScroll', 'rowKey'],
+  props: [
+    'data',
+    'virtualScroll',
+    'rowKey',
+    'stickyHeader',
+    'stickyFirstColumn',
+    'stickyActionsColumn',
+  ],
   template: '<div data-test="data-table-contract"></div>',
 }
 
@@ -127,6 +134,9 @@ describe('admin UsageTable rendering contract', () => {
     const dataTable = wrapper.findComponent(DataTableContractStub)
     expect(dataTable.props('virtualScroll')).toBe(false)
     expect(dataTable.props('rowKey')).toBe('id')
+    expect(dataTable.props('stickyHeader')).toBe(false)
+    expect(dataTable.props('stickyFirstColumn')).toBe(false)
+    expect(dataTable.props('stickyActionsColumn')).toBe(false)
     expect(wrapper.find('.overflow-auto').exists()).toBe(false)
   })
 

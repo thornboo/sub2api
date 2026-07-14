@@ -24,6 +24,9 @@
       :default-sort-key="defaultSortKey"
       :default-sort-order="defaultSortOrder"
       :virtual-scroll="false"
+      :sticky-header="false"
+      :sticky-first-column="false"
+      :sticky-actions-column="false"
       row-key="id"
       @sort="(key, order) => $emit('sort', key, order)"
     >

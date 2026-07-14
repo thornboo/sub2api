@@ -15,6 +15,17 @@ vi.mock('vue-i18n', async (importOriginal) => {
 
 const TooltipStub = { template: '<div><slot /></div>' }
 const PaginationStub = { template: '<div class="pagination-stub" />' }
+const DataTableContractStub = {
+  name: 'DataTable',
+  props: [
+    'virtualScroll',
+    'stickyHeader',
+    'stickyFirstColumn',
+    'stickyActionsColumn',
+    'rowKey',
+  ],
+  template: '<div data-test="data-table-contract" />',
+}
 
 function mountTable(row: Partial<OpsErrorLog>) {
   const base = {
@@ -72,6 +83,38 @@ describe('OpsErrorLogTable user/api-key/account columns', () => {
 
     expect(wrapper.text()).toContain('old-key')
     expect(wrapper.text()).toContain('admin.ops.errorLog.keyDeletedBadge')
+  })
+})
+
+describe('OpsErrorLogTable rendering strategy', () => {
+  it('forwards an explicitly stable native table flow to DataTable', () => {
+    const wrapper = mount(OpsErrorLogTable, {
+      props: {
+        rows: [],
+        total: 0,
+        loading: false,
+        page: 1,
+        pageSize: 20,
+        virtualScroll: false,
+        stickyHeader: false,
+        stickyFirstColumn: false,
+        stickyActionsColumn: false,
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableContractStub,
+          IpGeoBatchToolbar: true,
+          Pagination: PaginationStub,
+        },
+      },
+    })
+
+    const dataTable = wrapper.findComponent(DataTableContractStub)
+    expect(dataTable.props('virtualScroll')).toBe(false)
+    expect(dataTable.props('stickyHeader')).toBe(false)
+    expect(dataTable.props('stickyFirstColumn')).toBe(false)
+    expect(dataTable.props('stickyActionsColumn')).toBe(false)
+    expect(dataTable.props('rowKey')).toBe('id')
   })
 })
 
