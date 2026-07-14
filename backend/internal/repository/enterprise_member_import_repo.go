@@ -100,6 +100,9 @@ func (r *enterpriseMemberImportRepository) ValidateReferences(ctx context.Contex
 }
 
 func (r *enterpriseMemberImportRepository) CreatePreviewJob(ctx context.Context, job *service.EnterpriseMemberImportJob) error {
+	if job.ImportPolicyVersion <= 0 {
+		job.ImportPolicyVersion = service.EnterpriseMemberImportPolicyExplicitActivation
+	}
 	previewJSON, err := json.Marshal(job.Preview)
 	if err != nil {
 		return err
@@ -110,9 +113,9 @@ func (r *enterpriseMemberImportRepository) CreatePreviewJob(ctx context.Context,
 	}
 	err = r.db.QueryRowContext(ctx, `
 		INSERT INTO enterprise_member_import_jobs
-		(enterprise_user_id, token_hash, file_hash, format, status, preview, version_fingerprint, expires_at)
-		VALUES ($1, $2, $3, $4, 'previewed', $5, $6, $7)
-		RETURNING id, created_at, updated_at`, job.EnterpriseUserID, job.TokenHash, job.FileHash, job.Format, previewJSON, versionJSON, job.ExpiresAt).
+		(enterprise_user_id, token_hash, file_hash, format, status, preview, version_fingerprint, expires_at, import_policy_version)
+		VALUES ($1, $2, $3, $4, 'previewed', $5, $6, $7, $8)
+		RETURNING id, created_at, updated_at`, job.EnterpriseUserID, job.TokenHash, job.FileHash, job.Format, previewJSON, versionJSON, job.ExpiresAt, job.ImportPolicyVersion).
 		Scan(&job.ID, &job.CreatedAt, &job.UpdatedAt)
 	return err
 }
@@ -144,7 +147,7 @@ func (r *enterpriseMemberImportRepository) GetJobByToken(ctx context.Context, ow
 
 func (r *enterpriseMemberImportRepository) getJob(ctx context.Context, ownerID, jobID int64, tokenHash string) (*service.EnterpriseMemberImportJob, error) {
 	query := `SELECT id, enterprise_user_id, token_hash, file_hash, format, status, preview, result, version_fingerprint, idempotency_key_hash, expires_at, created_at, updated_at, completed_at,
-		selected_rows, queued_at, started_at, locked_at, lock_owner, attempt_count, error_code, error_summary, result_secrets_consumed_at
+		selected_rows, default_group_ids, activate_members, import_policy_version, queued_at, started_at, locked_at, lock_owner, attempt_count, error_code, error_summary, result_secrets_consumed_at
 		FROM enterprise_member_import_jobs WHERE id = $1 AND enterprise_user_id = $2`
 	args := []any{jobID, ownerID}
 	if tokenHash != "" {
@@ -152,11 +155,11 @@ func (r *enterpriseMemberImportRepository) getJob(ctx context.Context, ownerID, 
 		args = append(args, tokenHash)
 	}
 	var job service.EnterpriseMemberImportJob
-	var previewJSON, versionJSON, selectedRowsJSON []byte
+	var previewJSON, versionJSON, selectedRowsJSON, defaultGroupIDsJSON []byte
 	var resultJSON []byte
 	var idempotency, lockOwner, errorCode, errorSummary sql.NullString
 	err := r.db.QueryRowContext(ctx, query, args...).Scan(&job.ID, &job.EnterpriseUserID, &job.TokenHash, &job.FileHash, &job.Format, &job.Status, &previewJSON, &resultJSON, &versionJSON, &idempotency, &job.ExpiresAt, &job.CreatedAt, &job.UpdatedAt, &job.CompletedAt,
-		&selectedRowsJSON, &job.QueuedAt, &job.StartedAt, &job.LockedAt, &lockOwner, &job.AttemptCount, &errorCode, &errorSummary, &job.ResultSecretsConsumedAt)
+		&selectedRowsJSON, &defaultGroupIDsJSON, &job.ActivateMembers, &job.ImportPolicyVersion, &job.QueuedAt, &job.StartedAt, &job.LockedAt, &lockOwner, &job.AttemptCount, &errorCode, &errorSummary, &job.ResultSecretsConsumedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, service.ErrEnterpriseMemberImportExpired
 	}
@@ -187,6 +190,11 @@ func (r *enterpriseMemberImportRepository) getJob(ctx context.Context, ownerID, 
 			return nil, err
 		}
 	}
+	if len(defaultGroupIDsJSON) > 0 {
+		if err := json.Unmarshal(defaultGroupIDsJSON, &job.DefaultGroupIDs); err != nil {
+			return nil, err
+		}
+	}
 	if lockOwner.Valid {
 		job.LockOwner = &lockOwner.String
 	}
@@ -199,11 +207,15 @@ func (r *enterpriseMemberImportRepository) getJob(ctx context.Context, ownerID, 
 	return &job, nil
 }
 
-func (r *enterpriseMemberImportRepository) QueueCommit(ctx context.Context, ownerID, jobID int64, tokenHash string, selectedRows []int, idempotencyKeyHash string) (*service.EnterpriseMemberImportJob, error) {
+func (r *enterpriseMemberImportRepository) QueueCommit(ctx context.Context, ownerID, jobID int64, tokenHash string, selectedRows []int, defaultGroupIDs []int64, activateMembers bool, idempotencyKeyHash string) (*service.EnterpriseMemberImportJob, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("enterprise member import repository db is nil")
 	}
 	selectedJSON, err := json.Marshal(selectedRows)
+	if err != nil {
+		return nil, err
+	}
+	defaultGroupsJSON, err := json.Marshal(defaultGroupIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -215,23 +227,31 @@ func (r *enterpriseMemberImportRepository) QueueCommit(ctx context.Context, owne
 	var status string
 	var expiresAt time.Time
 	var existingHash sql.NullString
-	var existingSelectedRows []byte
-	if err := tx.QueryRowContext(ctx, `SELECT status, expires_at, idempotency_key_hash, selected_rows FROM enterprise_member_import_jobs WHERE id = $1 AND enterprise_user_id = $2 AND token_hash = $3 FOR UPDATE`, jobID, ownerID, tokenHash).
-		Scan(&status, &expiresAt, &existingHash, &existingSelectedRows); err != nil {
+	var existingSelectedRows, existingDefaultGroups []byte
+	var existingActivateMembers bool
+	var importPolicyVersion int
+	if err := tx.QueryRowContext(ctx, `SELECT status, expires_at, idempotency_key_hash, selected_rows, default_group_ids, activate_members, import_policy_version FROM enterprise_member_import_jobs WHERE id = $1 AND enterprise_user_id = $2 AND token_hash = $3 FOR UPDATE`, jobID, ownerID, tokenHash).
+		Scan(&status, &expiresAt, &existingHash, &existingSelectedRows, &existingDefaultGroups, &existingActivateMembers, &importPolicyVersion); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, service.ErrEnterpriseMemberImportExpired
 		}
 		return nil, err
 	}
+	queueStatus := "queued"
+	commitProtocolVersion := service.EnterpriseMemberImportCommitProtocolLegacy
+	if importPolicyVersion >= service.EnterpriseMemberImportPolicyExplicitActivation {
+		queueStatus = service.EnterpriseMemberImportStatusQueuedV2
+		commitProtocolVersion = service.EnterpriseMemberImportCommitProtocolPolicyV2
+	}
 	if status == "previewed" {
 		if time.Now().After(expiresAt) {
 			return nil, service.ErrEnterpriseMemberImportExpired
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE enterprise_member_import_jobs SET status = 'queued', selected_rows = $1, idempotency_key_hash = $2, queued_at = NOW(), updated_at = NOW(), error_code = NULL, error_summary = NULL WHERE id = $3`, selectedJSON, idempotencyKeyHash, jobID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE enterprise_member_import_jobs SET status = $1, commit_protocol_version = $2, selected_rows = $3, default_group_ids = $4, activate_members = $5, idempotency_key_hash = $6, queued_at = NOW(), updated_at = NOW(), error_code = NULL, error_summary = NULL WHERE id = $7`, queueStatus, commitProtocolVersion, selectedJSON, defaultGroupsJSON, activateMembers, idempotencyKeyHash, jobID); err != nil {
 			return nil, err
 		}
 	} else {
-		if status != "queued" && status != "processing" && status != "completed" {
+		if status != "queued" && status != service.EnterpriseMemberImportStatusQueuedV2 && status != "processing" && status != service.EnterpriseMemberImportStatusProcessingV2 && status != "completed" {
 			return nil, service.ErrEnterpriseMemberImportConflict
 		}
 		if !existingHash.Valid || existingHash.String != idempotencyKeyHash {
@@ -241,11 +261,30 @@ func (r *enterpriseMemberImportRepository) QueueCommit(ctx context.Context, owne
 		if json.Unmarshal(existingSelectedRows, &existingRows) != nil || !equalEnterpriseMemberImportRows(existingRows, selectedRows) {
 			return nil, service.ErrEnterpriseMemberImportConflict
 		}
+		var existingGroups []int64
+		if json.Unmarshal(existingDefaultGroups, &existingGroups) != nil || !equalEnterpriseMemberImportGroups(existingGroups, defaultGroupIDs) || existingActivateMembers != activateMembers {
+			return nil, service.ErrEnterpriseMemberImportConflict
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return r.GetJob(ctx, ownerID, jobID)
+	if status == "previewed" {
+		status = queueStatus
+	}
+	return &service.EnterpriseMemberImportJob{ID: jobID, EnterpriseUserID: ownerID, Status: status}, nil
+}
+
+func equalEnterpriseMemberImportGroups(left, right []int64) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func equalEnterpriseMemberImportRows(left, right []int) bool {
@@ -271,13 +310,17 @@ func (r *enterpriseMemberImportRepository) ClaimNextCommitJob(ctx context.Contex
 	err := r.db.QueryRowContext(ctx, `
 		WITH candidate AS (
 			SELECT id FROM enterprise_member_import_jobs
-			WHERE status = 'queued'
-			   OR (status = 'processing' AND (locked_at IS NULL OR locked_at < NOW() - ($2 * INTERVAL '1 second')))
+			WHERE status IN ('queued', 'queued_v2')
+			   OR (status IN ('processing', 'processing_v2') AND (locked_at IS NULL OR locked_at < NOW() - ($2 * INTERVAL '1 second')))
 			ORDER BY COALESCE(queued_at, created_at), id
 			FOR UPDATE SKIP LOCKED LIMIT 1
 		)
 		UPDATE enterprise_member_import_jobs job
-		SET status = 'processing', started_at = COALESCE(started_at, NOW()), locked_at = NOW(),
+		SET status = CASE
+		        WHEN job.import_policy_version >= 2 THEN 'processing_v2'
+		        ELSE 'processing'
+		    END,
+		    started_at = COALESCE(started_at, NOW()), locked_at = NOW(),
 		    lock_owner = $1, attempt_count = attempt_count + 1, updated_at = NOW()
 		FROM candidate WHERE job.id = candidate.id
 		RETURNING job.id, job.enterprise_user_id`, workerID, int(staleAfter.Seconds())).Scan(&jobID, &ownerID)
@@ -300,7 +343,7 @@ func (r *enterpriseMemberImportRepository) RenewCommitLease(ctx context.Context,
 	result, err := r.db.ExecContext(ctx, `
 		UPDATE enterprise_member_import_jobs
 		SET locked_at = NOW(), updated_at = NOW()
-		WHERE id = $1 AND status = 'processing' AND lock_owner = $2`, jobID, workerID)
+		WHERE id = $1 AND status IN ('processing', 'processing_v2') AND lock_owner = $2`, jobID, workerID)
 	if err != nil {
 		return false, err
 	}
@@ -324,7 +367,7 @@ func (r *enterpriseMemberImportRepository) MarkCommitFailed(ctx context.Context,
 		    ), '[]'::jsonb)),
 		    result_secrets_ciphertext = NULL, lock_owner = NULL, locked_at = NULL,
 		    completed_at = NOW(), updated_at = NOW()
-		WHERE id = $3 AND status = 'processing' AND lock_owner = $4`, errorCode, summary, jobID, workerID)
+		WHERE id = $3 AND status IN ('processing', 'processing_v2') AND lock_owner = $4`, errorCode, summary, jobID, workerID)
 	return err
 }
 
@@ -396,13 +439,13 @@ func (r *enterpriseMemberImportRepository) Commit(ctx context.Context, job *serv
 		}
 		return &result, nil
 	}
-	if status != "previewed" && status != "processing" {
+	if status != "previewed" && status != "processing" && status != service.EnterpriseMemberImportStatusProcessingV2 {
 		return nil, service.ErrEnterpriseMemberImportConflict
 	}
 	if status == "previewed" && time.Now().After(expiresAt) {
 		return nil, service.ErrEnterpriseMemberImportExpired
 	}
-	if status == "processing" {
+	if status == "processing" || status == service.EnterpriseMemberImportStatusProcessingV2 {
 		if !existingHash.Valid || existingHash.String != idempotencyKeyHash {
 			return nil, service.ErrEnterpriseMemberImportConflict
 		}
@@ -413,7 +456,15 @@ func (r *enterpriseMemberImportRepository) Commit(ctx context.Context, job *serv
 			return nil, service.ErrEnterpriseMemberImportConflict
 		}
 	} else {
-		if _, err := tx.ExecContext(ctx, `UPDATE enterprise_member_import_jobs SET status = 'processing', idempotency_key_hash = $1, updated_at = NOW() WHERE id = $2`, idempotencyKeyHash, job.ID); err != nil {
+		processingStatus := "processing"
+		if job.ImportPolicyVersion >= service.EnterpriseMemberImportPolicyExplicitActivation {
+			processingStatus = service.EnterpriseMemberImportStatusProcessingV2
+		}
+		commitProtocolVersion := service.EnterpriseMemberImportCommitProtocolLegacy
+		if job.ImportPolicyVersion >= service.EnterpriseMemberImportPolicyExplicitActivation {
+			commitProtocolVersion = service.EnterpriseMemberImportCommitProtocolPolicyV2
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE enterprise_member_import_jobs SET status = $1, commit_protocol_version = $2, idempotency_key_hash = $3, updated_at = NOW() WHERE id = $4`, processingStatus, commitProtocolVersion, idempotencyKeyHash, job.ID); err != nil {
 			return nil, err
 		}
 	}
@@ -422,13 +473,27 @@ func (r *enterpriseMemberImportRepository) Commit(ctx context.Context, job *serv
 	selectedRowNumbers := make([]int, 0, len(rows))
 	keys := make([]string, 0, len(plaintextKeys))
 	groupSet := map[int64]bool{}
+	memberRows := make(map[string]service.EnterpriseMemberImportRow)
+	memberGroups := make(map[string][]int64)
+	openingByMember := make(map[string]float64)
+	migrationBilledUSD := 0.0
+	var migrationTotalTokens int64
 	for _, row := range rows {
-		selectedCodes[strings.ToLower(row.MemberCode)] = true
+		code := strings.ToLower(row.MemberCode)
+		selectedCodes[code] = true
+		if _, exists := memberRows[code]; !exists {
+			memberRows[code] = row
+			effectiveGroups := enterpriseMemberImportEffectiveGroups(job, row)
+			memberGroups[code] = append([]int64(nil), effectiveGroups...)
+		}
+		openingByMember[code] += row.OpeningUsedUSD
+		migrationBilledUSD += row.OpeningUsedUSD
+		migrationTotalTokens += enterpriseMemberImportSummaryTokens(row)
 		selectedRowNumbers = append(selectedRowNumbers, row.RowNumber)
 		if key := plaintextKeys[row.RowNumber]; key != "" {
 			keys = append(keys, key)
 		}
-		for _, id := range row.GroupIDs {
+		for _, id := range memberGroups[code] {
 			groupSet[id] = true
 		}
 	}
@@ -444,36 +509,47 @@ func (r *enterpriseMemberImportRepository) Commit(ctx context.Context, job *serv
 		return nil, err
 	}
 
-	canonical := map[string]service.EnterpriseMemberImportRow{}
-	for _, row := range job.Preview.Rows {
-		code := strings.ToLower(row.MemberCode)
-		if _, exists := canonical[code]; !exists {
-			canonical[code] = row
-		}
-	}
 	memberIDs := map[string]int64{}
 	sortedCodes := append([]string(nil), memberCodes...)
 	sort.Strings(sortedCodes)
-	periodStart, _ := enterpriseImportCurrentPeriod(time.Now())
+	periodStart := job.Preview.PeriodStart
+	if periodStart.IsZero() {
+		periodStart, _ = service.EnterpriseMemberCurrentBudgetPeriod(time.Now())
+	}
+	periodStartDate := periodStart.Format("2006-01-02")
+	periodTimezone := strings.TrimSpace(job.Preview.Timezone)
+	if periodTimezone == "" {
+		periodTimezone = service.EnterpriseMemberBudgetTimezone
+	}
+	pendingMembers := 0
 	for _, code := range sortedCodes {
-		row := canonical[code]
+		row := memberRows[code]
+		groups := memberGroups[code]
+		status := service.EnterpriseMemberStatusDisabled
+		if enterpriseMemberImportShouldActivate(job, groups) {
+			status = service.EnterpriseMemberStatusActive
+		}
+		if len(groups) == 0 {
+			pendingMembers++
+		}
 		var memberID int64
-		err := tx.QueryRowContext(ctx, `INSERT INTO enterprise_members (enterprise_user_id, member_code, name, status, monthly_limit_usd, rate_limit_5h, rate_limit_1d, rate_limit_7d, version) VALUES ($1, $2, $3, 'active', $4, $5, $6, $7, 1) RETURNING id`, job.EnterpriseUserID, row.MemberCode, row.MemberName, row.MonthlyLimitUSD, row.RateLimit5h, row.RateLimit1d, row.RateLimit7d).Scan(&memberID)
+		err := tx.QueryRowContext(ctx, `INSERT INTO enterprise_members (enterprise_user_id, member_code, name, status, monthly_limit_usd, rate_limit_5h, rate_limit_1d, rate_limit_7d, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1) RETURNING id`, job.EnterpriseUserID, row.MemberCode, row.MemberName, status, row.MonthlyLimitUSD, row.RateLimit5h, row.RateLimit1d, row.RateLimit7d).Scan(&memberID)
 		if err != nil {
-			return nil, service.ErrEnterpriseMemberImportConflict
+			return nil, classifyEnterpriseMemberImportWriteError("insert enterprise member", err)
 		}
 		memberIDs[code] = memberID
-		for order, groupID := range row.GroupIDs {
+		for order, groupID := range groups {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO enterprise_member_group_bindings (member_id, group_id, sort_order) VALUES ($1, $2, $3)`, memberID, groupID, order); err != nil {
-				return nil, service.ErrEnterpriseMemberImportConflict
+				return nil, classifyEnterpriseMemberImportWriteError("insert enterprise member group binding", err)
 			}
 		}
-		if row.OpeningUsedUSD > 0 {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO enterprise_member_budget_periods (member_id, period_start, timezone, used_usd) VALUES ($1, $2, 'Asia/Shanghai', $3)`, memberID, periodStart, row.OpeningUsedUSD); err != nil {
+		opening := openingByMember[code]
+		if opening > 0 {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO enterprise_member_budget_periods (member_id, period_start, timezone, used_usd) VALUES ($1, $2, $3, $4)`, memberID, periodStartDate, periodTimezone, opening); err != nil {
 				return nil, err
 			}
 			ledgerKey := fmt.Sprintf("import:%d:member:%s", job.ID, strings.ToLower(row.MemberCode))
-			if _, err := tx.ExecContext(ctx, `INSERT INTO enterprise_member_budget_entries (member_id, period_start, kind, amount_usd, idempotency_key, actor_user_id, note) VALUES ($1, $2, 'migration_opening', $3, $4, $5, $6)`, memberID, periodStart, row.OpeningUsedUSD, ledgerKey, job.EnterpriseUserID, "enterprise member import opening balance"); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO enterprise_member_budget_entries (member_id, period_start, kind, amount_usd, idempotency_key, actor_user_id, note) VALUES ($1, $2, 'migration_opening', $3, $4, $5, $6)`, memberID, periodStartDate, opening, ledgerKey, job.EnterpriseUserID, "enterprise member import opening balance"); err != nil {
 				return nil, err
 			}
 		}
@@ -481,17 +557,33 @@ func (r *enterpriseMemberImportRepository) Commit(ctx context.Context, job *serv
 	createdKeys := make([]service.EnterpriseMemberImportCreatedKey, 0, len(keys))
 	for _, row := range rows {
 		key := plaintextKeys[row.RowNumber]
-		if key == "" {
-			continue
-		}
 		memberID := memberIDs[strings.ToLower(row.MemberCode)]
-		if _, err := tx.ExecContext(ctx, `INSERT INTO api_keys (user_id, key, name, member_id, status, quota) VALUES ($1, $2, $3, $4, 'active', $5)`, job.EnterpriseUserID, key, row.KeyName, memberID, row.KeyQuotaUSD); err != nil {
-			return nil, service.ErrEnterpriseMemberImportConflict
+		var apiKeyID sql.NullInt64
+		if key != "" {
+			var createdKeyID int64
+			if err := tx.QueryRowContext(ctx, `INSERT INTO api_keys (user_id, key, name, member_id, status, quota) VALUES ($1, $2, $3, $4, 'active', $5) RETURNING id`, job.EnterpriseUserID, key, row.KeyName, memberID, row.KeyQuotaUSD).Scan(&createdKeyID); err != nil {
+				return nil, classifyEnterpriseMemberImportWriteError("insert enterprise member key", err)
+			}
+			apiKeyID = sql.NullInt64{Int64: createdKeyID, Valid: true}
+			createdKeys = append(createdKeys, service.EnterpriseMemberImportCreatedKey{MemberCode: row.MemberCode, KeyName: row.KeyName, Key: key, KeyMasked: maskEnterpriseImportKey(key)})
 		}
-		createdKeys = append(createdKeys, service.EnterpriseMemberImportCreatedKey{MemberCode: row.MemberCode, KeyName: row.KeyName, Key: key, KeyMasked: maskEnterpriseImportKey(key)})
+		if enterpriseMemberImportRowHasBaseline(row) {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO enterprise_member_import_usage_baselines (enterprise_user_id, member_id, api_key_id, import_job_id, source_row_number, period_start, billed_usd, total_tokens, input_tokens, output_tokens, cache_tokens, cache_creation_tokens, cache_read_tokens) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`, job.EnterpriseUserID, memberID, apiKeyID, job.ID, row.RowNumber, periodStartDate, row.OpeningUsedUSD, enterpriseMemberImportSummaryTokens(row), row.InputTokens, row.OutputTokens, row.CacheTokens, row.CacheCreationTokens, row.CacheReadTokens); err != nil {
+				return nil, err
+			}
+		}
 	}
 	now := time.Now()
-	result := &service.EnterpriseMemberImportResult{JobID: job.ID, Status: "completed", CreatedMembers: len(memberIDs), CreatedKeys: len(createdKeys), Rows: selectedRowNumbers, Keys: createdKeys, CompletedAt: now}
+	createdMemberIDs := make([]int64, 0, len(sortedCodes))
+	for _, code := range sortedCodes {
+		createdMemberIDs = append(createdMemberIDs, memberIDs[code])
+	}
+	result := &service.EnterpriseMemberImportResult{
+		JobID: job.ID, Status: "completed", CreatedMembers: len(memberIDs), CreatedKeys: len(createdKeys),
+		MemberIDs: createdMemberIDs, PendingMembers: pendingMembers, MigrationBilledUSD: migrationBilledUSD,
+		MigrationTotalTokens: migrationTotalTokens, PeriodStart: periodStart, Timezone: periodTimezone,
+		Rows: selectedRowNumbers, Keys: createdKeys, CompletedAt: now,
+	}
 	stored := *result
 	stored.Keys = append([]service.EnterpriseMemberImportCreatedKey(nil), result.Keys...)
 	for i := range stored.Keys {
@@ -516,6 +608,55 @@ func (r *enterpriseMemberImportRepository) Commit(ctx context.Context, job *serv
 		return nil, err
 	}
 	return result, nil
+}
+
+func enterpriseMemberImportRowHasBaseline(row service.EnterpriseMemberImportRow) bool {
+	return row.OpeningUsedUSD > 0 || row.TotalTokens > 0 || row.InputTokens > 0 || row.OutputTokens > 0 || row.CacheTokens > 0 || row.CacheCreationTokens > 0 || row.CacheReadTokens > 0
+}
+
+func enterpriseMemberImportSummaryTokens(row service.EnterpriseMemberImportRow) int64 {
+	if row.TotalTokensProvided || row.TotalTokens > 0 {
+		return row.TotalTokens
+	}
+	return row.InputTokens + row.OutputTokens
+}
+
+func enterpriseMemberImportShouldActivate(job *service.EnterpriseMemberImportJob, groupIDs []int64) bool {
+	if job == nil || len(groupIDs) == 0 {
+		return false
+	}
+	if job.ImportPolicyVersion <= service.EnterpriseMemberImportPolicyLegacyAutoActivate {
+		return true
+	}
+	return job.ActivateMembers
+}
+
+func enterpriseMemberImportEffectiveGroups(job *service.EnterpriseMemberImportJob, row service.EnterpriseMemberImportRow) []int64 {
+	if job != nil && job.ImportPolicyVersion >= service.EnterpriseMemberImportPolicyExplicitActivation {
+		return job.DefaultGroupIDs
+	}
+	return row.GroupIDs
+}
+
+func classifyEnterpriseMemberImportWriteError(operation string, err error) error {
+	if err == nil {
+		return nil
+	}
+	var postgresError *pq.Error
+	if errors.As(err, &postgresError) {
+		switch postgresError.Code {
+		case "23505":
+			switch postgresError.Constraint {
+			case "enterprise_members_owner_code_unique", "enterprise_members_owner_code_ci_unique", "api_keys_key_key":
+				return service.ErrEnterpriseMemberImportConflict
+			}
+		case "23503":
+			if postgresError.Constraint == "enterprise_member_group_bindings_group_id_fkey" {
+				return service.ErrEnterpriseMemberImportConflict
+			}
+		}
+	}
+	return fmt.Errorf("%s: %w", operation, err)
 }
 
 func (r *enterpriseMemberImportRepository) DeleteExpiredPreviews(ctx context.Context, limit int) (int64, error) {
@@ -569,12 +710,6 @@ func lowerStrings(values []string) []string {
 		out = append(out, strings.ToLower(strings.TrimSpace(value)))
 	}
 	return out
-}
-func enterpriseImportCurrentPeriod(now time.Time) (time.Time, time.Time) {
-	location, _ := time.LoadLocation("Asia/Shanghai")
-	local := now.In(location)
-	start := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, time.UTC)
-	return start, start.AddDate(0, 1, 0)
 }
 func maskEnterpriseImportKey(key string) string {
 	if len(key) <= 12 {

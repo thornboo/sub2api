@@ -62,7 +62,7 @@ func TestRebindOwnerMemberPreviousConditionsSupportsCombinedFilters(t *testing.T
 	require.NotContains(t, joined, "$60")
 }
 
-func TestGetOwnerMemberAnalyticsLeaderboardReturnsFullScopeBudgetSummary(t *testing.T) {
+func TestGetOwnerMemberAnalyticsLeaderboardReturnsOnlyRealMemberScope(t *testing.T) {
 	db, mock := newSQLMock(t)
 	repo := &usageLogRepository{sql: db}
 	now := time.Date(2026, 7, 13, 10, 0, 0, 0, time.UTC)
@@ -76,10 +76,10 @@ func TestGetOwnerMemberAnalyticsLeaderboardReturnsFullScopeBudgetSummary(t *test
 		int64(42), "finance-01", "Finance", "active", false, int64(2),
 		100.0, 80.0, 5.0, int64(12),
 		int64(100), int64(50), int64(10), int64(20),
-		int64(180), 30.0, 20.0, now, int64(37),
+		int64(180), 30.0, 20.0, now, int64(36),
 		int64(36), int64(4), 18.5, 120.0,
 	)
-	mock.ExpectQuery("WITH current_usage AS").WillReturnRows(rows)
+	mock.ExpectQuery(`(?s)member_scope AS \(\s*SELECT em\.id AS member_id\s*FROM enterprise_members em\s*WHERE em\.enterprise_user_id = \$\d+\s*\),\s*ranked AS`).WillReturnRows(rows)
 
 	result, err := repo.GetOwnerMemberAnalyticsLeaderboard(context.Background(), service.OwnerAPIKeyAnalyticsFilters{
 		UserID:      7,
@@ -91,7 +91,7 @@ func TestGetOwnerMemberAnalyticsLeaderboardReturnsFullScopeBudgetSummary(t *test
 
 	require.NoError(t, err)
 	require.Len(t, result.Items, 1)
-	require.Equal(t, int64(37), result.Total)
+	require.Equal(t, int64(36), result.Total)
 	require.Equal(t, int64(36), result.MemberCount)
 	require.Equal(t, int64(4), result.BudgetRiskMemberCount)
 	require.Equal(t, 18.5, result.TotalReservedUSD)
@@ -99,5 +99,25 @@ func TestGetOwnerMemberAnalyticsLeaderboardReturnsFullScopeBudgetSummary(t *test
 	require.Equal(t, 30.0, result.DisplayedActualCost)
 	require.Equal(t, 25.0, result.Items[0].SharePercent)
 	require.Equal(t, 50.0, result.Items[0].ChangePercent)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetOwnerMemberAnalyticsLeaderboardReturnsNoVirtualMemberForRegularKeyScope(t *testing.T) {
+	db, mock := newSQLMock(t)
+	repo := &usageLogRepository{sql: db}
+	now := time.Date(2026, 7, 13, 10, 0, 0, 0, time.UTC)
+
+	result, err := repo.GetOwnerMemberAnalyticsLeaderboard(context.Background(), service.OwnerAPIKeyAnalyticsFilters{
+		UserID:      7,
+		MemberScope: usagestats.MemberScopeUnassigned,
+		StartTime:   now.Add(-24 * time.Hour),
+		EndTime:     now,
+		Limit:       20,
+	})
+
+	require.NoError(t, err)
+	require.Empty(t, result.Items)
+	require.Zero(t, result.Total)
+	require.Zero(t, result.MemberCount)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

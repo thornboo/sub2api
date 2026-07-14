@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -270,6 +271,7 @@ func (r *enterpriseMemberRepository) HardDeleteIfUnused(ctx context.Context, own
 	if err := tx.QueryRowContext(ctx, `
 		SELECT EXISTS (SELECT 1 FROM api_keys WHERE member_id = $1)
 			OR EXISTS (SELECT 1 FROM usage_logs WHERE member_id = $1)
+			OR EXISTS (SELECT 1 FROM enterprise_member_import_usage_baselines WHERE member_id = $1)
 			OR EXISTS (SELECT 1 FROM enterprise_member_budget_entries WHERE member_id = $1)
 			OR EXISTS (SELECT 1 FROM enterprise_member_budget_reservations WHERE member_id = $1)
 			OR EXISTS (SELECT 1 FROM enterprise_member_budget_periods WHERE member_id = $1)`, memberID).Scan(&inUse); err != nil {
@@ -297,7 +299,7 @@ func (r *enterpriseMemberRepository) HardDeleteIfUnused(ctx context.Context, own
 
 func (r *enterpriseMemberRepository) ReplaceGroups(ctx context.Context, ownerID, memberID, expectedVersion int64, groupIDs []int64) (*service.EnterpriseMember, error) {
 	err := r.runInTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
-		affected, err := client.EnterpriseMember.Update().
+		update := client.EnterpriseMember.Update().
 			Where(
 				enterprisemember.IDEQ(memberID),
 				enterprisemember.EnterpriseUserIDEQ(ownerID),
@@ -305,8 +307,11 @@ func (r *enterpriseMemberRepository) ReplaceGroups(ctx context.Context, ownerID,
 				enterprisemember.DeletedAtIsNil(),
 			).
 			AddVersion(1).
-			SetUpdatedAt(time.Now()).
-			Save(txCtx)
+			SetUpdatedAt(time.Now())
+		if len(groupIDs) == 0 {
+			update.SetStatus(service.EnterpriseMemberStatusDisabled)
+		}
+		affected, err := update.Save(txCtx)
 		if err != nil {
 			return err
 		}
@@ -324,6 +329,101 @@ func (r *enterpriseMemberRepository) ReplaceGroups(ctx context.Context, ownerID,
 		return nil, err
 	}
 	return r.GetByOwnerAndID(ctx, ownerID, memberID, false)
+}
+
+func (r *enterpriseMemberRepository) BatchReplaceGroups(ctx context.Context, ownerID int64, targets []service.BatchEnterpriseMemberGroupTarget) ([]service.BatchEnterpriseMemberGroupUpdate, error) {
+	if r == nil || r.db == nil {
+		return nil, service.ErrEnterpriseMemberInvalid
+	}
+	ordered := append([]service.BatchEnterpriseMemberGroupTarget(nil), targets...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].ID < ordered[j].ID })
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	groupSet := make(map[int64]struct{})
+	for _, target := range ordered {
+		for _, groupID := range target.GroupIDs {
+			groupSet[groupID] = struct{}{}
+		}
+	}
+	groupIDs := make([]int64, 0, len(groupSet))
+	for groupID := range groupSet {
+		groupIDs = append(groupIDs, groupID)
+	}
+	if err := validateEnterpriseMemberGroupAuthorization(ctx, tx, ownerID, groupIDs); err != nil {
+		return nil, err
+	}
+
+	updatesByID := make(map[int64]service.BatchEnterpriseMemberGroupUpdate, len(ordered))
+	for _, target := range ordered {
+		var version int64
+		var status string
+		var updatedAt time.Time
+		updateErr := tx.QueryRowContext(ctx, `
+			UPDATE enterprise_members
+			SET version = version + 1, updated_at = NOW(),
+			    status = CASE WHEN $4 THEN 'disabled' ELSE status END
+			WHERE id = $1 AND enterprise_user_id = $2 AND version = $3 AND deleted_at IS NULL
+			RETURNING version, status, updated_at`,
+			target.ID, ownerID, target.ExpectedVersion, len(target.GroupIDs) == 0).
+			Scan(&version, &status, &updatedAt)
+		if updateErr != nil {
+			if errors.Is(updateErr, sql.ErrNoRows) {
+				return nil, service.ErrEnterpriseMemberVersion
+			}
+			return nil, updateErr
+		}
+		if _, deleteErr := tx.ExecContext(ctx, `DELETE FROM enterprise_member_group_bindings WHERE member_id = $1`, target.ID); deleteErr != nil {
+			return nil, deleteErr
+		}
+		for order, groupID := range target.GroupIDs {
+			if _, insertErr := tx.ExecContext(ctx, `INSERT INTO enterprise_member_group_bindings (member_id, group_id, sort_order) VALUES ($1, $2, $3)`, target.ID, groupID, order); insertErr != nil {
+				return nil, insertErr
+			}
+		}
+		updatesByID[target.ID] = service.BatchEnterpriseMemberGroupUpdate{
+			ID: target.ID, Version: version, GroupIDs: append([]int64{}, target.GroupIDs...), Status: status, UpdatedAt: updatedAt,
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	updated := make([]service.BatchEnterpriseMemberGroupUpdate, 0, len(targets))
+	for _, target := range targets {
+		updated = append(updated, updatesByID[target.ID])
+	}
+	return updated, nil
+}
+
+func validateEnterpriseMemberGroupAuthorization(ctx context.Context, tx *sql.Tx, ownerID int64, groupIDs []int64) error {
+	if len(groupIDs) == 0 {
+		return nil
+	}
+	var authorizedCount int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM groups g
+		WHERE g.id = ANY($2) AND g.deleted_at IS NULL AND g.status = 'active' AND (
+			(g.subscription_type = 'subscription' AND EXISTS (
+				SELECT 1 FROM user_subscriptions us
+				WHERE us.user_id = $1 AND us.group_id = g.id AND us.deleted_at IS NULL
+				  AND us.status = 'active' AND us.starts_at <= NOW() AND us.expires_at > NOW()
+			)) OR
+			(g.subscription_type <> 'subscription' AND (
+				NOT g.is_exclusive OR EXISTS (
+					SELECT 1 FROM user_allowed_groups uag WHERE uag.user_id = $1 AND uag.group_id = g.id
+				)
+			))
+		)`, ownerID, pq.Array(groupIDs)).Scan(&authorizedCount); err != nil {
+		return err
+	}
+	if authorizedCount != len(groupIDs) {
+		return service.ErrGroupNotAllowed
+	}
+	return nil
 }
 
 func (r *enterpriseMemberRepository) ListKeys(ctx context.Context, ownerID, memberID int64) ([]service.APIKey, error) {

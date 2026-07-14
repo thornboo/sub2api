@@ -74,6 +74,100 @@ func TestEnterpriseMemberImportClaimIsUniqueAcrossWorkers(t *testing.T) {
 	require.Equal(t, 1, attemptCount)
 }
 
+func TestEnterpriseMemberImportPolicyV2QueueIsolatedFromLegacyWorkerStates(t *testing.T) {
+	ctx := context.Background()
+	repo := NewEnterpriseMemberImportRepository(integrationDB)
+	job := createCommittedImportQueueFixture(t, ctx, "queued", nil, nil, 0)
+
+	_, err := integrationDB.ExecContext(ctx, `
+		UPDATE enterprise_member_import_jobs
+		SET status = 'previewed', import_policy_version = 2
+		WHERE id = $1`, job.ID)
+	require.NoError(t, err)
+	_, err = integrationDB.ExecContext(ctx, `
+		UPDATE enterprise_member_import_jobs SET status = 'queued' WHERE id = $1`, job.ID)
+	require.Error(t, err, "an old API instance must not be allowed to queue an incomplete policy-2 payload")
+
+	var previewStatus string
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT status FROM enterprise_member_import_jobs WHERE id = $1`, job.ID).Scan(&previewStatus))
+	require.Equal(t, "previewed", previewStatus)
+
+	_, err = integrationDB.ExecContext(ctx, `
+		UPDATE enterprise_member_import_jobs
+		SET status = 'queued', commit_protocol_version = 2
+		WHERE id = $1`, job.ID)
+	require.NoError(t, err)
+
+	var queuedStatus string
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT status FROM enterprise_member_import_jobs WHERE id = $1`, job.ID).Scan(&queuedStatus))
+	require.Equal(t, service.EnterpriseMemberImportStatusQueuedV2, queuedStatus,
+		"the database must isolate policy-2 jobs even when an old instance writes queued")
+
+	var legacyEligible int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM enterprise_member_import_jobs
+		WHERE id = $1 AND (status = 'queued' OR status = 'processing')`, job.ID).Scan(&legacyEligible))
+	require.Zero(t, legacyEligible)
+
+	claimed, err := repo.ClaimNextCommitJob(ctx, "worker-v2", 3*time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, service.EnterpriseMemberImportStatusProcessingV2, claimed.Status)
+}
+
+func TestEnterpriseMemberImportPolicyV2EmptyAccessDoesNotReuseLegacyRowGroups(t *testing.T) {
+	ctx := context.Background()
+	group := mustCreateGroup(t, integrationEntClient, &service.Group{
+		Name:           uniqueTestValue(t, "legacy-import-group"),
+		RateMultiplier: 1,
+	})
+	t.Cleanup(func() {
+		require.NoError(t, integrationEntClient.Group.DeleteOneID(group.ID).Exec(context.Background()))
+	})
+
+	repo := NewEnterpriseMemberImportRepository(integrationDB)
+	job := createCommittedImportQueueFixture(t, ctx, "queued", nil, nil, 0)
+	job.Preview.Rows[0].GroupIDs = []int64{group.ID}
+	previewJSON, err := json.Marshal(job.Preview)
+	require.NoError(t, err)
+
+	_, err = integrationDB.ExecContext(ctx, `
+		UPDATE enterprise_member_import_jobs
+		SET status = 'previewed', preview = $1,
+		    import_policy_version = 2, commit_protocol_version = 2,
+		    default_group_ids = '[]'::jsonb, activate_members = FALSE
+		WHERE id = $2`, previewJSON, job.ID)
+	require.NoError(t, err)
+	_, err = integrationDB.ExecContext(ctx, `
+		UPDATE enterprise_member_import_jobs SET status = 'queued' WHERE id = $1`, job.ID)
+	require.NoError(t, err)
+
+	claimed, err := repo.ClaimNextCommitJob(ctx, "worker-policy-v2-no-access", 3*time.Minute)
+	require.NoError(t, err)
+	_, err = integrationDB.ExecContext(ctx, `
+		UPDATE enterprise_member_import_jobs
+		SET activate_members = TRUE
+		WHERE id = $1`, job.ID)
+	require.Error(t, err, "policy-v2 jobs must not persist activation intent without owner-selected system groups")
+	result, err := repo.Commit(ctx, claimed, claimed.Preview.Rows, nil, *claimed.IdempotencyKeyHash, "")
+	require.NoError(t, err)
+	require.Equal(t, 1, result.PendingMembers)
+
+	var memberID int64
+	var status string
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT id, status FROM enterprise_members
+		WHERE enterprise_user_id = $1 AND member_code = $2`, job.EnterpriseUserID, claimed.Preview.Rows[0].MemberCode).
+		Scan(&memberID, &status))
+	require.Equal(t, service.EnterpriseMemberStatusDisabled, status)
+
+	var bindings int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM enterprise_member_group_bindings WHERE member_id = $1`, memberID).Scan(&bindings))
+	require.Zero(t, bindings, "policy-v2 empty access means no authorization, even for a legacy file carrying row groups")
+}
+
 func TestEnterpriseMemberImportLeaseTakeoverFencesStaleWorker(t *testing.T) {
 	ctx := context.Background()
 	repo := NewEnterpriseMemberImportRepository(integrationDB)
@@ -178,6 +272,118 @@ func TestEnterpriseMemberImportCommitHandlesMaximum5000Rows(t *testing.T) {
 		SELECT COUNT(*) FROM enterprise_member_audit_logs
 		WHERE enterprise_user_id = $1 AND action = 'member.created'`, job.EnterpriseUserID).Scan(&audits))
 	require.Equal(t, 5000, audits, "maximum-size import must retain an audit fact for every member")
+}
+
+func TestEnterpriseMemberImportCommitPersistsPendingMemberAndMigrationBaseline(t *testing.T) {
+	ctx := context.Background()
+	repo := NewEnterpriseMemberImportRepository(integrationDB)
+	job := createCommittedImportQueueFixture(t, ctx, "queued", nil, nil, 0)
+	periodStart := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.FixedZone("Asia/Shanghai", 8*60*60))
+	job.Preview.PeriodStart = periodStart
+	job.Preview.Timezone = "Asia/Shanghai"
+	job.Preview.Rows[0].OpeningUsedUSD = 30
+	job.Preview.Rows[0].TotalTokens = 0
+	job.Preview.Rows[0].InputTokens = 60_000
+	job.Preview.Rows[0].OutputTokens = 40_000
+	job.Preview.Rows[0].CacheReadTokens = 8_000
+	previewJSON, err := json.Marshal(job.Preview)
+	require.NoError(t, err)
+	_, err = integrationDB.ExecContext(ctx, `UPDATE enterprise_member_import_jobs SET preview = $1 WHERE id = $2`, previewJSON, job.ID)
+	require.NoError(t, err)
+
+	claimed, err := repo.ClaimNextCommitJob(ctx, "worker-baseline", 3*time.Minute)
+	require.NoError(t, err)
+	result, err := repo.Commit(ctx, claimed, claimed.Preview.Rows, nil, *claimed.IdempotencyKeyHash, "")
+	require.NoError(t, err)
+	require.Equal(t, 1, result.PendingMembers)
+	require.Equal(t, 30.0, result.MigrationBilledUSD)
+	require.Equal(t, int64(100_000), result.MigrationTotalTokens, "missing source total must use the same input + output rule as the persisted baseline")
+	require.Equal(t, periodStart.Format("2006-01-02"), result.PeriodStart.Format("2006-01-02"))
+	require.Equal(t, "Asia/Shanghai", result.Timezone, "the completed result must preserve the frozen import billing timezone")
+
+	var memberID int64
+	var status string
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT id, status FROM enterprise_members
+		WHERE enterprise_user_id = $1 AND member_code = $2`, job.EnterpriseUserID, claimed.Preview.Rows[0].MemberCode).
+		Scan(&memberID, &status))
+	require.Equal(t, service.EnterpriseMemberStatusDisabled, status)
+
+	var usedUSD float64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT used_usd FROM enterprise_member_budget_periods
+		WHERE member_id = $1 AND period_start = $2`, memberID, periodStart.Format("2006-01-02")).Scan(&usedUSD))
+	require.Equal(t, 30.0, usedUSD)
+
+	var billedUSD float64
+	var totalTokens, inputTokens, outputTokens, cacheReadTokens int64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT billed_usd, total_tokens, input_tokens, output_tokens, cache_read_tokens
+		FROM enterprise_member_import_usage_baselines WHERE member_id = $1`, memberID).
+		Scan(&billedUSD, &totalTokens, &inputTokens, &outputTokens, &cacheReadTokens))
+	require.Equal(t, 30.0, billedUSD)
+	require.Equal(t, int64(100_000), totalTokens, "persisted baseline total must match the import result")
+	require.Equal(t, int64(60_000), inputTokens)
+	require.Equal(t, int64(40_000), outputTokens)
+	require.Equal(t, int64(8_000), cacheReadTokens)
+
+	var syntheticLogs int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM usage_logs WHERE member_id = $1`, memberID).Scan(&syntheticLogs))
+	require.Zero(t, syntheticLogs, "migration aggregates must never be fabricated into request logs")
+
+	var apiKeyID, accountID, usageLogID, budgetEntryID int64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		INSERT INTO api_keys (user_id, key, name, member_id, status)
+		VALUES ($1, $2, 'Ledger link key', $3, 'active') RETURNING id`, job.EnterpriseUserID, "sk-"+integrationHash(t.Name() + ":ledger-link-key")[:32], memberID).
+		Scan(&apiKeyID))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		INSERT INTO accounts (name, platform, type)
+		VALUES ($1, 'openai', 'apikey') RETURNING id`, uniqueTestValue(t, "ledger-link-account")).Scan(&accountID))
+	usageRequestID := integrationHash(t.Name() + ":usage-link")[:32]
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		INSERT INTO usage_logs (user_id, api_key_id, account_id, request_id, model, member_id, actual_cost)
+		VALUES ($1, $2, $3, $4, 'test-model', $5, 1) RETURNING id`, job.EnterpriseUserID, apiKeyID, accountID, usageRequestID, memberID).
+		Scan(&usageLogID))
+	budgetRequestID := service.EnterpriseMemberBudgetRequestID(apiKeyID, usageRequestID)
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		INSERT INTO enterprise_member_budget_entries
+			(member_id, period_start, kind, request_id, amount_usd, idempotency_key)
+		VALUES ($1, $2, 'usage', $3, 1, $4) RETURNING id`, memberID, periodStart.Format("2006-01-02"), budgetRequestID, "usage:"+budgetRequestID).
+		Scan(&budgetEntryID))
+	_, err = integrationDB.ExecContext(ctx, `
+		UPDATE enterprise_member_budget_entries SET usage_log_id = $1 WHERE id = $2`, usageLogID, budgetEntryID)
+	require.NoError(t, err, "a usage ledger may acquire its matching request evidence exactly once")
+	_, err = integrationDB.ExecContext(ctx, `
+		UPDATE enterprise_member_budget_entries SET usage_log_id = usage_log_id WHERE id = $1`, budgetEntryID)
+	require.NoError(t, err, "an idempotent no-op ledger update must remain replayable")
+	_, err = integrationDB.ExecContext(ctx, `
+		UPDATE enterprise_member_budget_entries SET usage_log_id = NULL WHERE id = $1`, budgetEntryID)
+	require.Error(t, err, "linked request evidence must not be removed from the budget ledger")
+
+	_, err = integrationDB.ExecContext(ctx, `
+		UPDATE enterprise_member_budget_entries
+		SET amount_usd = amount_usd + 1
+		WHERE member_id = $1 AND kind = 'migration_opening'`, memberID)
+	require.Error(t, err, "migration opening accounting facts must be immutable in the database")
+	_, err = integrationDB.ExecContext(ctx, `
+		DELETE FROM enterprise_member_budget_entries
+		WHERE member_id = $1 AND kind = 'migration_opening'`, memberID)
+	require.Error(t, err, "budget ledger facts must not be physically deleted")
+
+	var otherMemberID, otherKeyID int64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		INSERT INTO enterprise_members (enterprise_user_id, member_code, name, status)
+		VALUES ($1, $2, 'Other member', 'disabled') RETURNING id`, job.EnterpriseUserID, uniqueTestValue(t, "other-member")).
+		Scan(&otherMemberID))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		INSERT INTO api_keys (user_id, key, name, member_id, status)
+		VALUES ($1, $2, 'Other member key', $3, 'disabled') RETURNING id`, job.EnterpriseUserID, "sk-"+integrationHash(t.Name()+":other-key"), otherMemberID).
+		Scan(&otherKeyID))
+	_, err = integrationDB.ExecContext(ctx, `
+		INSERT INTO enterprise_member_import_usage_baselines
+			(enterprise_user_id, member_id, api_key_id, import_job_id, source_row_number, period_start)
+		VALUES ($1, $2, $3, $4, 2, $5)`, job.EnterpriseUserID, memberID, otherKeyID, job.ID, periodStart.Format("2006-01-02"))
+	require.Error(t, err, "an immutable baseline must not reference a key owned by another member")
 }
 
 func TestEnterpriseMemberImportReferenceValidationRejectsSoftDeletedKeyReuse(t *testing.T) {
@@ -295,13 +501,14 @@ func createCommittedImportQueueFixtureWithRows(
 		selectedRows = append(selectedRows, row)
 	}
 	job := &service.EnterpriseMemberImportJob{
-		EnterpriseUserID:   owner.ID,
-		TokenHash:          integrationHash("token:" + suffix),
-		FileHash:           integrationHash("file:" + suffix),
-		Format:             "csv",
-		Preview:            service.EnterpriseMemberImportPreview{Rows: previewRows},
-		VersionFingerprint: map[string]int64{},
-		ExpiresAt:          time.Now().Add(time.Hour),
+		EnterpriseUserID:    owner.ID,
+		TokenHash:           integrationHash("token:" + suffix),
+		FileHash:            integrationHash("file:" + suffix),
+		Format:              "csv",
+		Preview:             service.EnterpriseMemberImportPreview{Rows: previewRows},
+		VersionFingerprint:  map[string]int64{},
+		ExpiresAt:           time.Now().Add(time.Hour),
+		ImportPolicyVersion: service.EnterpriseMemberImportPolicyLegacyAutoActivate,
 	}
 	repo := NewEnterpriseMemberImportRepository(integrationDB)
 	require.NoError(t, repo.CreatePreviewJob(ctx, job))

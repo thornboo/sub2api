@@ -233,6 +233,7 @@ func enterpriseMemberRowsFromXLSXSheets(sheets map[string]importXLSXSheet) ([]En
 		order                                     int
 	}
 	members := make(map[string]*memberData)
+	memberAliases := make(map[string]string)
 	headers := importHeaderIndex(membersSheet.Rows[0])
 	for i, record := range membersSheet.Rows[1:] {
 		if importRecordEmpty(record) {
@@ -260,7 +261,18 @@ func enterpriseMemberRowsFromXLSXSheets(sheets map[string]importXLSXSheet) ([]En
 		if limit7dErr != nil {
 			item.errors = append(item.errors, "invalid_rate_limit_7d")
 		}
-		members[strings.ToLower(strings.TrimSpace(code))] = item
+		identity := enterpriseMemberImportXLSXIdentity(code, item.name)
+		if identity == "" {
+			item.errors = append(item.errors, "invalid_member_name")
+			identity = fmt.Sprintf("row:%d", i+2)
+		}
+		if existing := members[identity]; existing != nil {
+			existing.errors = append(existing.errors, "duplicate_member")
+			continue
+		}
+		members[identity] = item
+		registerEnterpriseMemberImportXLSXAlias(memberAliases, enterpriseMemberImportXLSXCodeIdentity(item.code), identity)
+		registerEnterpriseMemberImportXLSXAlias(memberAliases, enterpriseMemberImportXLSXNameIdentity(item.name), identity)
 	}
 	if groupSheet, ok := sheets["membergroups"]; ok && len(groupSheet.Rows) > 1 {
 		headers := importHeaderIndex(groupSheet.Rows[0])
@@ -273,15 +285,16 @@ func enterpriseMemberRowsFromXLSXSheets(sheets map[string]importXLSXSheet) ([]En
 			if importRecordEmpty(record) {
 				continue
 			}
-			code := strings.ToLower(importCell(record, headers, "member_code"))
+			code := importCell(record, headers, "member_code")
+			identity, _ := resolveEnterpriseMemberImportXLSXIdentity(code, "", memberAliases)
 			id, idErr := strconv.ParseInt(importCell(record, headers, "group_id"), 10, 64)
 			order, orderErr := strconv.Atoi(importCell(record, headers, "sort_order"))
-			if member := members[code]; member == nil {
+			if member := members[identity]; member == nil {
 				continue
 			} else if idErr != nil || id <= 0 || orderErr != nil || order < 0 {
 				member.errors = append(member.errors, "invalid_member_group")
 			} else {
-				groups[code] = append(groups[code], orderedGroup{id, order})
+				groups[identity] = append(groups[identity], orderedGroup{id, order})
 			}
 		}
 		for code, values := range groups {
@@ -292,27 +305,55 @@ func enterpriseMemberRowsFromXLSXSheets(sheets map[string]importXLSXSheet) ([]En
 		}
 	}
 	type keyData struct {
-		name, key string
-		quota     float64
-		errors    []string
+		memberCode, memberName, name, key                     string
+		quota, opening                                        float64
+		total, input, output, cache, cacheCreation, cacheRead int64
+		totalProvided                                         bool
+		errors                                                []string
 	}
 	keys := make(map[string][]keyData)
+	orphanKeys := make([]keyData, 0)
 	if keySheet, ok := sheets["keys"]; ok && len(keySheet.Rows) > 1 {
 		headers := importHeaderIndex(keySheet.Rows[0])
 		for _, record := range keySheet.Rows[1:] {
 			if importRecordEmpty(record) {
 				continue
 			}
-			code := strings.ToLower(importCell(record, headers, "member_code"))
+			code := importCell(record, headers, "member_code")
+			memberName := importCell(record, headers, "member_name")
+			identity, identityOK := resolveEnterpriseMemberImportXLSXIdentity(code, memberName, memberAliases)
 			quota, quotaErr := parseImportAmount(importCell(record, headers, "key_quota_usd"))
-			item := keyData{name: importCell(record, headers, "key_name"), key: importCell(record, headers, "api_key"), quota: quota}
+			opening, openingErr := parseImportAmount(importCell(record, headers, "opening_used_usd"))
+			totalValue := importCell(record, headers, "total_tokens")
+			total, totalErr := parseImportTokenCount(totalValue)
+			input, inputErr := parseImportTokenCount(importCell(record, headers, "input_tokens"))
+			output, outputErr := parseImportTokenCount(importCell(record, headers, "output_tokens"))
+			cache, cacheErr := parseImportTokenCount(importCell(record, headers, "cache_tokens"))
+			cacheCreation, cacheCreationErr := parseImportTokenCount(importCell(record, headers, "cache_creation_tokens"))
+			cacheRead, cacheReadErr := parseImportTokenCount(importCell(record, headers, "cache_read_tokens"))
+			item := keyData{
+				memberCode: code, memberName: memberName,
+				name: importCell(record, headers, "key_name"), key: importCell(record, headers, "api_key"), quota: quota, opening: opening,
+				total: total, totalProvided: totalValue != "", input: input, output: output, cache: cache, cacheCreation: cacheCreation, cacheRead: cacheRead,
+			}
 			if quotaErr != nil {
 				item.errors = append(item.errors, "invalid_key_quota")
 			}
-			if members[code] == nil {
+			for issue, parseErr := range map[string]error{
+				"invalid_opening_used": openingErr, "invalid_total_tokens": totalErr, "invalid_input_tokens": inputErr,
+				"invalid_output_tokens": outputErr, "invalid_cache_tokens": cacheErr,
+				"invalid_cache_creation_tokens": cacheCreationErr, "invalid_cache_read_tokens": cacheReadErr,
+			} {
+				if parseErr != nil {
+					item.errors = append(item.errors, issue)
+				}
+			}
+			if !identityOK || members[identity] == nil {
+				item.errors = append(item.errors, "member_not_found_in_members_sheet")
+				orphanKeys = append(orphanKeys, item)
 				continue
 			}
-			keys[code] = append(keys[code], item)
+			keys[identity] = append(keys[identity], item)
 		}
 	}
 	ordered := make([]*memberData, 0, len(members))
@@ -323,35 +364,105 @@ func enterpriseMemberRowsFromXLSXSheets(sheets map[string]importXLSXSheet) ([]En
 	rows := make([]EnterpriseMemberImportRow, 0)
 	rowNumber := 2
 	for _, member := range ordered {
-		memberKeys := keys[strings.ToLower(strings.TrimSpace(member.code))]
+		identity := enterpriseMemberImportXLSXIdentity(member.code, member.name)
+		memberKeys := keys[identity]
 		if len(memberKeys) == 0 {
 			memberKeys = []keyData{{}}
 		}
 		for index, key := range memberKeys {
-			opening := 0.0
-			if index == 0 {
+			opening := key.opening
+			if index == 0 && opening == 0 {
 				opening = member.opening
 			}
 			errs := append([]string(nil), member.errors...)
 			errs = append(errs, key.errors...)
-			rows = append(rows, EnterpriseMemberImportRow{RowNumber: rowNumber, MemberCode: member.code, MemberName: member.name, MonthlyLimitUSD: member.limit, RateLimit5h: member.limit5h, RateLimit1d: member.limit1d, RateLimit7d: member.limit7d, OpeningUsedUSD: opening, KeyName: key.name, APIKeyCiphertext: key.key, KeyPresent: key.name != "" || key.key != "", KeyQuotaUSD: key.quota, GroupIDs: append([]int64(nil), member.groups...), Errors: errs, Warnings: []string{}})
+			rows = append(rows, EnterpriseMemberImportRow{
+				RowNumber: rowNumber, MemberCode: member.code, MemberName: member.name,
+				MonthlyLimitUSD: member.limit, RateLimit5h: member.limit5h, RateLimit1d: member.limit1d, RateLimit7d: member.limit7d,
+				OpeningUsedUSD: opening, TotalTokens: key.total, TotalTokensProvided: key.totalProvided, InputTokens: key.input, OutputTokens: key.output,
+				CacheTokens: key.cache, CacheCreationTokens: key.cacheCreation, CacheReadTokens: key.cacheRead,
+				KeyName: key.name, APIKeyCiphertext: key.key, KeyPresent: key.name != "" || key.key != "", KeyQuotaUSD: key.quota,
+				GroupIDs: append([]int64(nil), member.groups...), Errors: errs, Warnings: []string{},
+			})
 			rowNumber++
 		}
 	}
+	for _, key := range orphanKeys {
+		rows = append(rows, EnterpriseMemberImportRow{
+			RowNumber: rowNumber, MemberCode: key.memberCode, MemberName: key.memberName,
+			OpeningUsedUSD: key.opening, TotalTokens: key.total, TotalTokensProvided: key.totalProvided, InputTokens: key.input, OutputTokens: key.output,
+			CacheTokens: key.cache, CacheCreationTokens: key.cacheCreation, CacheReadTokens: key.cacheRead,
+			KeyName: key.name, APIKeyCiphertext: key.key, KeyPresent: key.name != "" || key.key != "", KeyQuotaUSD: key.quota,
+			Errors: append([]string(nil), key.errors...), Warnings: []string{},
+		})
+		rowNumber++
+	}
 	return rows, nil
+}
+
+func enterpriseMemberImportXLSXIdentity(code, name string) string {
+	if identity := enterpriseMemberImportXLSXCodeIdentity(code); identity != "" {
+		return identity
+	}
+	return enterpriseMemberImportXLSXNameIdentity(name)
+}
+
+func enterpriseMemberImportXLSXCodeIdentity(code string) string {
+	if normalized := strings.ToLower(strings.TrimSpace(code)); normalized != "" {
+		return "code:" + normalized
+	}
+	return ""
+}
+
+func enterpriseMemberImportXLSXNameIdentity(name string) string {
+	if normalized := strings.ToLower(strings.TrimSpace(name)); normalized != "" {
+		return "name:" + normalized
+	}
+	return ""
+}
+
+func registerEnterpriseMemberImportXLSXAlias(aliases map[string]string, alias, identity string) {
+	if alias == "" {
+		return
+	}
+	if existing, ok := aliases[alias]; ok && existing != identity {
+		aliases[alias] = ""
+		return
+	}
+	aliases[alias] = identity
+}
+
+func resolveEnterpriseMemberImportXLSXIdentity(code, name string, aliases map[string]string) (string, bool) {
+	resolved := ""
+	for _, alias := range []string{enterpriseMemberImportXLSXCodeIdentity(code), enterpriseMemberImportXLSXNameIdentity(name)} {
+		if alias == "" {
+			continue
+		}
+		identity, ok := aliases[alias]
+		if !ok || identity == "" {
+			continue
+		}
+		if resolved != "" && resolved != identity {
+			return "", false
+		}
+		resolved = identity
+	}
+	return resolved, resolved != ""
 }
 
 func EnterpriseMemberImportXLSXTemplate() ([]byte, error) {
 	var output bytes.Buffer
 	archive := zip.NewWriter(&output)
 	files := map[string]string{
-		"[Content_Types].xml":        `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet3.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
+		"[Content_Types].xml":        `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
 		"_rels/.rels":                `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
-		"xl/workbook.xml":            `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Members" sheetId="1" r:id="rId1"/><sheet name="Keys" sheetId="2" r:id="rId2"/><sheet name="MemberGroups" sheetId="3" r:id="rId3"/></sheets></workbook>`,
-		"xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet3.xml"/></Relationships>`,
-		"xl/worksheets/sheet1.xml":   importXLSXTemplateSheet([][]string{{"成员编号", "成员名称", "5小时限额", "1天限额", "7天限额", "自然月预算（USD）", "初始已用额度（USD）"}, {"employee-001", "示例成员", "25", "50", "75", "100", "0"}}),
-		"xl/worksheets/sheet2.xml":   importXLSXTemplateSheet([][]string{{"成员编号", "密钥名称", "API密钥", "密钥额度（USD）"}, {"employee-001", "主密钥", "", "0"}}),
-		"xl/worksheets/sheet3.xml":   importXLSXTemplateSheet([][]string{{"成员编号", "分组ID", "顺序"}, {"employee-001", "1", "0"}}),
+		"xl/workbook.xml":            `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Members" sheetId="1" r:id="rId1"/><sheet name="Keys" sheetId="2" r:id="rId2"/></sheets></workbook>`,
+		"xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/></Relationships>`,
+		"xl/worksheets/sheet1.xml":   importXLSXTemplateSheet([][]string{{"成员编号", "用户名称", "5小时限额", "1天限额", "7天限额", "月限制金额"}, {"", "示例成员", "0", "0", "0", "100"}}),
+		"xl/worksheets/sheet2.xml": importXLSXTemplateSheet([][]string{
+			{"成员编号", "用户名称", "API Key", "密钥名称", "本月已消费金额（USD）", "总消耗Token数", "总输入Token数", "总输出Token数", "总缓存Token数", "总缓存Token写入数", "总缓存Token读取数", "密钥额度（USD）"},
+			{"", "示例成员", "", "迁移密钥", "30", "100000", "50000", "30000", "20000", "12000", "8000", "0"},
+		}),
 	}
 	for name, content := range files {
 		writer, err := archive.Create(name)

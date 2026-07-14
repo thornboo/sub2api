@@ -164,6 +164,18 @@ func (r *enterpriseMemberBudgetRepository) GetSummary(ctx context.Context, membe
 		Scan(&summary.RequestCount, &summary.InputTokens, &summary.OutputTokens); err != nil {
 		return nil, err
 	}
+	if err := r.db.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(billed_usd), 0), COALESCE(SUM(total_tokens), 0),
+		       COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
+		       COALESCE(SUM(cache_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0),
+		       COALESCE(SUM(cache_read_tokens), 0)
+		FROM enterprise_member_import_usage_baselines
+		WHERE member_id = $1 AND period_start = $2`, memberID, periodStart.Format("2006-01-02")).
+		Scan(&summary.MigrationBilledUSD, &summary.MigrationTotalTokens, &summary.MigrationInputTokens,
+			&summary.MigrationOutputTokens, &summary.MigrationCacheTokens, &summary.MigrationCacheWriteTokens,
+			&summary.MigrationCacheReadTokens); err != nil {
+		return nil, err
+	}
 	return summary, nil
 }
 
@@ -429,13 +441,24 @@ func (r *enterpriseMemberBudgetRepository) GetOwnerUsageSummary(ctx context.Cont
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT m.id, m.member_code, m.name, m.status, m.monthly_limit_usd,
 		       COALESCE(p.used_usd, 0), COALESCE(p.reserved_usd, 0),
-		       COALESCE(u.request_count, 0), COALESCE(u.input_tokens, 0), COALESCE(u.output_tokens, 0)
+		       COALESCE(u.request_count, 0), COALESCE(u.input_tokens, 0), COALESCE(u.output_tokens, 0),
+		       COALESCE(b.billed_usd, 0), COALESCE(b.total_tokens, 0), COALESCE(b.input_tokens, 0),
+		       COALESCE(b.output_tokens, 0), COALESCE(b.cache_tokens, 0), COALESCE(b.cache_creation_tokens, 0),
+		       COALESCE(b.cache_read_tokens, 0)
 		FROM enterprise_members m
 		LEFT JOIN enterprise_member_budget_periods p ON p.member_id = m.id AND p.period_start = $2
 		LEFT JOIN LATERAL (
 			SELECT COUNT(*) AS request_count, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens
 			FROM usage_logs ul WHERE ul.member_id = m.id AND ul.created_at >= $3 AND ul.created_at < $4
 		) u ON TRUE
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(SUM(billed_usd), 0) AS billed_usd, COALESCE(SUM(total_tokens), 0) AS total_tokens,
+			       COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens,
+			       COALESCE(SUM(cache_tokens), 0) AS cache_tokens, COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens,
+			       COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens
+			FROM enterprise_member_import_usage_baselines baseline
+			WHERE baseline.member_id = m.id AND baseline.period_start = $2
+		) b ON TRUE
 		WHERE m.enterprise_user_id = $1
 		ORDER BY m.id`, ownerID, periodStart.Format("2006-01-02"), periodStart, periodEnd)
 	if err != nil {
@@ -444,7 +467,11 @@ func (r *enterpriseMemberBudgetRepository) GetOwnerUsageSummary(ctx context.Cont
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var item service.EnterpriseMemberOwnerUsageItem
-		if err := rows.Scan(&item.MemberID, &item.MemberCode, &item.MemberName, &item.Status, &item.LimitUSD, &item.UsedUSD, &item.ReservedUSD, &item.RequestCount, &item.InputTokens, &item.OutputTokens); err != nil {
+		if err := rows.Scan(&item.MemberID, &item.MemberCode, &item.MemberName, &item.Status, &item.LimitUSD,
+			&item.UsedUSD, &item.ReservedUSD, &item.RequestCount, &item.InputTokens, &item.OutputTokens,
+			&item.MigrationBilledUSD, &item.MigrationTotalTokens, &item.MigrationInputTokens,
+			&item.MigrationOutputTokens, &item.MigrationCacheTokens, &item.MigrationCacheWriteTokens,
+			&item.MigrationCacheReadTokens); err != nil {
 			return nil, err
 		}
 		if item.LimitUSD <= 0 {
@@ -460,6 +487,13 @@ func (r *enterpriseMemberBudgetRepository) GetOwnerUsageSummary(ctx context.Cont
 		summary.RequestCount += item.RequestCount
 		summary.InputTokens += item.InputTokens
 		summary.OutputTokens += item.OutputTokens
+		summary.MigrationBilledUSD += item.MigrationBilledUSD
+		summary.MigrationTotalTokens += item.MigrationTotalTokens
+		summary.MigrationInputTokens += item.MigrationInputTokens
+		summary.MigrationOutputTokens += item.MigrationOutputTokens
+		summary.MigrationCacheTokens += item.MigrationCacheTokens
+		summary.MigrationCacheWriteTokens += item.MigrationCacheWriteTokens
+		summary.MigrationCacheReadTokens += item.MigrationCacheReadTokens
 		summary.Members = append(summary.Members, item)
 	}
 	if err := rows.Err(); err != nil {

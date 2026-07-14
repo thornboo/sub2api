@@ -34,36 +34,53 @@ const (
 	enterpriseMemberImportMaxFileBytes = 10 << 20
 	enterpriseMemberImportMaxRows      = 5000
 	enterpriseMemberImportMaxCellBytes = 4096
+
+	EnterpriseMemberImportPolicyLegacyAutoActivate = 1
+	EnterpriseMemberImportPolicyExplicitActivation = 2
+	EnterpriseMemberImportCommitProtocolLegacy     = 1
+	EnterpriseMemberImportCommitProtocolPolicyV2   = 2
+	EnterpriseMemberImportStatusQueuedV2           = "queued_v2"
+	EnterpriseMemberImportStatusProcessingV2       = "processing_v2"
 )
 
 type EnterpriseMemberImportRow struct {
-	RowNumber        int      `json:"row_number"`
-	MemberCode       string   `json:"member_code"`
-	MemberName       string   `json:"member_name"`
-	MonthlyLimitUSD  float64  `json:"monthly_limit_usd"`
-	RateLimit5h      float64  `json:"rate_limit_5h"`
-	RateLimit1d      float64  `json:"rate_limit_1d"`
-	RateLimit7d      float64  `json:"rate_limit_7d"`
-	OpeningUsedUSD   float64  `json:"opening_used_usd"`
-	KeyName          string   `json:"key_name,omitempty"`
-	APIKeyCiphertext string   `json:"api_key_ciphertext,omitempty"`
-	KeyPresent       bool     `json:"key_present"`
-	KeyQuotaUSD      float64  `json:"key_quota_usd"`
-	GroupIDs         []int64  `json:"group_ids"`
-	Valid            bool     `json:"valid"`
-	Errors           []string `json:"errors"`
-	Warnings         []string `json:"warnings"`
+	RowNumber           int      `json:"row_number"`
+	MemberCode          string   `json:"member_code"`
+	MemberName          string   `json:"member_name"`
+	MonthlyLimitUSD     float64  `json:"monthly_limit_usd"`
+	RateLimit5h         float64  `json:"rate_limit_5h"`
+	RateLimit1d         float64  `json:"rate_limit_1d"`
+	RateLimit7d         float64  `json:"rate_limit_7d"`
+	OpeningUsedUSD      float64  `json:"opening_used_usd"`
+	TotalTokens         int64    `json:"total_tokens"`
+	TotalTokensProvided bool     `json:"total_tokens_provided,omitempty"`
+	InputTokens         int64    `json:"input_tokens"`
+	OutputTokens        int64    `json:"output_tokens"`
+	CacheTokens         int64    `json:"cache_tokens"`
+	CacheCreationTokens int64    `json:"cache_creation_tokens"`
+	CacheReadTokens     int64    `json:"cache_read_tokens"`
+	KeyName             string   `json:"key_name,omitempty"`
+	APIKeyCiphertext    string   `json:"api_key_ciphertext,omitempty"`
+	KeyPresent          bool     `json:"key_present"`
+	KeyQuotaUSD         float64  `json:"key_quota_usd"`
+	GroupIDs            []int64  `json:"group_ids"`
+	Valid               bool     `json:"valid"`
+	Errors              []string `json:"errors"`
+	Warnings            []string `json:"warnings"`
 }
 
 type EnterpriseMemberImportPreview struct {
-	JobID       int64                       `json:"job_id"`
-	Token       string                      `json:"token,omitempty"`
-	FileHash    string                      `json:"file_hash"`
-	Format      string                      `json:"format"`
-	ExpiresAt   time.Time                   `json:"expires_at"`
-	Rows        []EnterpriseMemberImportRow `json:"rows"`
-	ValidRows   int                         `json:"valid_rows"`
-	InvalidRows int                         `json:"invalid_rows"`
+	JobID               int64                       `json:"job_id"`
+	Token               string                      `json:"token,omitempty"`
+	FileHash            string                      `json:"file_hash"`
+	Format              string                      `json:"format"`
+	ImportPolicyVersion int                         `json:"import_policy_version"`
+	ExpiresAt           time.Time                   `json:"expires_at"`
+	PeriodStart         time.Time                   `json:"period_start"`
+	Timezone            string                      `json:"timezone"`
+	Rows                []EnterpriseMemberImportRow `json:"rows"`
+	ValidRows           int                         `json:"valid_rows"`
+	InvalidRows         int                         `json:"invalid_rows"`
 }
 
 type EnterpriseMemberImportJob struct {
@@ -90,6 +107,9 @@ type EnterpriseMemberImportJob struct {
 	ErrorCode               *string
 	ErrorSummary            *string
 	ResultSecretsConsumedAt *time.Time
+	DefaultGroupIDs         []int64
+	ActivateMembers         bool
+	ImportPolicyVersion     int
 }
 
 type EnterpriseMemberImportQueueResult struct {
@@ -105,13 +125,19 @@ type EnterpriseMemberImportCreatedKey struct {
 }
 
 type EnterpriseMemberImportResult struct {
-	JobID          int64                              `json:"job_id"`
-	Status         string                             `json:"status"`
-	CreatedMembers int                                `json:"created_members"`
-	CreatedKeys    int                                `json:"created_keys"`
-	Rows           []int                              `json:"rows"`
-	Keys           []EnterpriseMemberImportCreatedKey `json:"keys,omitempty"`
-	CompletedAt    time.Time                          `json:"completed_at"`
+	JobID                int64                              `json:"job_id"`
+	Status               string                             `json:"status"`
+	CreatedMembers       int                                `json:"created_members"`
+	CreatedKeys          int                                `json:"created_keys"`
+	MemberIDs            []int64                            `json:"member_ids"`
+	PendingMembers       int                                `json:"pending_members"`
+	MigrationBilledUSD   float64                            `json:"migration_billed_usd"`
+	MigrationTotalTokens int64                              `json:"migration_total_tokens"`
+	PeriodStart          time.Time                          `json:"period_start"`
+	Timezone             string                             `json:"timezone"`
+	Rows                 []int                              `json:"rows"`
+	Keys                 []EnterpriseMemberImportCreatedKey `json:"keys,omitempty"`
+	CompletedAt          time.Time                          `json:"completed_at"`
 }
 
 type EnterpriseMemberImportReferenceState struct {
@@ -127,7 +153,7 @@ type EnterpriseMemberImportRepository interface {
 	GetPreviewJob(ctx context.Context, ownerID, jobID int64, tokenHash string) (*EnterpriseMemberImportJob, error)
 	GetJobByToken(ctx context.Context, ownerID, jobID int64, tokenHash string) (*EnterpriseMemberImportJob, error)
 	GetJob(ctx context.Context, ownerID, jobID int64) (*EnterpriseMemberImportJob, error)
-	QueueCommit(ctx context.Context, ownerID, jobID int64, tokenHash string, selectedRows []int, idempotencyKeyHash string) (*EnterpriseMemberImportJob, error)
+	QueueCommit(ctx context.Context, ownerID, jobID int64, tokenHash string, selectedRows []int, defaultGroupIDs []int64, activateMembers bool, idempotencyKeyHash string) (*EnterpriseMemberImportJob, error)
 	ClaimNextCommitJob(ctx context.Context, workerID string, staleAfter time.Duration) (*EnterpriseMemberImportJob, error)
 	RenewCommitLease(ctx context.Context, jobID int64, workerID string) (bool, error)
 	Commit(ctx context.Context, job *EnterpriseMemberImportJob, rows []EnterpriseMemberImportRow, plaintextKeys map[int]string, idempotencyKeyHash, resultSecretsCiphertext string) (*EnterpriseMemberImportResult, error)
@@ -147,6 +173,10 @@ func NewEnterpriseMemberImportService(repo EnterpriseMemberImportRepository, enc
 }
 
 func (s *EnterpriseMemberImportService) Preview(ctx context.Context, ownerID int64, format string, data []byte) (result *EnterpriseMemberImportPreview, resultErr error) {
+	return s.PreviewWithPolicy(ctx, ownerID, format, data, EnterpriseMemberImportPolicyExplicitActivation)
+}
+
+func (s *EnterpriseMemberImportService) PreviewWithPolicy(ctx context.Context, ownerID int64, format string, data []byte, importPolicyVersion int) (result *EnterpriseMemberImportPreview, resultErr error) {
 	startedAt := time.Now()
 	defer func() {
 		rows, invalidRows := 0, 0
@@ -156,6 +186,9 @@ func (s *EnterpriseMemberImportService) Preview(ctx context.Context, ownerID int
 		}
 		RecordEnterpriseMemberImportPreview(time.Since(startedAt), rows, invalidRows, resultErr)
 	}()
+	if importPolicyVersion != EnterpriseMemberImportPolicyLegacyAutoActivate && importPolicyVersion != EnterpriseMemberImportPolicyExplicitActivation {
+		return nil, ErrEnterpriseMemberImportInvalid
+	}
 	format = strings.ToLower(strings.TrimSpace(format))
 	if ownerID <= 0 || len(data) == 0 || len(data) > enterpriseMemberImportMaxFileBytes || (format != "csv" && format != "xlsx") {
 		return nil, ErrEnterpriseMemberImportInvalid
@@ -176,6 +209,9 @@ func (s *EnterpriseMemberImportService) Preview(ctx context.Context, ownerID int
 	if err := s.encryptImportedKeys(rows); err != nil {
 		return nil, err
 	}
+	fileDigest := sha256.Sum256(data)
+	assignMissingEnterpriseMemberCodes(rows, fileDigest)
+	assignMissingEnterpriseMemberKeyNames(rows)
 	validateEnterpriseMemberImportRows(rows)
 	memberCodes, keys, groupIDs := enterpriseMemberImportReferenceValues(rows, s)
 	references, err := s.repo.ValidateReferences(ctx, ownerID, memberCodes, keys, groupIDs)
@@ -194,16 +230,19 @@ func (s *EnterpriseMemberImportService) Preview(ctx context.Context, ownerID int
 	if err != nil {
 		return nil, err
 	}
-	fileDigest := sha256.Sum256(data)
+	periodStart, _ := enterpriseMemberCurrentBudgetPeriod(time.Now())
 	preview := EnterpriseMemberImportPreview{
 		Token: token, FileHash: hex.EncodeToString(fileDigest[:]), Format: format,
-		ExpiresAt: time.Now().Add(30 * time.Minute), Rows: rows, ValidRows: validRows, InvalidRows: len(rows) - validRows,
+		ImportPolicyVersion: importPolicyVersion,
+		ExpiresAt:           time.Now().Add(30 * time.Minute), PeriodStart: periodStart, Timezone: enterpriseMemberBudgetTimezone,
+		Rows: rows, ValidRows: validRows, InvalidRows: len(rows) - validRows,
 	}
 	storedPreview := preview
 	storedPreview.Token = ""
 	job := &EnterpriseMemberImportJob{
 		EnterpriseUserID: ownerID, TokenHash: tokenHash, FileHash: preview.FileHash, Format: format,
 		Status: "previewed", Preview: storedPreview, VersionFingerprint: references.VersionFingerprint, ExpiresAt: preview.ExpiresAt,
+		ImportPolicyVersion: importPolicyVersion,
 	}
 	if err := s.repo.CreatePreviewJob(ctx, job); err != nil {
 		return nil, err
@@ -233,7 +272,7 @@ func (s *EnterpriseMemberImportService) Commit(ctx context.Context, ownerID, job
 	if err != nil {
 		return nil, err
 	}
-	if job.Status != "previewed" && job.Status != "queued" && job.Status != "processing" && job.Status != "completed" {
+	if job.Status != "previewed" && !enterpriseMemberImportIsQueuedOrProcessing(job.Status) && job.Status != "completed" {
 		return nil, ErrEnterpriseMemberImportConflict
 	}
 	if time.Now().After(job.ExpiresAt) {
@@ -242,7 +281,7 @@ func (s *EnterpriseMemberImportService) Commit(ctx context.Context, ownerID, job
 	return s.processImportJob(ctx, job, selectedRows, HashIdempotencyKey(normalizedKey))
 }
 
-func (s *EnterpriseMemberImportService) QueueCommit(ctx context.Context, ownerID, jobID int64, token string, selectedRows []int, idempotencyKey string) (*EnterpriseMemberImportQueueResult, error) {
+func (s *EnterpriseMemberImportService) QueueCommit(ctx context.Context, ownerID, jobID int64, token string, selectedRows []int, defaultGroupIDs []int64, activateMembers bool, idempotencyKey string) (*EnterpriseMemberImportQueueResult, error) {
 	normalizedKey, err := NormalizeIdempotencyKey(idempotencyKey)
 	if err != nil || normalizedKey == "" {
 		return nil, ErrEnterpriseMemberImportInvalid
@@ -251,7 +290,7 @@ func (s *EnterpriseMemberImportService) QueueCommit(ctx context.Context, ownerID
 	if err != nil {
 		return nil, err
 	}
-	if job.Status != "previewed" && job.Status != "queued" && job.Status != "processing" && job.Status != "completed" {
+	if job.Status != "previewed" && !enterpriseMemberImportIsQueuedOrProcessing(job.Status) && job.Status != "completed" {
 		return nil, ErrEnterpriseMemberImportConflict
 	}
 	if job.Status == "previewed" && time.Now().After(job.ExpiresAt) {
@@ -261,11 +300,74 @@ func (s *EnterpriseMemberImportService) QueueCommit(ctx context.Context, ownerID
 	if err != nil {
 		return nil, err
 	}
-	queued, err := s.repo.QueueCommit(ctx, ownerID, jobID, hashEnterpriseMemberImportToken(token), normalizedRows, HashIdempotencyKey(normalizedKey))
+	normalizedGroups := make([]int64, 0, len(defaultGroupIDs))
+	for _, groupID := range defaultGroupIDs {
+		if groupID <= 0 {
+			return nil, ErrEnterpriseMemberImportInvalid
+		}
+		normalizedGroups = append(normalizedGroups, groupID)
+	}
+	normalizedGroups = uniqueInt64sPreserveOrder(normalizedGroups)
+	if activateMembers && len(normalizedGroups) == 0 &&
+		(job.ImportPolicyVersion >= EnterpriseMemberImportPolicyExplicitActivation || !enterpriseMemberImportSelectionHasGroups(job.Preview.Rows, normalizedRows)) {
+		return nil, ErrEnterpriseMemberImportInvalid
+	}
+	if len(normalizedGroups) > 0 && job.Status == "previewed" {
+		state, validateErr := s.repo.ValidateReferences(ctx, ownerID, nil, nil, normalizedGroups)
+		if validateErr != nil {
+			return nil, validateErr
+		}
+		if len(state.AuthorizedGroupIDs) != len(normalizedGroups) {
+			return nil, ErrGroupNotAllowed
+		}
+	}
+	queued, err := s.repo.QueueCommit(ctx, ownerID, jobID, hashEnterpriseMemberImportToken(token), normalizedRows, normalizedGroups, activateMembers, HashIdempotencyKey(normalizedKey))
 	if err != nil {
 		return nil, err
 	}
-	return &EnterpriseMemberImportQueueResult{JobID: queued.ID, Status: queued.Status}, nil
+	return &EnterpriseMemberImportQueueResult{JobID: queued.ID, Status: enterpriseMemberImportPublicStatus(queued.Status)}, nil
+}
+
+func enterpriseMemberImportIsQueuedOrProcessing(status string) bool {
+	return status == "queued" || status == EnterpriseMemberImportStatusQueuedV2 ||
+		status == "processing" || status == EnterpriseMemberImportStatusProcessingV2
+}
+
+func enterpriseMemberImportPublicStatus(status string) string {
+	switch status {
+	case EnterpriseMemberImportStatusQueuedV2:
+		return "queued"
+	case EnterpriseMemberImportStatusProcessingV2:
+		return "processing"
+	default:
+		return status
+	}
+}
+
+func uniqueInt64sPreserveOrder(values []int64) []int64 {
+	seen := make(map[int64]struct{}, len(values))
+	out := make([]int64, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func enterpriseMemberImportSelectionHasGroups(rows []EnterpriseMemberImportRow, selectedRows []int) bool {
+	selected := make(map[int]struct{}, len(selectedRows))
+	for _, rowNumber := range selectedRows {
+		selected[rowNumber] = struct{}{}
+	}
+	for _, row := range rows {
+		if _, ok := selected[row.RowNumber]; ok && len(row.GroupIDs) == 0 {
+			return false
+		}
+	}
+	return len(selected) > 0
 }
 
 func normalizeEnterpriseMemberImportSelection(previewRows []EnterpriseMemberImportRow, selectedRows []int) ([]int, error) {
@@ -411,6 +513,7 @@ func (s *EnterpriseMemberImportService) GetJob(ctx context.Context, ownerID, job
 			job.Result.Keys[i].Key = ""
 		}
 	}
+	job.Status = enterpriseMemberImportPublicStatus(job.Status)
 	return job, nil
 }
 
@@ -453,7 +556,7 @@ func parseEnterpriseMemberImportCSV(data []byte) ([]EnterpriseMemberImportRow, e
 		return nil, err
 	}
 	index := importHeaderIndex(headers)
-	for _, required := range []string{"member_code", "member_name", "groups"} {
+	for _, required := range []string{"member_name"} {
 		if _, ok := index[required]; !ok {
 			return nil, fmt.Errorf("missing column %s", required)
 		}
@@ -483,6 +586,14 @@ func parseEnterpriseMemberImportCSV(data []byte) ([]EnterpriseMemberImportRow, e
 		row.RateLimit1d, _ = parseImportAmount(importCell(record, index, "rate_limit_1d"))
 		row.RateLimit7d, _ = parseImportAmount(importCell(record, index, "rate_limit_7d"))
 		row.OpeningUsedUSD, _ = parseImportAmount(importCell(record, index, "opening_used_usd"))
+		totalTokensValue := importCell(record, index, "total_tokens")
+		row.TotalTokens, _ = parseImportTokenCount(totalTokensValue)
+		row.TotalTokensProvided = totalTokensValue != ""
+		row.InputTokens, _ = parseImportTokenCount(importCell(record, index, "input_tokens"))
+		row.OutputTokens, _ = parseImportTokenCount(importCell(record, index, "output_tokens"))
+		row.CacheTokens, _ = parseImportTokenCount(importCell(record, index, "cache_tokens"))
+		row.CacheCreationTokens, _ = parseImportTokenCount(importCell(record, index, "cache_creation_tokens"))
+		row.CacheReadTokens, _ = parseImportTokenCount(importCell(record, index, "cache_read_tokens"))
 		row.KeyName = importCell(record, index, "key_name")
 		row.APIKeyCiphertext = importCell(record, index, "api_key")
 		row.KeyPresent = row.APIKeyCiphertext != "" || row.KeyName != ""
@@ -506,6 +617,18 @@ func parseEnterpriseMemberImportCSV(data []byte) ([]EnterpriseMemberImportRow, e
 		if _, err := parseImportAmount(importCell(record, index, "key_quota_usd")); err != nil {
 			row.Errors = append(row.Errors, "invalid_key_quota")
 		}
+		for field, value := range map[string]string{
+			"invalid_total_tokens":          importCell(record, index, "total_tokens"),
+			"invalid_input_tokens":          importCell(record, index, "input_tokens"),
+			"invalid_output_tokens":         importCell(record, index, "output_tokens"),
+			"invalid_cache_tokens":          importCell(record, index, "cache_tokens"),
+			"invalid_cache_creation_tokens": importCell(record, index, "cache_creation_tokens"),
+			"invalid_cache_read_tokens":     importCell(record, index, "cache_read_tokens"),
+		} {
+			if _, err := parseImportTokenCount(value); err != nil {
+				row.Errors = append(row.Errors, field)
+			}
+		}
 		rows = append(rows, row)
 		if len(rows) > enterpriseMemberImportMaxRows {
 			return nil, errors.New("too many rows")
@@ -516,10 +639,9 @@ func parseEnterpriseMemberImportCSV(data []byte) ([]EnterpriseMemberImportRow, e
 
 func validateEnterpriseMemberImportRows(rows []EnterpriseMemberImportRow) {
 	type memberShape struct {
-		name                                      string
-		limit, limit5h, limit1d, limit7d, opening float64
-		groups                                    string
-		firstRow                                  int
+		name                             string
+		limit, limit5h, limit1d, limit7d float64
+		groups                           string
 	}
 	members := make(map[string]memberShape)
 	for i := range rows {
@@ -527,7 +649,7 @@ func validateEnterpriseMemberImportRows(rows []EnterpriseMemberImportRow) {
 		row.MemberCode = strings.TrimSpace(row.MemberCode)
 		row.MemberName = strings.TrimSpace(row.MemberName)
 		row.KeyName = strings.TrimSpace(row.KeyName)
-		if !enterpriseMemberCodePattern.MatchString(row.MemberCode) || len(row.MemberCode) > 100 {
+		if row.MemberCode == "" || !enterpriseMemberCodePattern.MatchString(row.MemberCode) || len(row.MemberCode) > 100 {
 			row.Errors = append(row.Errors, "invalid_member_code")
 		}
 		if row.MemberName == "" || len(row.MemberName) > 100 {
@@ -551,8 +673,8 @@ func validateEnterpriseMemberImportRows(rows []EnterpriseMemberImportRow) {
 		if !validImportAmount(row.KeyQuotaUSD) {
 			row.Errors = append(row.Errors, "invalid_key_quota")
 		}
-		if len(row.GroupIDs) == 0 {
-			row.Errors = append(row.Errors, "groups_required")
+		if enterpriseMemberImportTokenTotalMismatch(*row) {
+			row.Warnings = append(row.Warnings, "token_total_mismatch")
 		}
 		if len(row.KeyName) > 100 {
 			row.Errors = append(row.Errors, "invalid_key_name")
@@ -572,15 +694,91 @@ func validateEnterpriseMemberImportRows(rows []EnterpriseMemberImportRow) {
 			if prior.name != row.MemberName || prior.limit != row.MonthlyLimitUSD || prior.limit5h != row.RateLimit5h || prior.limit1d != row.RateLimit1d || prior.limit7d != row.RateLimit7d || prior.groups != groupKey {
 				row.Errors = append(row.Errors, "member_fields_conflict")
 			}
-			if row.OpeningUsedUSD != 0 {
-				row.Errors = append(row.Errors, "opening_used_only_first_row")
-			}
 		} else {
-			members[strings.ToLower(row.MemberCode)] = memberShape{row.MemberName, row.MonthlyLimitUSD, row.RateLimit5h, row.RateLimit1d, row.RateLimit7d, row.OpeningUsedUSD, groupKey, row.RowNumber}
-			if row.MonthlyLimitUSD > 0 && row.OpeningUsedUSD >= row.MonthlyLimitUSD {
-				row.Warnings = append(row.Warnings, "budget_exhausted_at_import")
-			}
+			members[strings.ToLower(row.MemberCode)] = memberShape{row.MemberName, row.MonthlyLimitUSD, row.RateLimit5h, row.RateLimit1d, row.RateLimit7d, groupKey}
 		}
+	}
+	openingByMember := make(map[string]float64)
+	firstByMember := make(map[string]int)
+	for i := range rows {
+		code := strings.ToLower(rows[i].MemberCode)
+		openingByMember[code] += rows[i].OpeningUsedUSD
+		if _, ok := firstByMember[code]; !ok {
+			firstByMember[code] = i
+		}
+	}
+	for code, opening := range openingByMember {
+		row := &rows[firstByMember[code]]
+		if row.MonthlyLimitUSD > 0 && opening >= row.MonthlyLimitUSD {
+			row.Warnings = append(row.Warnings, "budget_exhausted_at_import")
+		}
+	}
+}
+
+func enterpriseMemberImportTokenTotalMismatch(row EnterpriseMemberImportRow) bool {
+	if !row.TotalTokensProvided && row.TotalTokens <= 0 {
+		return false
+	}
+	base := row.InputTokens + row.OutputTokens
+	if base == 0 && row.CacheTokens == 0 && row.CacheCreationTokens == 0 && row.CacheReadTokens == 0 {
+		return false
+	}
+	knownTotals := []int64{base}
+	if row.CacheTokens > 0 {
+		knownTotals = append(knownTotals, base+row.CacheTokens)
+	}
+	if row.CacheCreationTokens > 0 || row.CacheReadTokens > 0 {
+		knownTotals = append(knownTotals, base+row.CacheCreationTokens+row.CacheReadTokens)
+	}
+	for _, known := range knownTotals {
+		if row.TotalTokens == known {
+			return false
+		}
+	}
+	return true
+}
+
+func assignMissingEnterpriseMemberCodes(rows []EnterpriseMemberImportRow, fileDigest [32]byte) {
+	identityCounts := make(map[string]int)
+	for i := range rows {
+		if strings.TrimSpace(rows[i].MemberCode) != "" {
+			continue
+		}
+		identity := strings.ToLower(strings.TrimSpace(rows[i].MemberName))
+		if identity != "" {
+			identityCounts[identity]++
+		}
+	}
+
+	generated := make(map[string]string)
+	for i := range rows {
+		if strings.TrimSpace(rows[i].MemberCode) != "" {
+			continue
+		}
+		identity := strings.ToLower(strings.TrimSpace(rows[i].MemberName))
+		if identity == "" {
+			identity = fmt.Sprintf("row-%d", rows[i].RowNumber)
+		} else if identityCounts[identity] > 1 {
+			rows[i].Errors = append(rows[i].Errors, "member_identity_ambiguous")
+		}
+		code, ok := generated[identity]
+		if !ok {
+			digest := sha256.Sum256(append(fileDigest[:], []byte("\x00"+identity)...))
+			code = "import-" + hex.EncodeToString(digest[:8])
+			generated[identity] = code
+		}
+		rows[i].MemberCode = code
+		rows[i].Warnings = append(rows[i].Warnings, "member_code_generated")
+	}
+}
+
+func assignMissingEnterpriseMemberKeyNames(rows []EnterpriseMemberImportRow) {
+	for i := range rows {
+		if !rows[i].KeyPresent || strings.TrimSpace(rows[i].KeyName) != "" {
+			continue
+		}
+		rows[i].KeyName = fmt.Sprintf("imported-key-%d", rows[i].RowNumber)
+		rows[i].Warnings = append(rows[i].Warnings, "key_name_generated")
 	}
 }
 
@@ -652,18 +850,37 @@ var enterpriseMemberImportHeaderAliases = map[string]string{
 	"自然月预算（usd）":        "monthly_limit_usd",
 	"opening_used_usd":  "opening_used_usd",
 	"初始已用额度（usd）":       "opening_used_usd",
+	"本月已消费金额（usd）":      "opening_used_usd",
+	"消费金额":              "opening_used_usd",
+	"月限制金额":             "monthly_limit_usd",
 	"key_name":          "key_name",
 	"密钥名称":              "key_name",
 	"api_key":           "api_key",
 	"api密钥":             "api_key",
+	"api key":           "api_key",
+	"apikey":            "api_key",
 	"key_quota_usd":     "key_quota_usd",
 	"密钥额度（usd）":         "key_quota_usd",
 	"groups":            "groups",
 	"可访问分组id（按顺序用|分隔）": "groups",
-	"group_id":   "group_id",
-	"分组id":       "group_id",
-	"sort_order": "sort_order",
-	"顺序":         "sort_order",
+	"total_tokens":          "total_tokens",
+	"总消耗token数":             "total_tokens",
+	"input_tokens":          "input_tokens",
+	"总输入token数":             "input_tokens",
+	"output_tokens":         "output_tokens",
+	"总输出token数":             "output_tokens",
+	"cache_tokens":          "cache_tokens",
+	"总缓存token数":             "cache_tokens",
+	"cache_creation_tokens": "cache_creation_tokens",
+	"总缓存token写入数":           "cache_creation_tokens",
+	"cache_read_tokens":     "cache_read_tokens",
+	"总缓存token读取数":           "cache_read_tokens",
+	"用户名称":                  "member_name",
+	"用户名":                   "member_name",
+	"group_id":              "group_id",
+	"分组id":                  "group_id",
+	"sort_order":            "sort_order",
+	"顺序":                    "sort_order",
 }
 
 func canonicalEnterpriseMemberImportHeader(header string) string {
@@ -698,6 +915,17 @@ func parseImportAmount(value string) (float64, error) {
 		return 0, errors.New("invalid amount")
 	}
 	return amount, nil
+}
+func parseImportTokenCount(value string) (int64, error) {
+	value = strings.TrimSpace(strings.ReplaceAll(value, ",", ""))
+	if value == "" {
+		return 0, nil
+	}
+	count, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || count < 0 {
+		return 0, errors.New("invalid token count")
+	}
+	return count, nil
 }
 func validImportAmount(value float64) bool {
 	return value >= 0 && value <= 99_999_999_999 && !math.IsNaN(value) && !math.IsInf(value, 0) && math.Abs(value*1e8-math.Round(value*1e8)) < 1e-5
@@ -734,7 +962,7 @@ func hashEnterpriseMemberImportToken(token string) string {
 }
 
 func EnterpriseMemberImportCSVTemplate() []byte {
-	const template = "成员编号,成员名称,5小时限额,1天限额,7天限额,自然月预算（USD）,初始已用额度（USD）,密钥名称,API密钥,密钥额度（USD）,可访问分组ID（按顺序用|分隔）\nemployee-001,示例成员,25,50,75,100,0,主密钥,,0,1|2\n"
+	const template = "成员编号,用户名称,API Key,密钥名称,本月已消费金额（USD）,月限制金额,总消耗Token数,总输入Token数,总输出Token数,总缓存Token数,总缓存Token写入数,总缓存Token读取数,5小时限额,1天限额,7天限额,密钥额度（USD）\n,示例成员,,迁移密钥,30,100,100000,50000,30000,20000,12000,8000,0,0,0,0\n"
 	return append([]byte{0xEF, 0xBB, 0xBF}, []byte(template)...)
 }
 

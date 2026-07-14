@@ -164,12 +164,20 @@ func currentEnterpriseBudgetPeriodStart(now time.Time) string {
 
 func (r *usageLogRepository) GetOwnerMemberAnalyticsLeaderboard(ctx context.Context, filters service.OwnerAPIKeyAnalyticsFilters) (*service.OwnerMemberLeaderboardResponse, error) {
 	limit := ownerAnalyticsLimit(filters.Limit)
-	currentConditions, args, err := ownerMemberUsageConditions(filters, filters.StartTime, filters.EndTime)
+	if filters.MemberID == nil && strings.TrimSpace(filters.MemberScope) == usagestats.MemberScopeUnassigned {
+		return &service.OwnerMemberLeaderboardResponse{Items: make([]service.OwnerMemberLeaderboardItem, 0)}, nil
+	}
+
+	memberUsageFilters := filters
+	if memberUsageFilters.MemberID == nil {
+		memberUsageFilters.MemberScope = usagestats.MemberScopeAssigned
+	}
+	currentConditions, args, err := ownerMemberUsageConditions(memberUsageFilters, filters.StartTime, filters.EndTime)
 	if err != nil {
 		return nil, err
 	}
 	previousStart := filters.StartTime.Add(-filters.EndTime.Sub(filters.StartTime))
-	previousConditions, previousArgs, err := ownerMemberUsageConditions(filters, previousStart, filters.StartTime)
+	previousConditions, previousArgs, err := ownerMemberUsageConditions(memberUsageFilters, previousStart, filters.StartTime)
 	if err != nil {
 		return nil, err
 	}
@@ -189,28 +197,13 @@ func (r *usageLogRepository) GetOwnerMemberAnalyticsLeaderboard(ctx context.Cont
 		memberScopeConditions = append(memberScopeConditions, "FALSE")
 	}
 
-	includeUnassigned := filters.MemberID == nil && strings.TrimSpace(filters.MemberScope) != usagestats.MemberScopeAssigned
-	unassignedSQL := ""
-	if includeUnassigned {
-		unassignedSQL = `
-			UNION ALL
-			SELECT NULL::BIGINT
-			WHERE EXISTS (SELECT 1 FROM current_usage WHERE member_id IS NULL)
-			   OR EXISTS (SELECT 1 FROM key_counts WHERE member_id IS NULL)
-		`
-		if strings.TrimSpace(filters.MemberScope) == usagestats.MemberScopeUnassigned {
-			unassignedSQL = "UNION ALL SELECT NULL::BIGINT"
-		}
-	}
-
 	budgetPeriodPlaceholder := len(args) + 1
 	args = append(args, currentEnterpriseBudgetPeriodStart(time.Now()))
 
 	searchWhere := ""
 	if filters.Search != "" {
 		searchWhere = fmt.Sprintf(`
-			WHERE scope.member_id IS NOT NULL
-			  AND (
+			WHERE (
 				COALESCE(em.name, current_usage.member_name_snapshot, '') ILIKE $%d
 				OR COALESCE(em.member_code, current_usage.member_code_snapshot, '') ILIKE $%d
 			  )
@@ -263,14 +256,13 @@ func (r *usageLogRepository) GetOwnerMemberAnalyticsLeaderboard(ctx context.Cont
 			SELECT em.id AS member_id
 			FROM enterprise_members em
 			WHERE ` + strings.Join(memberScopeConditions, " AND ") + `
-			` + unassignedSQL + `
 		),
 		ranked AS (
 			SELECT
 				scope.member_id,
 				COALESCE(em.member_code, current_usage.member_code_snapshot, '') AS member_code,
 				COALESCE(em.name, current_usage.member_name_snapshot, '') AS member_name,
-				CASE WHEN scope.member_id IS NULL THEN 'unassigned' ELSE COALESCE(em.status, 'archived') END AS status,
+				COALESCE(em.status, 'archived') AS status,
 				COALESCE(em.deleted_at IS NOT NULL, false) AS archived,
 				COALESCE(key_counts.key_count, 0) AS key_count,
 				COALESCE(em.monthly_limit_usd, 0) AS monthly_limit_usd,
@@ -317,7 +309,7 @@ func (r *usageLogRepository) GetOwnerMemberAnalyticsLeaderboard(ctx context.Cont
 			previous_actual_cost,
 			last_used_at,
 			COUNT(*) OVER () AS total_items,
-			COUNT(*) FILTER (WHERE member_id IS NOT NULL) OVER () AS member_count,
+			COUNT(*) OVER () AS member_count,
 			COUNT(*) FILTER (
 				WHERE NOT archived
 				  AND monthly_limit_usd > 0

@@ -66,3 +66,54 @@ func TestEnterpriseMemberImportJobMigrationUsesDurableLeasesAndEncryptedOneTimeR
 	require.Contains(t, sql, "result_secrets_consumed_at TIMESTAMPTZ")
 	require.NotContains(t, sql, "result_secrets_plaintext")
 }
+
+func TestEnterpriseMemberImportBaselineMigrationSeparatesExternalFactsFromRequestLogs(t *testing.T) {
+	content, err := FS.ReadFile("182_enterprise_member_import_baselines.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	require.Contains(t, sql, "default_group_ids JSONB")
+	require.Contains(t, sql, "activate_members BOOLEAN")
+	require.Contains(t, sql, "CREATE TABLE IF NOT EXISTS enterprise_member_import_usage_baselines")
+	require.Contains(t, sql, "enterprise_member_import_usage_baseline_reject_mutation")
+	require.Contains(t, sql, "BEFORE UPDATE OR DELETE ON enterprise_member_import_usage_baselines")
+	require.Contains(t, sql, "UNIQUE (import_job_id, source_row_number)")
+	require.NotContains(t, sql, "INSERT INTO usage_logs")
+}
+
+func TestEnterpriseMemberImportPolicyMigrationPreservesLegacyJobsAndVersionsNewJobs(t *testing.T) {
+	content, err := FS.ReadFile("183_enterprise_member_import_policy_versions.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS import_policy_version SMALLINT")
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS commit_protocol_version SMALLINT")
+	require.Contains(t, sql, "SET import_policy_version = 1")
+	require.Contains(t, sql, "ALTER COLUMN import_policy_version SET DEFAULT 1")
+	require.Contains(t, sql, "New code writes policy 2")
+	require.Contains(t, sql, "CHECK (import_policy_version IN (1, 2))")
+	require.Contains(t, sql, "'queued_v2'")
+	require.Contains(t, sql, "'processing_v2'")
+	require.Contains(t, sql, "enterprise_member_import_enforce_queue_protocol")
+	require.Contains(t, sql, "policy-2 enterprise member import requires commit protocol 2")
+	require.Contains(t, sql, "BEFORE INSERT OR UPDATE OF status, import_policy_version, commit_protocol_version")
+}
+
+func TestEnterpriseMemberLedgerIntegrityMigrationProtectsAccountingFacts(t *testing.T) {
+	indexContent, err := FS.ReadFile("184_enterprise_member_baseline_identity_index_notx.sql")
+	require.NoError(t, err)
+	require.Contains(t, string(indexContent), "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_api_keys_id_member_owner")
+
+	content, err := FS.ReadFile("185_enterprise_member_ledger_integrity.sql")
+	require.NoError(t, err)
+	sql := string(content)
+	require.Contains(t, sql, "enterprise_member_import_usage_baselines_key_member_owner_fk")
+	require.Contains(t, sql, "FOREIGN KEY (api_key_id, member_id, enterprise_user_id)")
+	require.Contains(t, sql, "enterprise_member_import_jobs_policy_v2_activation_groups_check")
+	require.Contains(t, sql, "jsonb_array_length(default_group_ids) > 0")
+	require.Contains(t, sql, "enterprise_member_budget_entry_reject_mutation")
+	require.Contains(t, sql, "BEFORE UPDATE OR DELETE ON enterprise_member_budget_entries")
+	require.Contains(t, sql, "OLD.usage_log_id IS NULL")
+	require.Contains(t, sql, "NEW.usage_log_id IS NOT NULL")
+	require.Contains(t, sql, "NEW IS NOT DISTINCT FROM OLD")
+}

@@ -21,7 +21,9 @@ var (
 	ErrEnterpriseMemberBudgetConflict      = infraerrors.Conflict("ENTERPRISE_MEMBER_BUDGET_REQUEST_CONFLICT", "member budget request id was reused with different parameters")
 )
 
-const enterpriseMemberBudgetTimezone = "Asia/Shanghai"
+// EnterpriseMemberBudgetTimezone is the authoritative calendar timezone for member budgets and import openings.
+const EnterpriseMemberBudgetTimezone = "Asia/Shanghai"
+const enterpriseMemberBudgetTimezone = EnterpriseMemberBudgetTimezone
 
 const enterpriseMemberUsageAuditNote = "usage values updated by %s"
 
@@ -38,26 +40,33 @@ type EnterpriseMemberBudgetReservation struct {
 }
 
 type EnterpriseMemberBudgetSummary struct {
-	MemberID     int64      `json:"member_id"`
-	PeriodStart  time.Time  `json:"period_start"`
-	PeriodEnd    time.Time  `json:"period_end"`
-	Timezone     string     `json:"timezone"`
-	LimitUSD     float64    `json:"limit_usd"`
-	UsedUSD      float64    `json:"used_usd"`
-	ReservedUSD  float64    `json:"reserved_usd"`
-	RemainingUSD float64    `json:"remaining_usd"`
-	RequestCount int64      `json:"request_count"`
-	InputTokens  int64      `json:"input_tokens"`
-	OutputTokens int64      `json:"output_tokens"`
-	RateLimit5h  float64    `json:"rate_limit_5h"`
-	RateLimit1d  float64    `json:"rate_limit_1d"`
-	RateLimit7d  float64    `json:"rate_limit_7d"`
-	Usage5h      float64    `json:"usage_5h"`
-	Usage1d      float64    `json:"usage_1d"`
-	Usage7d      float64    `json:"usage_7d"`
-	Reset5hAt    *time.Time `json:"reset_5h_at,omitempty"`
-	Reset1dAt    *time.Time `json:"reset_1d_at,omitempty"`
-	Reset7dAt    *time.Time `json:"reset_7d_at,omitempty"`
+	MemberID                  int64      `json:"member_id"`
+	PeriodStart               time.Time  `json:"period_start"`
+	PeriodEnd                 time.Time  `json:"period_end"`
+	Timezone                  string     `json:"timezone"`
+	LimitUSD                  float64    `json:"limit_usd"`
+	UsedUSD                   float64    `json:"used_usd"`
+	ReservedUSD               float64    `json:"reserved_usd"`
+	RemainingUSD              float64    `json:"remaining_usd"`
+	RequestCount              int64      `json:"request_count"`
+	InputTokens               int64      `json:"input_tokens"`
+	OutputTokens              int64      `json:"output_tokens"`
+	MigrationBilledUSD        float64    `json:"migration_billed_usd"`
+	MigrationTotalTokens      int64      `json:"migration_total_tokens"`
+	MigrationInputTokens      int64      `json:"migration_input_tokens"`
+	MigrationOutputTokens     int64      `json:"migration_output_tokens"`
+	MigrationCacheTokens      int64      `json:"migration_cache_tokens"`
+	MigrationCacheWriteTokens int64      `json:"migration_cache_write_tokens"`
+	MigrationCacheReadTokens  int64      `json:"migration_cache_read_tokens"`
+	RateLimit5h               float64    `json:"rate_limit_5h"`
+	RateLimit1d               float64    `json:"rate_limit_1d"`
+	RateLimit7d               float64    `json:"rate_limit_7d"`
+	Usage5h                   float64    `json:"usage_5h"`
+	Usage1d                   float64    `json:"usage_1d"`
+	Usage7d                   float64    `json:"usage_7d"`
+	Reset5hAt                 *time.Time `json:"reset_5h_at,omitempty"`
+	Reset1dAt                 *time.Time `json:"reset_1d_at,omitempty"`
+	Reset7dAt                 *time.Time `json:"reset_7d_at,omitempty"`
 }
 
 type EnterpriseMemberBudgetEntry struct {
@@ -97,29 +106,43 @@ type EnterpriseMemberUsageAnalytics struct {
 }
 
 type EnterpriseMemberOwnerUsageItem struct {
-	MemberID     int64   `json:"member_id"`
-	MemberCode   string  `json:"member_code"`
-	MemberName   string  `json:"member_name"`
-	Status       string  `json:"status"`
-	LimitUSD     float64 `json:"limit_usd"`
-	UsedUSD      float64 `json:"used_usd"`
-	ReservedUSD  float64 `json:"reserved_usd"`
-	RemainingUSD float64 `json:"remaining_usd"`
-	RequestCount int64   `json:"request_count"`
-	InputTokens  int64   `json:"input_tokens"`
-	OutputTokens int64   `json:"output_tokens"`
+	MemberID                  int64   `json:"member_id"`
+	MemberCode                string  `json:"member_code"`
+	MemberName                string  `json:"member_name"`
+	Status                    string  `json:"status"`
+	LimitUSD                  float64 `json:"limit_usd"`
+	UsedUSD                   float64 `json:"used_usd"`
+	ReservedUSD               float64 `json:"reserved_usd"`
+	RemainingUSD              float64 `json:"remaining_usd"`
+	RequestCount              int64   `json:"request_count"`
+	InputTokens               int64   `json:"input_tokens"`
+	OutputTokens              int64   `json:"output_tokens"`
+	MigrationBilledUSD        float64 `json:"migration_billed_usd"`
+	MigrationTotalTokens      int64   `json:"migration_total_tokens"`
+	MigrationInputTokens      int64   `json:"migration_input_tokens"`
+	MigrationOutputTokens     int64   `json:"migration_output_tokens"`
+	MigrationCacheTokens      int64   `json:"migration_cache_tokens"`
+	MigrationCacheWriteTokens int64   `json:"migration_cache_write_tokens"`
+	MigrationCacheReadTokens  int64   `json:"migration_cache_read_tokens"`
 }
 
 type EnterpriseMemberOwnerUsageSummary struct {
-	PeriodStart  time.Time                        `json:"period_start"`
-	PeriodEnd    time.Time                        `json:"period_end"`
-	Timezone     string                           `json:"timezone"`
-	UsedUSD      float64                          `json:"used_usd"`
-	ReservedUSD  float64                          `json:"reserved_usd"`
-	RequestCount int64                            `json:"request_count"`
-	InputTokens  int64                            `json:"input_tokens"`
-	OutputTokens int64                            `json:"output_tokens"`
-	Members      []EnterpriseMemberOwnerUsageItem `json:"members"`
+	PeriodStart               time.Time                        `json:"period_start"`
+	PeriodEnd                 time.Time                        `json:"period_end"`
+	Timezone                  string                           `json:"timezone"`
+	UsedUSD                   float64                          `json:"used_usd"`
+	ReservedUSD               float64                          `json:"reserved_usd"`
+	RequestCount              int64                            `json:"request_count"`
+	InputTokens               int64                            `json:"input_tokens"`
+	OutputTokens              int64                            `json:"output_tokens"`
+	MigrationBilledUSD        float64                          `json:"migration_billed_usd"`
+	MigrationTotalTokens      int64                            `json:"migration_total_tokens"`
+	MigrationInputTokens      int64                            `json:"migration_input_tokens"`
+	MigrationOutputTokens     int64                            `json:"migration_output_tokens"`
+	MigrationCacheTokens      int64                            `json:"migration_cache_tokens"`
+	MigrationCacheWriteTokens int64                            `json:"migration_cache_write_tokens"`
+	MigrationCacheReadTokens  int64                            `json:"migration_cache_read_tokens"`
+	Members                   []EnterpriseMemberOwnerUsageItem `json:"members"`
 }
 
 type EnterpriseMemberBudgetRepository interface {
@@ -281,6 +304,11 @@ func enterpriseMemberUsageRange(days int) (time.Time, time.Time, error) {
 }
 
 func enterpriseMemberCurrentBudgetPeriod(now time.Time) (time.Time, time.Time) {
+	return EnterpriseMemberCurrentBudgetPeriod(now)
+}
+
+// EnterpriseMemberCurrentBudgetPeriod returns the containing calendar-month boundaries in the authoritative budget timezone.
+func EnterpriseMemberCurrentBudgetPeriod(now time.Time) (time.Time, time.Time) {
 	location, err := time.LoadLocation(enterpriseMemberBudgetTimezone)
 	if err != nil {
 		location = time.FixedZone("Asia/Shanghai", 8*60*60)

@@ -40,9 +40,11 @@ type enterpriseMemberBudgetAdjustmentRequest struct {
 }
 
 type enterpriseMemberImportCommitRequest struct {
-	JobID        int64  `json:"job_id" binding:"required"`
-	PreviewToken string `json:"preview_token" binding:"required"`
-	SelectedRows []int  `json:"selected_rows"`
+	JobID           int64   `json:"job_id" binding:"required"`
+	PreviewToken    string  `json:"preview_token" binding:"required"`
+	SelectedRows    []int   `json:"selected_rows"`
+	DefaultGroupIDs []int64 `json:"default_group_ids"`
+	ActivateMembers bool    `json:"activate_members"`
 }
 
 type enterpriseMemberImportResultSecretsRequest struct {
@@ -200,6 +202,24 @@ func (h *EnterpriseMemberHandler) ReplaceGroups(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"group_ids": member.GroupIDs, "version": member.Version})
+}
+
+func (h *EnterpriseMemberHandler) BatchReplaceGroups(c *gin.Context) {
+	ownerID, ok := enterpriseOwnerID(c)
+	if !ok {
+		return
+	}
+	var req service.BatchReplaceEnterpriseMemberGroupsInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	members, err := h.service.BatchReplaceGroups(c.Request.Context(), ownerID, req)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, members)
 }
 
 func (h *EnterpriseMemberHandler) ListKeys(c *gin.Context) {
@@ -564,12 +584,26 @@ func (h *EnterpriseMemberHandler) ImportPreview(c *gin.Context) {
 	if requested := strings.ToLower(strings.TrimSpace(c.PostForm("format"))); requested != "" {
 		format = requested
 	}
-	preview, err := h.importService.Preview(c.Request.Context(), ownerID, format, data)
+	importPolicyVersion, ok := parseEnterpriseMemberImportPolicyVersion(c.PostForm("import_policy_version"))
+	if !ok {
+		response.BadRequest(c, "Unsupported enterprise member import policy version")
+		return
+	}
+	preview, err := h.importService.PreviewWithPolicy(c.Request.Context(), ownerID, format, data, importPolicyVersion)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 	response.Success(c, preview)
+}
+
+func parseEnterpriseMemberImportPolicyVersion(raw string) (int, bool) {
+	requested := strings.TrimSpace(raw)
+	if requested == "" {
+		return service.EnterpriseMemberImportPolicyExplicitActivation, true
+	}
+	parsed, err := strconv.Atoi(requested)
+	return parsed, err == nil && parsed == service.EnterpriseMemberImportPolicyExplicitActivation
 }
 
 func (h *EnterpriseMemberHandler) ImportCommit(c *gin.Context) {
@@ -589,7 +623,7 @@ func (h *EnterpriseMemberHandler) ImportCommit(c *gin.Context) {
 		service.DefaultWriteIdempotencyTTL(),
 		redactEnterpriseMemberImportResultForReplay,
 		func(ctx context.Context) (any, error) {
-			return h.importService.QueueCommit(ctx, ownerID, req.JobID, req.PreviewToken, req.SelectedRows, c.GetHeader("Idempotency-Key"))
+			return h.importService.QueueCommit(ctx, ownerID, req.JobID, req.PreviewToken, req.SelectedRows, req.DefaultGroupIDs, req.ActivateMembers, c.GetHeader("Idempotency-Key"))
 		},
 	)
 }
@@ -625,6 +659,7 @@ func (h *EnterpriseMemberHandler) GetImportJob(c *gin.Context) {
 	response.Success(c, gin.H{
 		"id": job.ID, "status": job.Status, "preview": job.Preview, "result": job.Result,
 		"selected_rows": job.SelectedRows, "attempt_count": job.AttemptCount,
+		"default_group_ids": job.DefaultGroupIDs, "activate_members": job.ActivateMembers,
 		"error_code": job.ErrorCode, "error_summary": job.ErrorSummary,
 		"expires_at": job.ExpiresAt, "created_at": job.CreatedAt, "queued_at": job.QueuedAt,
 		"started_at": job.StartedAt, "updated_at": job.UpdatedAt, "completed_at": job.CompletedAt,

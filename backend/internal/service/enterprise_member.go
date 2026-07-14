@@ -106,6 +106,31 @@ type ReplaceEnterpriseMemberGroupsInput struct {
 	GroupIDs        []int64 `json:"group_ids"`
 }
 
+type BatchEnterpriseMemberGroupMember struct {
+	ID              int64 `json:"id"`
+	ExpectedVersion int64 `json:"expected_version"`
+}
+
+type BatchReplaceEnterpriseMemberGroupsInput struct {
+	Members  []BatchEnterpriseMemberGroupMember `json:"members"`
+	GroupIDs []int64                            `json:"group_ids"`
+	Mode     string                             `json:"mode"`
+}
+
+type BatchEnterpriseMemberGroupTarget struct {
+	ID              int64
+	ExpectedVersion int64
+	GroupIDs        []int64
+}
+
+type BatchEnterpriseMemberGroupUpdate struct {
+	ID        int64     `json:"id"`
+	Version   int64     `json:"version"`
+	GroupIDs  []int64   `json:"group_ids"`
+	Status    string    `json:"status"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type AdoptEnterpriseMemberKeyInput struct {
 	ExpectedVersion int64 `json:"expected_version"`
 }
@@ -150,6 +175,7 @@ type EnterpriseMemberRepository interface {
 	Archive(ctx context.Context, ownerID, memberID, expectedVersion int64) error
 	HardDeleteIfUnused(ctx context.Context, ownerID, memberID int64) error
 	ReplaceGroups(ctx context.Context, ownerID, memberID, expectedVersion int64, groupIDs []int64) (*EnterpriseMember, error)
+	BatchReplaceGroups(ctx context.Context, ownerID int64, targets []BatchEnterpriseMemberGroupTarget) ([]BatchEnterpriseMemberGroupUpdate, error)
 	ListKeys(ctx context.Context, ownerID, memberID int64) ([]APIKey, error)
 	ListAdoptableKeys(ctx context.Context, ownerID int64) ([]APIKey, error)
 	AdoptKey(ctx context.Context, ownerID, memberID, keyID, expectedVersion int64) (*EnterpriseMemberKeyAdoptionResult, error)
@@ -211,11 +237,15 @@ func (s *EnterpriseMemberService) Create(ctx context.Context, ownerID int64, inp
 	if err != nil {
 		return nil, err
 	}
+	status := EnterpriseMemberStatusDisabled
+	if len(groupIDs) > 0 {
+		status = EnterpriseMemberStatusActive
+	}
 	member := &EnterpriseMember{
 		EnterpriseUserID: ownerID,
 		MemberCode:       memberCode,
 		Name:             name,
-		Status:           EnterpriseMemberStatusActive,
+		Status:           status,
 		MonthlyLimitUSD:  input.MonthlyLimitUSD,
 		RateLimit5h:      input.RateLimit5h,
 		RateLimit1d:      input.RateLimit1d,
@@ -317,12 +347,92 @@ func (s *EnterpriseMemberService) ReplaceGroups(ctx context.Context, ownerID, me
 	return member, nil
 }
 
+func (s *EnterpriseMemberService) BatchReplaceGroups(ctx context.Context, ownerID int64, input BatchReplaceEnterpriseMemberGroupsInput) ([]BatchEnterpriseMemberGroupUpdate, error) {
+	if _, err := s.requireEnterpriseOwner(ctx, ownerID); err != nil {
+		return nil, err
+	}
+	if len(input.Members) == 0 || len(input.Members) > enterpriseMemberImportMaxRows || (input.Mode != "replace" && input.Mode != "append") {
+		return nil, ErrEnterpriseMemberInvalid
+	}
+	groupIDs, err := s.validateAndNormalizeGroupIDs(ctx, ownerID, input.GroupIDs)
+	if err != nil {
+		return nil, err
+	}
+	currentByID := make(map[int64]EnterpriseMember)
+	if input.Mode == "append" {
+		current, listErr := s.repo.ListByOwner(ctx, ownerID, false)
+		if listErr != nil {
+			return nil, listErr
+		}
+		for i := range current {
+			currentByID[current[i].ID] = current[i]
+		}
+	}
+	targets := make([]BatchEnterpriseMemberGroupTarget, 0, len(input.Members))
+	seenMembers := make(map[int64]struct{}, len(input.Members))
+	for _, member := range input.Members {
+		if member.ID <= 0 || member.ExpectedVersion <= 0 {
+			return nil, ErrEnterpriseMemberInvalid
+		}
+		if _, duplicate := seenMembers[member.ID]; duplicate {
+			return nil, ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{"field": "members", "reason": "duplicate"})
+		}
+		seenMembers[member.ID] = struct{}{}
+		desired := append([]int64(nil), groupIDs...)
+		if input.Mode == "append" {
+			current, ok := currentByID[member.ID]
+			if !ok || current.Version != member.ExpectedVersion {
+				return nil, ErrEnterpriseMemberVersion
+			}
+			desired = appendUniqueEnterpriseMemberGroupIDs(current.GroupIDs, groupIDs)
+		}
+		targets = append(targets, BatchEnterpriseMemberGroupTarget{ID: member.ID, ExpectedVersion: member.ExpectedVersion, GroupIDs: desired})
+	}
+	updated, err := s.repo.BatchReplaceGroups(ctx, ownerID, targets)
+	// Authorization writes are security-sensitive and transaction commit errors
+	// can be ambiguous. Conservatively invalidate even when the repository
+	// reports an error; an unnecessary eviction is safer than stale access.
+	s.invalidateOwner(ctx, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+func appendUniqueEnterpriseMemberGroupIDs(existing, appended []int64) []int64 {
+	out := append([]int64(nil), existing...)
+	seen := make(map[int64]struct{}, len(existing)+len(appended))
+	for _, id := range existing {
+		seen[id] = struct{}{}
+	}
+	for _, id := range appended {
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
 func (s *EnterpriseMemberService) SetStatus(ctx context.Context, ownerID, memberID, expectedVersion int64, status string) (*EnterpriseMember, error) {
 	if _, err := s.requireEnterpriseOwner(ctx, ownerID); err != nil {
 		return nil, err
 	}
 	if expectedVersion <= 0 || (status != EnterpriseMemberStatusActive && status != EnterpriseMemberStatusDisabled) {
 		return nil, ErrEnterpriseMemberInvalid
+	}
+	if status == EnterpriseMemberStatusActive {
+		member, err := s.repo.GetByOwnerAndID(ctx, ownerID, memberID, false)
+		if err != nil {
+			return nil, err
+		}
+		if member.Version != expectedVersion {
+			return nil, ErrEnterpriseMemberVersion
+		}
+		if len(member.GroupIDs) == 0 {
+			return nil, ErrEnterpriseMemberInvalid.WithMetadata(map[string]string{"field": "group_ids", "reason": "required_to_enable"})
+		}
 	}
 	member, err := s.repo.SetStatus(ctx, ownerID, memberID, expectedVersion, status)
 	if err != nil {
@@ -544,7 +654,9 @@ func (s *EnterpriseMemberService) validateAndNormalizeGroupIDs(ctx context.Conte
 
 func (s *EnterpriseMemberService) invalidateOwner(ctx context.Context, ownerID int64) {
 	if s.apiKeyService != nil {
-		s.apiKeyService.InvalidateAuthCacheByUserID(ctx, ownerID)
+		invalidationCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		s.apiKeyService.InvalidateAuthCacheByUserID(invalidationCtx, ownerID)
 	}
 }
 

@@ -90,6 +90,7 @@ func RegisterUserRoutes(
 			enterpriseMembers.GET("/usage/summary", h.EnterpriseMember.GetOwnerUsageSummary)
 			enterpriseMembers.GET("/usage/trend", h.EnterpriseMember.GetOwnerUsageTrend)
 			enterpriseMembers.GET("/audit", h.EnterpriseMember.ListOwnerAuditEvents)
+			enterpriseMembers.PUT("/batch/groups", h.EnterpriseMember.BatchReplaceGroups)
 			enterpriseMembers.GET("", h.EnterpriseMember.List)
 			enterpriseMembers.POST("", h.EnterpriseMember.Create)
 			enterpriseMembers.GET("/:id", h.EnterpriseMember.Get)

@@ -115,9 +115,20 @@ func (w *EnterpriseMemberImportWorker) processAvailable(ctx context.Context) {
 		<-heartbeatDone
 		cancelProcess()
 		if processErr != nil {
+			slog.Error("enterprise member import commit failed",
+				"job_id", job.ID,
+				"worker_id", w.workerID,
+				"error", processErr,
+			)
 			code, summary := enterpriseMemberImportFailure(processErr)
 			failureCtx, cancelFailure := context.WithTimeout(ctx, w.opts.FailureWriteTimeout)
-			_ = w.repo.MarkCommitFailed(failureCtx, job.ID, w.workerID, code, summary)
+			if failureErr := w.repo.MarkCommitFailed(failureCtx, job.ID, w.workerID, code, summary); failureErr != nil {
+				slog.Error("enterprise member import failure state write failed",
+					"job_id", job.ID,
+					"worker_id", w.workerID,
+					"error", failureErr,
+				)
+			}
 			cancelFailure()
 		}
 	}
