@@ -853,7 +853,7 @@ function applyTabResult(result: Awaited<ReturnType<typeof loadActiveTab>>) {
     if (activeTab.value === 'trend') {
       trendItems.value = result.items as OwnerTrendAnalyticsPoint[]
     } else if (analyticsDimension.value === 'member') {
-      memberLeaderboardItems.value = result.items as OwnerMemberLeaderboardItem[]
+      memberLeaderboardItems.value = (result.items as OwnerMemberLeaderboardItem[]).filter((item) => item.member_id != null)
       applyMemberMetrics(result as OwnerMemberLeaderboardResponse)
     } else {
       leaderboardItems.value = result.items as OwnerApiKeyLeaderboardItem[]
@@ -1066,7 +1066,6 @@ function truncateChartLabel(value: string) {
 }
 
 function memberLeaderboardLabel(item: OwnerMemberLeaderboardItem) {
-  if (!item.member_id) return t('usage.members.unassignedShort')
   return item.member_name || item.member_code || `#${item.member_id}`
 }
 
@@ -1088,9 +1087,8 @@ function selectAnalyticsAPIKey(item: OwnerApiKeyLeaderboardItem) {
 }
 
 function selectAnalyticsMember(item: OwnerMemberLeaderboardItem) {
-  selectedAnalyticsMemberFilter.value = item.member_id
-    ? `member:${item.member_id}`
-    : 'unassigned'
+  if (!item.member_id) return
+  selectedAnalyticsMemberFilter.value = `member:${item.member_id}`
   selectedAnalyticsAPIKeyID.value = null
   emit('update:member-filter', selectedAnalyticsMemberFilter.value)
   activeTab.value = 'trend'
@@ -1327,7 +1325,6 @@ const OwnerMemberLeaderboardTable = defineComponent({
   setup(props) {
     const { t } = useI18n()
     const statusLabel = (item: OwnerMemberLeaderboardItem) => {
-      if (!item.member_id) return t('usage.members.unassignedShort')
       if (item.archived) return t('usage.members.archived')
       if (item.status === 'active') return t('keys.status.active')
       if (item.status === 'disabled') return t('keys.status.disabled')
@@ -1359,7 +1356,7 @@ const OwnerMemberLeaderboardTable = defineComponent({
           h('tbody', { class: bodyClass }, props.items.length === 0 ? [
             h(EmptyRows, { colspan: 9 })
           ] : props.items.map((item, index) => h('tr', {
-            key: item.member_id ?? 'unassigned',
+            key: item.member_id!,
             class: tableRowClass(!!props.onSelect),
             onClick: () => props.onSelect?.(item)
           }, [

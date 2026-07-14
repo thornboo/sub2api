@@ -37,6 +37,14 @@ export interface EnterpriseMemberDraft {
   group_ids: number[]
 }
 
+export interface EnterpriseMemberGroupBatchUpdate {
+  id: number
+  version: number
+  group_ids: number[]
+  status: EnterpriseMemberStatus
+  updated_at: string
+}
+
 export interface CreateEnterpriseMemberInput extends EnterpriseMemberDraft {
   monthly_used_usd: number
   usage_5h: number
@@ -56,6 +64,13 @@ export interface EnterpriseMemberBudgetSummary {
   request_count: number
   input_tokens: number
   output_tokens: number
+  migration_billed_usd: number
+  migration_total_tokens: number
+  migration_input_tokens: number
+  migration_output_tokens: number
+  migration_cache_tokens: number
+  migration_cache_write_tokens: number
+  migration_cache_read_tokens: number
   rate_limit_5h: number
   rate_limit_1d: number
   rate_limit_7d: number
@@ -79,6 +94,13 @@ export interface EnterpriseMemberOwnerUsageItem {
   request_count: number
   input_tokens: number
   output_tokens: number
+  migration_billed_usd: number
+  migration_total_tokens: number
+  migration_input_tokens: number
+  migration_output_tokens: number
+  migration_cache_tokens: number
+  migration_cache_write_tokens: number
+  migration_cache_read_tokens: number
 }
 
 export interface EnterpriseMemberOwnerUsageSummary {
@@ -90,6 +112,13 @@ export interface EnterpriseMemberOwnerUsageSummary {
   request_count: number
   input_tokens: number
   output_tokens: number
+  migration_billed_usd: number
+  migration_total_tokens: number
+  migration_input_tokens: number
+  migration_output_tokens: number
+  migration_cache_tokens: number
+  migration_cache_write_tokens: number
+  migration_cache_read_tokens: number
   members: EnterpriseMemberOwnerUsageItem[]
 }
 
@@ -175,6 +204,12 @@ export interface EnterpriseMemberImportRow {
   rate_limit_1d: number
   rate_limit_7d: number
   opening_used_usd: number
+  total_tokens: number
+  input_tokens: number
+  output_tokens: number
+  cache_tokens: number
+  cache_creation_tokens: number
+  cache_read_tokens: number
   key_name?: string
   key_present: boolean
   key_quota_usd: number
@@ -189,7 +224,10 @@ export interface EnterpriseMemberImportPreview {
   token: string
   file_hash: string
   format: 'csv' | 'xlsx'
+  import_policy_version?: number
   expires_at: string
+  period_start: string
+  timezone: string
   rows: EnterpriseMemberImportRow[]
   valid_rows: number
   invalid_rows: number
@@ -198,8 +236,14 @@ export interface EnterpriseMemberImportPreview {
 export interface EnterpriseMemberImportResult {
   job_id: number
   status: 'completed'
+  period_start?: string
+  timezone?: string
   created_members: number
   created_keys: number
+  member_ids: number[]
+  pending_members: number
+  migration_billed_usd: number
+  migration_total_tokens: number
   rows: number[]
   keys: Array<{ member_code: string; key_name: string; key?: string; key_masked: string }>
   completed_at: string
@@ -207,9 +251,11 @@ export interface EnterpriseMemberImportResult {
 
 export interface EnterpriseMemberImportJob {
   id: number
-  status: 'queued' | 'processing' | 'completed' | 'failed'
+  status: 'previewed' | 'queued' | 'queued_v2' | 'processing' | 'processing_v2' | 'completed' | 'failed'
   result?: EnterpriseMemberImportResult | null
   selected_rows: number[]
+  default_group_ids: number[]
+  activate_members: boolean
   attempt_count: number
   error_code?: string | null
   error_summary?: string | null
@@ -222,7 +268,7 @@ export interface EnterpriseMemberImportJob {
 
 export interface EnterpriseMemberImportQueueResult {
   job_id: number
-  status: 'queued' | 'processing' | 'completed'
+  status: 'queued' | 'queued_v2' | 'processing' | 'processing_v2' | 'completed'
 }
 
 export interface EnterpriseMemberKeyUpdate {
@@ -270,6 +316,19 @@ export async function replaceGroups(member: EnterpriseMember, groupIds: number[]
   const { data } = await apiClient.put<{ group_ids: number[]; version: number }>(`/enterprise/members/${member.id}/groups`, {
     expected_version: member.version,
     group_ids: groupIds
+  })
+  return data
+}
+
+export async function batchReplaceGroups(
+  members: EnterpriseMember[],
+  groupIds: number[],
+  mode: 'replace' | 'append'
+): Promise<EnterpriseMemberGroupBatchUpdate[]> {
+  const { data } = await apiClient.put<EnterpriseMemberGroupBatchUpdate[]>('/enterprise/members/batch/groups', {
+    members: members.map(member => ({ id: member.id, expected_version: member.version })),
+    group_ids: groupIds,
+    mode
   })
   return data
 }
@@ -382,9 +441,9 @@ function downloadBlob(blob: Blob, filename: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
-export async function downloadImportTemplate(format: 'csv' | 'xlsx'): Promise<void> {
+export async function downloadImportTemplate(format: 'csv' | 'xlsx', filenameBase = 'enterprise-members-template'): Promise<void> {
   const response = await apiClient.get('/enterprise/members/import/template', { params: { format }, responseType: 'blob' })
-  downloadBlob(response.data, `企业成员导入模板.${format}`)
+  downloadBlob(response.data, `${filenameBase}.${format}`)
 }
 
 export async function previewImport(file: File): Promise<EnterpriseMemberImportPreview> {
@@ -392,17 +451,28 @@ export async function previewImport(file: File): Promise<EnterpriseMemberImportP
   form.append('file', file)
   const format = file.name.toLocaleLowerCase().endsWith('.xlsx') ? 'xlsx' : 'csv'
   form.append('format', format)
+  form.append('import_policy_version', '2')
   const { data } = await apiClient.post<EnterpriseMemberImportPreview>('/enterprise/members/import/preview', form, { headers: { 'Content-Type': undefined } })
   return data
 }
 
-export async function commitImport(preview: EnterpriseMemberImportPreview, selectedRows: number[]): Promise<EnterpriseMemberImportQueueResult> {
+export async function commitImport(
+  preview: EnterpriseMemberImportPreview,
+  selectedRows: number[],
+  options: { defaultGroupIds: number[]; activateMembers: boolean; idempotencyKey: string }
+): Promise<EnterpriseMemberImportQueueResult> {
   const { data } = await apiClient.post<EnterpriseMemberImportQueueResult>('/enterprise/members/import/commit', {
     job_id: preview.job_id,
     preview_token: preview.token,
-    selected_rows: selectedRows
-  }, { headers: { 'Idempotency-Key': idempotencyKey('member-import') } })
+    selected_rows: selectedRows,
+    default_group_ids: options.defaultGroupIds,
+    activate_members: options.activateMembers
+  }, { headers: { 'Idempotency-Key': options.idempotencyKey } })
   return data
+}
+
+export function createImportCommitIdempotencyKey(jobId: number): string {
+  return idempotencyKey(`member-import-${jobId}`)
 }
 
 export async function getImportJob(jobId: number): Promise<EnterpriseMemberImportJob> {
@@ -425,6 +495,7 @@ export const enterpriseMembersAPI = {
   create,
   update,
   replaceGroups,
+  batchReplaceGroups,
   setStatus,
   archive,
   permanentlyDelete,
@@ -446,6 +517,7 @@ export const enterpriseMembersAPI = {
   downloadImportTemplate,
   previewImport,
   commitImport,
+  createImportCommitIdempotencyKey,
   getImportJob,
   consumeImportResultSecrets,
   downloadImportErrorReport

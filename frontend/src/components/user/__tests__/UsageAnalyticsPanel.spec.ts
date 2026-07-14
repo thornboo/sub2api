@@ -84,6 +84,30 @@ function memberResponse(memberID?: number) {
   }
 }
 
+function memberLeaderboardItem(memberID: number | null, name: string) {
+  return {
+    member_id: memberID,
+    member_code: memberID ? 'finance-01' : '',
+    member_name: name,
+    status: memberID ? 'active' : 'unassigned',
+    archived: false,
+    key_count: memberID ? 1 : 3,
+    monthly_limit_usd: memberID ? 100 : 0,
+    current_used_usd: 0,
+    current_reserved_usd: 0,
+    requests: memberID ? 2 : 5,
+    input_tokens: 10,
+    output_tokens: 5,
+    cache_creation_tokens: 0,
+    cache_read_tokens: 0,
+    total_tokens: 15,
+    actual_cost: memberID ? 1 : 2,
+    share_percent: memberID ? 100 : 0,
+    previous_actual_cost: 0,
+    change_percent: 0,
+  }
+}
+
 function metricCardText(wrapper: ReturnType<typeof mount>, label: string): string {
   const labelNode = wrapper.findAll('div').find((node) => node.text() === label)
   return labelNode?.element.parentElement?.textContent || ''
@@ -166,5 +190,34 @@ describe('UsageAnalyticsPanel member metrics', () => {
     expect(metricCardText(wrapper, 'usage.analytics.memberCount')).toContain('1')
     expect(metricCardText(wrapper, 'usage.analytics.budgetRiskMembers')).toContain('0')
     expect(metricCardText(wrapper, 'usage.analytics.reservedBudget')).toContain('$2.0000')
+  })
+
+  it('keeps the regular-key compatibility bucket out of the member ranking', async () => {
+    getMemberLeaderboard.mockResolvedValueOnce({
+      ...memberResponse(),
+      items: [
+        memberLeaderboardItem(null, ''),
+        memberLeaderboardItem(42, 'Finance'),
+      ],
+    })
+
+    const wrapper = mount(UsageAnalyticsPanel, {
+      props: {
+        enterprise: true,
+        startDate: '2026-07-01',
+        endDate: '2026-07-08',
+        members: [{ id: 42, member_code: 'finance-01', name: 'Finance', status: 'active', archived: false, key_count: 1, monthly_limit_usd: 100 }],
+      },
+      global: {
+        stubs: {
+          Icon: true,
+          Select: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Finance')
+    expect(wrapper.text()).not.toContain('usage.members.unassignedShort')
   })
 })

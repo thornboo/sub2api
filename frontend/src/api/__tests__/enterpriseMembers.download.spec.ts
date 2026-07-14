@@ -36,11 +36,11 @@ describe('enterprise member import template download', () => {
     document.body.innerHTML = ''
   })
 
-  it.each(['csv', 'xlsx'] as const)('downloads the server-authored %s template with an explicit filename', async (format) => {
+  it.each(['csv', 'xlsx'] as const)('downloads the server-authored %s template with a caller-localized filename', async (format) => {
     const blob = new Blob(['template'])
     get.mockResolvedValue({ data: blob })
 
-    await downloadImportTemplate(format)
+    await downloadImportTemplate(format, '企业成员导入模板')
 
     expect(get).toHaveBeenCalledWith('/enterprise/members/import/template', {
       params: { format },
@@ -52,5 +52,13 @@ describe('enterprise member import template download', () => {
 
     vi.runOnlyPendingTimers()
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:enterprise-member-template')
+  })
+
+  it('uses a locale-neutral filename when no UI label is supplied', async () => {
+    get.mockResolvedValue({ data: new Blob(['template']) })
+
+    await downloadImportTemplate('csv')
+
+    expect(clickedFilename).toBe('enterprise-members-template.csv')
   })
 })

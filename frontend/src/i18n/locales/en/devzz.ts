@@ -310,12 +310,12 @@ export default {
     // Usage
     usage: {
         member: 'Enterprise Member',
-        memberFilter: 'Member Scope',
+        memberFilter: 'Request Attribution',
         members: {
-            all: 'All members and unassigned requests',
-            assigned: 'All assigned members',
-            unassigned: 'Unassigned member requests',
-            unassignedShort: 'Unassigned',
+            all: 'All requests',
+            assigned: 'Enterprise member requests',
+            unassigned: 'Regular Key requests',
+            unassignedShort: 'Regular Key',
             option: '{name} ({code})',
             optionArchived: '{name} ({code}, archived)',
             archived: 'Archived'

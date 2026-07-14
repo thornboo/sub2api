@@ -310,12 +310,12 @@ export default {
     // Usage
     usage: {
         member: '企业成员',
-        memberFilter: '成员范围',
+        memberFilter: '请求归属',
         members: {
-            all: '全部成员与未归属请求',
-            assigned: '全部已归属成员',
-            unassigned: '未归属成员的请求',
-            unassignedShort: '未归属成员',
+            all: '全部请求',
+            assigned: '企业成员请求',
+            unassigned: '普通 Key 请求',
+            unassignedShort: '普通 Key',
             option: '{name}（{code}）',
             optionArchived: '{name}（{code}，已归档）',
             archived: '已归档'

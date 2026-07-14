@@ -26,6 +26,8 @@ describe('EnterpriseMembersView layout contract', () => {
     expect(source).toContain('<table class="w-full min-w-[1680px] table-fixed text-left">')
     expect(source).toContain('data-testid="enterprise-member-name-column"')
     expect(source).toContain('data-testid="enterprise-member-code-column"')
+    expect(source).toContain('class="overflow-hidden px-3 py-2 align-middle"')
+    expect(source).toContain('class="block w-full truncate font-mono text-xs text-stone-500" :title="member.member_code"')
     expect(source).toContain('data-testid="enterprise-member-keys-column"')
     expect(source).toContain('data-testid="enterprise-member-groups-column"')
     expect(source).toContain('class="w-[560px] px-4 py-2.5 text-right"')
@@ -72,6 +74,12 @@ describe('EnterpriseMembersView layout contract', () => {
     expect(source).toContain('enterpriseMembersAPI.consumeImportResultSecrets(jobId, resultToken)')
     expect(source).toContain('enterpriseMembersAPI.downloadImportErrorReport(jobId)')
     expect(source).toContain("t('enterpriseMembers.copy.processingInBackground')")
+    expect(source).toContain("const importCommitIdempotencyKey = ref('')")
+    expect(source).toContain('idempotencyKey: importCommitIdempotencyKey.value')
+    expect(source).toContain('reconcileImportCommitAfterError(preview.job_id, preview.token)')
+    expect(source).toContain('preview.import_policy_version !== 2')
+    expect(source).toContain("t('enterpriseMembers.copy.importPreviewProtocolUnavailable')")
+    expect(source).not.toContain('importCommitFailedNoDataWasWritten')
   })
 
   it('offers explicit server-authoritative CSV and XLSX template downloads', () => {
@@ -81,14 +89,55 @@ describe('EnterpriseMembersView layout contract', () => {
     expect(source).toContain("t('enterpriseMembers.copy.downloadXlsxTemplate')")
     expect(source).toContain("const templateDownloading = ref<'csv' | 'xlsx' | null>(null)")
     expect(source).toContain("enterpriseMembersAPI.downloadImportTemplate(format)")
+    expect(source).toContain("t('enterpriseMembers.copy.importTemplateExternalFactsHint')")
+    expect(source).toContain('importDefaultGroupIds')
+    expect(source).toContain('activateMembers: importActivateMembers.value')
+    expect(source).not.toContain("t('enterpriseMembers.copy.orderedGroups')</th><th>{{ t('enterpriseMembers.copy.validation')")
   })
 
-  it('adopts existing keys without silently dropping their original group', () => {
-    expect(source).toContain('enterpriseMembersAPI.listAdoptableKeys(member.id)')
-    expect(source).toContain('enterpriseMembersAPI.adoptKey(member, key.id)')
-    expect(source).toContain("'member_key.adopted': t('enterpriseMembers.copy.existingKeyAdopted')")
-    expect(source).toContain("t('enterpriseMembers.copy.adoptExistingKeys')")
-    expect(source).toContain("t('enterpriseMembers.copy.appendToRoute')")
+  it('supports an atomic ordered-group batch for pending imports and existing members', () => {
+    expect(source).toContain('enterpriseMembersAPI.batchReplaceGroups(targets, batchGroupIds.value, batchGroupMode.value)')
+    expect(source).toContain("t('enterpriseMembers.copy.batchSetAccessibleGroups')")
+    expect(source).toContain("t('enterpriseMembers.copy.configureImportedMembers')")
+    expect(source).toContain('selectedIds.value = new Set(importResult.value.member_ids)')
+    expect(source).toContain('version: update.version, group_ids: update.group_ids, status: update.status, updated_at: update.updated_at')
+    expect(source).toContain("import ConfirmDialog from '@/components/common/ConfirmDialog.vue'")
+    expect(source).toContain(':show="batchClearConfirmOpen"')
+    expect(source).toContain("t('enterpriseMembers.dynamic.clearGroupsAndDisableMembersConfirm', { count: batchGroupTargetCount })")
+    expect(source).toContain("batchGroupMode.value === 'replace' && batchGroupIds.value.length === 0")
+    expect(source).toContain('if (batchClearIsDestructive.value) {')
+    expect(source).toContain('batchClearConfirmOpen.value = true')
+    expect(source).toContain('async function confirmBatchGroupClear()')
+  })
+
+  it('keeps the frozen import billing period visible in the successful result', () => {
+    expect(source).toContain('importResult.period_start')
+    expect(source).toContain('importResult.timezone')
+    expect(source).toContain("t('enterpriseMembers.dynamic.importPeriod'")
+  })
+
+  it('keeps regular keys independent instead of presenting them as migration candidates', () => {
+    expect(source).toContain("t('enterpriseMembers.copy.normalKeysRemainIndependent')")
+    expect(source).toContain("t('enterpriseMembers.copy.manageRegularKeys')")
+    expect(source).toContain("router.push('/keys')")
+    expect(source).not.toContain('enterpriseMembersAPI.listAdoptableKeys(member.id)')
+    expect(source).not.toContain('enterpriseMembersAPI.adoptKey(member, key.id)')
+    expect(source).not.toContain("t('enterpriseMembers.copy.adoptExistingKeys')")
+  })
+
+  it('provides compact, localized member-key management with on-demand copy', () => {
+    expect(source).toContain("import { keysAPI } from '@/api/keys'")
+    expect(source).toContain('const detail = await keysAPI.getById(key.id)')
+    expect(source).toContain("clipboardCopy(detail.key, t('enterpriseMembers.copy.keyCopied'))")
+    expect(source).toContain("t('enterpriseMembers.copy.copyMemberKey')")
+    expect(source).toContain('memberKeyStatusBadgeClasses(key.status)')
+    expect(source).toContain('memberKeyStatusLabel(key.status)')
+    expect(source).toContain('<Select v-model="keyEditDraft.status" :options="memberKeyEditableStatusOptions"')
+    expect(source).toContain('min-w-[920px]')
+    expect(source).toContain('grid-cols-[minmax(210px,1.25fr)_160px_105px_155px_230px]')
+    expect(source).toContain('<Icon name="trash" size="sm" />')
+    expect(source).not.toContain('grid-cols-[minmax(240px,1.35fr)_minmax(190px,0.9fr)_130px_185px_300px]')
+    expect(source).not.toContain('{{ key.status }}')
   })
 
   it('shows member request records without exposing upstream routing internals', () => {

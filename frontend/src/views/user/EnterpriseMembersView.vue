@@ -57,6 +57,7 @@
         <div v-if="selectedIds.size" class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/50 dark:bg-amber-950/20">
           <p class="text-sm font-medium text-amber-900 dark:text-amber-100">{{ t('enterpriseMembers.dynamic.selectedMembers', { count: selectedIds.size }) }}</p>
           <div class="flex gap-2">
+            <button class="btn btn-secondary btn-sm" type="button" @click="openBatchGroups"><Icon name="users" size="sm" />{{ t('enterpriseMembers.copy.setAccessibleGroups') }}</button>
             <button class="btn btn-secondary btn-sm" type="button" @click="bulkSetStatus('active')">{{ t('enterpriseMembers.copy.enable') }}</button>
             <button class="btn btn-secondary btn-sm" type="button" @click="bulkSetStatus('disabled')">{{ t('enterpriseMembers.copy.disable') }}</button>
           </div>
@@ -137,7 +138,9 @@
                   <td class="px-3 py-2 align-middle">
                     <p class="truncate text-sm font-semibold leading-5 text-stone-950 dark:text-white" :title="member.name">{{ member.name }}</p>
                   </td>
-                  <td class="whitespace-nowrap px-3 py-2 align-middle font-mono text-xs text-stone-500">{{ member.member_code }}</td>
+                  <td class="overflow-hidden px-3 py-2 align-middle">
+                    <code class="block w-full truncate font-mono text-xs text-stone-500" :title="member.member_code">{{ member.member_code }}</code>
+                  </td>
                   <td class="px-3 py-2 align-middle">
                     <span class="inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold" :class="statusClass(member)">{{ statusLabel(member) }}</span>
                   </td>
@@ -272,6 +275,42 @@
       </div>
     </BaseDialog>
 
+    <BaseDialog :show="batchGroupsOpen" :title="t('enterpriseMembers.copy.batchSetAccessibleGroups')" width="wide" @close="batchGroupsOpen = false">
+      <div class="space-y-5">
+        <section class="rounded-2xl border border-stone-200 bg-stone-50 p-4 dark:border-white/10 dark:bg-white/[0.04]">
+          <p class="text-sm font-semibold text-stone-950 dark:text-white">{{ t('enterpriseMembers.dynamic.selectedMembers', { count: selectedIds.size }) }}</p>
+          <p class="mt-1 text-xs leading-5 text-stone-500">{{ t('enterpriseMembers.copy.batchGroupPolicyHint') }}</p>
+          <label class="mt-4 block"><span class="input-label">{{ t('enterpriseMembers.copy.updateMode') }}</span><Select v-model="batchGroupMode" :options="batchGroupModeOptions" class="w-full" /></label>
+        </section>
+        <fieldset>
+          <legend class="input-label">{{ t('enterpriseMembers.copy.memberAccessibleGroups') }}</legend>
+          <div class="mt-2 max-h-72 space-y-2 overflow-y-auto rounded-2xl border border-stone-200 p-2 dark:border-white/10">
+            <div v-for="group in availableGroups" :key="group.id" class="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-stone-50 dark:hover:bg-white/5">
+              <button type="button" role="checkbox" :aria-checked="batchGroupIds.includes(group.id)" :aria-label="group.name" :class="selectionCheckboxClasses(batchGroupIds.includes(group.id))" @click="toggleBatchGroup(group.id)"><Icon v-if="batchGroupIds.includes(group.id)" name="check" size="xs" :stroke-width="2.5" /></button>
+              <span class="min-w-0 flex-1"><b class="block truncate text-sm text-stone-900 dark:text-white">{{ group.name }}</b><span class="text-xs text-stone-500">{{ group.platform }}</span></span>
+              <template v-if="batchGroupIds.includes(group.id)">
+                <span class="rounded-lg bg-amber-100 px-2 py-1 text-xs font-bold text-amber-800 dark:bg-amber-300/10 dark:text-amber-200">#{{ batchGroupIds.indexOf(group.id) + 1 }}</span>
+                <button type="button" class="rounded-lg p-1 hover:bg-stone-200 dark:hover:bg-white/10" :aria-label="t('enterpriseMembers.copy.moveUp')" @click.prevent="moveBatchGroup(group.id, -1)">↑</button>
+                <button type="button" class="rounded-lg p-1 hover:bg-stone-200 dark:hover:bg-white/10" :aria-label="t('enterpriseMembers.copy.moveDown')" @click.prevent="moveBatchGroup(group.id, 1)">↓</button>
+              </template>
+            </div>
+          </div>
+          <p v-if="batchGroupMode === 'replace' && !batchGroupIds.length" class="mt-2 text-xs text-amber-700 dark:text-amber-300">{{ t('enterpriseMembers.copy.emptyReplaceClearsGroupsAndMembersCannotBeEnabled') }}</p>
+        </fieldset>
+      </div>
+      <template #footer><div class="flex justify-end gap-3"><button class="btn btn-secondary" type="button" @click="batchGroupsOpen = false">{{ t('enterpriseMembers.copy.cancel') }}</button><button class="btn" :class="batchClearIsDestructive ? 'btn-danger' : 'btn-primary'" type="button" :disabled="batchGroupsSaving" @click="requestSaveBatchGroups">{{ batchGroupsSaving ? t('enterpriseMembers.copy.saving') : batchClearIsDestructive ? t('enterpriseMembers.dynamic.clearGroupsAndDisableMembersAction', { count: batchGroupTargetCount }) : t('enterpriseMembers.copy.applyToSelectedMembers') }}</button></div></template>
+    </BaseDialog>
+
+    <ConfirmDialog
+      :show="batchClearConfirmOpen"
+      :title="t('enterpriseMembers.copy.clearGroupsAndDisableMembers')"
+      :message="t('enterpriseMembers.dynamic.clearGroupsAndDisableMembersConfirm', { count: batchGroupTargetCount })"
+      :confirm-text="t('enterpriseMembers.dynamic.clearGroupsAndDisableMembersAction', { count: batchGroupTargetCount })"
+      :danger="true"
+      @confirm="confirmBatchGroupClear"
+      @cancel="cancelBatchGroupClear"
+    />
+
     <BaseDialog :show="importOpen" :title="t('enterpriseMembers.copy.importEnterpriseMembers')" width="extra-wide" @close="importOpen = false">
       <div class="space-y-5">
         <section class="rounded-2xl border border-stone-200 bg-stone-50 p-4 dark:border-white/10 dark:bg-white/[0.04]">
@@ -282,7 +321,7 @@
               </span>
               <div>
                 <h3 class="text-sm font-semibold text-stone-950 dark:text-white">{{ t('enterpriseMembers.copy.downloadImportTemplate') }}</h3>
-                <p class="mt-1 max-w-4xl text-xs leading-5 text-stone-500">{{ t('enterpriseMembers.copy.csvUsesOneRowPerKeyXlsxUsesMembersKeysAndMembergroupsSheetsTheBrowserNeverParsesAndWritesBusines') }}</p>
+                <p class="mt-1 max-w-4xl text-xs leading-5 text-stone-500">{{ t('enterpriseMembers.copy.importTemplateExternalFactsHint') }}</p>
               </div>
             </div>
             <div class="grid gap-2 sm:grid-cols-2 lg:flex-none">
@@ -317,15 +356,46 @@
             <div><p class="text-sm font-semibold text-stone-900 dark:text-white">{{ t('enterpriseMembers.dynamic.importValidationSummary', { valid: importPreview.valid_rows, invalid: importPreview.invalid_rows }) }}</p><p class="mt-1 text-xs text-stone-500">SHA-256 {{ importPreview.file_hash.slice(0, 16) }}… · {{ t('enterpriseMembers.copy.expires') }} {{ formatDateTime(importPreview.expires_at) }}</p></div>
             <button class="btn btn-secondary btn-sm" type="button" @click="toggleAllImportRows">{{ allValidImportRowsSelected ? t('enterpriseMembers.copy.clearSelection') : t('enterpriseMembers.copy.selectAllValid') }}</button>
           </section>
-          <div class="max-h-[420px] overflow-auto rounded-2xl border border-stone-200 dark:border-white/10"><table class="w-full min-w-[980px] text-left text-xs"><thead class="sticky top-0 z-10 bg-white text-stone-500 dark:bg-neutral-950"><tr><th class="p-3"></th><th>{{ t('enterpriseMembers.copy.row') }}</th><th>{{ t('enterpriseMembers.copy.member') }}</th><th>{{ t('enterpriseMembers.copy.budgetOpening') }}</th><th>{{ t('enterpriseMembers.copy.memberSpendingLimits') }}</th><th>{{ t('enterpriseMembers.copy.key') }}</th><th>{{ t('enterpriseMembers.copy.orderedGroups') }}</th><th>{{ t('enterpriseMembers.copy.validation') }}</th></tr></thead><tbody class="divide-y divide-stone-100 dark:divide-white/10"><tr v-for="row in importPreview.rows" :key="row.row_number" :class="row.valid ? '' : 'bg-rose-50/60 dark:bg-rose-950/10'"><td class="p-3"><input type="checkbox" class="h-4 w-4 rounded text-amber-500" :disabled="!row.valid" :checked="importSelectedRows.has(row.row_number)" @change="toggleImportRow(row.row_number)" /></td><td>{{ row.row_number }}</td><td><b class="block text-stone-900 dark:text-white">{{ row.member_name }}</b><code class="text-[11px] text-stone-500">{{ row.member_code }}</code></td><td>{{ formatMoney(row.monthly_limit_usd) }}<span v-if="row.opening_used_usd" class="block text-amber-700 dark:text-amber-300">+{{ formatMoney(row.opening_used_usd) }}</span></td><td class="whitespace-nowrap">5h {{ formatMoney(row.rate_limit_5h) }} · 1d {{ formatMoney(row.rate_limit_1d) }} · 7d {{ formatMoney(row.rate_limit_7d) }}</td><td><span v-if="row.key_present">{{ row.key_name }} · {{ t('enterpriseMembers.copy.plaintextEncrypted') }}</span><span v-else class="text-stone-400">—</span></td><td>{{ row.group_ids.map(groupName).join(' → ') }}</td><td><span v-if="row.valid" class="font-medium text-emerald-600">{{ t('enterpriseMembers.copy.ready') }}</span><div v-else class="space-y-1 text-rose-600"><p v-for="error in row.errors" :key="error">{{ importIssueLabel(error) }}</p></div><p v-for="warning in row.warnings" :key="warning" class="text-amber-700">{{ importIssueLabel(warning) }}</p></td></tr></tbody></table></div>
-          <div class="flex flex-wrap items-center justify-between gap-3"><p class="text-xs text-stone-500">{{ t('enterpriseMembers.copy.commitSendsOnlyThePreviewTokenAndSelectedRowNumbersABackgroundJobRevalidatesAndCommitsAtomically') }}</p><button class="btn btn-primary" type="button" :disabled="!importSelectedRows.size || importCommitting" @click="commitImportRows">{{ importCommitting ? t('enterpriseMembers.copy.processingInBackground') : t('enterpriseMembers.dynamic.commitRows', { count: importSelectedRows.size }) }}</button></div>
+          <div class="max-h-[420px] overflow-auto rounded-2xl border border-stone-200 dark:border-white/10">
+            <table class="w-full min-w-[1120px] text-left text-xs">
+              <thead class="sticky top-0 z-10 bg-white text-stone-500 dark:bg-neutral-950"><tr><th class="p-3"></th><th>{{ t('enterpriseMembers.copy.row') }}</th><th>{{ t('enterpriseMembers.copy.member') }}</th><th>{{ t('enterpriseMembers.copy.budgetOpening') }}</th><th>{{ t('enterpriseMembers.copy.memberSpendingLimits') }}</th><th>{{ t('enterpriseMembers.copy.key') }}</th><th>{{ t('enterpriseMembers.copy.migrationUsage') }}</th><th>{{ t('enterpriseMembers.copy.validation') }}</th></tr></thead>
+              <tbody class="divide-y divide-stone-100 dark:divide-white/10">
+                <tr v-for="row in importPreview.rows" :key="row.row_number" :class="row.valid ? '' : 'bg-rose-50/60 dark:bg-rose-950/10'">
+                  <td class="p-3"><button type="button" role="checkbox" :aria-checked="importSelectedRows.has(row.row_number)" :disabled="!row.valid" :class="selectionCheckboxClasses(importSelectedRows.has(row.row_number))" @click="toggleImportRow(row.row_number)"><Icon v-if="importSelectedRows.has(row.row_number)" name="check" size="xs" :stroke-width="2.5" /></button></td>
+                  <td>{{ row.row_number }}</td>
+                  <td><b class="block text-stone-900 dark:text-white">{{ row.member_name }}</b><code class="text-[11px] text-stone-500">{{ row.member_code }}</code></td>
+                  <td>{{ formatMoney(row.monthly_limit_usd) }}<span v-if="row.opening_used_usd" class="block text-amber-700 dark:text-amber-300">+{{ formatMoney(row.opening_used_usd) }}</span></td>
+                  <td class="whitespace-nowrap">5h {{ formatMoney(row.rate_limit_5h) }} · 1d {{ formatMoney(row.rate_limit_1d) }} · 7d {{ formatMoney(row.rate_limit_7d) }}</td>
+                  <td><span v-if="row.key_present">{{ row.key_name }} · {{ t('enterpriseMembers.copy.plaintextEncrypted') }}</span><span v-else class="text-stone-400">—</span></td>
+                  <td class="whitespace-nowrap"><b class="block text-stone-800 dark:text-stone-100">{{ formatNumber(row.total_tokens) }} Token</b><span class="text-stone-500">↓ {{ formatNumber(row.input_tokens) }} · ↑ {{ formatNumber(row.output_tokens) }} · C {{ formatNumber(row.cache_tokens) }}</span></td>
+                  <td><span v-if="row.valid" class="font-medium text-emerald-600">{{ t('enterpriseMembers.copy.ready') }}</span><div v-else class="space-y-1 text-rose-600"><p v-for="error in row.errors" :key="error">{{ importIssueLabel(error) }}</p></div><p v-for="warning in row.warnings" :key="warning" class="text-amber-700">{{ importIssueLabel(warning) }}</p></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <section class="rounded-2xl border border-stone-200 p-4 dark:border-white/10">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div><h3 class="text-sm font-semibold text-stone-950 dark:text-white">{{ t('enterpriseMembers.copy.importAccessPolicy') }}</h3><p class="mt-1 max-w-3xl text-xs leading-5 text-stone-500">{{ t('enterpriseMembers.copy.importAccessPolicyHint') }}</p></div><span class="rounded-full bg-stone-100 px-3 py-1 text-xs font-medium text-stone-600 dark:bg-white/10 dark:text-stone-300">{{ t('enterpriseMembers.dynamic.importPeriod', { date: importPreview.period_start.slice(0, 10), timezone: importPreview.timezone }) }}</span></div>
+            <div class="mt-4 max-h-64 space-y-2 overflow-y-auto rounded-2xl bg-stone-50 p-2 dark:bg-white/[0.035]">
+              <div v-for="group in availableGroups" :key="group.id" class="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-white dark:hover:bg-white/5">
+                <button type="button" role="checkbox" :aria-checked="importDefaultGroupIds.includes(group.id)" :aria-label="group.name" :class="selectionCheckboxClasses(importDefaultGroupIds.includes(group.id))" @click="toggleImportDefaultGroup(group.id)"><Icon v-if="importDefaultGroupIds.includes(group.id)" name="check" size="xs" :stroke-width="2.5" /></button>
+                <span class="min-w-0 flex-1"><b class="block truncate text-sm text-stone-900 dark:text-white">{{ group.name }}</b><span class="text-xs text-stone-500">{{ group.platform }}</span></span>
+                <template v-if="importDefaultGroupIds.includes(group.id)"><span class="rounded-lg bg-amber-100 px-2 py-1 text-xs font-bold text-amber-800 dark:bg-amber-300/10 dark:text-amber-200">#{{ importDefaultGroupIds.indexOf(group.id) + 1 }}</span><button type="button" class="rounded-lg p-1 hover:bg-stone-200 dark:hover:bg-white/10" :aria-label="t('enterpriseMembers.copy.moveUp')" @click.prevent="moveImportDefaultGroup(group.id, -1)">↑</button><button type="button" class="rounded-lg p-1 hover:bg-stone-200 dark:hover:bg-white/10" :aria-label="t('enterpriseMembers.copy.moveDown')" @click.prevent="moveImportDefaultGroup(group.id, 1)">↓</button></template>
+              </div>
+            </div>
+            <button type="button" role="checkbox" :aria-checked="importActivateMembers" :disabled="!importDefaultGroupIds.length" class="mt-4 flex w-full items-start gap-3 rounded-xl border border-stone-200 p-3 text-left disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10" @click="importActivateMembers = !importActivateMembers"><span :class="selectionCheckboxClasses(importActivateMembers)"><Icon v-if="importActivateMembers" name="check" size="xs" :stroke-width="2.5" /></span><span><b class="block text-sm text-stone-900 dark:text-white">{{ t('enterpriseMembers.copy.activateImportedMembers') }}</b><span class="mt-1 block text-xs leading-5 text-stone-500">{{ importDefaultGroupIds.length ? t('enterpriseMembers.copy.activateImportedMembersHint') : t('enterpriseMembers.copy.importWithoutGroupsCreatesPendingMembers') }}</span></span></button>
+          </section>
+          <div class="flex flex-wrap items-center justify-between gap-3"><p class="text-xs text-stone-500">{{ t('enterpriseMembers.copy.importCommitAtomicHint') }}</p><button class="btn btn-primary" type="button" :disabled="!importSelectedRows.size || importCommitting" @click="commitImportRows">{{ importCommitting ? t('enterpriseMembers.copy.processingInBackground') : t('enterpriseMembers.dynamic.commitRows', { count: importSelectedRows.size }) }}</button></div>
         </template>
 
         <section v-if="importJob && importJob.status !== 'completed'" class="rounded-2xl border p-4" :class="importJob.status === 'failed' ? 'border-rose-200 bg-rose-50 dark:border-rose-900/50 dark:bg-rose-950/20' : 'border-sky-200 bg-sky-50 dark:border-sky-900/50 dark:bg-sky-950/20'">
           <div class="flex flex-wrap items-center justify-between gap-3"><div><h3 class="font-semibold" :class="importJob.status === 'failed' ? 'text-rose-900 dark:text-rose-100' : 'text-sky-900 dark:text-sky-100'">{{ importJob.status === 'failed' ? t('enterpriseMembers.copy.importTransactionRolledBack') : t('enterpriseMembers.copy.importJobIsDurablyQueued') }}</h3><p class="mt-1 text-xs opacity-70">#{{ importJob.id }} · {{ importJobStatusLabel(importJob.status) }} · {{ t('enterpriseMembers.copy.attempt') }} {{ importJob.attempt_count }}</p><p v-if="importJob.error_summary" class="mt-2 text-xs">{{ importJob.error_summary }}</p></div><button v-if="importJob.status === 'failed'" class="btn btn-secondary btn-sm" type="button" @click="downloadImportErrors(importJob.id)">{{ t('enterpriseMembers.copy.downloadErrorReport') }}</button></div>
         </section>
 
-        <section v-if="importResult" class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20"><h3 class="font-semibold text-emerald-900 dark:text-emerald-100">{{ t('enterpriseMembers.dynamic.importCreatedSummary', { members: importResult.created_members, keys: importResult.created_keys }) }}</h3><p class="mt-1 text-xs text-emerald-800/70 dark:text-emerald-200/70">{{ t('enterpriseMembers.copy.plaintextBelowIsShownOnlyInThisSuccessfulResponseSaveItNow') }}</p><div v-if="importResult.keys.length" class="mt-3 max-h-56 space-y-2 overflow-auto"><div v-for="key in importResult.keys" :key="`${key.member_code}:${key.key_name}`" class="rounded-xl bg-stone-950 p-3 text-xs text-white"><span class="text-stone-400">{{ key.member_code }} · {{ key.key_name }}</span><code class="mt-1 block break-all text-amber-200">{{ key.key }}</code></div></div></section>
+        <section v-if="importResult" class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+          <div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="font-semibold text-emerald-900 dark:text-emerald-100">{{ t('enterpriseMembers.dynamic.importCreatedSummary', { members: importResult.created_members, keys: importResult.created_keys }) }}</h3><p class="mt-1 text-xs text-emerald-800/70 dark:text-emerald-200/70">{{ t('enterpriseMembers.dynamic.importBaselineSummary', { amount: formatMoney(importResult.migration_billed_usd), tokens: formatNumber(importResult.migration_total_tokens) }) }}</p><p v-if="importResult.period_start && importResult.timezone" class="mt-1 text-xs text-emerald-800/70 dark:text-emerald-200/70">{{ t('enterpriseMembers.dynamic.importPeriod', { date: importResult.period_start.slice(0, 10), timezone: importResult.timezone }) }}</p><p v-if="importResult.pending_members" class="mt-1 text-xs font-medium text-amber-800 dark:text-amber-200">{{ t('enterpriseMembers.dynamic.importPendingSummary', { count: importResult.pending_members }) }}</p></div><button v-if="importResult.pending_members" class="btn btn-secondary btn-sm" type="button" @click="configureImportedMembers">{{ t('enterpriseMembers.copy.configureImportedMembers') }}</button></div>
+          <p v-if="importResult.keys.length" class="mt-3 text-xs text-emerald-800/70 dark:text-emerald-200/70">{{ t('enterpriseMembers.copy.plaintextBelowIsShownOnlyInThisSuccessfulResponseSaveItNow') }}</p>
+          <div v-if="importResult.keys.length" class="mt-3 max-h-56 space-y-2 overflow-auto"><div v-for="key in importResult.keys" :key="`${key.member_code}:${key.key_name}`" class="rounded-xl bg-stone-950 p-3 text-xs text-white"><span class="text-stone-400">{{ key.member_code }} · {{ key.key_name }}</span><code class="mt-1 block break-all text-amber-200">{{ key.key }}</code></div></div>
+        </section>
       </div>
     </BaseDialog>
 
@@ -366,55 +436,70 @@
 
     <BaseDialog :show="keysOpen" :title="t('enterpriseMembers.dynamic.memberKeysTitle', { name: keyMember?.name || '' })" width="extra-wide" @close="keysOpen = false">
       <div class="space-y-4">
+        <section class="flex flex-col gap-3 rounded-2xl border border-stone-200 bg-stone-50/70 px-4 py-3 dark:border-white/10 dark:bg-white/[0.025] sm:flex-row sm:items-center sm:justify-between">
+          <div class="flex min-w-0 items-start gap-3">
+            <span class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300"><Icon name="key" size="sm" /></span>
+            <p class="text-xs leading-5 text-stone-600 dark:text-stone-300">{{ t('enterpriseMembers.copy.normalKeysRemainIndependent') }}</p>
+          </div>
+          <button class="btn btn-secondary btn-sm shrink-0" type="button" @click="openRegularKeys">{{ t('enterpriseMembers.copy.manageRegularKeys') }}</button>
+        </section>
         <form class="grid gap-3 rounded-2xl bg-stone-50 p-4 dark:bg-white/[0.04] sm:grid-cols-[1fr_150px_auto]" @submit.prevent="createMemberKey">
           <label><span class="input-label">{{ t('enterpriseMembers.copy.keyName') }}</span><input v-model.trim="keyDraft.name" class="input" required maxlength="100" /></label>
           <label><span class="input-label">{{ t('enterpriseMembers.copy.keyQuota') }}</span><input v-model.number="keyDraft.quota" class="input" type="number" min="0" step="0.01" /></label>
           <button class="btn btn-primary self-end" type="submit" :disabled="keySaving"><Icon name="plus" size="sm" />{{ t('enterpriseMembers.copy.createKey') }}</button>
         </form>
-        <section v-if="!keysLoading && adoptableKeys.length" class="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900/50 dark:bg-amber-950/15">
-          <div class="flex flex-wrap items-start justify-between gap-3">
-            <div><h3 class="text-sm font-semibold text-amber-950 dark:text-amber-100">{{ t('enterpriseMembers.copy.adoptExistingKeys') }}</h3><p class="mt-1 max-w-3xl text-xs leading-5 text-amber-900/70 dark:text-amber-200/70">{{ t('enterpriseMembers.copy.adoptionPreservesAccessTheOriginalGroupIsAppendedToTheMemberRouteThenTheKeySFixedGroupIsClearedT') }}</p></div>
-            <span class="rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:bg-white/10 dark:text-amber-200">{{ adoptableKeys.length }} {{ t('enterpriseMembers.copy.eligible') }}</span>
-          </div>
-          <div class="mt-3 max-h-60 divide-y divide-amber-200/70 overflow-auto rounded-xl border border-amber-200/80 bg-white/70 dark:divide-amber-900/50 dark:border-amber-900/50 dark:bg-black/10">
-            <div v-for="key in adoptableKeys" :key="key.id" class="flex flex-col gap-3 p-3 sm:flex-row sm:items-center">
-              <div class="min-w-0 flex-1"><p class="truncate text-sm font-semibold text-stone-900 dark:text-white">{{ key.name }}</p><code class="mt-0.5 block truncate text-[11px] text-stone-500">{{ key.key }}</code></div>
-              <div class="shrink-0 text-xs text-stone-600 dark:text-stone-300"><span class="text-stone-400">{{ t('enterpriseMembers.copy.originalGroup') }}</span><b class="ml-1.5">{{ key.group?.name || groupName(key.group_id!) }}</b><span class="ml-2 text-amber-700 dark:text-amber-300">→ {{ keyMember?.group_ids.includes(key.group_id!) ? t('enterpriseMembers.copy.alreadyRouted') : t('enterpriseMembers.copy.appendToRoute') }}</span></div>
-              <button class="btn btn-secondary btn-sm shrink-0" type="button" :disabled="adoptingKeyId !== null" @click="adoptExistingKey(key)">{{ adoptingKeyId === key.id ? t('enterpriseMembers.copy.adopting') : t('enterpriseMembers.copy.adoptKey') }}</button>
-            </div>
-          </div>
-        </section>
         <div v-if="keysLoading" class="py-12 text-center text-sm text-stone-500">{{ t('enterpriseMembers.copy.loadingKeys') }}</div>
-        <div v-else class="divide-y divide-stone-100 overflow-hidden rounded-2xl border border-stone-200 dark:divide-white/10 dark:border-white/10">
-          <div v-for="key in memberKeys" :key="key.id" class="p-4">
-            <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div class="min-w-0 flex-1">
-                <p class="truncate text-sm font-semibold text-stone-900 dark:text-white">{{ key.name }}</p>
-                <code class="mt-1 block truncate text-xs text-stone-500">{{ key.key }}</code>
-                <p class="mt-1 text-xs text-stone-500">{{ t('enterpriseMembers.copy.quota') }}: {{ key.quota > 0 ? `${formatMoney(key.quota_used)} / ${formatMoney(key.quota)}` : t('enterpriseMembers.copy.unlimited6381d248') }}</p>
+        <div v-else class="overflow-hidden rounded-2xl border border-stone-200 dark:border-white/10">
+          <div v-if="memberKeys.length" class="overflow-x-auto">
+            <div class="min-w-[920px]">
+              <div class="grid grid-cols-[minmax(210px,1.25fr)_160px_105px_155px_230px] items-center gap-3 border-b border-stone-200 bg-stone-50/80 px-4 py-2.5 text-xs font-medium text-stone-500 dark:border-white/10 dark:bg-white/[0.035]">
+                <span>{{ t('enterpriseMembers.copy.key') }}</span>
+                <span>{{ t('enterpriseMembers.copy.keyQuota') }}</span>
+                <span>{{ t('enterpriseMembers.copy.status') }}</span>
+                <span>{{ t('enterpriseMembers.copy.updated') }}</span>
+                <span class="pr-1 text-right">{{ t('enterpriseMembers.copy.action') }}</span>
               </div>
-              <span class="text-xs" :class="key.status === 'active' ? 'text-emerald-600' : 'text-stone-500'">{{ key.status }}</span>
-              <button class="btn btn-secondary btn-sm" type="button" @click="openKeyEdit(key)">{{ t('enterpriseMembers.copy.edit') }}</button>
-              <button class="rounded-xl px-3 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:text-rose-300" type="button" @click="removeKey(key.id)">{{ t('enterpriseMembers.copy.delete') }}</button>
+              <div v-for="key in memberKeys" :key="key.id" class="border-b border-stone-100 last:border-b-0 dark:border-white/[0.07]">
+                <div class="grid min-h-16 grid-cols-[minmax(210px,1.25fr)_160px_105px_155px_230px] items-center gap-3 px-4 py-3">
+                  <div class="min-w-0">
+                    <p class="truncate text-sm font-semibold text-stone-900 dark:text-white" :title="key.name">{{ key.name }}</p>
+                    <code class="mt-0.5 block truncate text-[11px] text-stone-500" :title="key.key">{{ key.key }}</code>
+                  </div>
+                  <div class="min-w-0">
+                    <p class="whitespace-nowrap text-xs font-semibold tabular-nums text-stone-800 dark:text-stone-100">{{ key.quota > 0 ? `${formatMoney(key.quota_used)} / ${formatMoney(key.quota)}` : t('enterpriseMembers.copy.unlimited6381d248') }}</p>
+                    <div v-if="key.quota > 0" class="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-stone-200 dark:bg-white/10"><div class="h-full rounded-full bg-emerald-500" :style="{ width: `${memberKeyQuotaPercent(key)}%` }"></div></div>
+                  </div>
+                  <span class="inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold" :class="memberKeyStatusBadgeClasses(key.status)"><span class="h-1.5 w-1.5 rounded-full bg-current"></span>{{ memberKeyStatusLabel(key.status) }}</span>
+                  <div class="text-xs text-stone-500">
+                    <time class="block whitespace-nowrap">{{ formatDateTime(key.updated_at) }}</time>
+                    <span class="mt-0.5 block whitespace-nowrap text-[11px] text-stone-400">{{ key.expires_at ? `${t('enterpriseMembers.copy.expiresAt')} ${formatDate(key.expires_at)}` : t('enterpriseMembers.copy.neverExpires') }}</span>
+                  </div>
+                  <div class="flex flex-nowrap justify-end gap-1.5 pr-1">
+                    <button class="btn btn-secondary btn-sm" type="button" :disabled="copyingMemberKeyId === key.id" :aria-label="t('enterpriseMembers.copy.copyMemberKey')" @click="copyMemberKey(key)"><Icon :name="copiedMemberKeyId === key.id ? 'check' : 'clipboard'" size="sm" />{{ copyingMemberKeyId === key.id ? t('enterpriseMembers.copy.copyingKey') : t('enterpriseMembers.copy.copyMemberKey') }}</button>
+                    <button class="btn btn-secondary btn-sm" type="button" @click="openKeyEdit(key)"><Icon name="edit" size="sm" />{{ t('enterpriseMembers.copy.edit') }}</button>
+                    <button class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-rose-600 transition-colors hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-400/10" type="button" @click="removeKey(key.id)"><Icon name="trash" size="sm" />{{ t('enterpriseMembers.copy.delete') }}</button>
+                  </div>
+                </div>
+                <form v-if="editingKey?.id === key.id" class="space-y-4 border-t border-stone-200 bg-stone-50/80 p-4 dark:border-white/10 dark:bg-white/[0.025]" @submit.prevent="saveMemberKey">
+                  <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <label><span class="input-label">{{ t('enterpriseMembers.copy.keyName') }}</span><input v-model.trim="keyEditDraft.name" class="input" required maxlength="100" /></label>
+                    <label><span class="input-label">{{ t('enterpriseMembers.copy.status') }}</span><Select v-model="keyEditDraft.status" :options="memberKeyEditableStatusOptions" class="w-full" /></label>
+                    <label><span class="input-label">{{ t('enterpriseMembers.copy.keyQuota') }}</span><input v-model.number="keyEditDraft.quota" class="input" type="number" min="0" step="0.00000001" /></label>
+                    <label><span class="input-label">{{ t('enterpriseMembers.copy.expiresAt') }}</span><input v-model="keyEditDraft.expires_at" class="input" type="datetime-local" /></label>
+                  </div>
+                  <div class="grid gap-3 sm:grid-cols-3">
+                    <label><span class="input-label">5h {{ t('enterpriseMembers.copy.limit') }}</span><input v-model.number="keyEditDraft.rate_limit_5h" class="input" type="number" min="0" step="0.00000001" /></label>
+                    <label><span class="input-label">1d {{ t('enterpriseMembers.copy.limit') }}</span><input v-model.number="keyEditDraft.rate_limit_1d" class="input" type="number" min="0" step="0.00000001" /></label>
+                    <label><span class="input-label">7d {{ t('enterpriseMembers.copy.limit') }}</span><input v-model.number="keyEditDraft.rate_limit_7d" class="input" type="number" min="0" step="0.00000001" /></label>
+                  </div>
+                  <div class="grid gap-3 sm:grid-cols-2">
+                    <label><span class="input-label">{{ t('enterpriseMembers.copy.ipAllowlist') }}</span><textarea v-model="keyEditDraft.ip_whitelist" class="input" rows="3" :placeholder="t('enterpriseMembers.copy.onePerLineOrCommaSeparatedEmptyMeansUnrestricted')"></textarea></label>
+                    <label><span class="input-label">{{ t('enterpriseMembers.copy.ipBlocklist') }}</span><textarea v-model="keyEditDraft.ip_blacklist" class="input" rows="3" :placeholder="t('enterpriseMembers.copy.onePerLineOrCommaSeparated')"></textarea></label>
+                  </div>
+                  <div class="flex justify-end gap-3"><button class="btn btn-secondary btn-sm" type="button" @click="editingKey = null">{{ t('enterpriseMembers.copy.cancel') }}</button><button class="btn btn-primary btn-sm" type="submit" :disabled="keyEditing">{{ keyEditing ? t('enterpriseMembers.copy.saving') : t('enterpriseMembers.copy.saveKey') }}</button></div>
+                </form>
+              </div>
             </div>
-            <form v-if="editingKey?.id === key.id" class="mt-4 space-y-4 rounded-2xl border border-stone-200 bg-stone-50 p-4 dark:border-white/10 dark:bg-white/[0.03]" @submit.prevent="saveMemberKey">
-              <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <label><span class="input-label">{{ t('enterpriseMembers.copy.keyName') }}</span><input v-model.trim="keyEditDraft.name" class="input" required maxlength="100" /></label>
-                <label><span class="input-label">{{ t('enterpriseMembers.copy.status') }}</span><select v-model="keyEditDraft.status" class="input"><option value="active">{{ t('enterpriseMembers.copy.active') }}</option><option value="disabled">{{ t('enterpriseMembers.copy.disabled') }}</option></select></label>
-                <label><span class="input-label">{{ t('enterpriseMembers.copy.keyQuota') }}</span><input v-model.number="keyEditDraft.quota" class="input" type="number" min="0" step="0.00000001" /></label>
-                <label><span class="input-label">{{ t('enterpriseMembers.copy.expiresAt') }}</span><input v-model="keyEditDraft.expires_at" class="input" type="datetime-local" /></label>
-              </div>
-              <div class="grid gap-3 sm:grid-cols-3">
-                <label><span class="input-label">5h {{ t('enterpriseMembers.copy.limit') }}</span><input v-model.number="keyEditDraft.rate_limit_5h" class="input" type="number" min="0" step="0.00000001" /></label>
-                <label><span class="input-label">1d {{ t('enterpriseMembers.copy.limit') }}</span><input v-model.number="keyEditDraft.rate_limit_1d" class="input" type="number" min="0" step="0.00000001" /></label>
-                <label><span class="input-label">7d {{ t('enterpriseMembers.copy.limit') }}</span><input v-model.number="keyEditDraft.rate_limit_7d" class="input" type="number" min="0" step="0.00000001" /></label>
-              </div>
-              <div class="grid gap-3 sm:grid-cols-2">
-                <label><span class="input-label">{{ t('enterpriseMembers.copy.ipAllowlist') }}</span><textarea v-model="keyEditDraft.ip_whitelist" class="input" rows="3" :placeholder="t('enterpriseMembers.copy.onePerLineOrCommaSeparatedEmptyMeansUnrestricted')"></textarea></label>
-                <label><span class="input-label">{{ t('enterpriseMembers.copy.ipBlocklist') }}</span><textarea v-model="keyEditDraft.ip_blacklist" class="input" rows="3" :placeholder="t('enterpriseMembers.copy.onePerLineOrCommaSeparated')"></textarea></label>
-              </div>
-              <div class="flex justify-end gap-3"><button class="btn btn-secondary btn-sm" type="button" @click="editingKey = null">{{ t('enterpriseMembers.copy.cancel') }}</button><button class="btn btn-primary btn-sm" type="submit" :disabled="keyEditing">{{ keyEditing ? t('enterpriseMembers.copy.saving') : t('enterpriseMembers.copy.saveKey') }}</button></div>
-            </form>
           </div>
           <p v-if="!memberKeys.length" class="p-8 text-center text-sm text-stone-500">{{ t('enterpriseMembers.copy.noMemberKeysYet') }}</p>
         </div>
@@ -429,6 +514,10 @@
           <div class="metric-card"><p>{{ t('enterpriseMembers.copy.settled') }}</p><strong>{{ formatMoney(budgetSummary.used_usd) }}</strong></div>
           <div class="metric-card"><p>{{ t('enterpriseMembers.copy.inFlightReserved') }}</p><strong class="text-amber-700 dark:text-amber-300">{{ formatMoney(budgetSummary.reserved_usd) }}</strong></div>
           <div class="metric-card"><p>{{ t('enterpriseMembers.copy.available') }}</p><strong class="text-emerald-700 dark:text-emerald-300">{{ budgetSummary.remaining_usd < 0 ? t('enterpriseMembers.copy.unlimited6381d248') : formatMoney(budgetSummary.remaining_usd) }}</strong></div>
+        </section>
+
+        <section v-if="hasMigrationBaseline(budgetSummary)" class="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sky-950 dark:border-sky-800/50 dark:bg-sky-950/20 dark:text-sky-100">
+          <div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="text-sm font-semibold">{{ t('enterpriseMembers.copy.migrationBaselineEvidence') }}</h3><p class="mt-1 text-xs leading-5 opacity-70">{{ t('enterpriseMembers.copy.migrationBaselineEvidenceHint') }}</p></div><div class="text-right"><b class="block text-sm">{{ formatMoney(budgetSummary.migration_billed_usd) }} · {{ formatNumber(budgetSummary.migration_total_tokens) }} Token</b><span class="text-xs opacity-70">↓ {{ formatNumber(budgetSummary.migration_input_tokens) }} · ↑ {{ formatNumber(budgetSummary.migration_output_tokens) }} · C {{ formatNumber(budgetSummary.migration_cache_tokens) }}</span></div></div>
         </section>
 
         <section class="grid gap-3 sm:grid-cols-3">
@@ -540,13 +629,16 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import { useAppStore, useAuthStore } from '@/stores'
+import { useClipboard } from '@/composables/useClipboard'
 import { tableSelectionCheckboxClasses as selectionCheckboxClasses } from '@/utils/tableSelectionCheckbox'
 import { userGroupsAPI } from '@/api/groups'
+import { keysAPI } from '@/api/keys'
 import { enterpriseMembersAPI, type EnterpriseMember, type EnterpriseMemberAuditEvent, type EnterpriseMemberBudgetEntry, type EnterpriseMemberBudgetSummary, type EnterpriseMemberDraft, type EnterpriseMemberImportJob, type EnterpriseMemberImportPreview, type EnterpriseMemberImportResult, type EnterpriseMemberKeyUpdate, type EnterpriseMemberOwnerUsageItem, type EnterpriseMemberOwnerUsageSummary, type EnterpriseMemberStatus, type EnterpriseMemberUsageAnalytics, type EnterpriseMemberUsageRecord } from '@/api/enterpriseMembers'
 import type { ApiKey, Group } from '@/types'
 
@@ -554,6 +646,7 @@ const { t, locale } = useI18n()
 const router = useRouter()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+const { copyToClipboard: clipboardCopy } = useClipboard()
 const isEnterprise = computed(() => authStore.user?.role === 'user' && authStore.user?.account_type === 'enterprise' && !authStore.user?.enterprise_disabled_at)
 
 const members = ref<EnterpriseMember[]>([])
@@ -567,6 +660,11 @@ const statusFilter = ref('all')
 const budgetFilter = ref('all')
 const sortBy = ref('updated')
 const selectedIds = ref(new Set<number>())
+const batchGroupsOpen = ref(false)
+const batchClearConfirmOpen = ref(false)
+const batchGroupsSaving = ref(false)
+const batchGroupMode = ref<'replace' | 'append'>('replace')
+const batchGroupIds = ref<number[]>([])
 const editorOpen = ref(false)
 const editingMember = ref<EnterpriseMember | null>(null)
 const emptyMemberDraft = (): EnterpriseMemberDraft => ({ member_code: '', name: '', monthly_limit_usd: 0, rate_limit_5h: 0, rate_limit_1d: 0, rate_limit_7d: 0, group_ids: [] })
@@ -587,8 +685,6 @@ const usageAdjustmentChanged = computed(() => Boolean(editingMember.value && edi
 const keysOpen = ref(false)
 const keyMember = ref<EnterpriseMember | null>(null)
 const memberKeys = ref<ApiKey[]>([])
-const adoptableKeys = ref<ApiKey[]>([])
-const adoptingKeyId = ref<number | null>(null)
 const keysLoading = ref(false)
 const keySaving = ref(false)
 const keyDraft = reactive({ name: '', quota: 0 })
@@ -596,6 +692,8 @@ const editingKey = ref<ApiKey | null>(null)
 const keyEditing = ref(false)
 const keyEditDraft = reactive({ name: '', status: 'active' as 'active' | 'disabled', quota: 0, expires_at: '', rate_limit_5h: 0, rate_limit_1d: 0, rate_limit_7d: 0, ip_whitelist: '', ip_blacklist: '' })
 const plaintextKey = ref('')
+const copyingMemberKeyId = ref<number | null>(null)
+const copiedMemberKeyId = ref<number | null>(null)
 
 const budgetOpen = ref(false)
 const budgetMember = ref<EnterpriseMember | null>(null)
@@ -621,6 +719,9 @@ const importPreviewLoading = ref(false)
 const importCommitting = ref(false)
 const importPreview = ref<EnterpriseMemberImportPreview | null>(null)
 const importSelectedRows = ref(new Set<number>())
+const importDefaultGroupIds = ref<number[]>([])
+const importActivateMembers = ref(false)
+const importCommitIdempotencyKey = ref('')
 const importResult = ref<EnterpriseMemberImportResult | null>(null)
 const importJob = ref<EnterpriseMemberImportJob | null>(null)
 let importPollTimer: ReturnType<typeof setTimeout> | null = null
@@ -632,6 +733,9 @@ const ownerAuditTotal = ref(0)
 
 const activeCount = computed(() => members.value.filter(item => !item.deleted_at && item.status === 'active').length)
 const totalKeyCount = computed(() => members.value.reduce((sum, item) => sum + item.key_count, 0))
+const batchGroupTargets = computed(() => members.value.filter(member => selectedIds.value.has(member.id) && !member.deleted_at))
+const batchGroupTargetCount = computed(() => batchGroupTargets.value.length)
+const batchClearIsDestructive = computed(() => batchGroupMode.value === 'replace' && batchGroupIds.value.length === 0)
 const memberArchiveScopeOptions = computed<SelectOption[]>(() => [
   { value: 'current', label: t('enterpriseMembers.copy.currentMembersOnly') },
   { value: 'with_archived', label: t('enterpriseMembers.copy.includeArchivedMembers') }
@@ -656,6 +760,14 @@ const memberSortOptions = computed<SelectOption[]>(() => [
   { value: 'name', label: t('enterpriseMembers.copy.memberName') },
   { value: 'budget', label: t('enterpriseMembers.copy.budgetHighToLow') },
   { value: 'keys', label: t('enterpriseMembers.copy.keyCountHighToLow') }
+])
+const memberKeyEditableStatusOptions = computed<SelectOption[]>(() => [
+  { value: 'active', label: t('enterpriseMembers.copy.active') },
+  { value: 'disabled', label: t('enterpriseMembers.copy.disabled') }
+])
+const batchGroupModeOptions = computed<SelectOption[]>(() => [
+  { value: 'replace', label: t('enterpriseMembers.copy.replaceAccessibleGroups') },
+  { value: 'append', label: t('enterpriseMembers.copy.appendAccessibleGroups') }
 ])
 const usageRecordPages = computed(() => Math.max(1, Math.ceil(usageRecordTotal.value / 20)))
 const filteredMembers = computed(() => {
@@ -732,6 +844,9 @@ function openImport() {
   importFile.value = null
   importPreview.value = null
   importSelectedRows.value = new Set()
+  importDefaultGroupIds.value = []
+  importActivateMembers.value = false
+  importCommitIdempotencyKey.value = ''
   importResult.value = null
   importJob.value = null
   importOpen.value = true
@@ -751,12 +866,15 @@ function selectImportFile(event: Event) {
   importFile.value = (event.target as HTMLInputElement).files?.[0] || null
   importPreview.value = null
   importSelectedRows.value = new Set()
+  importDefaultGroupIds.value = []
+  importActivateMembers.value = false
+  importCommitIdempotencyKey.value = ''
   importResult.value = null
 }
 async function downloadTemplate(format: 'csv' | 'xlsx') {
   if (templateDownloading.value) return
   templateDownloading.value = format
-  try { await enterpriseMembersAPI.downloadImportTemplate(format) }
+  try { await enterpriseMembersAPI.downloadImportTemplate(format, t('enterpriseMembers.copy.importTemplateFilename')) }
   catch (error: any) { appStore.showError(error.message || t('enterpriseMembers.copy.failedToDownloadTemplate')) }
   finally { templateDownloading.value = null }
 }
@@ -764,8 +882,16 @@ async function previewImportFile() {
   if (!importFile.value) return
   importPreviewLoading.value = true
   try {
-    importPreview.value = await enterpriseMembersAPI.previewImport(importFile.value)
-    importSelectedRows.value = new Set(importPreview.value.rows.filter(row => row.valid).map(row => row.row_number))
+    const preview = await enterpriseMembersAPI.previewImport(importFile.value)
+    if (preview.import_policy_version !== 2) {
+      importPreview.value = null
+      importCommitIdempotencyKey.value = ''
+      importSelectedRows.value = new Set()
+      throw new Error(t('enterpriseMembers.copy.importPreviewProtocolUnavailable'))
+    }
+    importPreview.value = preview
+    importCommitIdempotencyKey.value = enterpriseMembersAPI.createImportCommitIdempotencyKey(preview.job_id)
+    importSelectedRows.value = new Set(preview.rows.filter(row => row.valid).map(row => row.row_number))
   } catch (error: any) { appStore.showError(error.response?.data?.message || error.message || t('enterpriseMembers.copy.importPreviewFailed')) }
   finally { importPreviewLoading.value = false }
 }
@@ -780,11 +906,119 @@ function toggleAllImportRows() {
 }
 async function commitImportRows() {
   if (!importPreview.value || !importSelectedRows.value.size) return
+  const preview = importPreview.value
+  if (!importCommitIdempotencyKey.value) {
+    importCommitIdempotencyKey.value = enterpriseMembersAPI.createImportCommitIdempotencyKey(preview.job_id)
+  }
   importCommitting.value = true
   try {
-    const queued = await enterpriseMembersAPI.commitImport(importPreview.value, [...importSelectedRows.value])
-    await pollImportJob(queued.job_id, importPreview.value.token)
-  } catch (error: any) { appStore.showError(error.response?.data?.message || error.message || t('enterpriseMembers.copy.importCommitFailedNoDataWasWritten')) }
+    const queued = await enterpriseMembersAPI.commitImport(preview, [...importSelectedRows.value], {
+      defaultGroupIds: [...importDefaultGroupIds.value],
+      activateMembers: importActivateMembers.value,
+      idempotencyKey: importCommitIdempotencyKey.value
+    })
+    await pollImportJob(queued.job_id, preview.token)
+  } catch {
+    await reconcileImportCommitAfterError(preview.job_id, preview.token)
+  }
+}
+
+async function reconcileImportCommitAfterError(jobId: number, resultToken: string) {
+  try {
+    const job = await enterpriseMembersAPI.getImportJob(jobId)
+    if (job.status !== 'previewed') {
+      importJob.value = job
+      await pollImportJob(jobId, resultToken)
+      return
+    }
+    importJob.value = null
+    importCommitting.value = false
+    importCommitIdempotencyKey.value = enterpriseMembersAPI.createImportCommitIdempotencyKey(jobId)
+    appStore.showError(t('enterpriseMembers.copy.importCommitNotQueued'))
+  } catch {
+    importCommitting.value = false
+    appStore.showError(t('enterpriseMembers.copy.importCommitOutcomeUnknown'))
+  }
+}
+
+function toggleOrderedGroup(target: number[], groupId: number): number[] {
+  return target.includes(groupId) ? target.filter(id => id !== groupId) : [...target, groupId]
+}
+
+function moveOrderedGroup(target: number[], groupId: number, direction: -1 | 1): number[] {
+  const from = target.indexOf(groupId)
+  const to = from + direction
+  if (from < 0 || to < 0 || to >= target.length) return target
+  const next = [...target]
+  const moved = next[from]
+  next[from] = next[to]
+  next[to] = moved
+  return next
+}
+
+function toggleImportDefaultGroup(groupId: number) {
+  importDefaultGroupIds.value = toggleOrderedGroup(importDefaultGroupIds.value, groupId)
+  if (importDefaultGroupIds.value.length === 0) importActivateMembers.value = false
+}
+
+function moveImportDefaultGroup(groupId: number, direction: -1 | 1) {
+  importDefaultGroupIds.value = moveOrderedGroup(importDefaultGroupIds.value, groupId, direction)
+}
+
+function openBatchGroups() {
+  batchGroupMode.value = 'replace'
+  batchGroupIds.value = []
+  batchClearConfirmOpen.value = false
+  batchGroupsOpen.value = true
+}
+
+function toggleBatchGroup(groupId: number) {
+  batchGroupIds.value = toggleOrderedGroup(batchGroupIds.value, groupId)
+}
+
+function moveBatchGroup(groupId: number, direction: -1 | 1) {
+  batchGroupIds.value = moveOrderedGroup(batchGroupIds.value, groupId, direction)
+}
+
+function requestSaveBatchGroups() {
+  if (batchClearIsDestructive.value) {
+    batchGroupsOpen.value = false
+    batchClearConfirmOpen.value = true
+    return
+  }
+  void saveBatchGroups()
+}
+
+function cancelBatchGroupClear() {
+  batchClearConfirmOpen.value = false
+  batchGroupsOpen.value = true
+}
+
+async function confirmBatchGroupClear() {
+  batchClearConfirmOpen.value = false
+  await saveBatchGroups()
+}
+
+async function saveBatchGroups() {
+  const targets = batchGroupTargets.value
+  if (!targets.length) return
+  batchGroupsSaving.value = true
+  try {
+    const updated = await enterpriseMembersAPI.batchReplaceGroups(targets, batchGroupIds.value, batchGroupMode.value)
+    const updatedById = new Map(updated.map(member => [member.id, member]))
+    members.value = members.value.map(member => {
+      const update = updatedById.get(member.id)
+      return update ? { ...member, version: update.version, group_ids: update.group_ids, status: update.status, updated_at: update.updated_at } : member
+    })
+    batchGroupsOpen.value = false
+    batchClearConfirmOpen.value = false
+    appStore.showSuccess(t('enterpriseMembers.dynamic.batchGroupsUpdated', { count: updated.length }))
+  } catch (error: any) {
+    if (batchClearIsDestructive.value) batchGroupsOpen.value = true
+    appStore.showError(error.response?.data?.message || t('enterpriseMembers.copy.batchGroupUpdateFailed'))
+  } finally {
+    batchGroupsSaving.value = false
+  }
 }
 async function pollImportJob(jobId: number, resultToken: string) {
   try {
@@ -816,6 +1050,24 @@ async function pollImportJob(jobId: number, resultToken: string) {
     }
   }
 }
+
+function configureImportedMembers() {
+  if (!importResult.value) return
+  selectedIds.value = new Set(importResult.value.member_ids)
+  importOpen.value = false
+  openBatchGroups()
+}
+
+function hasMigrationBaseline(summary: EnterpriseMemberBudgetSummary): boolean {
+  return summary.migration_billed_usd > 0
+    || summary.migration_total_tokens > 0
+    || summary.migration_input_tokens > 0
+    || summary.migration_output_tokens > 0
+    || summary.migration_cache_tokens > 0
+    || summary.migration_cache_write_tokens > 0
+    || summary.migration_cache_read_tokens > 0
+}
+
 async function downloadImportErrors(jobId: number) {
   try { await enterpriseMembersAPI.downloadImportErrorReport(jobId) }
   catch (error: any) { appStore.showError(error.response?.data?.message || t('enterpriseMembers.copy.failedToDownloadErrorReport')) }
@@ -953,48 +1205,37 @@ async function openKeys(member: EnterpriseMember) {
   keyMember.value = member
   keysOpen.value = true
   keysLoading.value = true
+  editingKey.value = null
+  copiedMemberKeyId.value = null
   try {
-    const [assigned, adoptable] = await Promise.all([
-      enterpriseMembersAPI.listKeys(member.id),
-      enterpriseMembersAPI.listAdoptableKeys(member.id)
-    ])
-    memberKeys.value = assigned
-    adoptableKeys.value = adoptable
+    memberKeys.value = await enterpriseMembersAPI.listKeys(member.id)
   }
   catch (error: any) { appStore.showError(error.response?.data?.message || t('enterpriseMembers.copy.failedToLoadKeys')) }
   finally { keysLoading.value = false }
 }
 
-async function adoptExistingKey(key: ApiKey) {
-  if (!keyMember.value || key.group_id == null) return
-  const member = keyMember.value
-  const group = key.group?.name || groupName(key.group_id)
-  const routeEffect = member.group_ids.includes(key.group_id)
-    ? t('enterpriseMembers.copy.theGroupIsAlreadyInTheMemberRouteAndWillNotBeDuplicated')
-    : t('enterpriseMembers.copy.theGroupWillBeAppendedToTheEndOfTheMemberRoute')
-  if (!window.confirm(t('enterpriseMembers.dynamic.adoptConfirm', { key: key.name, member: member.name, group, routeEffect }))) return
-  adoptingKeyId.value = key.id
+function openRegularKeys() {
+  keysOpen.value = false
+  void router.push('/keys')
+}
+
+async function copyMemberKey(key: ApiKey) {
+  if (!keyMember.value) return
+  copyingMemberKeyId.value = key.id
   try {
-    const result = await enterpriseMembersAPI.adoptKey(member, key.id)
-    memberKeys.value = await enterpriseMembersAPI.listKeys(member.id)
-    adoptableKeys.value = adoptableKeys.value.filter(item => item.id !== key.id)
-    const updatedMember = {
-      ...member,
-      group_ids: result.group_ids,
-      version: result.member_version,
-      key_count: member.key_count + 1
+    const detail = await keysAPI.getById(key.id)
+    if (detail.member_id !== keyMember.value.id) throw new Error('member key ownership mismatch')
+    const copied = await clipboardCopy(detail.key, t('enterpriseMembers.copy.keyCopied'))
+    if (copied) {
+      copiedMemberKeyId.value = key.id
+      window.setTimeout(() => {
+        if (copiedMemberKeyId.value === key.id) copiedMemberKeyId.value = null
+      }, 1600)
     }
-    keyMember.value = updatedMember
-    members.value = members.value.map(item => item.id === member.id ? updatedMember : item)
-    appStore.showSuccess(result.group_added
-      ? t('enterpriseMembers.copy.keyAdoptedAndOriginalGroupAppended')
-      : t('enterpriseMembers.copy.keyAdoptedExistingMemberRouteRetained'))
   } catch (error: any) {
-    appStore.showError(error.response?.data?.message || t('enterpriseMembers.copy.failedToAdoptKeyRefreshAndRetry'))
-    await loadMembers()
-    keyMember.value = members.value.find(item => item.id === member.id) || member
+    appStore.showError(error.response?.data?.message || t('enterpriseMembers.copy.failedToCopyKey'))
   } finally {
-    adoptingKeyId.value = null
+    copyingMemberKeyId.value = null
   }
 }
 
@@ -1120,9 +1361,8 @@ async function removeKey(keyId: number) {
   } catch (error: any) { appStore.showError(error.response?.data?.message || t('enterpriseMembers.copy.failedToDeleteKey')) }
 }
 async function copyPlaintext() {
-  await navigator.clipboard.writeText(plaintextKey.value)
-  plaintextKey.value = ''
-  appStore.showSuccess(t('enterpriseMembers.copy.keyCopied'))
+  const copied = await clipboardCopy(plaintextKey.value, t('enterpriseMembers.copy.keyCopied'))
+  if (copied) plaintextKey.value = ''
 }
 
 const groupName = (id: number) => availableGroups.value.find(group => group.id === id)?.name || `#${id}`
@@ -1140,6 +1380,19 @@ const memberBudgetBarClass = (member: EnterpriseMember) => {
   if (percent >= 80) return 'bg-amber-500'
   return 'bg-emerald-500'
 }
+const memberKeyQuotaPercent = (key: ApiKey) => key.quota > 0 ? Math.min(100, Math.max(0, (key.quota_used / key.quota) * 100)) : 0
+const memberKeyStatusLabel = (status: ApiKey['status']) => ({
+  active: t('enterpriseMembers.copy.active'),
+  disabled: t('enterpriseMembers.copy.disabled'),
+  quota_exhausted: t('enterpriseMembers.copy.quotaExhausted'),
+  expired: t('enterpriseMembers.copy.expired')
+}[status])
+const memberKeyStatusBadgeClasses = (status: ApiKey['status']) => ({
+  active: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300',
+  disabled: 'bg-stone-100 text-stone-600 dark:bg-white/[0.07] dark:text-stone-300',
+  quota_exhausted: 'bg-amber-100 text-amber-800 dark:bg-amber-400/10 dark:text-amber-300',
+  expired: 'bg-rose-100 text-rose-700 dark:bg-rose-400/10 dark:text-rose-300'
+}[status])
 const formatMoney = (value: number) => new Intl.NumberFormat(locale.value, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value)
 const formatNumber = (value: number) => new Intl.NumberFormat(locale.value, { notation: value >= 1_000_000 ? 'compact' : 'standard', maximumFractionDigits: 1 }).format(value)
 const formatDate = (value: string) => new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium' }).format(new Date(value))
@@ -1147,7 +1400,7 @@ const formatDateTime = (value: string) => new Intl.DateTimeFormat(locale.value, 
 const trendHeight = (value: number) => maxTrendCost.value > 0 ? Math.max(4, (value / maxTrendCost.value) * 100) : 4
 const entryKindLabel = (kind: string) => ({ usage: t('enterpriseMembers.copy.usage'), manual_adjustment: t('enterpriseMembers.copy.adjustment'), migration_opening: t('enterpriseMembers.copy.opening'), reconciliation: t('enterpriseMembers.copy.reconciliation') }[kind] || kind)
 const requestTypeLabel = (kind: string) => ({ sync: t('enterpriseMembers.copy.sync'), stream: t('enterpriseMembers.copy.stream'), ws_v2: 'WebSocket', cyber: t('enterpriseMembers.copy.policyBlocked'), unknown: t('enterpriseMembers.copy.unknown') }[kind] || kind)
-const importJobStatusLabel = (status: EnterpriseMemberImportJob['status']) => ({ queued: t('enterpriseMembers.copy.queued'), processing: t('enterpriseMembers.copy.processing'), completed: t('enterpriseMembers.copy.completed'), failed: t('enterpriseMembers.copy.failed') }[status])
+const importJobStatusLabel = (status: EnterpriseMemberImportJob['status']) => ({ previewed: t('enterpriseMembers.copy.ready'), queued: t('enterpriseMembers.copy.queued'), queued_v2: t('enterpriseMembers.copy.queued'), processing: t('enterpriseMembers.copy.processing'), processing_v2: t('enterpriseMembers.copy.processing'), completed: t('enterpriseMembers.copy.completed'), failed: t('enterpriseMembers.copy.failed') }[status])
 const auditActionLabel = (action: string) => ({
   'member.created': t('enterpriseMembers.copy.memberCreated'),
   'member.updated': t('enterpriseMembers.copy.memberUpdated'),
@@ -1193,7 +1446,11 @@ function auditEventSummary(event: EnterpriseMemberAuditEvent): string {
   if (keys.length > 4) details.push(t('enterpriseMembers.dynamic.moreChanges', { count: keys.length - 4 }))
   return details.join(' · ') || t('enterpriseMembers.copy.recordedWithoutSensitiveCredentials')
 }
-const importIssueLabel = (issue: string) => ({ invalid_member_code: t('enterpriseMembers.copy.invalidMemberCode'), invalid_member_name: t('enterpriseMembers.copy.invalidMemberName'), invalid_monthly_limit: t('enterpriseMembers.copy.invalidMonthlyLimit'), invalid_rate_limit_5h: t('enterpriseMembers.copy.invalidRateLimit5h'), invalid_rate_limit_1d: t('enterpriseMembers.copy.invalidRateLimit1d'), invalid_rate_limit_7d: t('enterpriseMembers.copy.invalidRateLimit7d'), invalid_opening_used: t('enterpriseMembers.copy.invalidOpeningAmount'), invalid_key_quota: t('enterpriseMembers.copy.invalidKeyQuota'), invalid_api_key: t('enterpriseMembers.copy.invalidApiKey'), key_name_required: t('enterpriseMembers.copy.keyNameIsRequired'), groups_required: t('enterpriseMembers.copy.atLeastOneGroupIsRequired'), member_fields_conflict: t('enterpriseMembers.copy.memberFieldsConflict'), opening_used_only_first_row: t('enterpriseMembers.copy.openingAmountIsAllowedOnlyOnTheFirstMemberRow'), member_code_exists: t('enterpriseMembers.copy.memberCodeAlreadyExists'), api_key_exists: t('enterpriseMembers.copy.apiKeyAlreadyExistsIncludingDeletedRecords'), budget_exhausted_at_import: t('enterpriseMembers.copy.budgetWillBeExhaustedOnImport') }[issue] || issue.split('_').join(' '))
+const importIssueLabel = (issue: string) => {
+  const unauthorizedGroup = issue.match(/^group_(\d+)_not_authorized$/)
+  if (unauthorizedGroup) return t('enterpriseMembers.dynamic.legacyGroupNotAuthorized', { id: unauthorizedGroup[1] })
+  return ({ invalid_member_code: t('enterpriseMembers.copy.invalidMemberCode'), invalid_member_name: t('enterpriseMembers.copy.invalidMemberName'), invalid_monthly_limit: t('enterpriseMembers.copy.invalidMonthlyLimit'), invalid_rate_limit_5h: t('enterpriseMembers.copy.invalidRateLimit5h'), invalid_rate_limit_1d: t('enterpriseMembers.copy.invalidRateLimit1d'), invalid_rate_limit_7d: t('enterpriseMembers.copy.invalidRateLimit7d'), invalid_opening_used: t('enterpriseMembers.copy.invalidOpeningAmount'), invalid_key_quota: t('enterpriseMembers.copy.invalidKeyQuota'), invalid_api_key: t('enterpriseMembers.copy.invalidApiKey'), invalid_total_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_input_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_output_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_cache_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_cache_creation_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_cache_read_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), key_name_required: t('enterpriseMembers.copy.keyNameIsRequired'), groups_required: t('enterpriseMembers.copy.atLeastOneGroupIsRequired'), member_fields_conflict: t('enterpriseMembers.copy.memberFieldsConflict'), member_identity_ambiguous: t('enterpriseMembers.copy.memberIdentityAmbiguous'), duplicate_member: t('enterpriseMembers.copy.duplicateMemberInMembersSheet'), member_not_found_in_members_sheet: t('enterpriseMembers.copy.memberNotFoundInMembersSheet'), opening_used_only_first_row: t('enterpriseMembers.copy.openingAmountIsAllowedOnlyOnTheFirstMemberRow'), member_code_exists: t('enterpriseMembers.copy.memberCodeAlreadyExists'), api_key_exists: t('enterpriseMembers.copy.apiKeyAlreadyExistsIncludingDeletedRecords'), budget_exhausted_at_import: t('enterpriseMembers.copy.budgetWillBeExhaustedOnImport'), member_code_generated: t('enterpriseMembers.copy.memberCodeGenerated'), key_name_generated: t('enterpriseMembers.copy.keyNameGenerated'), token_total_mismatch: t('enterpriseMembers.copy.tokenTotalMismatch') }[issue] || issue.split('_').join(' '))
+}
 const maskKey = (value: string) => value.length > 12 ? `${value.slice(0, 6)}…${value.slice(-4)}` : '***'
 const splitIPRules = (value: string) => [...new Set(value.split(/[\n,]/).map(item => item.trim()).filter(Boolean))]
 const toDateTimeLocal = (value: string | null) => {
@@ -1202,8 +1459,9 @@ const toDateTimeLocal = (value: string | null) => {
   const offset = date.getTimezoneOffset() * 60_000
   return new Date(date.getTime() - offset).toISOString().slice(0, 16)
 }
-const statusLabel = (member: EnterpriseMember) => member.deleted_at ? t('enterpriseMembers.copy.archived') : member.status === 'active' ? t('enterpriseMembers.copy.active') : t('enterpriseMembers.copy.disabled')
-const statusClass = (member: EnterpriseMember) => member.deleted_at ? 'bg-stone-100 text-stone-500 dark:bg-white/5' : member.status === 'active' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300' : 'bg-rose-50 text-rose-700 dark:bg-rose-400/10 dark:text-rose-300'
+const memberNeedsAccessConfiguration = (member: EnterpriseMember) => !member.deleted_at && member.status === 'disabled' && member.group_ids.length === 0
+const statusLabel = (member: EnterpriseMember) => member.deleted_at ? t('enterpriseMembers.copy.archived') : memberNeedsAccessConfiguration(member) ? t('enterpriseMembers.copy.pendingConfiguration') : member.status === 'active' ? t('enterpriseMembers.copy.active') : t('enterpriseMembers.copy.disabled')
+const statusClass = (member: EnterpriseMember) => member.deleted_at ? 'bg-stone-100 text-stone-500 dark:bg-white/5' : memberNeedsAccessConfiguration(member) ? 'bg-amber-50 text-amber-700 dark:bg-amber-400/10 dark:text-amber-300' : member.status === 'active' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300' : 'bg-rose-50 text-rose-700 dark:bg-rose-400/10 dark:text-rose-300'
 
 onMounted(loadMembers)
 onBeforeUnmount(() => {
