@@ -39,6 +39,7 @@
 - Goals:
   - Make AI gateway usage observable at the right level: platform admin, enterprise owner, employee Key, group, model, and request.
   - Let enterprise owners manage durable, non-login member identities that may each own multiple API Keys.
+  - Let enterprise owners migrate external member identities, API Keys, current-period spending, and aggregate token baselines without requiring external systems to know sub2api group IDs.
   - Give each member one shared set of 5h, 1d, 7d, and calendar-month spending limits across all assigned Keys.
   - Preserve platform administrator-only visibility into upstream account cost, routing, and operational internals.
   - Keep future feature work grounded in small, reviewable slices that fit the dev-zz branch discipline.
@@ -96,6 +97,11 @@
 - Principle 4: Product language must describe owner intent before routing mechanics.
   - Say "成员可访问的分组" for delegation; present ordering as the routing priority of the selected subset.
   - Say "成员编号" for the immutable import/audit identity; do not expose the internal adjective "stable" as the field name.
+- Principle 5: External migration facts and sub2api authorization policy are separate inputs.
+  - Import files describe external identities, credentials, limits, and opening usage evidence.
+  - Group delegation is selected from the authenticated owner's current sub2api groups inside the import flow or a later batch action; public templates never require deployment-specific group IDs.
+  - Import policy version 2 treats the owner's in-product selection as authoritative even when it is empty; an empty selection means "暂不授权" and must never fall back to group IDs carried by a historical file. Policy version 1 alone preserves the legacy row-group behavior for already-created jobs.
+  - Members imported without a group policy remain disabled and are presented as "待配置" until an owner assigns at least one valid group and explicitly enables them.
 - Tradeoffs:
   - First versions may use raw `usage_logs` with strict date limits.
   - Add pre-aggregation only when a measured query path needs it.
@@ -119,6 +125,8 @@
 - Variants and states:
   - Every analytics panel needs loading, empty, error, and stale-data states.
   - Member limit editing shows limit and consumed amount together for 5h, 1d, 7d, and calendar month; consumed changes write system-attributed before/after audit evidence without requiring extra operator input.
+  - Enterprise member import is a guided flow: upload and authoritative preview, system-side access policy, confirmation, then one-click follow-up for any members left pending.
+  - Bulk member actions include ordered group replacement in addition to enable/disable. Group replacement must state that it overwrites the selected members' current routing policy and must never enable members implicitly.
   - Tables need compact numeric formatting with full values available in tooltip/title.
 - Token/component ownership:
   - Extend existing Tailwind utility style and local component patterns.
@@ -161,6 +169,7 @@
   - Use retryable panel errors; preserve filters and last successful context when possible.
 - Success:
   - Prefer quiet inline updates over toast spam for chart refreshes.
+  - Import success distinguishes created members, created Keys, migration opening usage, assigned access policy, and members still awaiting configuration.
 - Disabled:
   - Disabled controls should explain missing permissions or invalid filter combinations.
 - Offline/slow network:
@@ -197,6 +206,10 @@
   - Consumed-amount corrections must be auditable. Calendar-month corrections are immutable ledger deltas; window projections retain before/after evidence plus a stable system source and note.
   - Member creation may establish non-zero current-period usage for 5h/1d/7d/month without an extra reason field, while the backend commits the member, group bindings, opening ledger/projections, and system-attributed audit evidence atomically. Calendar-month opening usage is `migration_opening`, not fabricated request usage.
   - Member group delegation must reuse current group authorization semantics: public vs exclusive groups, `users.AllowedGroups`, subscription eligibility, and group fallback behavior.
+  - New public import templates omit group IDs. Historical CSV `groups` columns and XLSX `MemberGroups` sheets remain accepted for backward-compatible policy-version-1 jobs and are always server-authorized; policy-version-2 jobs use only the owner-selected system policy, including an intentionally empty selection.
+  - Imported monetary opening usage affects the current calendar-month budget through an immutable `migration_opening` ledger entry. Imported aggregate token values are immutable migration baselines and never fabricated into `usage_logs`.
+  - Import summaries expose migration baselines separately from native request facts; owner screens may present them side by side but must not silently merge them into request-log totals.
+  - Import files may use customer-facing aliases such as `用户名称`, `api key`, `消费金额`, `月限制金额`, and aggregate token headers; normalized server fields remain the stored authority.
   - Admin DTOs must not be reused for user-facing analytics if they include admin-only fields.
   - Owner tag analytics must not present repeated multi-tag attribution as a 100% cost split unless the API contract defines an explicit denominator.
   - Owner summary cards must distinguish selected-range historical aggregates from current realtime governance snapshots such as quota and rate-limit proximity.
