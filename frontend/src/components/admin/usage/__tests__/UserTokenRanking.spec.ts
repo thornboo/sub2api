@@ -78,4 +78,20 @@ describe('UserTokenRanking', () => {
     expect(getUserBreakdown).toHaveBeenCalledTimes(2)
     expect(getUserBreakdown).toHaveBeenLastCalledWith(expect.objectContaining({ user_id: 9 }))
   })
+
+  it('uses the current graphite and emerald visual language without legacy blue dark tokens', async () => {
+    const wrapper = mountRanking()
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="ranking-toolbar"]').classes()).toContain('dark:border-white/10')
+    expect(wrapper.get('[data-test="ranking-table"]').classes()).toContain('dark:divide-white/10')
+    expect(wrapper.get('[data-test="ranking-table-head"]').classes()).toContain('dark:bg-neutral-950')
+    expect(wrapper.get('[data-test="ranking-table-body"]').classes()).toContain('dark:bg-black/20')
+
+    const activeSortHeader = wrapper.findAll('[data-test="ranking-sort-header"]')
+      .find((header) => header.attributes('aria-sort') === 'descending')
+    expect(activeSortHeader?.classes()).toContain('dark:text-emerald-300')
+
+    expect(wrapper.html()).not.toMatch(/dark:(?:bg|border|divide|hover:bg|text)-dark-/)
+  })
 })
