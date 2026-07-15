@@ -2,6 +2,9 @@
 
 ## 2026-07-15
 
+- 增量同步上游 `main`（`d515c3045`）到 `dev-zz-develop`：吸收 Grok OAuth 池主动刷新 / 对账、OpenAI 首输出与 WebSocket 首消息超时、Chat 直接响应桥、Codex 工具流终止、调度 outbox latch 和 XAI URL 安全修复；继续保留企业成员路由、严格 Tool Search 契约、fork 镜像、`1.7.2` 版本线和 stone / emerald 视觉。
+- 管理端账号菜单新增静态凭据账号的幂等复制入口：复制配置、凭据和有序分组，重置用量 / 错误 / 限流等运行态并默认不可调度；OAuth、setup-token 和影子账号不允许复制。用户 Key 表新增默认隐藏的可排序 ID 列，且不削弱既有批量选择、标签和列偏好。
+- 网关新增根路径 `/models` 别名并保持企业成员授权链；OpenAI native Responses 首输出、high-effort 覆盖、WebSocket 首消息和 token refresh 池的并发 / QPS / 熔断 / 周期超时均改为显式配置，默认值保持原有行为或选择禁用。
 - 同步上游 `main`（`4355861ef`）到 `dev-zz-develop`：吸收 OpenAI Agent Identity、Codex models 跨账号重试、Grok SSO / 自动探测 / 凭据 failover、长上下文计费、系统日志 host、可选 Server-Timing、调度器增量刷新与请求取消修复；继续保留企业成员归因、owner / admin 隐私边界、`schedule_meta`、fork 镜像、`1.7.1` 版本线和 stone / emerald 视觉。
 - 普通用户用量响应同时展示成员归因与长上下文计费证据，但不返回上游账号 ID；系统日志 host 进入筛选、列表、清理确认和索引。上游新增 `174/175/176` 迁移按完整文件名与 dev-zz 同号迁移并存，不修改已应用迁移。
 - 企业账号新增独立“成员使用记录”入口，以成员筛选和成员排行作为一级交互，统一驱动统计、图表、请求明细与错误记录；Key 只作为明细来源展示，不提供 Key 维度切换或主筛选。原“使用记录”固定只展示企业账号普通 Key 请求，避免企业 owner 自用与成员用量混在同一模块。

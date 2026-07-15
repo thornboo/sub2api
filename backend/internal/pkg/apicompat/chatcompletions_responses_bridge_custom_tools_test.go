@@ -81,6 +81,31 @@ func TestResponsesRequestTools_SkipsStringInputItems(t *testing.T) {
 	assert.Equal(t, "exec", tools[0].Name)
 }
 
+func TestResponsesRequestTools_IgnoresMalformedToolsOnNonAdditionalItem(t *testing.T) {
+	req := &ResponsesRequest{
+		Input: json.RawMessage(`[
+			{"type":"message","role":"user","tools":"not-an-array","content":[{"type":"input_text","text":"hello"}]},
+			{"type":"additional_tools","tools":[{"type":"custom","name":"exec"}]}
+		]`),
+	}
+
+	tools, err := ResponsesRequestTools(req)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.Equal(t, "exec", tools[0].Name)
+}
+
+func TestResponsesRequestTools_RejectsMalformedAdditionalTools(t *testing.T) {
+	req := &ResponsesRequest{
+		Input: json.RawMessage(`[{"type":"additional_tools","tools":"not-an-array"}]`),
+	}
+
+	tools, err := ResponsesRequestTools(req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse responses additional_tools tools")
+	assert.Empty(t, tools)
+}
+
 func TestResponsesToChatCompletionsRequest_RejectsHostedToolsInsteadOfDroppingThem(t *testing.T) {
 	req := &ResponsesRequest{
 		Model: "glm-5.2",

@@ -1,5 +1,60 @@
 # 上游合并记录
 
+## 2026-07-15 - 增量合并上游 `main`：Grok OAuth 池、Chat bridge、账号复制与 Key ID
+
+分支：
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`3f605c354`
+- 合并前目标：`d4899ac77`
+- 上游 head：`d515c3045`
+- 结果提交：本次合并提交
+
+上游要点：
+- Grok OAuth 刷新改为分页候选、平台级并发 / QPS / 熔断与周期超时控制，新增 OAuth 账号对账、主动刷新、Free 缓存账号识别、函数工具缓存、vision 图片桥和通用账号刷新路由修复。
+- OpenAI / Codex 增加 native Responses 首输出超时、WebSocket 首消息超时、Messages 流错误事件、Codex 图片函数工具保留、Responses Lite 工具归一化，以及 Read tool 完整 / 不完整流的安全终止。
+- 新增 Anthropic Messages 与 Chat Completions 的直接转换桥；管理员可幂等复制静态凭据账号，复制结果保留配置和有序分组但重置运行态；账号复制重试按管理员作用域隔离。
+- `/models` 增加无 `/v1` 根路径别名；用户 Key 表新增默认隐藏、可排序的 ID 列；调度快照 outbox 在降级重建期间保持 latch，XAI OAuth 拒绝带不安全组件的 base URL。
+
+合并策略：
+- 合并前读取 `docs-site/dev-zz` 文档中心、分支策略、上游同步流程、补丁 / 变更记录、变更地图与验证矩阵；刷新 `origin/main`，并把无本地独有提交的 `main` 快进到 `d515c3045`。
+- 使用 `git merge-tree --write-tree --messages --name-only --merge-base "$(git merge-base HEAD origin/main)" HEAD origin/main` 只读预演，再执行 `git merge --no-commit origin/main`；预演和真实合并均得到同一组 7 个内容冲突。
+- 接受上游 Grok OAuth 池健康、Responses / WebSocket 超时、直接响应桥、账号复制、根路径 models、Key ID 与调度正确性修复；继续保留 dev-zz 企业成员路由、Tool Search / hosted-tool 无损契约、成本池测试桩、批量 Key / 标签能力、stone / emerald 视觉和 `1.7.2` 版本线。
+
+冲突文件：
+- `backend/cmd/server/VERSION`
+- `backend/internal/pkg/apicompat/chatcompletions_responses_bridge.go`
+- `backend/internal/pkg/apicompat/chatcompletions_responses_bridge_custom_tools_test.go`
+- `backend/internal/server/routes/gateway.go`
+- `backend/internal/service/openai_gateway_messages_chat_fallback.go`
+- `frontend/src/views/admin/__tests__/AccountsView.sparkShadow.spec.ts`
+- `frontend/src/views/user/KeysView.vue`
+
+解决说明：
+- `VERSION` 保留已发布 dev-zz `1.7.2`，不采用上游 `0.1.156`。
+- Responses → Chat 工具解析继续统一走 `BuildResponsesToolRegistry`，保留 deferred / namespace / tool_search 历史身份和 hosted-tool capability mismatch；吸收上游“非载体字段不误解析、畸形 additional_tools 明确失败”的回归测试，不引入功能更弱的平行 `EffectiveResponsesTools`。
+- Messages 的请求侧继续保留 Anthropic → Responses → Chat 链，以维持 dev-zz prompt cache、replay guard、Fast/Flex 和工具注册策略；响应侧采用上游 Chat → Anthropic 单状态机，减少每个流式 chunk 的重复转换，并适配 dev-zz `scanCCStream` 的可失败回调合同。
+- 完整 unit 闸门发现直接 Chat → Anthropic 状态机未继承 dev-zz 的工具参数资源上限；现与 Responses 桥统一执行单调用 16 MiB、单响应 32 MiB 限制，超限发送标准 Anthropic `event: error`、停止读取上游并禁止正常 `message_stop` 收尾。
+- `/v1/models` 和 `/models` 复用同一个企业成员分组编排 handler；根路径别名补齐成员分组解析、预算保护和 fallback 中间件，不能绕开成员授权。
+- 账号页测试同时保留上游成本池接口桩和上游新增的账号复制桩；Key 表同时保留批量选择、标签列和新增 ID 列，ID 默认隐藏并使用 stone 色板。
+- 后端全包编译发现两个 dev-zz 既有测试未跟随 `NewAccountHandler` 新增依赖参数，补齐显式 `nil`；同时清理一个上游测试文件尾部多余空行，使 `git diff --check` 恢复干净。
+
+验证：
+- `mise x -C backend -- go test ./... -run '^$' -count=1`
+- `mise x -C backend -- go test ./internal/pkg/apicompat ./internal/server/routes ./internal/service`
+- `make -C backend test-unit`
+- `mise x -C backend -- golangci-lint run --timeout=30m`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run`（192 个测试文件、1288 个测试通过）
+- `pnpm --dir frontend build`
+- `pnpm --dir docs-site docs:build`
+- `git diff --check`、`git diff --cached --check`、未合并索引与冲突标记扫描。
+
+未验证：
+- 浏览器人工 smoke。
+- Docker / testcontainers 集成测试。
+
 ## 2026-07-15 - 将上游 `main` 合并到 `dev-zz-develop`：Agent Identity、Grok 运行时、长上下文计费与 Ops 可观测性合流
 
 分支：

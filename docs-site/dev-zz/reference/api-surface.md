@@ -2,6 +2,15 @@
 
 这页只记录 dev-zz 新增或语义有差异的接口。上游通用接口仍以项目源码和 `docs/` 兼容文档为准。
 
+## 管理端账号复制与 Grok OAuth 对账
+
+| 方法 | 路径 | 用途 | 关键语义 |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/admin/accounts/:id/duplicate` | 复制静态凭据账号 | 要求 `Idempotency-Key`；复制配置、凭据和有序分组，重置运行态并默认不可调度；重复请求按管理员作用域返回同一结果 |
+| `POST` | `/api/v1/admin/grok/oauth/reconcile` | 对账 Grok OAuth 账号 | 触发 Grok OAuth 账号状态 / 凭据协调；仅管理员可用 |
+
+账号复制只允许 `apikey`、`upstream`、`bedrock` 和 `service_account` 等静态凭据类型。OAuth、setup-token、未知旧凭据类型以及带 `parent_account_id` 的影子账号会被拒绝，避免复制共享 refresh token 或凭据池身份。复制不会继承错误、限流、过载、临时不可调度、会话窗口、用量投影、被动探测和 CRS 远端绑定等运行态。
+
 ## 用户侧 API Key
 
 所有 `/api/v1/keys/*` 接口都要求登录用户身份，并且只能操作当前用户自己的 Key。

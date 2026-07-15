@@ -1,5 +1,31 @@
 # 补丁记录
 
+## 2026-07-15 - 上游 main 增量同步：Grok OAuth 池、Chat bridge、账号复制与 Key ID
+
+实现：
+- 合并 `origin/main@d515c3045` 的 52 个提交，覆盖 Grok OAuth refresh pool / reconcile / Free cache、OpenAI 首输出与 WebSocket 首消息超时、Codex / Responses 工具兼容、调度 outbox latch、XAI URL 校验、账号复制、根路径 models 和 Key ID 列。
+- 管理员账号复制采用 `Idempotency-Key`、管理员作用域 operation key 与原子“账号 + 有序分组”写入；只允许静态凭据类型，复制后清理运行态、配额投影和远端绑定证据并默认不可调度。
+- Messages Chat fallback 保留 dev-zz 请求侧 Responses 工具 / 策略链，响应侧吸收上游直接 Chat → Anthropic 转换；畸形 additional_tools 继续 fail closed，hosted/server-only 工具不得静默丢弃。
+- 直接 Chat → Anthropic 流式状态机与 Responses 桥共享工具参数资源边界：单调用最多 16 MiB、单响应最多 32 MiB；超限立即输出 Anthropic error 事件并停止读取，不得伪装为正常完成。
+- `/v1/models` 与 `/models` 复用同一个成员分组编排 handler；Key ID 作为可选列接入现有列偏好版本 3，默认隐藏且遵循 stone 视觉。
+
+冲突与兼容：
+- 7 个内容冲突逐项合并，没有数据库迁移冲突；`VERSION` 保留 `1.7.2`。
+- 保留企业成员分组 / 预算 / fallback、Key 批量选择与标签、账号成本池测试桩；吸收账号复制、ID 列和上游工具解析测试。
+- 合并后补齐两个 `NewAccountHandler` 测试调用的新依赖占位，避免只在全包编译或 CI 中暴露构造函数错位。
+
+验证：
+- `mise x -C backend -- go test ./... -run '^$' -count=1`
+- `mise x -C backend -- go test ./internal/pkg/apicompat ./internal/server/routes ./internal/service`
+- `make -C backend test-unit`
+- `mise x -C backend -- golangci-lint run --timeout=30m`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run`（192 文件、1288 测试通过）
+- `pnpm --dir frontend build`
+- `pnpm --dir docs-site docs:build`
+- `git diff --check`、冲突标记扫描。
+
 ## 2026-07-13 - 管理端使用记录稳定渲染
 
 范围：
