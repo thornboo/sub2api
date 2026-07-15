@@ -772,7 +772,7 @@ func newUpstreamRechargeAdmin(t *testing.T) upstreamRechargeAdmin {
 
 func newUpstreamRechargeAdminWithCache(t *testing.T, cache svc.SchedulerCache) upstreamRechargeAdmin {
 	t.Helper()
-	accountRepo := repository.NewAccountRepository(serviceIntegrationEntClient, serviceIntegrationDB, cache)
+	accountRepo := repository.NewAdminAccountRepository(serviceIntegrationEntClient, serviceIntegrationDB, cache)
 	adminService := svc.NewAdminService(
 		nil,
 		nil,
@@ -787,6 +787,7 @@ func newUpstreamRechargeAdminWithCache(t *testing.T, cache svc.SchedulerCache) u
 		nil,
 		nil,
 		serviceIntegrationEntClient,
+		nil,
 		nil,
 		nil,
 		nil,
@@ -813,7 +814,7 @@ func bindUpstreamRechargeAccount(t *testing.T, admin upstreamRechargeAdmin, acco
 
 func newUpstreamSupplierBindingAdmin(t *testing.T) upstreamSupplierBindingAdmin {
 	t.Helper()
-	accountRepo := repository.NewAccountRepository(serviceIntegrationEntClient, serviceIntegrationDB, nil)
+	accountRepo := repository.NewAdminAccountRepository(serviceIntegrationEntClient, serviceIntegrationDB, nil)
 	adminService := svc.NewAdminService(
 		nil,
 		nil,
@@ -833,6 +834,7 @@ func newUpstreamSupplierBindingAdmin(t *testing.T) upstreamSupplierBindingAdmin 
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 	admin, ok := adminService.(upstreamSupplierBindingAdmin)
 	require.True(t, ok)
@@ -841,11 +843,11 @@ func newUpstreamSupplierBindingAdmin(t *testing.T) upstreamSupplierBindingAdmin 
 
 func newUpstreamSupplierAdmin(t *testing.T) upstreamSupplierAdmin {
 	t.Helper()
-	accountRepo := repository.NewAccountRepository(serviceIntegrationEntClient, serviceIntegrationDB, nil)
+	accountRepo := repository.NewAdminAccountRepository(serviceIntegrationEntClient, serviceIntegrationDB, nil)
 	adminService := svc.NewAdminService(
 		nil, nil, accountRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		serviceIntegrationEntClient,
-		nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil,
 	)
 	admin, ok := adminService.(upstreamSupplierAdmin)
 	require.True(t, ok)
