@@ -53,6 +53,7 @@ const filters = reactive({
   time_range: '1h' as '5m' | '30m' | '1h' | '6h' | '24h' | '7d' | '30d',
   start_time: '',
   end_time: '',
+  host: '',
   level: '',
   component: '',
   request_id: '',
@@ -213,6 +214,7 @@ const buildQuery = () => {
   }
   if (filters.start_time) query.start_time = toRFC3339(filters.start_time)
   if (filters.end_time) query.end_time = toRFC3339(filters.end_time)
+  if (filters.host.trim()) query.host = filters.host.trim()
   if (filters.level.trim()) query.level = filters.level.trim()
   if (filters.component.trim()) query.component = filters.component.trim()
   if (filters.request_id.trim()) query.request_id = filters.request_id.trim()
@@ -240,6 +242,7 @@ const buildCleanupPayload = () => {
   const payload: OpsSystemLogCleanupRequest = {
     start_time: range.start_time,
     end_time: range.end_time,
+    host: filters.host.trim() || undefined,
     level: filters.level.trim() || undefined,
     component: filters.component.trim() || undefined,
     request_id: filters.request_id.trim() || undefined,
@@ -256,6 +259,7 @@ const buildCleanupPayload = () => {
     { label: '时间范围', value: range.label }
   ]
   if (payload.level) summary.push({ label: '级别', value: payload.level })
+  if (payload.host) summary.push({ label: t('admin.ops.systemLogs.host'), value: payload.host })
   if (payload.component) summary.push({ label: '组件', value: payload.component })
   if (payload.request_id) summary.push({ label: 'request_id', value: payload.request_id })
   if (payload.client_request_id) summary.push({ label: 'client_request_id', value: payload.client_request_id })
@@ -382,6 +386,7 @@ const resetFilters = () => {
   filters.time_range = '1h'
   filters.start_time = ''
   filters.end_time = ''
+  filters.host = ''
   filters.level = ''
   filters.component = ''
   filters.request_id = ''
@@ -524,6 +529,10 @@ onMounted(async () => {
         <input v-model="filters.component" type="text" class="input mt-1" :placeholder="t('admin.ops.systemLogs.componentPlaceholder')" />
       </label>
       <label class="text-xs text-stone-600 dark:text-neutral-300">
+        {{ t('admin.ops.systemLogs.host') }}
+        <input v-model="filters.host" type="text" class="input mt-1" />
+      </label>
+      <label class="text-xs text-stone-600 dark:text-neutral-300">
         request_id
         <input v-model="filters.request_id" type="text" class="input mt-1" />
       </label>
@@ -572,6 +581,7 @@ onMounted(async () => {
           <thead class="bg-stone-50/90 dark:bg-neutral-950">
             <tr>
               <th class="w-[170px] px-3 py-2 text-left text-[11px] font-semibold text-stone-500">{{ t('admin.ops.systemLogs.time') }}</th>
+              <th class="w-[160px] px-3 py-2 text-left text-[11px] font-semibold text-stone-500">{{ t('admin.ops.systemLogs.host') }}</th>
               <th class="w-[80px] px-3 py-2 text-left text-[11px] font-semibold text-stone-500">{{ t('admin.ops.systemLogs.level') }}</th>
               <th class="px-3 py-2 text-left text-[11px] font-semibold text-stone-500">{{ t('admin.ops.systemLogs.logDetails') }}</th>
             </tr>
@@ -579,6 +589,9 @@ onMounted(async () => {
           <tbody class="divide-y divide-stone-200/70 dark:divide-white/10">
             <tr v-for="row in logs" :key="row.id" class="align-top">
               <td class="px-3 py-2 text-xs text-stone-700 dark:text-neutral-300">{{ formatTime(row.created_at) }}</td>
+              <td class="px-3 py-2 text-xs text-stone-700 dark:text-neutral-300">
+                <span class="block truncate" :title="row.host || '-'">{{ row.host || '-' }}</span>
+              </td>
               <td class="px-3 py-2 text-xs">
                 <span class="inline-flex rounded-full px-2 py-0.5 font-semibold" :class="levelBadgeClass(row.level)">
                   {{ row.level }}

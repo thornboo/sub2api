@@ -1,5 +1,82 @@
 # 上游合并记录
 
+## 2026-07-15 - 将上游 `main` 合并到 `dev-zz-develop`：Agent Identity、Grok 运行时、长上下文计费与 Ops 可观测性合流
+
+分支：
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`7d239d62`
+- 合并前目标：`9934b830`
+- 上游 head：`4355861e`
+- 结果提交：本次合并提交
+
+上游要点：
+- OpenAI 新增 Agent Identity 认证与任务失效恢复，Codex models manifest 支持跨账号重试，并补齐 Responses namespace、WebSocket / HTTP bridge、图片生成和请求取消边界。
+- Grok 新增 SSO device OAuth、导入后自动探测、渠道监控、滚动 24h 免费额度估算、凭据级 failover、上游 URL 归一化和图片 / 视频实际计费修复。
+- OpenAI 账号新增可选长上下文计费，usage log 保存是否应用长上下文倍率；账号创建 / 编辑和管理端用量表展示对应配置与证据。
+- 系统日志新增 `host` 持久化、筛选、清理条件与索引；管理员 UI 请求可选输出 `Server-Timing`，并新增 SQL / Redis timing 汇总。
+- 调度器吸收 auto-pause / proxy expiry 增量刷新、pending lag / rebuild coalescing、请求取消感知 failover 和账号投影性能修复。
+- 管理端分组列表新增可选 ID 列，账号页补充 OpenAI 认证模式；内容审核、Ops 队列投影与 content seed 扫描获得热路径优化。
+
+合并策略：
+- 合并前完整阅读 `docs-site/dev-zz` 分支政策、补丁记录、变更地图、配置 / API 索引、验证矩阵与历史 merge-log，并刷新 `origin/main`。
+- 使用 `git merge-tree --write-tree --messages --name-only --merge-base "$(git merge-base HEAD origin/main)" HEAD origin/main` 只读预演，再用 `git merge --no-commit origin/main` 展开真实合并；预演与实际均得到同一组 20 个内容冲突。
+- 接受上游 Agent Identity、Grok、长上下文计费、Server-Timing、系统日志 host、调度器和网关正确性修复；保留 dev-zz 企业成员归因、owner / admin 隐私边界、`schedule_meta`、fork 镜像、`1.7.1` 版本线和 stone / emerald 视觉。
+- Ent 生成文件不手工维持冲突结果：先合成 `UsageLog` schema 的成员字段与 `long_context_billing_applied`，再执行 `go generate ./ent` 重新生成。
+
+冲突文件：
+- `backend/cmd/server/VERSION`
+- `backend/ent/migrate/schema.go`
+- `backend/ent/mutation.go`
+- `backend/ent/runtime/runtime.go`
+- `backend/internal/handler/admin/ops_handler.go`
+- `backend/internal/handler/dto/credentials_redact_test.go`
+- `backend/internal/handler/dto/mappers.go`
+- `backend/internal/handler/gateway_handler_chat_completions.go`
+- `backend/internal/handler/grok_media.go`
+- `backend/internal/handler/openai_codex_models_handler.go`
+- `backend/internal/handler/openai_gateway_handler.go`
+- `backend/internal/repository/account_repo.go`
+- `backend/internal/repository/usage_log_repo_insert.go`
+- `backend/internal/repository/usage_log_repo_query.go`
+- `backend/internal/service/ops_models.go`
+- `deploy/.env.example`
+- `frontend/src/components/account/CreateAccountModal.vue`
+- `frontend/src/components/account/__tests__/EditAccountModal.spec.ts`
+- `frontend/src/components/admin/usage/UsageTable.vue`
+- `frontend/src/views/admin/ops/components/OpsSystemLogTable.vue`
+
+解决说明：
+- `VERSION` 保留 dev-zz `1.7.1`，不采用上游 `0.1.155`；部署示例同时保留 `SUB2API_IMAGE=thornboo/sub2api:latest` 和新增 `ENABLE_SERVER_TIMING=false`。
+- 用量写入 / 查询同时保留成员 ID、成员编号 / 名称快照、`schedule_meta` 与上游 `long_context_billing_applied`；单条、批量和 best-effort SQL 的 58 个参数及扫描顺序统一维护。
+- 普通用户用量 DTO 保留成员归因和长上下文证据，但继续不返回 `account_id`；管理员 DTO 仍保留完整调度调查字段。
+- Ops provider-health 默认同时读取 `upstream` / `account_auth` 和 recovered 行，用户请求错误接口仍受 `status>=400` 与 owner/member 范围约束；`StatusCodesExclude` 继续保留。
+- Responses / Chat Completions / Codex models / Grok media 同时保留 dev-zz group failover 证据、capability mismatch 换号、WebSocket turn 预算与持久化异步任务账号，并吸收上游取消感知、凭据错误脱敏、Retry-After 和 OAuth 429 failover 边界。
+- 账号调度快照同时保留成本池显式刷新接口和上游脱离请求取消的短超时刷新，避免请求结束后丢失状态传播。
+- 系统日志 UI 保留 dev-zz 确认弹窗与 stone 视觉，并把 host 纳入列表、查询、清理 payload 和确认摘要；账号长上下文开关同步改用 stone / emerald 样式。
+- `origin/main@4355861e` 的 `openai_gateway_messages.go` 使用 `xai.ParseQuotaHeaders` 却漏导入 `internal/pkg/xai`，合并后编译闸门实证失败；本次同步补入 import，避免把已知上游红灯带入 dev-zz。
+- 上游新增的 failover 单元测试按 dev-zz 扩展后的 gateway handler 构造函数补齐企业成员预算服务与 Grok 任务仓储占位参数；Ops 参数契约测试同步按成员归因新增的 3 列校验 44 参数及正确索引。
+- 系统日志清理测试改为验证 ConfirmDialog 的显式确认契约，不再依赖已经移除的 `window.confirm`。
+- 上游 `174/175/176` 迁移与 dev-zz 同号文件按完整文件名并存，不修改任何已应用迁移。
+
+验证：
+- `go generate ./ent`
+- `go test ./... -run '^$' -count=1`
+- `go test ./internal/service ./internal/handler ./internal/repository ./internal/server -run '^$' -count=1`
+- `make -C backend test-unit`
+- `golangci-lint run --timeout=30m`（`backend`）
+- `go test -tags=integration -c -o /tmp/sub2api-repository-integration.test ./internal/repository`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run`（190 个测试文件、1223 个测试通过）
+- `pnpm --dir frontend build`
+- `pnpm --dir docs-site docs:build`
+- `git diff --check`、`git diff --cached --check`、未合并索引和冲突标记扫描。
+
+未验证：
+- 浏览器人工 smoke。
+- Docker / testcontainers 集成测试。
+
 这里记录二开分支吸收上游变更的同步工作。
 
 ## 2026-07-13 - `bee874106` 合并后 Codex 套餐限流语义复审修复

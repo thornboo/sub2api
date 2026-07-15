@@ -51,6 +51,57 @@
           </nav>
         </div>
 
+        <!-- Codex Authentication Mode -->
+        <div
+          v-if="showCodexAuthMode"
+          class="rounded-lg border border-gray-200 p-3 dark:border-dark-700"
+        >
+          <div class="mb-2">
+            <p class="text-sm font-medium text-gray-900 dark:text-white">
+              {{ t('keys.useKeyModal.openai.authModeTitle') }}
+            </p>
+            <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('keys.useKeyModal.openai.authModeDescription') }}
+            </p>
+          </div>
+          <div
+            class="grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1 dark:bg-dark-700"
+            role="radiogroup"
+            :aria-label="t('keys.useKeyModal.openai.authModeTitle')"
+          >
+            <button
+              type="button"
+              role="radio"
+              data-testid="codex-auth-mode-legacy"
+              :aria-checked="codexAuthMode === 'legacy'"
+              :class="[
+                'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                codexAuthMode === 'legacy'
+                  ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+              ]"
+              @click="codexAuthMode = 'legacy'"
+            >
+              {{ t('keys.useKeyModal.openai.authModeLegacy') }}
+            </button>
+            <button
+              type="button"
+              role="radio"
+              data-testid="codex-auth-mode-api-key"
+              :aria-checked="codexAuthMode === 'api-key'"
+              :class="[
+                'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                codexAuthMode === 'api-key'
+                  ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+              ]"
+              @click="codexAuthMode = 'api-key'"
+            >
+              {{ t('keys.useKeyModal.openai.authModeApiKey') }}
+            </button>
+          </div>
+        </div>
+
         <!-- OS/Shell Tabs -->
         <div v-if="showShellTabs">
           <nav
@@ -180,6 +231,8 @@ const { copyToClipboard: clipboardCopy } = useClipboard()
 const copiedIndex = ref<number | null>(null)
 const activeTab = ref<string>('unix')
 const activeClientTab = ref<string>('claude')
+type CodexAuthMode = 'legacy' | 'api-key'
+const codexAuthMode = ref<CodexAuthMode>('legacy')
 
 const tabButtonClass = (active: boolean) => [
   'whitespace-nowrap rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300/70',
@@ -214,7 +267,14 @@ const defaultClientTab = computed(() => {
 watch(() => props.platform, () => {
   activeTab.value = 'unix'
   activeClientTab.value = defaultClientTab.value
+  codexAuthMode.value = 'legacy'
 }, { immediate: true })
+
+watch(() => props.show, (show) => {
+  if (show) {
+    codexAuthMode.value = 'legacy'
+  }
+})
 
 // Reset shell tab when client changes
 watch(activeClientTab, () => {
@@ -336,6 +396,11 @@ const openaiTabs: TabConfig[] = [
 ]
 
 const showShellTabs = computed(() => activeClientTab.value !== 'opencode')
+
+const showCodexAuthMode = computed(() =>
+  props.platform === 'openai' &&
+  (activeClientTab.value === 'codex' || activeClientTab.value === 'codex-ws')
+)
 
 const currentTabs = computed(() => {
   if (!showShellTabs.value) return []
@@ -581,7 +646,7 @@ windows_wsl_setup_acknowledged = true
 name = "OpenAI"
 base_url = "${baseUrl}"
 wire_api = "responses"
-requires_openai_auth = true
+${generateCodexProviderAuthConfig()}
 
 [features]
 goals = true`
@@ -602,6 +667,15 @@ goals = true`
       content: authContent
     }
   ]
+}
+
+function generateCodexProviderAuthConfig(): string {
+  if (codexAuthMode.value === 'api-key') {
+    return `requires_openai_auth = false
+http_headers = { "x-openai-actor-authorization" = "local-image-extension" }`
+  }
+
+  return 'requires_openai_auth = true'
 }
 
 function generateGrokFiles(baseUrl: string, apiKey: string): FileConfig[] {
@@ -646,7 +720,7 @@ name = "OpenAI"
 base_url = "${baseUrl}"
 wire_api = "responses"
 supports_websockets = true
-requires_openai_auth = true
+${generateCodexProviderAuthConfig()}
 
 [features]
 responses_websockets_v2 = true
