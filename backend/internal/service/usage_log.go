@@ -195,6 +195,23 @@ type UsageLog struct {
 	Subscription *UserSubscription
 }
 
+// applyAPIKeyUsageAttribution copies the immutable enterprise-member identity
+// snapshot carried by the API key onto a usage fact. Keeping this in one helper
+// prevents provider-specific recorders from drifting away from the generic
+// gateway path.
+func applyAPIKeyUsageAttribution(log *UsageLog, apiKey *APIKey) {
+	if log == nil || apiKey == nil || apiKey.MemberID == nil {
+		return
+	}
+
+	log.MemberID = apiKey.MemberID
+	if apiKey.Member == nil {
+		return
+	}
+	log.MemberCodeSnapshot = optionalTrimmedStringPtr(apiKey.Member.MemberCode)
+	log.MemberNameSnapshot = optionalTrimmedStringPtr(apiKey.Member.Name)
+}
+
 type UsageScheduleMeta struct {
 	Provider            string  `json:"provider,omitempty"`
 	Layer               string  `json:"layer,omitempty"`

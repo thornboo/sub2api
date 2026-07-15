@@ -112,6 +112,19 @@ func TestUsageLogSyncRequestTypeAndLegacyFieldsNilReceiver(t *testing.T) {
 	log.SyncRequestTypeAndLegacyFields()
 }
 
+func TestApplyAPIKeyUsageAttributionKeepsMemberIDWithoutLoadedSnapshot(t *testing.T) {
+	t.Parallel()
+
+	memberID := int64(42)
+	log := &UsageLog{}
+	applyAPIKeyUsageAttribution(log, &APIKey{MemberID: &memberID})
+
+	require.NotNil(t, log.MemberID)
+	require.Equal(t, memberID, *log.MemberID)
+	require.Nil(t, log.MemberCodeSnapshot)
+	require.Nil(t, log.MemberNameSnapshot)
+}
+
 func TestUsageScheduleMetaFromOpenAIDecision(t *testing.T) {
 	t.Parallel()
 

@@ -28,3 +28,18 @@ func TestOpsErrorMemberTimeIndexUsesNonTransactionalConcurrentMigration(t *testi
 	require.Contains(t, sql, "ON ops_error_logs (user_id, member_id, created_at DESC)")
 	require.Contains(t, sql, "WHERE user_id IS NOT NULL AND member_id IS NOT NULL")
 }
+
+func TestUsageMemberAttributionBackfillRequiresImmutableBudgetEvidence(t *testing.T) {
+	content, err := FS.ReadFile("187_backfill_enterprise_member_usage_attribution.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	require.Contains(t, sql, "entry.kind = 'usage'")
+	require.Contains(t, sql, "entry.usage_log_id IS NULL")
+	require.Contains(t, sql, "entry.member_id = key.member_id")
+	require.Contains(t, sql, "usage.user_id = key.user_id")
+	require.Contains(t, sql, "entry.request_id = usage.api_key_id::text || ':' || usage.request_id")
+	require.NotContains(t, sql, "member_name_snapshot =")
+	require.NotContains(t, sql, "member_code_snapshot =")
+	require.NotContains(t, sql, "enterprise_member_audit_logs")
+}

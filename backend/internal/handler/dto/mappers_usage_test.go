@@ -177,6 +177,7 @@ func TestUsageLogFromService_KeepsUserBillingAndIPWithoutAdminCostFields(t *test
 	log := &service.UsageLog{
 		RequestID:             "req_user_visible_billing",
 		Model:                 "gpt-5.4",
+		AccountID:             42,
 		InputCost:             0.01,
 		OutputCost:            0.02,
 		CacheCreationCost:     0.03,
@@ -205,6 +206,11 @@ func TestUsageLogFromService_KeepsUserBillingAndIPWithoutAdminCostFields(t *test
 	require.NotContains(t, string(userJSON), "account_rate_multiplier")
 	require.NotContains(t, string(userJSON), "account_stats_cost")
 	require.NotContains(t, string(userJSON), "account_cost")
+	require.NotContains(t, string(userJSON), "account_id")
+
+	adminJSON, err := json.Marshal(UsageLogFromServiceAdmin(log))
+	require.NoError(t, err)
+	require.Contains(t, string(adminJSON), `"account_id":42`)
 }
 
 func TestUsageLogFromService_FallsBackToLegacyModelWhenRequestedModelMissing(t *testing.T) {

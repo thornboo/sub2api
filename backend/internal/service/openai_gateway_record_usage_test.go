@@ -2631,6 +2631,46 @@ func TestRecordUsageMarksCyberRequestType(t *testing.T) {
 	require.Equal(t, 100, logStub.lastLog.InputTokens, "计费 token 不变(正常计费)")
 }
 
+func TestRecordUsageAttributesEnterpriseMemberFromAPIKey(t *testing.T) {
+	logStub := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newOpenAIRecordUsageServiceForTest(
+		logStub,
+		&openAIRecordUsageUserRepoStub{},
+		&openAIRecordUsageSubRepoStub{},
+		&openAIUserGroupRateRepoStub{},
+	)
+	memberID := int64(42)
+
+	in := &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			Model:    "gpt-5",
+			Duration: time.Second,
+			Usage:    OpenAIUsage{InputTokens: 100, OutputTokens: 20},
+		},
+		APIKey: &APIKey{
+			ID:       2,
+			MemberID: &memberID,
+			Member: &EnterpriseMember{
+				ID:         memberID,
+				MemberCode: " finance-01 ",
+				Name:       " Finance ",
+			},
+			Group: &Group{RateMultiplier: 1},
+		},
+		User:    &User{ID: 1},
+		Account: &Account{ID: 3},
+	}
+
+	require.NoError(t, svc.RecordUsage(context.Background(), in))
+	require.NotNil(t, logStub.lastLog)
+	require.NotNil(t, logStub.lastLog.MemberID)
+	require.NotNil(t, logStub.lastLog.MemberCodeSnapshot)
+	require.NotNil(t, logStub.lastLog.MemberNameSnapshot)
+	require.Equal(t, memberID, *logStub.lastLog.MemberID)
+	require.Equal(t, "finance-01", *logStub.lastLog.MemberCodeSnapshot)
+	require.Equal(t, "Finance", *logStub.lastLog.MemberNameSnapshot)
+}
+
 func TestGatewayServiceCalculateRecordUsageCost_ChannelImageBillingNormalizesMissingSizeTier(t *testing.T) {
 	groupID := int64(128)
 	defaultPrice := 0.10

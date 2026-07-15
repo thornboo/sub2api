@@ -944,11 +944,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		SubscriptionID:        optionalSubscriptionID(subscription),
 		CreatedAt:             time.Now(),
 	}
-	if apiKey.MemberID != nil && apiKey.Member != nil {
-		usageLog.MemberID = apiKey.MemberID
-		usageLog.MemberCodeSnapshot = optionalTrimmedStringPtr(apiKey.Member.MemberCode)
-		usageLog.MemberNameSnapshot = optionalTrimmedStringPtr(apiKey.Member.Name)
-	}
+	applyAPIKeyUsageAttribution(usageLog, apiKey)
 	if result.ImageCount > 0 && (cost == nil || cost.BillingMode != string(BillingModeToken)) {
 		usageLog.RateMultiplier = imageMultiplier
 	}
