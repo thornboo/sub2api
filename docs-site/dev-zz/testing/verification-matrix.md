@@ -45,6 +45,10 @@
 | 普通 Key 显式迁移事务 | `cd backend && go test ./internal/repository -run 'TestEnterpriseMemberRepositoryAdoptKey' -count=1` |
 | 成员请求记录字段隔离 | `cd backend && go test ./internal/repository -run 'TestEnterpriseMemberRepositoryListUsageRecords' -count=1` |
 | 成员多窗口限额预留与无预留结算拒绝 | `cd backend && go test ./internal/repository -run 'TestReserveEnterpriseMemberSpendingLimits\|TestSettleEnterpriseMemberBudgetRejectsRateLimitedMemberWithoutReservation' -count=1` |
+| 成员 usage/计费原子写入、outbox 重放和载荷脱敏 | `cd backend && go test -tags=unit ./internal/repository -run 'TestUsageBillingRepositoryApply_\|TestUsageBillingRepositoryReplayPendingSettlement\|TestEnterpriseMemberSettlementPayloadExcludesHydratedSecrets' -count=1` |
+| 请求回执、核对元数据与 settlement outbox 迁移合同 | `cd backend && go test ./migrations -run 'TestEnterpriseMember(RequestReceipt\|ReceiptReconciliationMetadata\|UsageSettlementOutbox)Migration' -count=1` |
+| WebSocket 上游结果不明时禁止重放并保留成员预算 | `cd backend && go test -tags=unit ./internal/service -run 'TestOpenAIGatewayService_(ProxyResponsesWebSocketFromClient_(WriteOutcomeUnknownDoesNotRetry\|PreviousResponseNotFoundRecoversByDroppingPrevID\|PassthroughUnknownOutcomeMarksBudgetAmbiguous)\|Forward_WSv2(StreamEarlyCloseMarksOutcomeUnknown\|CloseAfterDispatchDoesNotReplay))' -count=1` |
+| Batch image 提交结果不明时保留 hold、禁止重提与退款 | `cd backend && go test -tags=unit ./internal/service -run 'Test(GeminiProvider_CreateBatch\|VertexProvider_CreateBatch\|BatchImagePublicService_Submit\|BatchImageBillingRecoveryService_\|CanTransitionBatchImageJob)' -count=1` |
 | 企业成员 zh/en 文案键和页面引用 | `pnpm --dir frontend exec vitest run src/i18n/__tests__/enterpriseMembersLocales.spec.ts` |
 | 企业成员控制台布局和交互入口 | `pnpm --dir frontend exec vitest run src/views/user/__tests__/EnterpriseMembersView.layout.spec.ts` |
 
@@ -59,6 +63,8 @@
 - 归档可见性必须是共享 Select 的成员范围筛选，不使用眼睛按钮；仅“包含已归档”时状态筛选才出现“已归档”，切回“仅当前成员”必须清除归档状态并重新加载，不能留下无结果的互斥组合。
 - 旧 worker 租约被接管后，其迟到 commit 和失败回写都不得改变新 worker 的 job；跨实例缓存测试必须先证明远端 L1 确实持有旧快照，再证明 Pub/Sub 后读到新状态。
 - 单次续租错误不得立即中断仍在有效租约内的任务；确认失租或持续错误超过租约期限后必须取消处理，并由 commit fencing 防止迟到写入。
+- 上游已经成功但本地 usage/统一计费事务失败时，必须留下可重放 outbox 并保持预算回执不释放；outbox payload 不得包含 API Key 明文或水合上游账号对象。
+- Batch image 已完成外部工作后，结算重试耗尽只能进入保留 hold 的低频恢复状态，不得标记普通失败或退款。
 - Redis 重启测试必须先观察真实 outage，再等待 `PUBSUB NUMSUB` 证明订阅恢复，最后只发布一次失效消息；PostgreSQL 故障测试必须在 `pg_stat_activity` 证明事务正在执行成员 INSERT 时终止连接。
 
 ## 用量分析
