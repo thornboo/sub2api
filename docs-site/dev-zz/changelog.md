@@ -2,6 +2,8 @@
 
 ## 2026-07-16
 
+- 发布 v1.7.3：在 v1.7.2 基础上补齐企业成员请求回执、结算 outbox 与结果不明保护，避免成员请求归因丢失、重复执行或 Batch image 在上游结果未知时被错误退款；同时吸收截至 `eb2b8632d` 的上游账号、计费、Grok 和 Agent Identity 更新。
+- 发布前修复上游 `NewAdminService` 构造契约变化造成的 integration fixture 漂移：测试改用与生产 wiring 一致的管理型账号仓储并补齐返佣服务依赖，完整 integration、CI、Security Scan 和正式分支镜像门禁均以精确发布候选提交为准。
 - 增量同步上游 `main`（`eb2b8632d`）到 `dev-zz-develop`：吸收 Grok 自定义上游地址 / 请求头覆写、OpenAI Agent Identity 独立导入与 Codex 能力、订阅套餐币种、管理员充值返佣设置和 locale 消息编译保护；继续保留企业成员路由 / 预算 / 归因、owner / admin 数据边界、`1.7.2` 版本线和 stone / emerald 视觉。
 - Grok OAuth 官方地址保持可信端点，自定义地址受全局出站 URL 安全策略约束，认证头和会话路由头不得覆写；账号创建、编辑与批量编辑共用请求头 JSON 导入 / 复制工具。新增订阅币种迁移与企业成员同号 `177` 迁移按完整文件名并存，不修改既有迁移。
 - 修复上游 locale 编译契约测试缺少直接依赖的问题：显式声明 `@intlify/message-compiler@9.14.5`，确保 pnpm 严格依赖环境可运行；新账号控件同步使用 dev-zz 色板并补齐开关无障碍状态。

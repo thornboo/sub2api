@@ -1,5 +1,23 @@
 # 补丁记录
 
+## 2026-07-16 - v1.7.3 企业成员可靠性与上游同步发布
+
+发布范围：
+- 企业成员请求回执、usage 归因和版本化 settlement outbox，确保成功请求在本地结算故障后仍可幂等恢复，且不会重复写入成员预算或 usage 事实。
+- OpenAI WebSocket、普通请求与 Batch image 的结果不明边界：上游可能已接收工作时禁止跨组重放、自动退款或释放成员预算，保留后续对账证据。
+- 同步上游 `main@eb2b8632d` 的 Grok 自定义上游、OpenAI Agent Identity、账号复制、订阅币种、充值返佣和网关兼容性修复，同时保留 dev-zz 企业成员权限、预算和 owner/admin 数据边界。
+
+发布门禁：
+- `backend/cmd/server/VERSION` 提升为 `1.7.3`，正式 tag 使用不可变 annotated tag `v1.7.3`。
+- 修复 integration fixture 对 `NewAdminService` 新依赖与管理型账号仓储接口的构造漂移，不修改生产运行时逻辑。
+- tag 只允许建立在 `dev-zz` 精确版本提交的 CI、Security Scan 和 dev-zz Branch Images 全绿之后；发布后继续验证 GitHub Release 与 Docker Hub / GHCR 多架构镜像。
+
+验证：
+- `DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock make -C backend test-integration`
+- `mise x -C backend -- go test -tags=integration ./internal/service -run '^(TestUpstream|TestArchivedUpstream|TestUsedUpstream)' -count=1 -v`
+- `git diff --check`
+- 修复提交 `2ebcb294f` 的远端 CI、Security Scan 和 dev-zz Branch Images 全部通过。
+
 ## 2026-07-16 - 上游 main 增量同步：Grok 自定义上游、Agent Identity 与订阅币种
 
 实现：
