@@ -18,6 +18,16 @@ const (
 	FieldRequestID = "request_id"
 	// FieldMemberID holds the string denoting the member_id field in the database.
 	FieldMemberID = "member_id"
+	// FieldGroupID holds the string denoting the group_id field in the database.
+	FieldGroupID = "group_id"
+	// FieldRequestPayloadHash holds the string denoting the request_payload_hash field in the database.
+	FieldRequestPayloadHash = "request_payload_hash"
+	// FieldOutcomeReason holds the string denoting the outcome_reason field in the database.
+	FieldOutcomeReason = "outcome_reason"
+	// FieldReconcileAttempts holds the string denoting the reconcile_attempts field in the database.
+	FieldReconcileAttempts = "reconcile_attempts"
+	// FieldLastReconcileAt holds the string denoting the last_reconcile_at field in the database.
+	FieldLastReconcileAt = "last_reconcile_at"
 	// FieldPeriodStart holds the string denoting the period_start field in the database.
 	FieldPeriodStart = "period_start"
 	// FieldReservedUsd holds the string denoting the reserved_usd field in the database.
@@ -52,6 +62,11 @@ var Columns = []string{
 	FieldID,
 	FieldRequestID,
 	FieldMemberID,
+	FieldGroupID,
+	FieldRequestPayloadHash,
+	FieldOutcomeReason,
+	FieldReconcileAttempts,
+	FieldLastReconcileAt,
 	FieldPeriodStart,
 	FieldReservedUsd,
 	FieldActualUsd,
@@ -75,6 +90,18 @@ func ValidColumn(column string) bool {
 var (
 	// RequestIDValidator is a validator for the "request_id" field. It is called by the builders before save.
 	RequestIDValidator func(string) error
+	// DefaultRequestPayloadHash holds the default value on creation for the "request_payload_hash" field.
+	DefaultRequestPayloadHash string
+	// RequestPayloadHashValidator is a validator for the "request_payload_hash" field. It is called by the builders before save.
+	RequestPayloadHashValidator func(string) error
+	// DefaultOutcomeReason holds the default value on creation for the "outcome_reason" field.
+	DefaultOutcomeReason string
+	// OutcomeReasonValidator is a validator for the "outcome_reason" field. It is called by the builders before save.
+	OutcomeReasonValidator func(string) error
+	// DefaultReconcileAttempts holds the default value on creation for the "reconcile_attempts" field.
+	DefaultReconcileAttempts int
+	// ReconcileAttemptsValidator is a validator for the "reconcile_attempts" field. It is called by the builders before save.
+	ReconcileAttemptsValidator func(int) error
 	// DefaultActualUsd holds the default value on creation for the "actual_usd" field.
 	DefaultActualUsd float64
 	// DefaultStatus holds the default value on creation for the "status" field.
@@ -105,6 +132,31 @@ func ByRequestID(opts ...sql.OrderTermOption) OrderOption {
 // ByMemberID orders the results by the member_id field.
 func ByMemberID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldMemberID, opts...).ToFunc()
+}
+
+// ByGroupID orders the results by the group_id field.
+func ByGroupID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldGroupID, opts...).ToFunc()
+}
+
+// ByRequestPayloadHash orders the results by the request_payload_hash field.
+func ByRequestPayloadHash(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRequestPayloadHash, opts...).ToFunc()
+}
+
+// ByOutcomeReason orders the results by the outcome_reason field.
+func ByOutcomeReason(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOutcomeReason, opts...).ToFunc()
+}
+
+// ByReconcileAttempts orders the results by the reconcile_attempts field.
+func ByReconcileAttempts(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldReconcileAttempts, opts...).ToFunc()
+}
+
+// ByLastReconcileAt orders the results by the last_reconcile_at field.
+func ByLastReconcileAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldLastReconcileAt, opts...).ToFunc()
 }
 
 // ByPeriodStart orders the results by the period_start field.

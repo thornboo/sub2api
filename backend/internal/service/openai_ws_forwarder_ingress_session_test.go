@@ -878,6 +878,154 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughModeR
 	require.Len(t, upstreamConn.writes, 1, "passthrough 模式应透传首条 response.create")
 }
 
+func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughUnknownOutcomeMarksBudgetAmbiguous(t *testing.T) {
+	testCases := []struct {
+		name           string
+		upstream       *openAIWSCaptureConn
+		errorContains  string
+		expectedWrites int
+	}{
+		{
+			name:           "first write outcome unknown",
+			upstream:       &openAIWSCaptureConn{writeErr: errors.New("upstream write reset")},
+			errorContains:  "upstream write reset",
+			expectedWrites: 0,
+		},
+		{
+			name:           "upstream closes without terminal event",
+			upstream:       &openAIWSCaptureConn{},
+			errorContains:  "without a terminal response event",
+			expectedWrites: 1,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+
+			cfg := &config.Config{}
+			cfg.Security.URLAllowlist.Enabled = false
+			cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+			cfg.Gateway.OpenAIWS.Enabled = true
+			cfg.Gateway.OpenAIWS.OAuthEnabled = true
+			cfg.Gateway.OpenAIWS.APIKeyEnabled = true
+			cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
+			cfg.Gateway.OpenAIWS.ModeRouterV2Enabled = true
+			cfg.Gateway.OpenAIWS.IngressModeDefault = OpenAIWSIngressModeCtxPool
+			cfg.Gateway.OpenAIWS.DialTimeoutSeconds = 3
+			cfg.Gateway.OpenAIWS.ReadTimeoutSeconds = 3
+			cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
+
+			captureDialer := &openAIWSCaptureDialer{conn: testCase.upstream}
+			svc := &OpenAIGatewayService{
+				cfg:                       cfg,
+				httpUpstream:              &httpUpstreamRecorder{},
+				cache:                     &stubGatewayCache{},
+				openaiWSResolver:          NewOpenAIWSProtocolResolver(cfg),
+				toolCorrector:             NewCodexToolCorrector(),
+				openaiWSPassthroughDialer: captureDialer,
+			}
+
+			account := &Account{
+				ID:          454,
+				Name:        "openai-ingress-passthrough-ambiguous",
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Status:      StatusActive,
+				Schedulable: true,
+				Concurrency: 1,
+				Credentials: map[string]any{"api_key": "sk-test"},
+				Extra: map[string]any{
+					"openai_apikey_responses_websockets_v2_mode": OpenAIWSIngressModePassthrough,
+				},
+			}
+
+			serverErrCh := make(chan error, 1)
+			turnErrCh := make(chan error, 1)
+			ambiguousReasonCh := make(chan string, 1)
+			hooks := &OpenAIWSIngressHooks{
+				AfterTurn: func(_ int, _ *OpenAIForwardResult, turnErr error) {
+					turnErrCh <- turnErr
+				},
+			}
+
+			wsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := coderws.Accept(w, r, nil)
+				if err != nil {
+					serverErrCh <- err
+					return
+				}
+				defer func() { _ = conn.CloseNow() }()
+
+				rec := httptest.NewRecorder()
+				ginCtx, _ := gin.CreateTestContext(rec)
+				ginCtx.Request = r.Clone(r.Context())
+
+				readCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+				msgType, firstMessage, readErr := conn.Read(readCtx)
+				cancel()
+				if readErr != nil {
+					serverErrCh <- readErr
+					return
+				}
+				if msgType != coderws.MessageText && msgType != coderws.MessageBinary {
+					serverErrCh <- errors.New("unsupported websocket client message type")
+					return
+				}
+
+				proxyErr := svc.ProxyResponsesWebSocketFromClient(r.Context(), ginCtx, conn, account, "sk-test", firstMessage, hooks)
+				ambiguous, reason := ConsumeEnterpriseMemberBudgetOutcomeAmbiguous(ginCtx)
+				if ambiguous {
+					ambiguousReasonCh <- reason
+				}
+				serverErrCh <- proxyErr
+			}))
+			defer wsServer.Close()
+
+			dialCtx, cancelDial := context.WithTimeout(context.Background(), 3*time.Second)
+			clientConn, _, err := coderws.Dial(dialCtx, "ws"+strings.TrimPrefix(wsServer.URL, "http"), nil)
+			cancelDial()
+			require.NoError(t, err)
+			defer func() { _ = clientConn.CloseNow() }()
+
+			writeCtx, cancelWrite := context.WithTimeout(context.Background(), 3*time.Second)
+			err = clientConn.Write(writeCtx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5.1","stream":false}`))
+			cancelWrite()
+			require.NoError(t, err)
+			// A graceful upstream EOF leaves the relay waiting for the client side
+			// to finish. Closing the client releases that goroutine; the missing
+			// terminal event must still be treated as an unknown upstream outcome.
+			_ = clientConn.Close(coderws.StatusNormalClosure, "done")
+
+			select {
+			case serverErr := <-serverErrCh:
+				require.Error(t, serverErr)
+				require.Contains(t, serverErr.Error(), testCase.errorContains)
+			case <-time.After(5 * time.Second):
+				t.Fatal("等待 passthrough websocket 结束超时")
+			}
+			select {
+			case turnErr := <-turnErrCh:
+				require.Error(t, turnErr)
+			case <-time.After(5 * time.Second):
+				t.Fatal("结果不确定的 turn 应进入 AfterTurn 收口")
+			}
+			select {
+			case reason := <-ambiguousReasonCh:
+				require.Equal(t, "upstream_ws_outcome_unknown", reason)
+			case <-time.After(5 * time.Second):
+				t.Fatal("结果不确定的 turn 应标记成员预算待对账")
+			}
+
+			require.Equal(t, 1, captureDialer.DialCount())
+			testCase.upstream.mu.Lock()
+			writeCount := len(testCase.upstream.writes)
+			testCase.upstream.mu.Unlock()
+			require.Equal(t, testCase.expectedWrites, writeCount)
+		})
+	}
+}
+
 func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughHeadersUsePromptCacheAndTurnState(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -3216,7 +3364,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_StoreDisabledPre
 	require.Empty(t, secondWrites, "不能把会触发 No tool call found 的重放请求发到新上游")
 }
 
-func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_WriteFailBeforeDownstreamRetriesOnce(t *testing.T) {
+func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_WriteOutcomeUnknownDoesNotRetry(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cfg := &config.Config{}
@@ -3292,6 +3440,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_WriteFailBeforeD
 	}
 
 	serverErrCh := make(chan error, 1)
+	ambiguousReasonCh := make(chan string, 1)
 	wsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := coderws.Accept(w, r, &coderws.AcceptOptions{
 			CompressionMode: coderws.CompressionContextTakeover,
@@ -3323,7 +3472,12 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_WriteFailBeforeD
 			return
 		}
 
-		serverErrCh <- svc.ProxyResponsesWebSocketFromClient(r.Context(), ginCtx, conn, account, "sk-test", firstMessage, hooks)
+		proxyErr := svc.ProxyResponsesWebSocketFromClient(r.Context(), ginCtx, conn, account, "sk-test", firstMessage, hooks)
+		ambiguous, reason := ConsumeEnterpriseMemberBudgetOutcomeAmbiguous(ginCtx)
+		if ambiguous {
+			ambiguousReasonCh <- reason
+		}
+		serverErrCh <- proxyErr
 	}))
 	defer wsServer.Close()
 
@@ -3354,17 +3508,24 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_WriteFailBeforeD
 	require.Equal(t, "resp_turn_write_retry_1", gjson.GetBytes(firstTurn, "response.id").String())
 
 	writeMessage(`{"type":"response.create","model":"gpt-5.1","stream":false,"previous_response_id":"resp_turn_write_retry_1"}`)
-	secondTurn := readMessage()
-	require.Equal(t, "resp_turn_write_retry_2", gjson.GetBytes(secondTurn, "response.id").String())
-
-	require.NoError(t, clientConn.Close(coderws.StatusNormalClosure, "done"))
 	select {
 	case serverErr := <-serverErrCh:
-		require.NoError(t, serverErr)
+		require.Error(t, serverErr)
+		require.Contains(t, serverErr.Error(), "write failed on stale conn")
 	case <-time.After(5 * time.Second):
 		t.Fatal("等待 ingress websocket 结束超时")
 	}
-	require.Equal(t, 2, dialer.DialCount(), "第二轮 turn 上游写失败且未写下游时应自动重试并换连")
+	select {
+	case reason := <-ambiguousReasonCh:
+		require.Equal(t, "upstream_ws_outcome_unknown", reason)
+	case <-time.After(5 * time.Second):
+		t.Fatal("上游写入结果不确定时应标记成员预算待对账")
+	}
+	require.Equal(t, 1, dialer.DialCount(), "已尝试写入上游后结果不确定，不得换连重放同一 turn")
+	secondConn.mu.Lock()
+	secondWrites := append([]map[string]any(nil), secondConn.writes...)
+	secondConn.mu.Unlock()
+	require.Empty(t, secondWrites)
 	hooksMu.Lock()
 	beforeTurn1 := beforeTurnCalls[1]
 	beforeTurn2 := beforeTurnCalls[2]
@@ -3372,9 +3533,9 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_WriteFailBeforeD
 	afterTurn2 := afterTurnCalls[2]
 	hooksMu.Unlock()
 	require.Equal(t, 1, beforeTurn1, "首轮 turn BeforeTurn 应执行一次")
-	require.Equal(t, 1, beforeTurn2, "同一 turn 重试不应重复触发 BeforeTurn")
+	require.Equal(t, 1, beforeTurn2, "第二轮 turn BeforeTurn 应执行一次")
 	require.Equal(t, 1, afterTurn1, "首轮 turn AfterTurn 应执行一次")
-	require.Equal(t, 1, afterTurn2, "第二轮 turn AfterTurn 应执行一次")
+	require.Equal(t, 1, afterTurn2, "结果不确定的第二轮 turn 仍应执行 AfterTurn 以转入待对账")
 }
 
 func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PreviousResponseNotFoundRecoversByDroppingPrevID(t *testing.T) {

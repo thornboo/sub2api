@@ -425,6 +425,84 @@ func TestAPIKeyService_GetByKey_CacheMissStoresL2(t *testing.T) {
 	require.Len(t, cache.setAuthKeys, 1)
 }
 
+func TestAPIKeyService_GetByKey_EnterpriseMemberAlwaysRevalidatesFromDatabase(t *testing.T) {
+	cache := &authCacheStub{}
+	var repoCalls int32
+	memberID := int64(44)
+	repo := &authRepoStub{
+		getByKeyForAuth: func(ctx context.Context, key string) (*APIKey, error) {
+			atomic.AddInt32(&repoCalls, 1)
+			return &APIKey{
+				ID:       5,
+				UserID:   7,
+				MemberID: &memberID,
+				Status:   StatusActive,
+				User: &User{
+					ID:          7,
+					Status:      StatusActive,
+					Role:        RoleUser,
+					AccountType: UserAccountTypeEnterprise,
+					Balance:     12,
+					Concurrency: 2,
+				},
+				Member: &EnterpriseMember{ID: memberID, EnterpriseUserID: 7, Status: EnterpriseMemberStatusActive},
+			}, nil
+		},
+	}
+	cfg := &config.Config{APIKeyAuth: config.APIKeyAuthCacheConfig{L2TTLSeconds: 60}}
+	svc := NewAPIKeyService(repo, nil, nil, nil, nil, cache, cfg)
+	cache.getAuthCache = func(ctx context.Context, key string) (*APIKeyAuthCacheEntry, error) {
+		return nil, redis.Nil
+	}
+
+	_, err := svc.GetByKey(context.Background(), "member-key")
+	require.NoError(t, err)
+	_, err = svc.GetByKey(context.Background(), "member-key")
+	require.NoError(t, err)
+	require.Equal(t, int32(2), atomic.LoadInt32(&repoCalls))
+	require.Empty(t, cache.setAuthKeys)
+}
+
+func TestAPIKeyService_GetByKey_EvictsPreexistingEnterpriseMemberSnapshot(t *testing.T) {
+	cache := &authCacheStub{}
+	memberID := int64(44)
+	var repoCalls int32
+	repo := &authRepoStub{getByKeyForAuth: func(context.Context, string) (*APIKey, error) {
+		atomic.AddInt32(&repoCalls, 1)
+		return &APIKey{
+			ID:       5,
+			UserID:   7,
+			MemberID: &memberID,
+			Status:   StatusActive,
+			User: &User{
+				ID:          7,
+				Status:      StatusActive,
+				Role:        RoleUser,
+				AccountType: UserAccountTypeEnterprise,
+			},
+			Member: &EnterpriseMember{ID: memberID, EnterpriseUserID: 7, Status: EnterpriseMemberStatusActive},
+		}, nil
+	}}
+	cache.getAuthCache = func(context.Context, string) (*APIKeyAuthCacheEntry, error) {
+		return &APIKeyAuthCacheEntry{Snapshot: &APIKeyAuthSnapshot{
+			Version:  apiKeyAuthSnapshotVersion,
+			APIKeyID: 5,
+			UserID:   7,
+			MemberID: &memberID,
+			Status:   StatusActive,
+		}}, nil
+	}
+	svc := NewAPIKeyService(repo, nil, nil, nil, nil, cache, &config.Config{
+		APIKeyAuth: config.APIKeyAuthCacheConfig{L2TTLSeconds: 60},
+	})
+
+	got, err := svc.GetByKey(context.Background(), "member-key")
+	require.NoError(t, err)
+	require.NotNil(t, got.Member)
+	require.Equal(t, int32(1), atomic.LoadInt32(&repoCalls))
+	require.Len(t, cache.deleteAuthKeys, 1)
+}
+
 func TestAPIKeyService_GetByKey_UsesL1Cache(t *testing.T) {
 	var calls int32
 	cache := &authCacheStub{}

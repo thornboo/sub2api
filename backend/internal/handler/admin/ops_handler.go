@@ -14,7 +14,57 @@ import (
 )
 
 type OpsHandler struct {
-	opsService *service.OpsService
+	opsService          *service.OpsService
+	memberBudgetService *service.EnterpriseMemberBudgetService
+}
+
+type adminEnterpriseMemberAmbiguousReceipt struct {
+	ID                int64      `json:"id"`
+	MemberID          int64      `json:"member_id"`
+	OutcomeReason     string     `json:"outcome_reason"`
+	ReconcileAttempts int        `json:"reconcile_attempts"`
+	LastReconcileAt   *time.Time `json:"last_reconcile_at,omitempty"`
+	ExpiresAt         time.Time  `json:"expires_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+func redactAdminEnterpriseMemberAmbiguousReceipt(item service.EnterpriseMemberAmbiguousReceipt) adminEnterpriseMemberAmbiguousReceipt {
+	return adminEnterpriseMemberAmbiguousReceipt{
+		ID: item.ID, MemberID: item.MemberID, OutcomeReason: item.OutcomeReason,
+		ReconcileAttempts: item.ReconcileAttempts, LastReconcileAt: item.LastReconcileAt,
+		ExpiresAt: item.ExpiresAt, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
+	}
+}
+
+func redactAdminOpsErrorLogMemberIdentity(item *service.OpsErrorLog) *service.OpsErrorLog {
+	if item == nil {
+		return nil
+	}
+	redacted := *item
+	redacted.MemberID = nil
+	redacted.MemberCodeSnapshot = ""
+	redacted.MemberNameSnapshot = ""
+	return &redacted
+}
+
+func redactAdminOpsErrorLogsMemberIdentity(items []*service.OpsErrorLog) []*service.OpsErrorLog {
+	redacted := make([]*service.OpsErrorLog, 0, len(items))
+	for _, item := range items {
+		if sanitized := redactAdminOpsErrorLogMemberIdentity(item); sanitized != nil {
+			redacted = append(redacted, sanitized)
+		}
+	}
+	return redacted
+}
+
+func redactAdminOpsErrorLogDetailMemberIdentity(detail *service.OpsErrorLogDetail) *service.OpsErrorLogDetail {
+	if detail == nil {
+		return nil
+	}
+	redacted := *detail
+	redacted.OpsErrorLog = *redactAdminOpsErrorLogMemberIdentity(&detail.OpsErrorLog)
+	return &redacted
 }
 
 // GetErrorLogByID returns ops error log detail.
@@ -42,7 +92,7 @@ func (h *OpsHandler) GetErrorLogByID(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, detail)
+	response.Success(c, redactAdminOpsErrorLogDetailMemberIdentity(detail))
 }
 
 const (
@@ -123,8 +173,19 @@ func applyOpsStatusCodeFilters(c *gin.Context, filter *service.OpsErrorLogFilter
 	return true
 }
 
-func NewOpsHandler(opsService *service.OpsService) *OpsHandler {
-	return &OpsHandler{opsService: opsService}
+func NewOpsHandler(opsService *service.OpsService, memberBudgetService ...*service.EnterpriseMemberBudgetService) *OpsHandler {
+	handler := &OpsHandler{opsService: opsService}
+	if len(memberBudgetService) > 0 {
+		handler.memberBudgetService = memberBudgetService[0]
+	}
+	return handler
+}
+
+// ProvideOpsHandler gives Wire an explicit non-variadic dependency contract
+// while keeping NewOpsHandler convenient for focused tests that do not need
+// enterprise-member receipt operations.
+func ProvideOpsHandler(opsService *service.OpsService, memberBudgetService *service.EnterpriseMemberBudgetService) *OpsHandler {
+	return NewOpsHandler(opsService, memberBudgetService)
 }
 
 // GetEnterpriseMemberMetrics returns bounded process-local counters without
@@ -139,6 +200,54 @@ func (h *OpsHandler) GetEnterpriseMemberMetrics(c *gin.Context) {
 		return
 	}
 	response.Success(c, service.GetEnterpriseMemberMetricsSnapshot())
+}
+
+// ListEnterpriseMemberAmbiguousReceipts exposes only the bounded receipt and
+// member identity needed for an administrator to investigate budget holds.
+func (h *OpsHandler) ListEnterpriseMemberAmbiguousReceipts(c *gin.Context) {
+	if h.memberBudgetService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Enterprise member budget service not available")
+		return
+	}
+	page, pageSize := response.ParsePagination(c)
+	items, total, err := h.memberBudgetService.ListAmbiguousReceipts(c.Request.Context(), page, pageSize)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	redacted := make([]adminEnterpriseMemberAmbiguousReceipt, 0, len(items))
+	for _, item := range items {
+		redacted = append(redacted, redactAdminEnterpriseMemberAmbiguousReceipt(item))
+	}
+	response.Success(c, gin.H{"items": redacted, "total": total, "page": page, "page_size": pageSize})
+}
+
+func (h *OpsHandler) ResolveEnterpriseMemberAmbiguousReceipt(c *gin.Context) {
+	if h.memberBudgetService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Enterprise member budget service not available")
+		return
+	}
+	receiptID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || receiptID <= 0 {
+		response.BadRequest(c, "Invalid receipt id")
+		return
+	}
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		response.Error(c, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	var input service.EnterpriseMemberAmbiguousReceiptResolution
+	if err := c.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(c, "Invalid reconciliation request")
+		return
+	}
+	resolved, err := h.memberBudgetService.ResolveAmbiguousReceipt(c.Request.Context(), receiptID, input, subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, redactAdminEnterpriseMemberAmbiguousReceipt(*resolved))
 }
 
 // GetErrorLogs lists ops error logs.
@@ -263,7 +372,7 @@ func (h *OpsHandler) GetErrorLogs(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Paginated(c, result.Errors, int64(result.Total), result.Page, result.PageSize)
+	response.Paginated(c, redactAdminOpsErrorLogsMemberIdentity(result.Errors), int64(result.Total), result.Page, result.PageSize)
 }
 
 // ListRequestErrors lists client-visible request errors.
@@ -362,7 +471,7 @@ func (h *OpsHandler) ListRequestErrors(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Paginated(c, result.Errors, int64(result.Total), result.Page, result.PageSize)
+	response.Paginated(c, redactAdminOpsErrorLogsMemberIdentity(result.Errors), int64(result.Total), result.Page, result.PageSize)
 }
 
 // GetRequestError returns request error detail.
@@ -465,13 +574,13 @@ func (h *OpsHandler) ListRequestErrorUpstreamErrors(c *gin.Context) {
 			if err != nil || d == nil {
 				continue
 			}
-			details = append(details, d)
+			details = append(details, redactAdminOpsErrorLogDetailMemberIdentity(d))
 		}
 		response.Paginated(c, details, int64(result.Total), result.Page, result.PageSize)
 		return
 	}
 
-	response.Paginated(c, result.Errors, int64(result.Total), result.Page, result.PageSize)
+	response.Paginated(c, redactAdminOpsErrorLogsMemberIdentity(result.Errors), int64(result.Total), result.Page, result.PageSize)
 }
 
 // ResolveRequestError toggles resolved status.
@@ -565,7 +674,7 @@ func (h *OpsHandler) ListUpstreamErrors(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Paginated(c, result.Errors, int64(result.Total), result.Page, result.PageSize)
+	response.Paginated(c, redactAdminOpsErrorLogsMemberIdentity(result.Errors), int64(result.Total), result.Page, result.PageSize)
 }
 
 // GetUpstreamError returns upstream error detail.

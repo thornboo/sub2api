@@ -688,7 +688,7 @@ func TestOpenAIGatewayService_Forward_WSv2FallbackWhenResponseAlreadyWrittenRetu
 	require.Nil(t, upstream.lastReq, "已写下游响应时，不应再回退 HTTP")
 }
 
-func TestOpenAIGatewayService_Forward_WSv2StreamEarlyCloseFallbackHTTP(t *testing.T) {
+func TestOpenAIGatewayService_Forward_WSv2StreamEarlyCloseMarksOutcomeUnknown(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
@@ -779,9 +779,10 @@ func TestOpenAIGatewayService_Forward_WSv2StreamEarlyCloseFallbackHTTP(t *testin
 	require.Nil(t, result)
 	require.Nil(t, upstream.lastReq, "WS 早期断连后不应再回退 HTTP")
 	require.Empty(t, rec.Body.String(), "未产出 token 前上游断连时不应写入下游半截流")
+	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c), "请求已发送上游后无终态，成员预算必须待对账")
 }
 
-func TestOpenAIGatewayService_Forward_WSv2RetryFiveTimesThenFallbackHTTP(t *testing.T) {
+func TestOpenAIGatewayService_Forward_WSv2CloseAfterDispatchDoesNotReplay(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	var wsAttempts atomic.Int32
@@ -859,8 +860,9 @@ func TestOpenAIGatewayService_Forward_WSv2RetryFiveTimesThenFallbackHTTP(t *test
 	result, err := svc.Forward(context.Background(), c, account, body)
 	require.Error(t, err)
 	require.Nil(t, result)
-	require.Nil(t, upstream.lastReq, "WS 重连耗尽后不应再回退 HTTP")
-	require.Equal(t, int32(openAIWSReconnectRetryLimit+1), wsAttempts.Load())
+	require.Nil(t, upstream.lastReq, "WS 结果不确定后不应再回退 HTTP")
+	require.Equal(t, int32(1), wsAttempts.Load(), "请求已发送上游，结果不确定时不得重放")
+	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
 }
 
 func TestOpenAIGatewayService_Forward_WSv2PolicyViolationFastFallbackHTTP(t *testing.T) {

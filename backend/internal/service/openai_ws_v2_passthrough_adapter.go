@@ -425,6 +425,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 
 	completedTurns := atomic.Int32{}
+	// startedTurns tracks only response.create frames that have reached the
+	// upstream write boundary. A reserved turn that is rejected locally by the
+	// policy filter is deliberately excluded so the handler can release it as a
+	// definitive local failure.
+	startedTurns := atomic.Int32{}
 	policyClientConn := &openAIWSPolicyEnforcingFrameConn{
 		inner: &openAIWSClientFrameConn{conn: clientConn},
 		// 注意线程安全：filter 仅在 runClientToUpstream 这一条
@@ -496,6 +501,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			if policyErr == nil && blocked == nil &&
 				strings.TrimSpace(gjson.GetBytes(payload, "type").String()) == "response.create" {
 				usageMeta.updateFromResponseCreate(out, model, requestModelForThisFrame)
+				if hooks != nil {
+					turnNo := int(completedTurns.Load()) + 1
+					if turnNo < 2 {
+						turnNo = 2
+					}
+					startedTurns.Store(int32(turnNo))
+				}
 			}
 			return out, blocked, policyErr
 		},
@@ -514,15 +526,23 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		},
 	}
 	upstreamFirstMessageSent := false
+	if hooks != nil {
+		startedTurns.Store(1)
+	}
 	firstWriteCtx, cancelFirstWrite := context.WithTimeout(ctx, s.openAIWSWriteTimeout())
 	firstWriteErr := upstreamFrameConn.WriteFrame(firstWriteCtx, coderws.MessageText, firstClientMessage)
 	cancelFirstWrite()
 	if firstWriteErr != nil {
-		return wrapOpenAIWSIngressTurnError(
+		MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "upstream_ws_outcome_unknown")
+		turnErr := wrapOpenAIWSIngressTurnError(
 			"write_upstream",
 			fmt.Errorf("write first upstream websocket request: %w", firstWriteErr),
-			false,
+			true,
 		)
+		if hooks != nil && hooks.AfterTurn != nil {
+			hooks.AfterTurn(1, nil, turnErr)
+		}
+		return turnErr
 	}
 	upstreamFirstMessageSent = true
 
@@ -657,6 +677,8 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 
 	turnCount := int(completedTurns.Load())
+	startedTurnCount := int(startedTurns.Load())
+	pendingTurn := startedTurnCount > turnCount
 	if relayExit == nil {
 		logOpenAIWSV2Passthrough(
 			"relay_completed account_id=%d request_id=%s terminal_event=%s duration_ms=%d c2u_frames=%d u2c_frames=%d dropped_frames=%d turns=%d",
@@ -669,9 +691,17 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			relayResult.DroppedDownstreamFrames,
 			turnCount,
 		)
-		// 正常路径按 terminal 事件逐 turn 已回调；仅在零 turn 场景兜底回调一次。
-		if turnCount == 0 && hooks != nil && hooks.AfterTurn != nil {
-			hooks.AfterTurn(1, result, nil)
+		if pendingTurn {
+			MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "upstream_ws_outcome_unknown")
+			turnErr := wrapOpenAIWSIngressTurnError(
+				"missing_terminal",
+				errors.New("upstream websocket ended without a terminal response event"),
+				true,
+			)
+			if hooks != nil && hooks.AfterTurn != nil {
+				hooks.AfterTurn(turnCount+1, nil, turnErr)
+			}
+			return turnErr
 		}
 		return nil
 	}
@@ -701,10 +731,19 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		relayErr,
 		relayExit.WroteDownstream,
 	)
-	if hooks != nil && hooks.AfterTurn != nil {
+	if pendingTurn && !isOpenAIWSPassthroughDefinitiveUpstreamRejection(relayErr) {
+		MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "upstream_ws_outcome_unknown")
+		turnErr = wrapOpenAIWSIngressTurnError(relayExit.Stage, relayErr, true)
+	}
+	if pendingTurn && hooks != nil && hooks.AfterTurn != nil {
 		hooks.AfterTurn(turnCount+1, nil, turnErr)
 	}
 	return turnErr
+}
+
+func isOpenAIWSPassthroughDefinitiveUpstreamRejection(err error) bool {
+	var failoverErr *UpstreamFailoverError
+	return errors.As(err, &failoverErr) && failoverErr != nil && failoverErr.StatusCode > 0
 }
 
 func (s *OpenAIGatewayService) mapOpenAIWSPassthroughDialError(

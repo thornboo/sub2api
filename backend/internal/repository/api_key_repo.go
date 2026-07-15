@@ -489,7 +489,7 @@ func apiKeyTagsContainAll(tags []string) func(*entsql.Selector) {
 }
 
 func (r *apiKeyRepository) apiKeyListByUserIDQuery(userID int64, filters service.APIKeyListFilters) *dbent.APIKeyQuery {
-	q := r.activeQuery().Where(apikey.UserIDEQ(userID))
+	q := r.activeQuery().Where(apikey.UserIDEQ(userID), apikey.MemberIDIsNil())
 
 	if filters.Search != "" {
 		q = q.Where(apikey.Or(
@@ -557,10 +557,11 @@ func (r *apiKeyRepository) ListTagsByUserID(ctx context.Context, userID int64, l
 		CROSS JOIN LATERAL jsonb_array_elements_text(%s) AS tag(value)
 		WHERE %s = $1
 		  AND %s IS NULL
+		  AND %s IS NULL
 		  AND btrim(tag.value) <> ''
 		ORDER BY tag
 		LIMIT $2
-	`, apikey.Table, apikey.FieldTags, apikey.FieldUserID, apikey.FieldDeletedAt)
+	`, apikey.Table, apikey.FieldTags, apikey.FieldUserID, apikey.FieldDeletedAt, apikey.FieldMemberID)
 
 	rows, err := r.sql.QueryContext(ctx, query, userID, limit)
 	if err != nil {
@@ -588,7 +589,7 @@ func (r *apiKeyRepository) ListByIDsForUser(ctx context.Context, userID int64, i
 	}
 
 	keys, err := r.activeQuery().
-		Where(apikey.UserIDEQ(userID), apikey.IDIn(ids...)).
+		Where(apikey.UserIDEQ(userID), apikey.IDIn(ids...), apikey.MemberIDIsNil()).
 		WithGroup().
 		Order(dbent.Asc(apikey.FieldID)).
 		All(ctx)
@@ -719,7 +720,7 @@ func (r *apiKeyRepository) VerifyOwnership(ctx context.Context, userID int64, ap
 	}
 
 	ids, err := r.client.APIKey.Query().
-		Where(apikey.UserIDEQ(userID), apikey.IDIn(apiKeyIDs...), apikey.DeletedAtIsNil()).
+		Where(apikey.UserIDEQ(userID), apikey.IDIn(apiKeyIDs...), apikey.DeletedAtIsNil(), apikey.MemberIDIsNil()).
 		IDs(ctx)
 	if err != nil {
 		return nil, err

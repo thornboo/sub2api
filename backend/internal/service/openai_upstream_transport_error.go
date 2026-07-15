@@ -91,15 +91,49 @@ func classifyOpenAITransportError(err error) openAITransportErrorClass {
 	return openAITransportErrorClass{}
 }
 
+// markEnterpriseMemberBudgetTransportOutcome preserves the receipt whenever a
+// transport failure cannot prove that dispatch stopped before upstream
+// execution. It is shared by OpenAI and protocol-conversion gateway paths so
+// enterprise-member accounting has one fail-closed boundary.
+func markEnterpriseMemberBudgetTransportOutcome(c *gin.Context, err error) {
+	if c == nil || err == nil {
+		return
+	}
+	if errors.Is(err, context.Canceled) {
+		MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "client_disconnected_after_upstream_dispatch")
+		return
+	}
+	if classifyOpenAITransportError(err).Persistent {
+		// DNS, routing, refused connections and proxy-auth failures are proven
+		// pre-dispatch failures, so the reservation may follow normal release.
+		return
+	}
+	MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "upstream_transport_outcome_unknown")
+}
+
+// handleUpstreamTransportFailure records the accounting outcome and reports
+// whether replay is proven safe. Only failures that conclusively happened
+// before upstream dispatch may be retried; timeouts, resets, cancellations and
+// all unclassified transport failures are fail-closed because the upstream may
+// already have executed the request.
+func handleUpstreamTransportFailure(c *gin.Context, err error) bool {
+	markEnterpriseMemberBudgetTransportOutcome(c, err)
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	return classifyOpenAITransportError(err).Persistent
+}
+
 // handleOpenAIUpstreamTransportError handles a transport-level upstream failure
 // (Do/DoWithTLS returned a non-HTTP error: proxy/DNS/TCP/TLS). It:
 //  1. records the failure in Ops error logs (status 0, kind=request_error);
 //  2. for durable faults (expired/rejected proxy creds, dead proxy, DNS/routing)
 //     temporarily unschedules the account (DB + in-memory) and logs a stable
 //     warn event that alert rules can key on;
-//  3. returns an error that is *UpstreamFailoverError (so the handler fails over
-//     to a healthy account) for all non-canceled errors, or a plain error for
-//     context.Canceled (client gone — no failover, no eviction).
+//  3. retries only failures proven to occur before the upstream could execute
+//     the request. Other transport failures preserve the member budget receipt
+//     as ambiguous and stop replay, because the request may already have been
+//     accepted upstream even though no HTTP response reached us.
 //
 // It deliberately does NOT write to the response: the handler owns the response
 // (failover, or a protocol-correct error once failover is exhausted).
@@ -118,19 +152,31 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 		Message:            safeErr,
 	})
 
-	// Client disconnected: do NOT fail over to another account and do NOT evict
-	// this one — the upstream never had a chance to exhibit a fault.
+	class := classifyOpenAITransportError(err)
+
+	// A client disconnect does not prove that the upstream request was canceled
+	// before execution. Do not replay it and preserve any member reservation for
+	// reconciliation.
 	if errors.Is(err, context.Canceled) {
+		markEnterpriseMemberBudgetTransportOutcome(c, err)
 		return err
 	}
 
-	if classifyOpenAITransportError(err).Persistent {
+	if class.Persistent {
 		s.tempUnscheduleOpenAITransportError(ctx, account, safeErr)
+		return &UpstreamFailoverError{
+			StatusCode:   http.StatusBadGateway,
+			ResponseBody: openAITransportFailoverBody,
+		}
 	}
 
+	markEnterpriseMemberBudgetTransportOutcome(c, err)
 	return &UpstreamFailoverError{
-		StatusCode:   http.StatusBadGateway,
-		ResponseBody: openAITransportFailoverBody,
+		StatusCode:        http.StatusBadGateway,
+		ResponseBody:      openAITransportFailoverBody,
+		Stage:             GatewayFailureStageInference,
+		Scope:             GatewayFailureScopeRequest,
+		NextAccountAction: NextAccountStop,
 	}
 }
 

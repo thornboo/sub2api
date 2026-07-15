@@ -436,7 +436,7 @@ func markOpsRoutingCapacityLimited(c *gin.Context) {
 		return
 	}
 	c.Set(opsRoutingCapacityLimitedKey, true)
-	service.MarkOpsGroupFailoverEligible(c)
+	service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapacityExhausted)
 }
 
 func markOpsRoutingCapacityLimitedIfNoAvailable(c *gin.Context, err error) {

@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,36 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func TestForwardEmbeddingsUnknownTransportPreservesMemberBudget(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"text-embedding-3-small","input":"hello"}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/embeddings", bytes.NewReader(body))
+	account := &Account{
+		ID:          43,
+		Name:        "embedding-transport-test",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{"api_key": "sk-test"},
+	}
+	svc := &OpenAIGatewayService{
+		cfg:          &config.Config{},
+		httpUpstream: &httpUpstreamRecorder{err: errors.New("connection reset by peer")},
+	}
+
+	result, err := svc.ForwardEmbeddings(context.Background(), c, account, body, "")
+
+	require.Nil(t, result)
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, NextAccountStop, failoverErr.NextAccountAction)
+	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+	require.Equal(t, "upstream_transport_outcome_unknown", EnterpriseMemberBudgetOutcomeAmbiguousReason(c))
+}
 
 func TestBuildOpenAIEmbeddingsURL(t *testing.T) {
 	t.Parallel()

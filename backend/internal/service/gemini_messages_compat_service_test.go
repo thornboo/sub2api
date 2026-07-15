@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -23,11 +25,16 @@ type geminiCompatHTTPUpstreamStub struct {
 	err      error
 	calls    int
 	lastReq  *http.Request
+	do       func(call int, req *http.Request) (*http.Response, error)
 }
 
 func (s *geminiCompatHTTPUpstreamStub) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
+	call := s.calls
 	s.calls++
 	s.lastReq = req
+	if s.do != nil {
+		return s.do(call, req)
+	}
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -36,6 +43,101 @@ func (s *geminiCompatHTTPUpstreamStub) Do(req *http.Request, proxyURL string, ac
 	}
 	resp := *s.response
 	return &resp, nil
+}
+
+func TestGeminiGenerationTransportFailuresStopUnsafeReplay(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	account := &Account{
+		ID:          201,
+		Name:        "gemini-transport-test",
+		Platform:    PlatformGemini,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{"api_key": "test-key"},
+	}
+
+	tests := []struct {
+		name   string
+		err    error
+		reason string
+		invoke func(*GeminiMessagesCompatService, *gin.Context) error
+	}{
+		{
+			name:   "claude messages compatibility",
+			err:    errors.New("connection reset by peer"),
+			reason: "upstream_transport_outcome_unknown",
+			invoke: func(svc *GeminiMessagesCompatService, c *gin.Context) error {
+				_, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gemini-2.5-flash","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
+				return err
+			},
+		},
+		{
+			name:   "chat completions compatibility",
+			err:    errors.New("unexpected EOF"),
+			reason: "upstream_transport_outcome_unknown",
+			invoke: func(svc *GeminiMessagesCompatService, c *gin.Context) error {
+				_, err := svc.ForwardAsChatCompletions(context.Background(), c, account, []byte(`{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"hi"}]}`))
+				return err
+			},
+		},
+		{
+			name:   "native generation client cancellation",
+			err:    context.Canceled,
+			reason: "client_disconnected_after_upstream_dispatch",
+			invoke: func(svc *GeminiMessagesCompatService, c *gin.Context) error {
+				_, err := svc.ForwardNative(context.Background(), c, account, "gemini-2.5-flash", "generateContent", false, []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`))
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := &geminiCompatHTTPUpstreamStub{err: tt.err}
+			svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/test", nil)
+
+			require.Error(t, tt.invoke(svc, c))
+			require.Equal(t, 1, upstream.calls, "unknown transport outcomes must not be replayed")
+			require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+			require.Equal(t, tt.reason, EnterpriseMemberBudgetOutcomeAmbiguousReason(c))
+		})
+	}
+}
+
+func TestGeminiForwardNativeRetriesProvenPreDispatchFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &geminiCompatHTTPUpstreamStub{
+		do: func(call int, _ *http.Request) (*http.Response, error) {
+			if call == 0 {
+				return nil, syscall.ECONNREFUSED
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"candidates":[],"usageMetadata":{"promptTokenCount":1}}`)),
+			}, nil
+		},
+	}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{
+		ID:          202,
+		Platform:    PlatformGemini,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{"api_key": "test-key"},
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-flash:generateContent", nil)
+
+	result, err := svc.ForwardNative(context.Background(), c, account, "gemini-2.5-flash", "generateContent", false, []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 2, upstream.calls)
+	require.False(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
 }
 
 func (s *geminiCompatHTTPUpstreamStub) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {

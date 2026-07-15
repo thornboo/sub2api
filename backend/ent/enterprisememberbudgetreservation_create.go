@@ -35,6 +35,76 @@ func (_c *EnterpriseMemberBudgetReservationCreate) SetMemberID(v int64) *Enterpr
 	return _c
 }
 
+// SetGroupID sets the "group_id" field.
+func (_c *EnterpriseMemberBudgetReservationCreate) SetGroupID(v int64) *EnterpriseMemberBudgetReservationCreate {
+	_c.mutation.SetGroupID(v)
+	return _c
+}
+
+// SetNillableGroupID sets the "group_id" field if the given value is not nil.
+func (_c *EnterpriseMemberBudgetReservationCreate) SetNillableGroupID(v *int64) *EnterpriseMemberBudgetReservationCreate {
+	if v != nil {
+		_c.SetGroupID(*v)
+	}
+	return _c
+}
+
+// SetRequestPayloadHash sets the "request_payload_hash" field.
+func (_c *EnterpriseMemberBudgetReservationCreate) SetRequestPayloadHash(v string) *EnterpriseMemberBudgetReservationCreate {
+	_c.mutation.SetRequestPayloadHash(v)
+	return _c
+}
+
+// SetNillableRequestPayloadHash sets the "request_payload_hash" field if the given value is not nil.
+func (_c *EnterpriseMemberBudgetReservationCreate) SetNillableRequestPayloadHash(v *string) *EnterpriseMemberBudgetReservationCreate {
+	if v != nil {
+		_c.SetRequestPayloadHash(*v)
+	}
+	return _c
+}
+
+// SetOutcomeReason sets the "outcome_reason" field.
+func (_c *EnterpriseMemberBudgetReservationCreate) SetOutcomeReason(v string) *EnterpriseMemberBudgetReservationCreate {
+	_c.mutation.SetOutcomeReason(v)
+	return _c
+}
+
+// SetNillableOutcomeReason sets the "outcome_reason" field if the given value is not nil.
+func (_c *EnterpriseMemberBudgetReservationCreate) SetNillableOutcomeReason(v *string) *EnterpriseMemberBudgetReservationCreate {
+	if v != nil {
+		_c.SetOutcomeReason(*v)
+	}
+	return _c
+}
+
+// SetReconcileAttempts sets the "reconcile_attempts" field.
+func (_c *EnterpriseMemberBudgetReservationCreate) SetReconcileAttempts(v int) *EnterpriseMemberBudgetReservationCreate {
+	_c.mutation.SetReconcileAttempts(v)
+	return _c
+}
+
+// SetNillableReconcileAttempts sets the "reconcile_attempts" field if the given value is not nil.
+func (_c *EnterpriseMemberBudgetReservationCreate) SetNillableReconcileAttempts(v *int) *EnterpriseMemberBudgetReservationCreate {
+	if v != nil {
+		_c.SetReconcileAttempts(*v)
+	}
+	return _c
+}
+
+// SetLastReconcileAt sets the "last_reconcile_at" field.
+func (_c *EnterpriseMemberBudgetReservationCreate) SetLastReconcileAt(v time.Time) *EnterpriseMemberBudgetReservationCreate {
+	_c.mutation.SetLastReconcileAt(v)
+	return _c
+}
+
+// SetNillableLastReconcileAt sets the "last_reconcile_at" field if the given value is not nil.
+func (_c *EnterpriseMemberBudgetReservationCreate) SetNillableLastReconcileAt(v *time.Time) *EnterpriseMemberBudgetReservationCreate {
+	if v != nil {
+		_c.SetLastReconcileAt(*v)
+	}
+	return _c
+}
+
 // SetPeriodStart sets the "period_start" field.
 func (_c *EnterpriseMemberBudgetReservationCreate) SetPeriodStart(v time.Time) *EnterpriseMemberBudgetReservationCreate {
 	_c.mutation.SetPeriodStart(v)
@@ -163,6 +233,18 @@ func (_c *EnterpriseMemberBudgetReservationCreate) ExecX(ctx context.Context) {
 
 // defaults sets the default values of the builder before save.
 func (_c *EnterpriseMemberBudgetReservationCreate) defaults() {
+	if _, ok := _c.mutation.RequestPayloadHash(); !ok {
+		v := enterprisememberbudgetreservation.DefaultRequestPayloadHash
+		_c.mutation.SetRequestPayloadHash(v)
+	}
+	if _, ok := _c.mutation.OutcomeReason(); !ok {
+		v := enterprisememberbudgetreservation.DefaultOutcomeReason
+		_c.mutation.SetOutcomeReason(v)
+	}
+	if _, ok := _c.mutation.ReconcileAttempts(); !ok {
+		v := enterprisememberbudgetreservation.DefaultReconcileAttempts
+		_c.mutation.SetReconcileAttempts(v)
+	}
 	if _, ok := _c.mutation.ActualUsd(); !ok {
 		v := enterprisememberbudgetreservation.DefaultActualUsd
 		_c.mutation.SetActualUsd(v)
@@ -193,6 +275,30 @@ func (_c *EnterpriseMemberBudgetReservationCreate) check() error {
 	}
 	if _, ok := _c.mutation.MemberID(); !ok {
 		return &ValidationError{Name: "member_id", err: errors.New(`ent: missing required field "EnterpriseMemberBudgetReservation.member_id"`)}
+	}
+	if _, ok := _c.mutation.RequestPayloadHash(); !ok {
+		return &ValidationError{Name: "request_payload_hash", err: errors.New(`ent: missing required field "EnterpriseMemberBudgetReservation.request_payload_hash"`)}
+	}
+	if v, ok := _c.mutation.RequestPayloadHash(); ok {
+		if err := enterprisememberbudgetreservation.RequestPayloadHashValidator(v); err != nil {
+			return &ValidationError{Name: "request_payload_hash", err: fmt.Errorf(`ent: validator failed for field "EnterpriseMemberBudgetReservation.request_payload_hash": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.OutcomeReason(); !ok {
+		return &ValidationError{Name: "outcome_reason", err: errors.New(`ent: missing required field "EnterpriseMemberBudgetReservation.outcome_reason"`)}
+	}
+	if v, ok := _c.mutation.OutcomeReason(); ok {
+		if err := enterprisememberbudgetreservation.OutcomeReasonValidator(v); err != nil {
+			return &ValidationError{Name: "outcome_reason", err: fmt.Errorf(`ent: validator failed for field "EnterpriseMemberBudgetReservation.outcome_reason": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.ReconcileAttempts(); !ok {
+		return &ValidationError{Name: "reconcile_attempts", err: errors.New(`ent: missing required field "EnterpriseMemberBudgetReservation.reconcile_attempts"`)}
+	}
+	if v, ok := _c.mutation.ReconcileAttempts(); ok {
+		if err := enterprisememberbudgetreservation.ReconcileAttemptsValidator(v); err != nil {
+			return &ValidationError{Name: "reconcile_attempts", err: fmt.Errorf(`ent: validator failed for field "EnterpriseMemberBudgetReservation.reconcile_attempts": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.PeriodStart(); !ok {
 		return &ValidationError{Name: "period_start", err: errors.New(`ent: missing required field "EnterpriseMemberBudgetReservation.period_start"`)}
@@ -253,6 +359,26 @@ func (_c *EnterpriseMemberBudgetReservationCreate) createSpec() (*EnterpriseMemb
 	if value, ok := _c.mutation.RequestID(); ok {
 		_spec.SetField(enterprisememberbudgetreservation.FieldRequestID, field.TypeString, value)
 		_node.RequestID = value
+	}
+	if value, ok := _c.mutation.GroupID(); ok {
+		_spec.SetField(enterprisememberbudgetreservation.FieldGroupID, field.TypeInt64, value)
+		_node.GroupID = &value
+	}
+	if value, ok := _c.mutation.RequestPayloadHash(); ok {
+		_spec.SetField(enterprisememberbudgetreservation.FieldRequestPayloadHash, field.TypeString, value)
+		_node.RequestPayloadHash = value
+	}
+	if value, ok := _c.mutation.OutcomeReason(); ok {
+		_spec.SetField(enterprisememberbudgetreservation.FieldOutcomeReason, field.TypeString, value)
+		_node.OutcomeReason = value
+	}
+	if value, ok := _c.mutation.ReconcileAttempts(); ok {
+		_spec.SetField(enterprisememberbudgetreservation.FieldReconcileAttempts, field.TypeInt, value)
+		_node.ReconcileAttempts = value
+	}
+	if value, ok := _c.mutation.LastReconcileAt(); ok {
+		_spec.SetField(enterprisememberbudgetreservation.FieldLastReconcileAt, field.TypeTime, value)
+		_node.LastReconcileAt = &value
 	}
 	if value, ok := _c.mutation.PeriodStart(); ok {
 		_spec.SetField(enterprisememberbudgetreservation.FieldPeriodStart, field.TypeTime, value)
@@ -376,6 +502,90 @@ func (u *EnterpriseMemberBudgetReservationUpsert) SetMemberID(v int64) *Enterpri
 // UpdateMemberID sets the "member_id" field to the value that was provided on create.
 func (u *EnterpriseMemberBudgetReservationUpsert) UpdateMemberID() *EnterpriseMemberBudgetReservationUpsert {
 	u.SetExcluded(enterprisememberbudgetreservation.FieldMemberID)
+	return u
+}
+
+// SetGroupID sets the "group_id" field.
+func (u *EnterpriseMemberBudgetReservationUpsert) SetGroupID(v int64) *EnterpriseMemberBudgetReservationUpsert {
+	u.Set(enterprisememberbudgetreservation.FieldGroupID, v)
+	return u
+}
+
+// UpdateGroupID sets the "group_id" field to the value that was provided on create.
+func (u *EnterpriseMemberBudgetReservationUpsert) UpdateGroupID() *EnterpriseMemberBudgetReservationUpsert {
+	u.SetExcluded(enterprisememberbudgetreservation.FieldGroupID)
+	return u
+}
+
+// AddGroupID adds v to the "group_id" field.
+func (u *EnterpriseMemberBudgetReservationUpsert) AddGroupID(v int64) *EnterpriseMemberBudgetReservationUpsert {
+	u.Add(enterprisememberbudgetreservation.FieldGroupID, v)
+	return u
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (u *EnterpriseMemberBudgetReservationUpsert) ClearGroupID() *EnterpriseMemberBudgetReservationUpsert {
+	u.SetNull(enterprisememberbudgetreservation.FieldGroupID)
+	return u
+}
+
+// SetRequestPayloadHash sets the "request_payload_hash" field.
+func (u *EnterpriseMemberBudgetReservationUpsert) SetRequestPayloadHash(v string) *EnterpriseMemberBudgetReservationUpsert {
+	u.Set(enterprisememberbudgetreservation.FieldRequestPayloadHash, v)
+	return u
+}
+
+// UpdateRequestPayloadHash sets the "request_payload_hash" field to the value that was provided on create.
+func (u *EnterpriseMemberBudgetReservationUpsert) UpdateRequestPayloadHash() *EnterpriseMemberBudgetReservationUpsert {
+	u.SetExcluded(enterprisememberbudgetreservation.FieldRequestPayloadHash)
+	return u
+}
+
+// SetOutcomeReason sets the "outcome_reason" field.
+func (u *EnterpriseMemberBudgetReservationUpsert) SetOutcomeReason(v string) *EnterpriseMemberBudgetReservationUpsert {
+	u.Set(enterprisememberbudgetreservation.FieldOutcomeReason, v)
+	return u
+}
+
+// UpdateOutcomeReason sets the "outcome_reason" field to the value that was provided on create.
+func (u *EnterpriseMemberBudgetReservationUpsert) UpdateOutcomeReason() *EnterpriseMemberBudgetReservationUpsert {
+	u.SetExcluded(enterprisememberbudgetreservation.FieldOutcomeReason)
+	return u
+}
+
+// SetReconcileAttempts sets the "reconcile_attempts" field.
+func (u *EnterpriseMemberBudgetReservationUpsert) SetReconcileAttempts(v int) *EnterpriseMemberBudgetReservationUpsert {
+	u.Set(enterprisememberbudgetreservation.FieldReconcileAttempts, v)
+	return u
+}
+
+// UpdateReconcileAttempts sets the "reconcile_attempts" field to the value that was provided on create.
+func (u *EnterpriseMemberBudgetReservationUpsert) UpdateReconcileAttempts() *EnterpriseMemberBudgetReservationUpsert {
+	u.SetExcluded(enterprisememberbudgetreservation.FieldReconcileAttempts)
+	return u
+}
+
+// AddReconcileAttempts adds v to the "reconcile_attempts" field.
+func (u *EnterpriseMemberBudgetReservationUpsert) AddReconcileAttempts(v int) *EnterpriseMemberBudgetReservationUpsert {
+	u.Add(enterprisememberbudgetreservation.FieldReconcileAttempts, v)
+	return u
+}
+
+// SetLastReconcileAt sets the "last_reconcile_at" field.
+func (u *EnterpriseMemberBudgetReservationUpsert) SetLastReconcileAt(v time.Time) *EnterpriseMemberBudgetReservationUpsert {
+	u.Set(enterprisememberbudgetreservation.FieldLastReconcileAt, v)
+	return u
+}
+
+// UpdateLastReconcileAt sets the "last_reconcile_at" field to the value that was provided on create.
+func (u *EnterpriseMemberBudgetReservationUpsert) UpdateLastReconcileAt() *EnterpriseMemberBudgetReservationUpsert {
+	u.SetExcluded(enterprisememberbudgetreservation.FieldLastReconcileAt)
+	return u
+}
+
+// ClearLastReconcileAt clears the value of the "last_reconcile_at" field.
+func (u *EnterpriseMemberBudgetReservationUpsert) ClearLastReconcileAt() *EnterpriseMemberBudgetReservationUpsert {
+	u.SetNull(enterprisememberbudgetreservation.FieldLastReconcileAt)
 	return u
 }
 
@@ -557,6 +767,104 @@ func (u *EnterpriseMemberBudgetReservationUpsertOne) SetMemberID(v int64) *Enter
 func (u *EnterpriseMemberBudgetReservationUpsertOne) UpdateMemberID() *EnterpriseMemberBudgetReservationUpsertOne {
 	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
 		s.UpdateMemberID()
+	})
+}
+
+// SetGroupID sets the "group_id" field.
+func (u *EnterpriseMemberBudgetReservationUpsertOne) SetGroupID(v int64) *EnterpriseMemberBudgetReservationUpsertOne {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.SetGroupID(v)
+	})
+}
+
+// AddGroupID adds v to the "group_id" field.
+func (u *EnterpriseMemberBudgetReservationUpsertOne) AddGroupID(v int64) *EnterpriseMemberBudgetReservationUpsertOne {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.AddGroupID(v)
+	})
+}
+
+// UpdateGroupID sets the "group_id" field to the value that was provided on create.
+func (u *EnterpriseMemberBudgetReservationUpsertOne) UpdateGroupID() *EnterpriseMemberBudgetReservationUpsertOne {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.UpdateGroupID()
+	})
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (u *EnterpriseMemberBudgetReservationUpsertOne) ClearGroupID() *EnterpriseMemberBudgetReservationUpsertOne {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.ClearGroupID()
+	})
+}
+
+// SetRequestPayloadHash sets the "request_payload_hash" field.
+func (u *EnterpriseMemberBudgetReservationUpsertOne) SetRequestPayloadHash(v string) *EnterpriseMemberBudgetReservationUpsertOne {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.SetRequestPayloadHash(v)
+	})
+}
+
+// UpdateRequestPayloadHash sets the "request_payload_hash" field to the value that was provided on create.
+func (u *EnterpriseMemberBudgetReservationUpsertOne) UpdateRequestPayloadHash() *EnterpriseMemberBudgetReservationUpsertOne {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.UpdateRequestPayloadHash()
+	})
+}
+
+// SetOutcomeReason sets the "outcome_reason" field.
+func (u *EnterpriseMemberBudgetReservationUpsertOne) SetOutcomeReason(v string) *EnterpriseMemberBudgetReservationUpsertOne {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.SetOutcomeReason(v)
+	})
+}
+
+// UpdateOutcomeReason sets the "outcome_reason" field to the value that was provided on create.
+func (u *EnterpriseMemberBudgetReservationUpsertOne) UpdateOutcomeReason() *EnterpriseMemberBudgetReservationUpsertOne {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.UpdateOutcomeReason()
+	})
+}
+
+// SetReconcileAttempts sets the "reconcile_attempts" field.
+func (u *EnterpriseMemberBudgetReservationUpsertOne) SetReconcileAttempts(v int) *EnterpriseMemberBudgetReservationUpsertOne {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.SetReconcileAttempts(v)
+	})
+}
+
+// AddReconcileAttempts adds v to the "reconcile_attempts" field.
+func (u *EnterpriseMemberBudgetReservationUpsertOne) AddReconcileAttempts(v int) *EnterpriseMemberBudgetReservationUpsertOne {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.AddReconcileAttempts(v)
+	})
+}
+
+// UpdateReconcileAttempts sets the "reconcile_attempts" field to the value that was provided on create.
+func (u *EnterpriseMemberBudgetReservationUpsertOne) UpdateReconcileAttempts() *EnterpriseMemberBudgetReservationUpsertOne {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.UpdateReconcileAttempts()
+	})
+}
+
+// SetLastReconcileAt sets the "last_reconcile_at" field.
+func (u *EnterpriseMemberBudgetReservationUpsertOne) SetLastReconcileAt(v time.Time) *EnterpriseMemberBudgetReservationUpsertOne {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.SetLastReconcileAt(v)
+	})
+}
+
+// UpdateLastReconcileAt sets the "last_reconcile_at" field to the value that was provided on create.
+func (u *EnterpriseMemberBudgetReservationUpsertOne) UpdateLastReconcileAt() *EnterpriseMemberBudgetReservationUpsertOne {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.UpdateLastReconcileAt()
+	})
+}
+
+// ClearLastReconcileAt clears the value of the "last_reconcile_at" field.
+func (u *EnterpriseMemberBudgetReservationUpsertOne) ClearLastReconcileAt() *EnterpriseMemberBudgetReservationUpsertOne {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.ClearLastReconcileAt()
 	})
 }
 
@@ -922,6 +1230,104 @@ func (u *EnterpriseMemberBudgetReservationUpsertBulk) SetMemberID(v int64) *Ente
 func (u *EnterpriseMemberBudgetReservationUpsertBulk) UpdateMemberID() *EnterpriseMemberBudgetReservationUpsertBulk {
 	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
 		s.UpdateMemberID()
+	})
+}
+
+// SetGroupID sets the "group_id" field.
+func (u *EnterpriseMemberBudgetReservationUpsertBulk) SetGroupID(v int64) *EnterpriseMemberBudgetReservationUpsertBulk {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.SetGroupID(v)
+	})
+}
+
+// AddGroupID adds v to the "group_id" field.
+func (u *EnterpriseMemberBudgetReservationUpsertBulk) AddGroupID(v int64) *EnterpriseMemberBudgetReservationUpsertBulk {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.AddGroupID(v)
+	})
+}
+
+// UpdateGroupID sets the "group_id" field to the value that was provided on create.
+func (u *EnterpriseMemberBudgetReservationUpsertBulk) UpdateGroupID() *EnterpriseMemberBudgetReservationUpsertBulk {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.UpdateGroupID()
+	})
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (u *EnterpriseMemberBudgetReservationUpsertBulk) ClearGroupID() *EnterpriseMemberBudgetReservationUpsertBulk {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.ClearGroupID()
+	})
+}
+
+// SetRequestPayloadHash sets the "request_payload_hash" field.
+func (u *EnterpriseMemberBudgetReservationUpsertBulk) SetRequestPayloadHash(v string) *EnterpriseMemberBudgetReservationUpsertBulk {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.SetRequestPayloadHash(v)
+	})
+}
+
+// UpdateRequestPayloadHash sets the "request_payload_hash" field to the value that was provided on create.
+func (u *EnterpriseMemberBudgetReservationUpsertBulk) UpdateRequestPayloadHash() *EnterpriseMemberBudgetReservationUpsertBulk {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.UpdateRequestPayloadHash()
+	})
+}
+
+// SetOutcomeReason sets the "outcome_reason" field.
+func (u *EnterpriseMemberBudgetReservationUpsertBulk) SetOutcomeReason(v string) *EnterpriseMemberBudgetReservationUpsertBulk {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.SetOutcomeReason(v)
+	})
+}
+
+// UpdateOutcomeReason sets the "outcome_reason" field to the value that was provided on create.
+func (u *EnterpriseMemberBudgetReservationUpsertBulk) UpdateOutcomeReason() *EnterpriseMemberBudgetReservationUpsertBulk {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.UpdateOutcomeReason()
+	})
+}
+
+// SetReconcileAttempts sets the "reconcile_attempts" field.
+func (u *EnterpriseMemberBudgetReservationUpsertBulk) SetReconcileAttempts(v int) *EnterpriseMemberBudgetReservationUpsertBulk {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.SetReconcileAttempts(v)
+	})
+}
+
+// AddReconcileAttempts adds v to the "reconcile_attempts" field.
+func (u *EnterpriseMemberBudgetReservationUpsertBulk) AddReconcileAttempts(v int) *EnterpriseMemberBudgetReservationUpsertBulk {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.AddReconcileAttempts(v)
+	})
+}
+
+// UpdateReconcileAttempts sets the "reconcile_attempts" field to the value that was provided on create.
+func (u *EnterpriseMemberBudgetReservationUpsertBulk) UpdateReconcileAttempts() *EnterpriseMemberBudgetReservationUpsertBulk {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.UpdateReconcileAttempts()
+	})
+}
+
+// SetLastReconcileAt sets the "last_reconcile_at" field.
+func (u *EnterpriseMemberBudgetReservationUpsertBulk) SetLastReconcileAt(v time.Time) *EnterpriseMemberBudgetReservationUpsertBulk {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.SetLastReconcileAt(v)
+	})
+}
+
+// UpdateLastReconcileAt sets the "last_reconcile_at" field to the value that was provided on create.
+func (u *EnterpriseMemberBudgetReservationUpsertBulk) UpdateLastReconcileAt() *EnterpriseMemberBudgetReservationUpsertBulk {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.UpdateLastReconcileAt()
+	})
+}
+
+// ClearLastReconcileAt clears the value of the "last_reconcile_at" field.
+func (u *EnterpriseMemberBudgetReservationUpsertBulk) ClearLastReconcileAt() *EnterpriseMemberBudgetReservationUpsertBulk {
+	return u.Update(func(s *EnterpriseMemberBudgetReservationUpsert) {
+		s.ClearLastReconcileAt()
 	})
 }
 

@@ -228,6 +228,33 @@ func TestUsageLogFromService_FallsBackToLegacyModelWhenRequestedModelMissing(t *
 	require.Equal(t, "claude-3", adminDTO.Model)
 }
 
+func TestUsageLogFromServiceAdminRedactsEnterpriseMemberIdentity(t *testing.T) {
+	memberID := int64(44)
+	memberCode := "finance-01"
+	memberName := "Finance"
+	log := &service.UsageLog{
+		MemberID:           &memberID,
+		MemberCodeSnapshot: &memberCode,
+		MemberNameSnapshot: &memberName,
+		APIKey:             &service.APIKey{ID: 31, MemberID: &memberID},
+	}
+
+	userDTO := UsageLogFromService(log)
+	adminDTO := UsageLogFromServiceAdmin(log)
+	require.Equal(t, &memberID, userDTO.MemberID)
+	require.Nil(t, adminDTO.MemberID)
+	require.Nil(t, adminDTO.MemberCode)
+	require.Nil(t, adminDTO.MemberName)
+	require.NotNil(t, adminDTO.APIKey)
+	require.Nil(t, adminDTO.APIKey.MemberID)
+
+	encoded, err := json.Marshal(adminDTO)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "member_id")
+	require.NotContains(t, string(encoded), "member_code_snapshot")
+	require.NotContains(t, string(encoded), "member_name_snapshot")
+}
+
 func TestUsageLogFromService_IncludesImageBillingMetadataForUserAndAdmin(t *testing.T) {
 	t.Parallel()
 

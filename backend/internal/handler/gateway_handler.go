@@ -522,7 +522,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// ForceCacheBilling 提前拍成标量，避免 worker 闭包保活 failover 状态里的响应体。
 			forceCacheBilling := fs.ForceCacheBilling
 			quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-			h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
+			h.submitGatewayUsageRecordTask(c, c.Request.Context(), apiKey, func(ctx context.Context) {
 				if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 					Result:             result,
 					QuotaPlatform:      quotaPlatform,
@@ -539,6 +539,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					APIKeyService:      h.apiKeyService,
 					ChannelUsageFields: channelMapping.ToUsageFields(reqModel, result.UpstreamModel),
 				}); err != nil {
+					markEnterpriseMemberUsagePersistenceFailure(c, apiKey)
 					logger.L().With(
 						zap.String("component", "handler.gateway.messages"),
 						zap.Int64("user_id", subject.UserID),
@@ -958,7 +959,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// ForceCacheBilling 提前拍成标量，避免 worker 闭包保活 failover 状态里的响应体。
 			forceCacheBilling := fs.ForceCacheBilling
 			quotaPlatform := service.QuotaPlatform(c.Request.Context(), currentAPIKey)
-			h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
+			h.submitGatewayUsageRecordTask(c, c.Request.Context(), currentAPIKey, func(ctx context.Context) {
 				if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 					Result:             result,
 					QuotaPlatform:      quotaPlatform,
@@ -975,6 +976,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					APIKeyService:      h.apiKeyService,
 					ChannelUsageFields: channelMapping.ToUsageFields(reqModel, result.UpstreamModel),
 				}); err != nil {
+					markEnterpriseMemberUsagePersistenceFailure(c, currentAPIKey)
 					logger.L().With(
 						zap.String("component", "handler.gateway.messages"),
 						zap.Int64("user_id", subject.UserID),
@@ -1310,8 +1312,9 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 		}
 	}
 
-	// 判断模式: key 有总额度或速率限制 → quota_limited，否则 → unrestricted
-	isQuotaLimited := apiKey.Quota > 0 || apiKey.HasRateLimits()
+	// 成员 Key 只能查询自身 Key 的状态与用量，不能通过 unrestricted
+	// 响应读取企业 owner 的钱包余额或订阅信息。
+	isQuotaLimited := apiKey.MemberID != nil || apiKey.Quota > 0 || apiKey.HasRateLimits()
 
 	if isQuotaLimited {
 		h.usageQuotaLimited(c, ctx, apiKey, usageData, dailyUsage, modelStats)
@@ -1606,7 +1609,9 @@ func (h *GatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotT
 
 func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, platform string, streamStarted bool) {
 	if !streamStarted {
-		service.MarkOpsGroupFailoverEligible(c)
+		if reason, ok := service.OpsGroupRetryReasonForFailoverError(failoverErr); ok {
+			service.MarkOpsGroupRetry(c, reason)
+		}
 	}
 	statusCode := failoverErr.StatusCode
 	responseBody := failoverErr.ResponseBody
@@ -1652,7 +1657,9 @@ func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *se
 // handleFailoverExhaustedSimple 简化版本，用于没有响应体的情况
 func (h *GatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCode int, streamStarted bool) {
 	if !streamStarted {
-		service.MarkOpsGroupFailoverEligible(c)
+		if reason, ok := service.OpsGroupRetryReasonForStatus(statusCode); ok {
+			service.MarkOpsGroupRetry(c, reason)
+		}
 	}
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
 	service.SetOpsUpstreamError(c, statusCode, errMsg, "")
@@ -2247,6 +2254,16 @@ func (h *GatewayHandler) submitUsageRecordTask(parent context.Context, task serv
 		}
 	}()
 	task(ctx)
+}
+
+func (h *GatewayHandler) submitGatewayUsageRecordTask(c *gin.Context, parent context.Context, apiKey *service.APIKey, task service.UsageRecordTask) {
+	if apiKey != nil && apiKey.MemberID != nil {
+		executeUsageRecordTaskSynchronously(parent, "handler.gateway.messages", task, func() {
+			markEnterpriseMemberUsagePersistenceFailure(c, apiKey)
+		})
+		return
+	}
+	h.submitUsageRecordTask(parent, task)
 }
 
 // getUserMsgQueueMode 获取当前请求的 UMQ 模式

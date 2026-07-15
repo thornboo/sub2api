@@ -23784,27 +23784,34 @@ func (m *EnterpriseMemberBudgetPeriodMutation) ResetEdge(name string) error {
 // EnterpriseMemberBudgetReservationMutation represents an operation that mutates the EnterpriseMemberBudgetReservation nodes in the graph.
 type EnterpriseMemberBudgetReservationMutation struct {
 	config
-	op              Op
-	typ             string
-	id              *int64
-	request_id      *string
-	period_start    *time.Time
-	reserved_usd    *float64
-	addreserved_usd *float64
-	actual_usd      *float64
-	addactual_usd   *float64
-	status          *string
-	usage_log_id    *int64
-	addusage_log_id *int64
-	expires_at      *time.Time
-	created_at      *time.Time
-	updated_at      *time.Time
-	clearedFields   map[string]struct{}
-	member          *int64
-	clearedmember   bool
-	done            bool
-	oldValue        func(context.Context) (*EnterpriseMemberBudgetReservation, error)
-	predicates      []predicate.EnterpriseMemberBudgetReservation
+	op                    Op
+	typ                   string
+	id                    *int64
+	request_id            *string
+	group_id              *int64
+	addgroup_id           *int64
+	request_payload_hash  *string
+	outcome_reason        *string
+	reconcile_attempts    *int
+	addreconcile_attempts *int
+	last_reconcile_at     *time.Time
+	period_start          *time.Time
+	reserved_usd          *float64
+	addreserved_usd       *float64
+	actual_usd            *float64
+	addactual_usd         *float64
+	status                *string
+	usage_log_id          *int64
+	addusage_log_id       *int64
+	expires_at            *time.Time
+	created_at            *time.Time
+	updated_at            *time.Time
+	clearedFields         map[string]struct{}
+	member                *int64
+	clearedmember         bool
+	done                  bool
+	oldValue              func(context.Context) (*EnterpriseMemberBudgetReservation, error)
+	predicates            []predicate.EnterpriseMemberBudgetReservation
 }
 
 var _ ent.Mutation = (*EnterpriseMemberBudgetReservationMutation)(nil)
@@ -23975,6 +23982,253 @@ func (m *EnterpriseMemberBudgetReservationMutation) OldMemberID(ctx context.Cont
 // ResetMemberID resets all changes to the "member_id" field.
 func (m *EnterpriseMemberBudgetReservationMutation) ResetMemberID() {
 	m.member = nil
+}
+
+// SetGroupID sets the "group_id" field.
+func (m *EnterpriseMemberBudgetReservationMutation) SetGroupID(i int64) {
+	m.group_id = &i
+	m.addgroup_id = nil
+}
+
+// GroupID returns the value of the "group_id" field in the mutation.
+func (m *EnterpriseMemberBudgetReservationMutation) GroupID() (r int64, exists bool) {
+	v := m.group_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldGroupID returns the old "group_id" field's value of the EnterpriseMemberBudgetReservation entity.
+// If the EnterpriseMemberBudgetReservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *EnterpriseMemberBudgetReservationMutation) OldGroupID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldGroupID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldGroupID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldGroupID: %w", err)
+	}
+	return oldValue.GroupID, nil
+}
+
+// AddGroupID adds i to the "group_id" field.
+func (m *EnterpriseMemberBudgetReservationMutation) AddGroupID(i int64) {
+	if m.addgroup_id != nil {
+		*m.addgroup_id += i
+	} else {
+		m.addgroup_id = &i
+	}
+}
+
+// AddedGroupID returns the value that was added to the "group_id" field in this mutation.
+func (m *EnterpriseMemberBudgetReservationMutation) AddedGroupID() (r int64, exists bool) {
+	v := m.addgroup_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (m *EnterpriseMemberBudgetReservationMutation) ClearGroupID() {
+	m.group_id = nil
+	m.addgroup_id = nil
+	m.clearedFields[enterprisememberbudgetreservation.FieldGroupID] = struct{}{}
+}
+
+// GroupIDCleared returns if the "group_id" field was cleared in this mutation.
+func (m *EnterpriseMemberBudgetReservationMutation) GroupIDCleared() bool {
+	_, ok := m.clearedFields[enterprisememberbudgetreservation.FieldGroupID]
+	return ok
+}
+
+// ResetGroupID resets all changes to the "group_id" field.
+func (m *EnterpriseMemberBudgetReservationMutation) ResetGroupID() {
+	m.group_id = nil
+	m.addgroup_id = nil
+	delete(m.clearedFields, enterprisememberbudgetreservation.FieldGroupID)
+}
+
+// SetRequestPayloadHash sets the "request_payload_hash" field.
+func (m *EnterpriseMemberBudgetReservationMutation) SetRequestPayloadHash(s string) {
+	m.request_payload_hash = &s
+}
+
+// RequestPayloadHash returns the value of the "request_payload_hash" field in the mutation.
+func (m *EnterpriseMemberBudgetReservationMutation) RequestPayloadHash() (r string, exists bool) {
+	v := m.request_payload_hash
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequestPayloadHash returns the old "request_payload_hash" field's value of the EnterpriseMemberBudgetReservation entity.
+// If the EnterpriseMemberBudgetReservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *EnterpriseMemberBudgetReservationMutation) OldRequestPayloadHash(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequestPayloadHash is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequestPayloadHash requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequestPayloadHash: %w", err)
+	}
+	return oldValue.RequestPayloadHash, nil
+}
+
+// ResetRequestPayloadHash resets all changes to the "request_payload_hash" field.
+func (m *EnterpriseMemberBudgetReservationMutation) ResetRequestPayloadHash() {
+	m.request_payload_hash = nil
+}
+
+// SetOutcomeReason sets the "outcome_reason" field.
+func (m *EnterpriseMemberBudgetReservationMutation) SetOutcomeReason(s string) {
+	m.outcome_reason = &s
+}
+
+// OutcomeReason returns the value of the "outcome_reason" field in the mutation.
+func (m *EnterpriseMemberBudgetReservationMutation) OutcomeReason() (r string, exists bool) {
+	v := m.outcome_reason
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOutcomeReason returns the old "outcome_reason" field's value of the EnterpriseMemberBudgetReservation entity.
+// If the EnterpriseMemberBudgetReservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *EnterpriseMemberBudgetReservationMutation) OldOutcomeReason(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOutcomeReason is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOutcomeReason requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOutcomeReason: %w", err)
+	}
+	return oldValue.OutcomeReason, nil
+}
+
+// ResetOutcomeReason resets all changes to the "outcome_reason" field.
+func (m *EnterpriseMemberBudgetReservationMutation) ResetOutcomeReason() {
+	m.outcome_reason = nil
+}
+
+// SetReconcileAttempts sets the "reconcile_attempts" field.
+func (m *EnterpriseMemberBudgetReservationMutation) SetReconcileAttempts(i int) {
+	m.reconcile_attempts = &i
+	m.addreconcile_attempts = nil
+}
+
+// ReconcileAttempts returns the value of the "reconcile_attempts" field in the mutation.
+func (m *EnterpriseMemberBudgetReservationMutation) ReconcileAttempts() (r int, exists bool) {
+	v := m.reconcile_attempts
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReconcileAttempts returns the old "reconcile_attempts" field's value of the EnterpriseMemberBudgetReservation entity.
+// If the EnterpriseMemberBudgetReservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *EnterpriseMemberBudgetReservationMutation) OldReconcileAttempts(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReconcileAttempts is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReconcileAttempts requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReconcileAttempts: %w", err)
+	}
+	return oldValue.ReconcileAttempts, nil
+}
+
+// AddReconcileAttempts adds i to the "reconcile_attempts" field.
+func (m *EnterpriseMemberBudgetReservationMutation) AddReconcileAttempts(i int) {
+	if m.addreconcile_attempts != nil {
+		*m.addreconcile_attempts += i
+	} else {
+		m.addreconcile_attempts = &i
+	}
+}
+
+// AddedReconcileAttempts returns the value that was added to the "reconcile_attempts" field in this mutation.
+func (m *EnterpriseMemberBudgetReservationMutation) AddedReconcileAttempts() (r int, exists bool) {
+	v := m.addreconcile_attempts
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetReconcileAttempts resets all changes to the "reconcile_attempts" field.
+func (m *EnterpriseMemberBudgetReservationMutation) ResetReconcileAttempts() {
+	m.reconcile_attempts = nil
+	m.addreconcile_attempts = nil
+}
+
+// SetLastReconcileAt sets the "last_reconcile_at" field.
+func (m *EnterpriseMemberBudgetReservationMutation) SetLastReconcileAt(t time.Time) {
+	m.last_reconcile_at = &t
+}
+
+// LastReconcileAt returns the value of the "last_reconcile_at" field in the mutation.
+func (m *EnterpriseMemberBudgetReservationMutation) LastReconcileAt() (r time.Time, exists bool) {
+	v := m.last_reconcile_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastReconcileAt returns the old "last_reconcile_at" field's value of the EnterpriseMemberBudgetReservation entity.
+// If the EnterpriseMemberBudgetReservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *EnterpriseMemberBudgetReservationMutation) OldLastReconcileAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastReconcileAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastReconcileAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastReconcileAt: %w", err)
+	}
+	return oldValue.LastReconcileAt, nil
+}
+
+// ClearLastReconcileAt clears the value of the "last_reconcile_at" field.
+func (m *EnterpriseMemberBudgetReservationMutation) ClearLastReconcileAt() {
+	m.last_reconcile_at = nil
+	m.clearedFields[enterprisememberbudgetreservation.FieldLastReconcileAt] = struct{}{}
+}
+
+// LastReconcileAtCleared returns if the "last_reconcile_at" field was cleared in this mutation.
+func (m *EnterpriseMemberBudgetReservationMutation) LastReconcileAtCleared() bool {
+	_, ok := m.clearedFields[enterprisememberbudgetreservation.FieldLastReconcileAt]
+	return ok
+}
+
+// ResetLastReconcileAt resets all changes to the "last_reconcile_at" field.
+func (m *EnterpriseMemberBudgetReservationMutation) ResetLastReconcileAt() {
+	m.last_reconcile_at = nil
+	delete(m.clearedFields, enterprisememberbudgetreservation.FieldLastReconcileAt)
 }
 
 // SetPeriodStart sets the "period_start" field.
@@ -24400,12 +24654,27 @@ func (m *EnterpriseMemberBudgetReservationMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *EnterpriseMemberBudgetReservationMutation) Fields() []string {
-	fields := make([]string, 0, 10)
+	fields := make([]string, 0, 15)
 	if m.request_id != nil {
 		fields = append(fields, enterprisememberbudgetreservation.FieldRequestID)
 	}
 	if m.member != nil {
 		fields = append(fields, enterprisememberbudgetreservation.FieldMemberID)
+	}
+	if m.group_id != nil {
+		fields = append(fields, enterprisememberbudgetreservation.FieldGroupID)
+	}
+	if m.request_payload_hash != nil {
+		fields = append(fields, enterprisememberbudgetreservation.FieldRequestPayloadHash)
+	}
+	if m.outcome_reason != nil {
+		fields = append(fields, enterprisememberbudgetreservation.FieldOutcomeReason)
+	}
+	if m.reconcile_attempts != nil {
+		fields = append(fields, enterprisememberbudgetreservation.FieldReconcileAttempts)
+	}
+	if m.last_reconcile_at != nil {
+		fields = append(fields, enterprisememberbudgetreservation.FieldLastReconcileAt)
 	}
 	if m.period_start != nil {
 		fields = append(fields, enterprisememberbudgetreservation.FieldPeriodStart)
@@ -24443,6 +24712,16 @@ func (m *EnterpriseMemberBudgetReservationMutation) Field(name string) (ent.Valu
 		return m.RequestID()
 	case enterprisememberbudgetreservation.FieldMemberID:
 		return m.MemberID()
+	case enterprisememberbudgetreservation.FieldGroupID:
+		return m.GroupID()
+	case enterprisememberbudgetreservation.FieldRequestPayloadHash:
+		return m.RequestPayloadHash()
+	case enterprisememberbudgetreservation.FieldOutcomeReason:
+		return m.OutcomeReason()
+	case enterprisememberbudgetreservation.FieldReconcileAttempts:
+		return m.ReconcileAttempts()
+	case enterprisememberbudgetreservation.FieldLastReconcileAt:
+		return m.LastReconcileAt()
 	case enterprisememberbudgetreservation.FieldPeriodStart:
 		return m.PeriodStart()
 	case enterprisememberbudgetreservation.FieldReservedUsd:
@@ -24472,6 +24751,16 @@ func (m *EnterpriseMemberBudgetReservationMutation) OldField(ctx context.Context
 		return m.OldRequestID(ctx)
 	case enterprisememberbudgetreservation.FieldMemberID:
 		return m.OldMemberID(ctx)
+	case enterprisememberbudgetreservation.FieldGroupID:
+		return m.OldGroupID(ctx)
+	case enterprisememberbudgetreservation.FieldRequestPayloadHash:
+		return m.OldRequestPayloadHash(ctx)
+	case enterprisememberbudgetreservation.FieldOutcomeReason:
+		return m.OldOutcomeReason(ctx)
+	case enterprisememberbudgetreservation.FieldReconcileAttempts:
+		return m.OldReconcileAttempts(ctx)
+	case enterprisememberbudgetreservation.FieldLastReconcileAt:
+		return m.OldLastReconcileAt(ctx)
 	case enterprisememberbudgetreservation.FieldPeriodStart:
 		return m.OldPeriodStart(ctx)
 	case enterprisememberbudgetreservation.FieldReservedUsd:
@@ -24510,6 +24799,41 @@ func (m *EnterpriseMemberBudgetReservationMutation) SetField(name string, value 
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetMemberID(v)
+		return nil
+	case enterprisememberbudgetreservation.FieldGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetGroupID(v)
+		return nil
+	case enterprisememberbudgetreservation.FieldRequestPayloadHash:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequestPayloadHash(v)
+		return nil
+	case enterprisememberbudgetreservation.FieldOutcomeReason:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOutcomeReason(v)
+		return nil
+	case enterprisememberbudgetreservation.FieldReconcileAttempts:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReconcileAttempts(v)
+		return nil
+	case enterprisememberbudgetreservation.FieldLastReconcileAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastReconcileAt(v)
 		return nil
 	case enterprisememberbudgetreservation.FieldPeriodStart:
 		v, ok := value.(time.Time)
@@ -24575,6 +24899,12 @@ func (m *EnterpriseMemberBudgetReservationMutation) SetField(name string, value 
 // this mutation.
 func (m *EnterpriseMemberBudgetReservationMutation) AddedFields() []string {
 	var fields []string
+	if m.addgroup_id != nil {
+		fields = append(fields, enterprisememberbudgetreservation.FieldGroupID)
+	}
+	if m.addreconcile_attempts != nil {
+		fields = append(fields, enterprisememberbudgetreservation.FieldReconcileAttempts)
+	}
 	if m.addreserved_usd != nil {
 		fields = append(fields, enterprisememberbudgetreservation.FieldReservedUsd)
 	}
@@ -24592,6 +24922,10 @@ func (m *EnterpriseMemberBudgetReservationMutation) AddedFields() []string {
 // was not set, or was not defined in the schema.
 func (m *EnterpriseMemberBudgetReservationMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
+	case enterprisememberbudgetreservation.FieldGroupID:
+		return m.AddedGroupID()
+	case enterprisememberbudgetreservation.FieldReconcileAttempts:
+		return m.AddedReconcileAttempts()
 	case enterprisememberbudgetreservation.FieldReservedUsd:
 		return m.AddedReservedUsd()
 	case enterprisememberbudgetreservation.FieldActualUsd:
@@ -24607,6 +24941,20 @@ func (m *EnterpriseMemberBudgetReservationMutation) AddedField(name string) (ent
 // type.
 func (m *EnterpriseMemberBudgetReservationMutation) AddField(name string, value ent.Value) error {
 	switch name {
+	case enterprisememberbudgetreservation.FieldGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddGroupID(v)
+		return nil
+	case enterprisememberbudgetreservation.FieldReconcileAttempts:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddReconcileAttempts(v)
+		return nil
 	case enterprisememberbudgetreservation.FieldReservedUsd:
 		v, ok := value.(float64)
 		if !ok {
@@ -24636,6 +24984,12 @@ func (m *EnterpriseMemberBudgetReservationMutation) AddField(name string, value 
 // mutation.
 func (m *EnterpriseMemberBudgetReservationMutation) ClearedFields() []string {
 	var fields []string
+	if m.FieldCleared(enterprisememberbudgetreservation.FieldGroupID) {
+		fields = append(fields, enterprisememberbudgetreservation.FieldGroupID)
+	}
+	if m.FieldCleared(enterprisememberbudgetreservation.FieldLastReconcileAt) {
+		fields = append(fields, enterprisememberbudgetreservation.FieldLastReconcileAt)
+	}
 	if m.FieldCleared(enterprisememberbudgetreservation.FieldUsageLogID) {
 		fields = append(fields, enterprisememberbudgetreservation.FieldUsageLogID)
 	}
@@ -24653,6 +25007,12 @@ func (m *EnterpriseMemberBudgetReservationMutation) FieldCleared(name string) bo
 // error if the field is not defined in the schema.
 func (m *EnterpriseMemberBudgetReservationMutation) ClearField(name string) error {
 	switch name {
+	case enterprisememberbudgetreservation.FieldGroupID:
+		m.ClearGroupID()
+		return nil
+	case enterprisememberbudgetreservation.FieldLastReconcileAt:
+		m.ClearLastReconcileAt()
+		return nil
 	case enterprisememberbudgetreservation.FieldUsageLogID:
 		m.ClearUsageLogID()
 		return nil
@@ -24669,6 +25029,21 @@ func (m *EnterpriseMemberBudgetReservationMutation) ResetField(name string) erro
 		return nil
 	case enterprisememberbudgetreservation.FieldMemberID:
 		m.ResetMemberID()
+		return nil
+	case enterprisememberbudgetreservation.FieldGroupID:
+		m.ResetGroupID()
+		return nil
+	case enterprisememberbudgetreservation.FieldRequestPayloadHash:
+		m.ResetRequestPayloadHash()
+		return nil
+	case enterprisememberbudgetreservation.FieldOutcomeReason:
+		m.ResetOutcomeReason()
+		return nil
+	case enterprisememberbudgetreservation.FieldReconcileAttempts:
+		m.ResetReconcileAttempts()
+		return nil
+	case enterprisememberbudgetreservation.FieldLastReconcileAt:
+		m.ResetLastReconcileAt()
 		return nil
 	case enterprisememberbudgetreservation.FieldPeriodStart:
 		m.ResetPeriodStart()

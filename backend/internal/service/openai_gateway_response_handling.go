@@ -227,7 +227,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 			logger.LegacyPrintf("service.openai_gateway", "%s: account=%d model=%s error=%v", message, account.ID, originalModel, err)
 			failoverErr := s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, nil, message)
-			failoverErr.SafeToFailoverAfterWrite = true
+			MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "local_response_staging_failed_after_upstream_execution")
+			failoverErr.SafeToFailoverAfterWrite = false
+			failoverErr.Stage = GatewayFailureStageLocalPersistence
+			failoverErr.Scope = GatewayFailureScopeRequest
+			failoverErr.NextAccountAction = NextAccountStop
 			streamEarlyErr = failoverErr
 			_ = resp.Body.Close()
 			return
@@ -343,7 +347,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				c, account, false, upstreamRequestID, nil,
 				"OpenAI SSE line exceeds guarded first-output limit",
 			)
-			failoverErr.SafeToFailoverAfterWrite = true
+			MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "local_response_staging_failed_after_upstream_execution")
+			failoverErr.SafeToFailoverAfterWrite = false
+			failoverErr.Stage = GatewayFailureStageLocalPersistence
+			failoverErr.Scope = GatewayFailureScopeRequest
+			failoverErr.NextAccountAction = NextAccountStop
 			return resultWithUsage(), failoverErr, true
 		}
 		if errors.Is(scanErr, bufio.ErrTooLong) && guardFirstOutput && firstTokenMs == nil {
@@ -352,7 +360,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				c, account, false, upstreamRequestID, nil,
 				"OpenAI SSE line exceeds guarded first-output limit",
 			)
-			failoverErr.SafeToFailoverAfterWrite = true
+			MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "local_response_staging_failed_after_upstream_execution")
+			failoverErr.SafeToFailoverAfterWrite = false
+			failoverErr.Stage = GatewayFailureStageLocalPersistence
+			failoverErr.Scope = GatewayFailureScopeRequest
+			failoverErr.NextAccountAction = NextAccountStop
 			return resultWithUsage(), failoverErr, true
 		}
 		if sawTerminalEvent {

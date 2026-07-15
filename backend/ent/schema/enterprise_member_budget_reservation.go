@@ -28,6 +28,14 @@ func (EnterpriseMemberBudgetReservation) Fields() []ent.Field {
 	return []ent.Field{
 		field.String("request_id").MaxLen(128).NotEmpty().Unique(),
 		field.Int64("member_id"),
+		field.Int64("group_id").Optional().Nillable(),
+		field.String("request_payload_hash").MaxLen(64).Default(""),
+		field.String("outcome_reason").MaxLen(64).Default(""),
+		field.Int("reconcile_attempts").NonNegative().Default(0),
+		field.Time("last_reconcile_at").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
 		field.Time("period_start").
 			SchemaType(map[string]string{dialect.Postgres: "date"}),
 		field.Float("reserved_usd").

@@ -79,7 +79,9 @@ func (r *usageLogRepository) ValidateOwnerUsageMember(ctx context.Context, owner
 		SELECT EXISTS (
 			SELECT 1
 			FROM enterprise_members
-			WHERE id = $1 AND enterprise_user_id = $2
+			WHERE id = $1
+			  AND enterprise_user_id = $2
+			  AND removed_at IS NULL
 		)
 	`, []any{memberID, ownerID}, &exists); err != nil {
 		return err
@@ -190,7 +192,10 @@ func (r *usageLogRepository) GetOwnerMemberAnalyticsLeaderboard(ctx context.Cont
 	memberScopeOwnerPlaceholder := len(args) + 1
 	args = append(args, filters.UserID)
 
-	memberScopeConditions := []string{fmt.Sprintf("em.enterprise_user_id = $%d", memberScopeOwnerPlaceholder)}
+	memberScopeConditions := []string{
+		fmt.Sprintf("em.enterprise_user_id = $%d", memberScopeOwnerPlaceholder),
+		"em.removed_at IS NULL",
+	}
 	if filters.MemberID != nil {
 		memberScopeConditions = append(memberScopeConditions, fmt.Sprintf("em.id = $%d", len(args)+1))
 		args = append(args, *filters.MemberID)

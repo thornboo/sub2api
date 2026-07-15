@@ -965,6 +965,11 @@ var (
 	EnterpriseMemberBudgetReservationsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
 		{Name: "request_id", Type: field.TypeString, Unique: true, Size: 128},
+		{Name: "group_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "request_payload_hash", Type: field.TypeString, Size: 64, Default: ""},
+		{Name: "outcome_reason", Type: field.TypeString, Size: 64, Default: ""},
+		{Name: "reconcile_attempts", Type: field.TypeInt, Default: 0},
+		{Name: "last_reconcile_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "period_start", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "date"}},
 		{Name: "reserved_usd", Type: field.TypeFloat64, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
 		{Name: "actual_usd", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
@@ -983,7 +988,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "enterprise_member_budget_reservations_enterprise_members_budget_reservations",
-				Columns:    []*schema.Column{EnterpriseMemberBudgetReservationsColumns[10]},
+				Columns:    []*schema.Column{EnterpriseMemberBudgetReservationsColumns[15]},
 				RefColumns: []*schema.Column{EnterpriseMembersColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -992,12 +997,12 @@ var (
 			{
 				Name:    "enterprisememberbudgetreservation_member_id_period_start_status",
 				Unique:  false,
-				Columns: []*schema.Column{EnterpriseMemberBudgetReservationsColumns[10], EnterpriseMemberBudgetReservationsColumns[2], EnterpriseMemberBudgetReservationsColumns[5]},
+				Columns: []*schema.Column{EnterpriseMemberBudgetReservationsColumns[15], EnterpriseMemberBudgetReservationsColumns[7], EnterpriseMemberBudgetReservationsColumns[10]},
 			},
 			{
 				Name:    "enterprisememberbudgetreservation_status_expires_at",
 				Unique:  false,
-				Columns: []*schema.Column{EnterpriseMemberBudgetReservationsColumns[5], EnterpriseMemberBudgetReservationsColumns[7]},
+				Columns: []*schema.Column{EnterpriseMemberBudgetReservationsColumns[10], EnterpriseMemberBudgetReservationsColumns[12]},
 			},
 		},
 	}

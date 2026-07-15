@@ -1,24 +1,31 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
+	"mime"
+	"mime/multipart"
+	"strconv"
 	"strings"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
 var (
-	ErrEnterpriseMemberBudgetExceeded      = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_BUDGET_EXCEEDED", "enterprise member monthly budget is exhausted")
-	ErrEnterpriseMemberRateLimit5hExceeded = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_RATE_5H_EXCEEDED", "enterprise member 5-hour spending limit is exhausted")
-	ErrEnterpriseMemberRateLimit1dExceeded = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_RATE_1D_EXCEEDED", "enterprise member daily spending limit is exhausted")
-	ErrEnterpriseMemberRateLimit7dExceeded = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_RATE_7D_EXCEEDED", "enterprise member 7-day spending limit is exhausted")
-	ErrEnterpriseMemberBudgetUnbounded     = infraerrors.BadRequest("ENTERPRISE_MEMBER_BUDGET_UNBOUNDED_REQUEST", "request cost cannot be bounded for the enterprise member budget")
-	ErrEnterpriseMemberBudgetConflict      = infraerrors.Conflict("ENTERPRISE_MEMBER_BUDGET_REQUEST_CONFLICT", "member budget request id was reused with different parameters")
+	ErrEnterpriseMemberBudgetExceeded        = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_BUDGET_EXCEEDED", "enterprise member monthly budget is exhausted")
+	ErrEnterpriseMemberRateLimit5hExceeded   = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_RATE_5H_EXCEEDED", "enterprise member 5-hour spending limit is exhausted")
+	ErrEnterpriseMemberRateLimit1dExceeded   = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_RATE_1D_EXCEEDED", "enterprise member daily spending limit is exhausted")
+	ErrEnterpriseMemberRateLimit7dExceeded   = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_RATE_7D_EXCEEDED", "enterprise member 7-day spending limit is exhausted")
+	ErrEnterpriseMemberBudgetUnbounded       = infraerrors.BadRequest("ENTERPRISE_MEMBER_BUDGET_UNBOUNDED_REQUEST", "request cost cannot be bounded for the enterprise member budget")
+	ErrEnterpriseMemberBudgetConflict        = infraerrors.Conflict("ENTERPRISE_MEMBER_BUDGET_REQUEST_CONFLICT", "member budget request id was reused with different parameters")
+	ErrEnterpriseMemberBudgetReceiptNotFound = infraerrors.NotFound("ENTERPRISE_MEMBER_BUDGET_RECEIPT_NOT_FOUND", "enterprise member budget receipt not found")
 )
 
 // EnterpriseMemberBudgetTimezone is the authoritative calendar timezone for member budgets and import openings.
@@ -31,6 +38,8 @@ type EnterpriseMemberBudgetReservation struct {
 	ID          int64
 	RequestID   string
 	MemberID    int64
+	GroupID     *int64
+	PayloadHash string
 	PeriodStart time.Time
 	ReservedUSD float64
 	ActualUSD   float64
@@ -38,6 +47,34 @@ type EnterpriseMemberBudgetReservation struct {
 	UsageLogID  *int64
 	ExpiresAt   time.Time
 }
+
+type EnterpriseMemberAmbiguousReceipt struct {
+	ID                int64      `json:"id"`
+	RequestID         string     `json:"request_id"`
+	EnterpriseUserID  int64      `json:"enterprise_user_id"`
+	MemberID          int64      `json:"member_id"`
+	MemberCode        string     `json:"member_code"`
+	MemberName        string     `json:"member_name"`
+	GroupID           *int64     `json:"group_id,omitempty"`
+	PeriodStart       time.Time  `json:"period_start"`
+	ReservedUSD       float64    `json:"reserved_usd"`
+	OutcomeReason     string     `json:"outcome_reason"`
+	ReconcileAttempts int        `json:"reconcile_attempts"`
+	LastReconcileAt   *time.Time `json:"last_reconcile_at,omitempty"`
+	ExpiresAt         time.Time  `json:"expires_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+type EnterpriseMemberAmbiguousReceiptResolution struct {
+	Decision                  string `json:"decision"`
+	ExpectedReconcileAttempts int    `json:"expected_reconcile_attempts"`
+	Reason                    string `json:"reason"`
+}
+
+const (
+	EnterpriseMemberReceiptDecisionRelease = "release"
+)
 
 type EnterpriseMemberBudgetSummary struct {
 	MemberID                  int64      `json:"member_id"`
@@ -146,8 +183,9 @@ type EnterpriseMemberOwnerUsageSummary struct {
 }
 
 type EnterpriseMemberBudgetRepository interface {
-	Reserve(ctx context.Context, requestID string, memberID int64, amount float64, expiresAt time.Time) (*EnterpriseMemberBudgetReservation, error)
+	Reserve(ctx context.Context, requestID string, memberID int64, groupID *int64, payloadHash string, amount float64, expiresAt time.Time) (*EnterpriseMemberBudgetReservation, error)
 	Release(ctx context.Context, requestID string) error
+	MarkAmbiguous(ctx context.Context, requestID, outcomeReason string) error
 	GetPeriod(ctx context.Context, memberID int64, periodStart time.Time) (usedUSD, reservedUSD float64, err error)
 	GetSummary(ctx context.Context, memberID int64, periodStart, periodEnd time.Time) (*EnterpriseMemberBudgetSummary, error)
 	ListEntries(ctx context.Context, memberID int64, periodStart time.Time, limit, offset int) ([]EnterpriseMemberBudgetEntry, int64, error)
@@ -159,6 +197,8 @@ type EnterpriseMemberBudgetRepository interface {
 	GetOwnerUsageTrend(ctx context.Context, ownerID int64, start, end time.Time) ([]EnterpriseMemberUsageTrendPoint, error)
 	RecoverExpired(ctx context.Context, limit int) (int, error)
 	ReconcilePeriods(ctx context.Context, limit int) (EnterpriseMemberBudgetReconciliationResult, error)
+	ListAmbiguousReceipts(ctx context.Context, limit, offset int) ([]EnterpriseMemberAmbiguousReceipt, int64, error)
+	ResolveAmbiguousReceipt(ctx context.Context, receiptID int64, input EnterpriseMemberAmbiguousReceiptResolution, actorUserID int64) (*EnterpriseMemberAmbiguousReceipt, error)
 }
 
 type EnterpriseMemberUsageAdjustmentInput struct {
@@ -200,18 +240,43 @@ type EnterpriseMemberBudgetEstimateInput struct {
 	RequestID      string
 	APIKey         *APIKey
 	RequestedModel string
+	Method         string
 	Endpoint       string
+	ContentType    string
 	Body           []byte
+}
+
+const enterpriseMemberMaxOutputTokensUpperBound = 1_000_000
+const enterpriseMemberMaxInputTokensUpperBound = 2_000_000
+const enterpriseMemberMaxRequestCountUpperBound = 1_024
+
+type enterpriseMemberBudgetRequestShape struct {
+	Model           string `json:"model"`
+	MaxTokens       int    `json:"max_tokens"`
+	MaxOutputTokens int    `json:"max_output_tokens"`
+	N               int    `json:"n"`
+	Duration        int    `json:"duration"`
 }
 
 type EnterpriseMemberBudgetService struct {
 	repo              EnterpriseMemberBudgetRepository
 	pricingResolver   *ModelPricingResolver
 	userGroupRateRepo UserGroupRateRepository
+	accountRepo       EnterpriseMemberBudgetAccountRepository
+}
+
+type EnterpriseMemberBudgetAccountRepository interface {
+	ListSchedulableByGroupID(ctx context.Context, groupID int64) ([]Account, error)
 }
 
 func NewEnterpriseMemberBudgetService(repo EnterpriseMemberBudgetRepository, pricingResolver *ModelPricingResolver, rateRepo UserGroupRateRepository) *EnterpriseMemberBudgetService {
 	return &EnterpriseMemberBudgetService{repo: repo, pricingResolver: pricingResolver, userGroupRateRepo: rateRepo}
+}
+
+func ProvideEnterpriseMemberBudgetService(repo EnterpriseMemberBudgetRepository, pricingResolver *ModelPricingResolver, rateRepo UserGroupRateRepository, accountRepo AccountRepository) *EnterpriseMemberBudgetService {
+	service := NewEnterpriseMemberBudgetService(repo, pricingResolver, rateRepo)
+	service.accountRepo = accountRepo
+	return service
 }
 
 func (s *EnterpriseMemberBudgetService) GetSummary(ctx context.Context, memberID int64) (*EnterpriseMemberBudgetSummary, error) {
@@ -228,6 +293,44 @@ func (s *EnterpriseMemberBudgetService) ListEntries(ctx context.Context, memberI
 	}
 	start, _ := enterpriseMemberCurrentBudgetPeriod(time.Now())
 	return s.repo.ListEntries(ctx, memberID, start, pageSize, (page-1)*pageSize)
+}
+
+func (s *EnterpriseMemberBudgetService) ListAmbiguousReceipts(ctx context.Context, page, pageSize int) ([]EnterpriseMemberAmbiguousReceipt, int64, error) {
+	if s == nil || s.repo == nil {
+		return nil, 0, ErrEnterpriseMemberBudgetReceiptNotFound
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+	return s.repo.ListAmbiguousReceipts(ctx, pageSize, (page-1)*pageSize)
+}
+
+func (s *EnterpriseMemberBudgetService) ResolveAmbiguousReceipt(ctx context.Context, receiptID int64, input EnterpriseMemberAmbiguousReceiptResolution, actorUserID int64) (*EnterpriseMemberAmbiguousReceipt, error) {
+	if s == nil || s.repo == nil || receiptID <= 0 {
+		return nil, ErrEnterpriseMemberBudgetReceiptNotFound
+	}
+	input.Decision = strings.ToLower(strings.TrimSpace(input.Decision))
+	input.Reason = strings.TrimSpace(input.Reason)
+	// A manual decision may only release a hold after an administrator has
+	// proved the upstream request did not become billable. Successful outcomes
+	// must flow through UsageBilling so enterprise balance, key quota, usage log,
+	// and member budget settle atomically instead of creating split accounting.
+	if input.Decision != EnterpriseMemberReceiptDecisionRelease {
+		return nil, ErrEnterpriseMemberBudgetConflict.WithMetadata(map[string]string{"field": "decision"})
+	}
+	if input.ExpectedReconcileAttempts < 0 {
+		return nil, ErrEnterpriseMemberBudgetConflict.WithMetadata(map[string]string{"field": "expected_reconcile_attempts"})
+	}
+	if input.Reason == "" || len(input.Reason) > 500 {
+		return nil, ErrEnterpriseMemberBudgetConflict.WithMetadata(map[string]string{"field": "reason"})
+	}
+	return s.repo.ResolveAmbiguousReceipt(ctx, receiptID, input, actorUserID)
 }
 
 func (s *EnterpriseMemberBudgetService) CreateAdjustment(ctx context.Context, memberID, actorUserID int64, amount float64, idempotencyKey, note string) error {
@@ -379,21 +482,33 @@ func (s *EnterpriseMemberBudgetService) Reserve(ctx context.Context, input Enter
 	if input.APIKey == nil || input.APIKey.Member == nil || input.APIKey.MemberID == nil {
 		return nil, nil
 	}
-	if !input.APIKey.Member.HasSpendingLimits() || !enterpriseMemberEndpointIsBillable(input.Endpoint) {
+	if !enterpriseMemberEndpointIsBillable(input.Method, input.Endpoint) {
 		return nil, nil
 	}
-	amount, err := s.estimateUpperBound(ctx, input)
-	if err != nil {
-		return nil, err
-	}
-	if amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
-		return nil, ErrEnterpriseMemberBudgetUnbounded
+	amount := 0.0
+	var err error
+	if input.APIKey.Member.HasSpendingLimits() {
+		amount, err = s.estimateUpperBound(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		if amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+			return nil, ErrEnterpriseMemberBudgetUnbounded
+		}
 	}
 	billingRequestID, err := normalizeEnterpriseMemberBudgetRequestID(input.RequestID)
 	if err != nil {
 		return nil, err
 	}
-	reservation, err := s.repo.Reserve(ctx, EnterpriseMemberBudgetRequestID(input.APIKey.ID, billingRequestID), input.APIKey.Member.ID, amount, time.Now().Add(2*time.Hour))
+	reservation, err := s.repo.Reserve(
+		ctx,
+		EnterpriseMemberBudgetRequestID(input.APIKey.ID, billingRequestID),
+		input.APIKey.Member.ID,
+		input.APIKey.GroupID,
+		HashUsageRequestPayload(input.Body),
+		amount,
+		time.Now().Add(2*time.Hour),
+	)
 	RecordEnterpriseMemberBudgetReservation(err)
 	return reservation, err
 }
@@ -411,6 +526,21 @@ func (s *EnterpriseMemberBudgetService) Release(ctx context.Context, apiKeyID in
 	return err
 }
 
+func (s *EnterpriseMemberBudgetService) MarkAmbiguous(ctx context.Context, apiKeyID int64, requestID, outcomeReason string) error {
+	if s == nil || s.repo == nil {
+		return nil
+	}
+	billingRequestID, err := normalizeEnterpriseMemberBudgetRequestID(requestID)
+	if err != nil {
+		return err
+	}
+	outcomeReason = strings.TrimSpace(outcomeReason)
+	if outcomeReason == "" || len(outcomeReason) > 64 {
+		return ErrEnterpriseMemberBudgetConflict
+	}
+	return s.repo.MarkAmbiguous(ctx, EnterpriseMemberBudgetRequestID(apiKeyID, billingRequestID), outcomeReason)
+}
+
 func EnterpriseMemberBudgetRequestID(apiKeyID int64, requestID string) string {
 	return fmt.Sprintf("%d:%s", apiKeyID, strings.TrimSpace(requestID))
 }
@@ -426,9 +556,22 @@ func normalizeEnterpriseMemberBudgetRequestID(requestID string) (string, error) 
 	return "client:" + requestID, nil
 }
 
-func enterpriseMemberEndpointIsBillable(endpoint string) bool {
-	endpoint = strings.ToLower(endpoint)
-	if strings.HasSuffix(endpoint, "/models") || strings.Contains(endpoint, "/usage") || strings.HasSuffix(endpoint, "/images/batches") || strings.Contains(endpoint, "/batches/") || strings.Contains(endpoint, "/videos/") && !strings.HasSuffix(endpoint, "/generations") {
+func enterpriseMemberEndpointIsBillable(method, endpoint string) bool {
+	method = strings.ToUpper(strings.TrimSpace(method))
+	endpoint = strings.ToLower(strings.TrimSpace(endpoint))
+	if strings.Contains(endpoint, "/count_tokens") || strings.Contains(endpoint, ":counttokens") {
+		return false
+	}
+	if strings.HasSuffix(endpoint, "/responses/input_tokens") {
+		return false
+	}
+	if strings.HasSuffix(endpoint, "/videos/generations") || strings.HasSuffix(endpoint, "/videos/edits") || strings.HasSuffix(endpoint, "/videos/extensions") {
+		return true
+	}
+	if method == "GET" && (strings.HasSuffix(endpoint, "/models") || strings.Contains(endpoint, "/models/") || strings.Contains(endpoint, "/videos/")) {
+		return false
+	}
+	if strings.Contains(endpoint, "/usage") || strings.HasSuffix(endpoint, "/images/batches") || strings.Contains(endpoint, "/batches/") || strings.Contains(endpoint, "/videos/") && !strings.HasSuffix(endpoint, "/generations") {
 		return false
 	}
 	return true
@@ -438,22 +581,12 @@ func (s *EnterpriseMemberBudgetService) estimateUpperBound(ctx context.Context, 
 	if s == nil || s.pricingResolver == nil || input.APIKey == nil || input.APIKey.Member == nil {
 		return 0, ErrEnterpriseMemberBudgetUnbounded
 	}
-	var shape struct {
-		MaxTokens       int `json:"max_tokens"`
-		MaxOutputTokens int `json:"max_output_tokens"`
-		N               int `json:"n"`
-	}
-	if len(input.Body) > 0 && json.Unmarshal(input.Body, &shape) != nil {
+	shape, err := parseEnterpriseMemberBudgetRequestShape(input.ContentType, input.Body)
+	if err != nil {
 		return 0, ErrEnterpriseMemberBudgetUnbounded
 	}
-	outputTokens := shape.MaxOutputTokens
-	if outputTokens <= 0 {
-		outputTokens = shape.MaxTokens
-	}
-	if outputTokens <= 0 {
-		outputTokens = 8192
-	}
-	if outputTokens > 1_000_000 {
+	declaredOutputTokens := max(shape.MaxTokens, shape.MaxOutputTokens)
+	if declaredOutputTokens > enterpriseMemberMaxOutputTokensUpperBound {
 		return 0, ErrEnterpriseMemberBudgetUnbounded
 	}
 	inputTokensUpper := len(input.Body)
@@ -464,41 +597,368 @@ func (s *EnterpriseMemberBudgetService) estimateUpperBound(ctx context.Context, 
 	if count <= 0 {
 		count = 1
 	}
+	if count > enterpriseMemberMaxRequestCountUpperBound {
+		return 0, ErrEnterpriseMemberBudgetUnbounded
+	}
 
 	maxCost := 0.0
+	expandableInput := enterpriseMemberRequestMayExpandInput(input.Body)
 	for i := range input.APIKey.Member.Groups {
 		group := &input.APIKey.Member.Groups[i]
-		resolved := s.pricingResolver.Resolve(ctx, PricingInput{Model: input.RequestedModel, GroupID: &group.ID})
-		if resolved == nil {
-			continue
-		}
-		multiplier := group.RateMultiplier
+		baseMultiplier := group.RateMultiplier
 		if s.userGroupRateRepo != nil {
-			if override, err := s.userGroupRateRepo.GetByUserAndGroup(ctx, input.APIKey.UserID, group.ID); err == nil && override != nil {
-				multiplier = *override
+			override, rateErr := s.userGroupRateRepo.GetByUserAndGroup(ctx, input.APIKey.UserID, group.ID)
+			if rateErr != nil {
+				return 0, fmt.Errorf("%w: user group rate unavailable", ErrEnterpriseMemberBudgetUnbounded)
+			}
+			if override != nil {
+				baseMultiplier = *override
 			}
 		}
-		if multiplier <= 0 {
-			multiplier = 1
+		if baseMultiplier <= 0 {
+			baseMultiplier = 1
 		}
+		tokenMultiplier := baseMultiplier
 		if group.PeakRateEnabled && group.PeakRateMultiplier > 1 {
-			multiplier *= group.PeakRateMultiplier
+			tokenMultiplier *= group.PeakRateMultiplier
 		}
-		cost := resolvedPricingUpperBound(resolved, inputTokensUpper, outputTokens, count)
-		if strings.Contains(input.Endpoint, "/images/") {
-			cost = math.Max(cost, float64(count)*maxFloatPointers(group.ImagePrice1K, group.ImagePrice2K, group.ImagePrice4K))
+		imageMultiplier := baseMultiplier
+		if group.ImageRateIndependent {
+			imageMultiplier = math.Max(0, group.ImageRateMultiplier)
 		}
-		if strings.Contains(input.Endpoint, "/videos/") {
-			cost = math.Max(cost, float64(count)*maxFloatPointers(group.VideoPrice480P, group.VideoPrice720P, group.VideoPrice1080P))
+		videoMultiplier := baseMultiplier
+		if group.VideoRateIndependent {
+			videoMultiplier = math.Max(0, group.VideoRateMultiplier)
 		}
-		maxCost = math.Max(maxCost, cost*multiplier)
+
+		requestedModel := strings.TrimSpace(input.RequestedModel)
+		if requestedModel == "" {
+			requestedModel = strings.TrimSpace(shape.Model)
+		}
+		if strings.HasSuffix(strings.ToLower(input.Endpoint), "/alpha/search") {
+			unitPrice := defaultWebSearchPricePerCall
+			if group.WebSearchPricePerCall != nil {
+				unitPrice = math.Max(0, *group.WebSearchPricePerCall)
+			}
+			groupCost := float64(count) * unitPrice * baseMultiplier
+			if groupCost <= 0 || math.IsNaN(groupCost) || math.IsInf(groupCost, 0) {
+				return 0, ErrEnterpriseMemberBudgetUnbounded
+			}
+			maxCost = math.Max(maxCost, groupCost)
+			continue
+		}
+		pricingModels, candidateErr := s.enterpriseMemberBudgetReachableModelCandidates(ctx, requestedModel, group)
+		if candidateErr != nil {
+			return 0, fmt.Errorf("%w: mapped model candidates unavailable", ErrEnterpriseMemberBudgetUnbounded)
+		}
+		groupCost := 0.0
+		for _, pricingModel := range pricingModels {
+			candidateCost := 0.0
+			resolved := s.pricingResolver.Resolve(ctx, PricingInput{Model: pricingModel, GroupID: &group.ID})
+			if resolved != nil {
+				modelOutputLimit := 0
+				if resolved.BasePricing != nil {
+					modelOutputLimit = resolved.BasePricing.MaxOutputTokens
+				}
+				outputTokens := enterpriseMemberOutputTokenUpperBound(declaredOutputTokens, modelOutputLimit)
+				groupInputTokensUpper := inputTokensUpper
+				if expandableInput {
+					modelInputLimit := 0
+					if resolved.BasePricing != nil {
+						modelInputLimit = resolved.BasePricing.MaxInputTokens
+					}
+					groupInputTokensUpper = max(groupInputTokensUpper, enterpriseMemberInputTokenUpperBound(modelInputLimit))
+				}
+				candidateCost = math.Max(candidateCost, resolvedPricingUpperBound(resolved, groupInputTokensUpper, outputTokens, count)*tokenMultiplier)
+			}
+			if strings.Contains(input.Endpoint, "/images/") {
+				candidateCost = math.Max(candidateCost, enterpriseMemberImageUpperBound(s.pricingResolver.billingService, pricingModel, group, count)*imageMultiplier)
+			}
+			if strings.Contains(input.Endpoint, "/videos/") {
+				candidateCost = math.Max(candidateCost, enterpriseMemberVideoUpperBound(s.pricingResolver.billingService, pricingModel, group, count, shape.Duration)*videoMultiplier)
+			}
+			// A single group may route through several channel/account mappings.
+			// Every reachable model must be priceable; one cheap priced candidate
+			// cannot justify a failover target whose cost is unknown.
+			if candidateCost <= 0 || math.IsNaN(candidateCost) || math.IsInf(candidateCost, 0) {
+				return 0, ErrEnterpriseMemberBudgetUnbounded
+			}
+			groupCost = math.Max(groupCost, candidateCost)
+		}
+		// Every authorized routing candidate must have a defensible upper bound.
+		// Accepting a request because one group is priced while another candidate
+		// is not would allow group failover to escape the amount reserved here.
+		if groupCost <= 0 || math.IsNaN(groupCost) || math.IsInf(groupCost, 0) {
+			return 0, ErrEnterpriseMemberBudgetUnbounded
+		}
+		maxCost = math.Max(maxCost, groupCost)
 	}
 	if maxCost <= 0 {
 		return 0, ErrEnterpriseMemberBudgetUnbounded
 	}
-	// Token count is bounded by request bytes and declared output tokens. The
-	// margin covers protocol transformations and pricing-mode normalization.
+	// Direct input is bounded by request bytes; server-side references use the
+	// model input cap. Output uses the declared or model cap. The margin covers
+	// protocol transformations and pricing-mode normalization.
 	return math.Ceil(maxCost*1.25*1e8) / 1e8, nil
+}
+
+func enterpriseMemberBudgetModelCandidates(requestedModel string, group *Group) []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0, 8)
+	appendModel := func(model string) {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			return
+		}
+		key := strings.ToLower(model)
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, model)
+	}
+	appendModel(requestedModel)
+	if group != nil {
+		appendModel(group.DefaultMappedModel)
+		cfg := group.MessagesDispatchModelConfig
+		appendModel(cfg.OpusMappedModel)
+		appendModel(cfg.SonnetMappedModel)
+		appendModel(cfg.HaikuMappedModel)
+		for _, mapped := range cfg.ExactModelMappings {
+			appendModel(mapped)
+		}
+	}
+	return out
+}
+
+func (s *EnterpriseMemberBudgetService) enterpriseMemberBudgetReachableModelCandidates(ctx context.Context, requestedModel string, group *Group) ([]string, error) {
+	models := enterpriseMemberBudgetModelCandidates(requestedModel, group)
+	seen := make(map[string]struct{}, len(models)*3)
+	for _, model := range models {
+		seen[strings.ToLower(strings.TrimSpace(model))] = struct{}{}
+	}
+	appendModel := func(model string) {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			return
+		}
+		key := strings.ToLower(model)
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		models = append(models, model)
+	}
+
+	baseModels := append([]string(nil), models...)
+	if group != nil && s.pricingResolver != nil && s.pricingResolver.channelService != nil {
+		for _, model := range baseModels {
+			mapping, err := s.pricingResolver.channelService.ResolveChannelMappingStrict(ctx, group.ID, model)
+			if err != nil {
+				return nil, err
+			}
+			appendModel(mapping.MappedModel)
+		}
+	}
+
+	if group == nil || s.accountRepo == nil {
+		return models, nil
+	}
+	accounts, err := s.accountRepo.ListSchedulableByGroupID(ctx, group.ID)
+	if err != nil {
+		return nil, err
+	}
+	routingModels := append([]string(nil), models...)
+	for i := range accounts {
+		for _, model := range routingModels {
+			appendModel(resolveAccountUpstreamModel(&accounts[i], model))
+		}
+	}
+	return models, nil
+}
+
+// ExtractEnterpriseMemberBudgetRequestModel reads the model without consuming
+// the handler body. JSON and multipart image-edit requests share this parser so
+// routing eligibility and budget pricing use the same request fact.
+func ExtractEnterpriseMemberBudgetRequestModel(contentType string, body []byte) (string, error) {
+	shape, err := parseEnterpriseMemberBudgetRequestShape(contentType, body)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(shape.Model), nil
+}
+
+func parseEnterpriseMemberBudgetRequestShape(contentType string, body []byte) (enterpriseMemberBudgetRequestShape, error) {
+	var shape enterpriseMemberBudgetRequestShape
+	if len(bytes.TrimSpace(body)) == 0 {
+		return shape, nil
+	}
+	mediaType, params, err := mime.ParseMediaType(strings.TrimSpace(contentType))
+	if err != nil && strings.TrimSpace(contentType) != "" {
+		return shape, err
+	}
+	if strings.EqualFold(mediaType, "multipart/form-data") {
+		boundary := strings.TrimSpace(params["boundary"])
+		if boundary == "" {
+			return shape, errors.New("multipart boundary is required")
+		}
+		reader := multipart.NewReader(bytes.NewReader(body), boundary)
+		for {
+			part, nextErr := reader.NextPart()
+			if errors.Is(nextErr, io.EOF) {
+				break
+			}
+			if nextErr != nil {
+				return shape, nextErr
+			}
+			name := strings.ToLower(strings.TrimSpace(part.FormName()))
+			if part.FileName() != "" || (name != "model" && name != "max_tokens" && name != "max_output_tokens" && name != "n" && name != "duration") {
+				_ = part.Close()
+				continue
+			}
+			value, readErr := io.ReadAll(io.LimitReader(part, 64<<10))
+			_ = part.Close()
+			if readErr != nil {
+				return shape, readErr
+			}
+			trimmed := strings.TrimSpace(string(value))
+			switch name {
+			case "model":
+				shape.Model = trimmed
+			case "max_tokens", "max_output_tokens", "n", "duration":
+				parsed, parseErr := strconv.Atoi(trimmed)
+				if parseErr != nil {
+					return shape, parseErr
+				}
+				switch name {
+				case "max_tokens":
+					shape.MaxTokens = parsed
+				case "max_output_tokens":
+					shape.MaxOutputTokens = parsed
+				case "n":
+					shape.N = parsed
+				case "duration":
+					shape.Duration = parsed
+				}
+			}
+		}
+		return shape, nil
+	}
+	if err := json.Unmarshal(body, &shape); err != nil {
+		return shape, err
+	}
+	return shape, nil
+}
+
+func enterpriseMemberInputTokenUpperBound(modelLimit int) int {
+	if modelLimit > 0 && modelLimit <= enterpriseMemberMaxInputTokensUpperBound {
+		return modelLimit
+	}
+	return enterpriseMemberMaxInputTokensUpperBound
+}
+
+func enterpriseMemberRequestMayExpandInput(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	var value any
+	if json.Unmarshal(body, &value) != nil {
+		return true
+	}
+	var inspect func(any) bool
+	inspect = func(current any) bool {
+		switch typed := current.(type) {
+		case []any:
+			for _, item := range typed {
+				if inspect(item) {
+					return true
+				}
+			}
+		case map[string]any:
+			for key, item := range typed {
+				normalizedKey := strings.ToLower(strings.TrimSpace(key))
+				if normalizedKey == "previous_response_id" || normalizedKey == "conversation" || normalizedKey == "attachments" || normalizedKey == "file_id" || normalizedKey == "image_url" {
+					if item != nil && strings.TrimSpace(fmt.Sprint(item)) != "" {
+						return true
+					}
+				}
+				if normalizedKey == "type" {
+					typeName := strings.ToLower(strings.TrimSpace(fmt.Sprint(item)))
+					switch typeName {
+					case "image", "image_url", "input_image", "file", "input_file", "document", "pdf":
+						return true
+					}
+				}
+				if inspect(item) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return inspect(value)
+}
+
+func enterpriseMemberOutputTokenUpperBound(declared, modelLimit int) int {
+	if declared > 0 {
+		return declared
+	}
+	if modelLimit > 0 && modelLimit <= enterpriseMemberMaxOutputTokensUpperBound {
+		return modelLimit
+	}
+	return enterpriseMemberMaxOutputTokensUpperBound
+}
+
+func enterpriseMemberImageUpperBound(billingService *BillingService, model string, group *Group, count int) float64 {
+	if billingService == nil || group == nil {
+		return 0
+	}
+	if count <= 0 {
+		count = 1
+	}
+	prices := make([]float64, 0, 3)
+	for _, tier := range []struct {
+		name       string
+		groupPrice *float64
+	}{
+		{name: "1K", groupPrice: group.ImagePrice1K},
+		{name: "2K", groupPrice: group.ImagePrice2K},
+		{name: "4K", groupPrice: group.ImagePrice4K},
+	} {
+		if tier.groupPrice != nil {
+			prices = append(prices, math.Max(0, *tier.groupPrice))
+			continue
+		}
+		prices = append(prices, billingService.getDefaultImagePrice(model, tier.name))
+	}
+	return float64(count) * maxFloats(prices...)
+}
+
+func enterpriseMemberVideoUpperBound(billingService *BillingService, model string, group *Group, count, durationSeconds int) float64 {
+	if billingService == nil || group == nil {
+		return 0
+	}
+	if count <= 0 {
+		count = 1
+	}
+	durationSeconds = NormalizeVideoBillingDurationSecondsOrDefault(durationSeconds)
+	prices := make([]float64, 0, 3)
+	for _, tier := range []struct {
+		name       string
+		groupPrice *float64
+	}{
+		{name: VideoBillingResolution480P, groupPrice: group.VideoPrice480P},
+		{name: VideoBillingResolution720P, groupPrice: group.VideoPrice720P},
+		{name: VideoBillingResolution1080P, groupPrice: group.VideoPrice1080P},
+	} {
+		if tier.groupPrice != nil {
+			prices = append(prices, math.Max(0, *tier.groupPrice))
+			continue
+		}
+		prices = append(prices, billingService.getDefaultVideoPrice(model, tier.name))
+	}
+	unitPrice := maxFloats(prices...)
+	return float64(count*durationSeconds) * unitPrice
 }
 
 func resolvedPricingUpperBound(resolved *ResolvedPricing, inputTokens, outputTokens, count int) float64 {
@@ -527,7 +987,7 @@ func resolvedPricingUpperBound(resolved *ResolvedPricing, inputTokens, outputTok
 		inputPrice = math.Max(inputPrice, maxFloatPointers(iv.InputPrice, iv.CacheWritePrice, iv.CacheReadPrice))
 		outputPrice = math.Max(outputPrice, maxFloatPointers(iv.OutputPrice))
 	}
-	return float64(inputTokens)*inputPrice + float64(outputTokens)*outputPrice
+	return float64(inputTokens)*inputPrice + float64(outputTokens*count)*outputPrice
 }
 
 func maxFloats(values ...float64) float64 {
@@ -558,12 +1018,13 @@ func IsEnterpriseMemberBudgetExceeded(err error) bool {
 }
 
 type EnterpriseMemberBudgetRecoveryService struct {
-	repo   EnterpriseMemberBudgetRepository
-	cancel context.CancelFunc
+	repo        EnterpriseMemberBudgetRepository
+	billingRepo EnterpriseMemberUsageSettlementRepository
+	cancel      context.CancelFunc
 }
 
-func NewEnterpriseMemberBudgetRecoveryService(repo EnterpriseMemberBudgetRepository) *EnterpriseMemberBudgetRecoveryService {
-	return &EnterpriseMemberBudgetRecoveryService{repo: repo}
+func NewEnterpriseMemberBudgetRecoveryService(repo EnterpriseMemberBudgetRepository, billingRepo EnterpriseMemberUsageSettlementRepository) *EnterpriseMemberBudgetRecoveryService {
+	return &EnterpriseMemberBudgetRecoveryService{repo: repo, billingRepo: billingRepo}
 }
 
 func (s *EnterpriseMemberBudgetRecoveryService) Start() {
@@ -576,6 +1037,16 @@ func (s *EnterpriseMemberBudgetRecoveryService) Start() {
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
 		for {
+			if s.billingRepo != nil {
+				replayCtx, replayCancel := context.WithTimeout(ctx, 30*time.Second)
+				replayed, replayErr := s.billingRepo.ReplayPendingEnterpriseMemberSettlements(replayCtx, 100)
+				if replayErr != nil {
+					logger.LegacyPrintf("service.enterprise_member_budget", "enterprise member settlement replay failed: %v", replayErr)
+				} else if replayed > 0 {
+					logger.LegacyPrintf("service.enterprise_member_budget", "replayed %d pending enterprise member settlements", replayed)
+				}
+				replayCancel()
+			}
 			recoveryCtx, recoveryCancel := context.WithTimeout(ctx, 30*time.Second)
 			recovered, recoverErr := s.repo.RecoverExpired(recoveryCtx, 100)
 			RecordEnterpriseMemberBudgetRecovery(recovered, recoverErr)
@@ -600,8 +1071,8 @@ func (s *EnterpriseMemberBudgetRecoveryService) Stop() {
 	}
 }
 
-func ProvideEnterpriseMemberBudgetRecoveryService(repo EnterpriseMemberBudgetRepository) *EnterpriseMemberBudgetRecoveryService {
-	service := NewEnterpriseMemberBudgetRecoveryService(repo)
+func ProvideEnterpriseMemberBudgetRecoveryService(repo EnterpriseMemberBudgetRepository, billingRepo EnterpriseMemberUsageSettlementRepository) *EnterpriseMemberBudgetRecoveryService {
+	service := NewEnterpriseMemberBudgetRecoveryService(repo, billingRepo)
 	service.Start()
 	return service
 }

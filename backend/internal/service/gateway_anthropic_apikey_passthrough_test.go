@@ -1110,6 +1110,8 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_UpstreamRequest
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "upstream request failed")
 	require.Equal(t, http.StatusBadGateway, rec.Code)
+	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+	require.Equal(t, "upstream_transport_outcome_unknown", EnterpriseMemberBudgetOutcomeAmbiguousReason(c))
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_EmptyResponseBody(t *testing.T) {

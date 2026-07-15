@@ -22,6 +22,8 @@ type EnterpriseMemberMetricsSnapshot struct {
 	BudgetReservationDeniedTotal      uint64            `json:"budget_reservation_denied_total"`
 	BudgetReservationErrorTotal       uint64            `json:"budget_reservation_error_total"`
 	BudgetSettlementTotal             uint64            `json:"budget_settlement_total"`
+	BudgetSettlementOverrunTotal      uint64            `json:"budget_settlement_overrun_total"`
+	BudgetAmbiguousTotal              uint64            `json:"budget_ambiguous_total"`
 	BudgetReleaseTotal                uint64            `json:"budget_release_total"`
 	BudgetReleaseErrorTotal           uint64            `json:"budget_release_error_total"`
 	BudgetExpiredRecoveredTotal       uint64            `json:"budget_expired_recovered_total"`
@@ -64,6 +66,8 @@ type enterpriseMemberMetrics struct {
 	budgetReservationDenied   atomic.Uint64
 	budgetReservationErrors   atomic.Uint64
 	budgetSettlements         atomic.Uint64
+	budgetSettlementOverruns  atomic.Uint64
+	budgetAmbiguous           atomic.Uint64
 	budgetReleases            atomic.Uint64
 	budgetReleaseErrors       atomic.Uint64
 	budgetExpiredRecovered    atomic.Uint64
@@ -105,6 +109,8 @@ func GetEnterpriseMemberMetricsSnapshot() EnterpriseMemberMetricsSnapshot {
 		BudgetReservationDeniedTotal:      m.budgetReservationDenied.Load(),
 		BudgetReservationErrorTotal:       m.budgetReservationErrors.Load(),
 		BudgetSettlementTotal:             m.budgetSettlements.Load(),
+		BudgetSettlementOverrunTotal:      m.budgetSettlementOverruns.Load(),
+		BudgetAmbiguousTotal:              m.budgetAmbiguous.Load(),
 		BudgetReleaseTotal:                m.budgetReleases.Load(),
 		BudgetReleaseErrorTotal:           m.budgetReleaseErrors.Load(),
 		BudgetExpiredRecoveredTotal:       m.budgetExpiredRecovered.Load(),
@@ -193,6 +199,18 @@ func RecordEnterpriseMemberBudgetReservation(err error) {
 
 func RecordEnterpriseMemberBudgetSettlement() {
 	defaultEnterpriseMemberMetrics.budgetSettlements.Add(1)
+}
+
+// RecordEnterpriseMemberBudgetSettlementOverrun records a breach of the
+// reservation invariant. The already-completed request is still persisted at
+// actual cost so accounting facts are not lost; this metric makes estimator
+// regressions visible and actionable.
+func RecordEnterpriseMemberBudgetSettlementOverrun() {
+	defaultEnterpriseMemberMetrics.budgetSettlementOverruns.Add(1)
+}
+
+func RecordEnterpriseMemberBudgetAmbiguous() {
+	defaultEnterpriseMemberMetrics.budgetAmbiguous.Add(1)
 }
 
 func RecordEnterpriseMemberBudgetRelease(err error) {

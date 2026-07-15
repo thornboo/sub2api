@@ -68,7 +68,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 
 	res, err := h.geminiCompatService.ForwardAIStudioGET(c.Request.Context(), account, "/v1beta/models")
 	if err != nil {
-		service.MarkOpsGroupFailoverEligible(c)
+		service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonTransientUpstream)
 		googleError(c, http.StatusBadGateway, err.Error())
 		return
 	}
@@ -122,7 +122,7 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 
 	res, err := h.geminiCompatService.ForwardAIStudioGET(c.Request.Context(), account, "/v1beta/models/"+modelName)
 	if err != nil {
-		service.MarkOpsGroupFailoverEligible(c)
+		service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonTransientUpstream)
 		googleError(c, http.StatusBadGateway, err.Error())
 		return
 	}
@@ -528,7 +528,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		// ForceCacheBilling 提前拍成标量，避免 worker 闭包保活 failover 状态里的响应体。
 		forceCacheBilling := fs.ForceCacheBilling
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
+		h.submitGatewayUsageRecordTask(c, c.Request.Context(), apiKey, func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsageWithLongContext(ctx, &service.RecordUsageLongContextInput{
 				Result:                result,
 				QuotaPlatform:         quotaPlatform,
@@ -547,6 +547,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 				APIKeyService:         h.apiKeyService,
 				ChannelUsageFields:    channelMapping.ToUsageFields(reqModel, result.UpstreamModel),
 			}); err != nil {
+				markEnterpriseMemberUsagePersistenceFailure(c, apiKey)
 				logger.L().With(
 					zap.String("component", "handler.gemini_v1beta.models"),
 					zap.Int64("user_id", authSubject.UserID),

@@ -111,10 +111,15 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 		p.account.IsOveragesEnabled() &&
 		!p.account.isCreditsExhausted() {
 		result := s.attemptCreditsOveragesRetry(p, baseURL, modelName, waitDuration, resp.StatusCode, respBody)
-		if result.handled && result.resp != nil {
-			return &smartRetryResult{
-				action: smartRetryActionBreakWithResp,
-				resp:   result.resp,
+		if result.handled {
+			if result.err != nil {
+				return &smartRetryResult{action: smartRetryActionBreakWithResp, err: result.err}
+			}
+			if result.resp != nil {
+				return &smartRetryResult{
+					action: smartRetryActionBreakWithResp,
+					resp:   result.resp,
+				}
 			}
 		}
 	}
@@ -224,9 +229,18 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 				return &smartRetryResult{action: smartRetryActionBreakWithResp, resp: retryResp}
 			}
 
-			// 网络错误时，继续重试
+			// 仅明确发生在上游执行前的网络错误可以继续重试。
 			if retryErr != nil || retryResp == nil {
+				if retryErr == nil {
+					retryErr = errors.New("upstream returned nil response")
+				}
 				log.Printf("%s status=smart_retry_network_error attempt=%d/%d error=%v", p.prefix, attempt, maxAttempts, retryErr)
+				if !handleUpstreamTransportFailure(p.c, retryErr) {
+					// The current request must not be replayed, but a sticky binding to
+					// the failed transport is no longer trustworthy for the next request.
+					s.clearStickySession(p.ctx, p.groupID, p.sessionHash)
+					return &smartRetryResult{action: smartRetryActionBreakWithResp, err: retryErr}
+				}
 				continue
 			}
 
@@ -398,10 +412,17 @@ func (s *AntigravityGatewayService) handleSingleAccountRetryInPlace(
 			return &smartRetryResult{action: smartRetryActionBreakWithResp, resp: retryResp}
 		}
 
-		// 网络错误时继续重试
+		// 仅明确发生在上游执行前的网络错误可以继续重试。
 		if retryErr != nil || retryResp == nil {
+			if retryErr == nil {
+				retryErr = errors.New("upstream returned nil response")
+			}
 			logger.LegacyPrintf("service.antigravity_gateway", "%s single_account_503_retry: network_error attempt=%d/%d error=%v",
 				p.prefix, attempt, antigravitySingleAccountSmartRetryMaxAttempts, retryErr)
+			if !handleUpstreamTransportFailure(p.c, retryErr) {
+				s.clearStickySession(p.ctx, p.groupID, p.sessionHash)
+				return &smartRetryResult{action: smartRetryActionBreakWithResp, err: retryErr}
+			}
 			continue
 		}
 
@@ -540,6 +561,10 @@ urlFallbackLoop:
 					Kind:               "request_error",
 					Message:            safeErr,
 				})
+				if !handleUpstreamTransportFailure(p.c, err) {
+					setOpsUpstreamError(p.c, 0, safeErr, "")
+					return nil, fmt.Errorf("upstream request outcome unknown: %w", err)
+				}
 				if shouldAntigravityFallbackToNextURL(err, 0) && urlIdx < len(availableURLs)-1 {
 					logger.LegacyPrintf("service.antigravity_gateway", "%s URL fallback (connection error): %s -> %s", p.prefix, baseURL, availableURLs[urlIdx+1])
 					continue urlFallbackLoop

@@ -37,7 +37,7 @@ func TestOrchestrateEnterpriseMemberGroupsRetriesUncommittedGroupFailure(t *test
 		require.NoError(t, err)
 		bodies = append(bodies, string(body))
 		if len(groupIDs) == 1 {
-			service.MarkOpsGroupFailoverEligible(c)
+			service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonTransientUpstream)
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "first group exhausted"})
 			return
 		}
@@ -70,7 +70,7 @@ func TestOrchestrateEnterpriseMemberGroupsDoesNotRetryCommittedResponse(t *testi
 		calls++
 		c.Status(http.StatusOK)
 		c.Writer.WriteHeaderNow()
-		service.MarkOpsGroupFailoverEligible(c)
+		service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonTransientUpstream)
 	})
 
 	handler(c)

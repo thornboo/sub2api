@@ -857,6 +857,20 @@ func (s *GatewayService) resolveGatewayGroup(ctx context.Context, groupID *int64
 		if err != nil {
 			return nil, nil, err
 		}
+		// Enterprise-member routing is authorized and ordered by the request-local
+		// candidate plan. Legacy group fallback must not replace that decision: a
+		// target outside the plan would cross the member permission boundary, while
+		// a target inside the plan is retried by the member orchestrator as its own
+		// immutable attempt.
+		if active, ok := ActiveGroupFromContext(ctx); ok && active.MemberID > 0 {
+			if active.GroupID != currentID {
+				return nil, nil, fmt.Errorf("enterprise member active group mismatch: authorized=%d requested=%d", active.GroupID, currentID)
+			}
+			if group.ClaudeCodeOnly && !IsClaudeCodeClient(ctx) {
+				return nil, nil, ErrClaudeCodeOnly
+			}
+			return group, &currentID, nil
+		}
 
 		if !group.ClaudeCodeOnly || IsClaudeCodeClient(ctx) {
 			return group, &currentID, nil
@@ -910,6 +924,32 @@ func (s *GatewayService) resolvePlatform(ctx context.Context, groupID *int64, gr
 }
 
 func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string, hasForcePlatform bool) ([]Account, bool, error) {
+	// ActiveGroup is the immutable authorization boundary for an enterprise
+	// member request. Keep that boundary even in simple mode, whose legacy
+	// behavior otherwise reads from the global platform pool.
+	if active, ok := ActiveGroupFromContext(ctx); ok && active.MemberID > 0 {
+		if groupID == nil || *groupID != active.GroupID {
+			return nil, false, fmt.Errorf("enterprise member active group mismatch: authorized=%d requested=%d", active.GroupID, derefGroupID(groupID))
+		}
+		useMixed := (platform == PlatformAnthropic || platform == PlatformGemini) && !hasForcePlatform
+		if useMixed {
+			platforms := []string{platform, PlatformAntigravity}
+			accounts, err := s.accountRepo.ListSchedulableByGroupIDAndPlatforms(ctx, active.GroupID, platforms)
+			if err != nil {
+				return nil, useMixed, err
+			}
+			filtered := make([]Account, 0, len(accounts))
+			for _, account := range accounts {
+				if account.Platform == PlatformAntigravity && !account.IsMixedSchedulingEnabled() {
+					continue
+				}
+				filtered = append(filtered, account)
+			}
+			return filtered, useMixed, nil
+		}
+		accounts, err := s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, active.GroupID, platform)
+		return accounts, false, err
+	}
 	if s.schedulerSnapshot != nil {
 		accounts, useMixed, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, hasForcePlatform)
 		if err == nil {

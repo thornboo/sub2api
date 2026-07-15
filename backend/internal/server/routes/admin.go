@@ -149,6 +149,8 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		ops.GET("/account-availability", h.Admin.Ops.GetAccountAvailability)
 		ops.GET("/realtime-traffic", h.Admin.Ops.GetRealtimeTrafficSummary)
 		ops.GET("/enterprise-members/metrics", h.Admin.Ops.GetEnterpriseMemberMetrics)
+		ops.GET("/enterprise-members/ambiguous-receipts", h.Admin.Ops.ListEnterpriseMemberAmbiguousReceipts)
+		ops.POST("/enterprise-members/ambiguous-receipts/:id/reconcile", h.Admin.Ops.ResolveEnterpriseMemberAmbiguousReceipt)
 
 		// Alerts (rules + events)
 		ops.GET("/alert-rules", h.Admin.Ops.ListAlertRules)

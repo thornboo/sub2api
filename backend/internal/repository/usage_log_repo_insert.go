@@ -213,10 +213,14 @@ func (r *usageLogRepository) CreateBestEffort(ctx context.Context, log *service.
 }
 
 func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor, log *service.UsageLog) (bool, error) {
-	prepared := prepareUsageLogInsert(log)
 	if sqlq == nil {
 		sqlq = r.sql
 	}
+	return createUsageLogSingle(ctx, sqlq, log)
+}
+
+func createUsageLogSingle(ctx context.Context, sqlq sqlExecutor, log *service.UsageLog) (bool, error) {
+	prepared := prepareUsageLogInsert(log)
 	if ctx != nil && ctx.Err() != nil {
 		return false, service.MarkUsageLogCreateNotPersisted(ctx.Err())
 	}
@@ -300,14 +304,18 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 				return false, err
 			}
 			log.RateMultiplier = prepared.rateMultiplier
-			_ = linkEnterpriseMemberBudgetUsage(ctx, sqlq, prepared.requestID, prepared.apiKeyID, prepared.memberID)
+			if err := linkEnterpriseMemberBudgetUsage(ctx, sqlq, prepared.requestID, prepared.apiKeyID, prepared.memberID); err != nil {
+				return false, err
+			}
 			return false, nil
 		} else {
 			return false, err
 		}
 	}
 	log.RateMultiplier = prepared.rateMultiplier
-	_ = linkEnterpriseMemberBudgetUsage(ctx, sqlq, prepared.requestID, prepared.apiKeyID, prepared.memberID)
+	if err := linkEnterpriseMemberBudgetUsage(ctx, sqlq, prepared.requestID, prepared.apiKeyID, prepared.memberID); err != nil {
+		return false, err
+	}
 	return true, nil
 }
 
@@ -1352,8 +1360,10 @@ func linkEnterpriseMemberBudgetUsage(ctx context.Context, sqlq sqlExecutor, requ
 		FROM usage_logs usage
 		WHERE entry.request_id = $1
 		  AND entry.usage_log_id IS NULL
+		  AND entry.member_id = $4
 		  AND usage.request_id = $2
-		  AND usage.api_key_id = $3`, budgetRequestID, requestID, apiKeyID); err != nil {
+		  AND usage.api_key_id = $3
+		  AND usage.member_id = $4`, budgetRequestID, requestID, apiKeyID, *memberID); err != nil {
 		return err
 	}
 	_, err := sqlq.ExecContext(ctx, `
@@ -1362,8 +1372,10 @@ func linkEnterpriseMemberBudgetUsage(ctx context.Context, sqlq sqlExecutor, requ
 		FROM usage_logs usage
 		WHERE reservation.request_id = $1
 		  AND reservation.usage_log_id IS NULL
+		  AND reservation.member_id = $4
 		  AND usage.request_id = $2
-		  AND usage.api_key_id = $3`, budgetRequestID, requestID, apiKeyID)
+		  AND usage.api_key_id = $3
+		  AND usage.member_id = $4`, budgetRequestID, requestID, apiKeyID, *memberID)
 	return err
 }
 

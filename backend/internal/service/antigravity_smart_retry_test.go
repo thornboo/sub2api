@@ -5,13 +5,50 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/gin-gonic/gin"
 )
+
+func TestHandleSmartRetryStopsUnknownTransportReplay(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	upstream := &mockSmartRetryUpstream{
+		responses: []*http.Response{nil},
+		errors:    []error{errors.New("connection reset by peer")},
+	}
+	account := &Account{ID: 302, Name: "antigravity-smart-transport", Type: AccountTypeOAuth, Platform: PlatformAntigravity}
+	respBody := []byte(`{"error":{"status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","metadata":{"model":"gemini-2.5-flash"},"reason":"RATE_LIMIT_EXCEEDED"},{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"0.1s"}]}}`)
+	resp := &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{}, Body: io.NopCloser(bytes.NewReader(respBody))}
+	params := antigravityRetryLoopParams{
+		ctx:          context.Background(),
+		prefix:       "[transport-test]",
+		account:      account,
+		accessToken:  "token",
+		action:       "generateContent",
+		body:         []byte(`{"model":"gemini-2.5-flash","request":{}}`),
+		c:            c,
+		httpUpstream: upstream,
+	}
+
+	result := (&AntigravityGatewayService{}).handleSmartRetry(params, resp, respBody, "https://ag.test", 0, []string{"https://ag.test"})
+
+	require.NotNil(t, result)
+	require.Error(t, result.err)
+	require.Equal(t, smartRetryActionBreakWithResp, result.action)
+	require.Equal(t, 1, upstream.callIdx)
+	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+	require.Equal(t, "upstream_transport_outcome_unknown", EnterpriseMemberBudgetOutcomeAmbiguousReason(c))
+}
 
 // stubSmartRetryCache 用于 handleSmartRetry 测试的 GatewayCache mock
 // 仅关注 DeleteSessionAccountID 的调用记录
@@ -665,8 +702,8 @@ func TestAntigravityRetryLoop_HandleSmartRetry_SwitchError_Propagates(t *testing
 	require.True(t, switchErr.IsStickySession)
 }
 
-// TestHandleSmartRetry_NetworkError_ExhaustsRetry 测试网络错误时（maxAttempts=1）直接耗尽重试并切换账号
-func TestHandleSmartRetry_NetworkError_ExhaustsRetry(t *testing.T) {
+// TestHandleSmartRetry_UnknownTransportOutcomeStopsReplay 验证结果不明时停止重放。
+func TestHandleSmartRetry_UnknownTransportOutcomeStopsReplay(t *testing.T) {
 	// 唯一一次重试遇到网络错误（nil response）
 	upstream := &mockSmartRetryUpstream{
 		responses: []*http.Response{nil}, // 返回 nil（模拟网络错误）
@@ -718,15 +755,11 @@ func TestHandleSmartRetry_NetworkError_ExhaustsRetry(t *testing.T) {
 
 	require.NotNil(t, result)
 	require.Equal(t, smartRetryActionBreakWithResp, result.action)
-	require.Nil(t, result.resp, "should not return resp when switchError is set")
-	require.NotNil(t, result.switchError, "should return switchError after network error exhausted retry")
-	require.Equal(t, account.ID, result.switchError.OriginalAccountID)
-	require.Equal(t, "claude-sonnet-4-5", result.switchError.RateLimitedModel)
-	require.Len(t, upstream.calls, 1, "should have made one retry call")
-
-	// 验证模型限流已设置
-	require.Len(t, repo.modelRateLimitCalls, 1)
-	require.Equal(t, "claude-sonnet-4-5", repo.modelRateLimitCalls[0].modelKey)
+	require.Nil(t, result.resp)
+	require.Nil(t, result.switchError, "结果不明时不能通过切换账号重放当前请求")
+	require.ErrorContains(t, result.err, "upstream returned nil response")
+	require.Len(t, upstream.calls, 1)
+	require.Empty(t, repo.modelRateLimitCalls, "传输结果不明不能伪装成新的模型限流事实")
 }
 
 // TestHandleSmartRetry_NoRetryDelay_UsesDefaultRateLimit 测试无 retryDelay 时使用默认 1 分钟限流
@@ -1164,9 +1197,9 @@ func TestHandleSmartRetry_LongDelay_StickySession_ClearsSession(t *testing.T) {
 	require.Equal(t, "sticky-hash-long-delay", cache.deleteCalls[0].sessionHash)
 }
 
-// TestHandleSmartRetry_ShortDelay_NetworkError_StickySession_ClearsSession
-// 网络错误耗尽重试 + 粘性会话 → 也应清除粘性绑定
-func TestHandleSmartRetry_ShortDelay_NetworkError_StickySession_ClearsSession(t *testing.T) {
+// TestHandleSmartRetry_ShortDelay_UnknownOutcome_ClearsStickyWithoutReplay
+// 结果不明时不重放当前请求，但下一个请求不应继续使用不可信的粘性绑定。
+func TestHandleSmartRetry_ShortDelay_UnknownOutcome_ClearsStickyWithoutReplay(t *testing.T) {
 	upstream := &mockSmartRetryUpstream{
 		responses: []*http.Response{nil}, // 网络错误
 		errors:    []error{nil},
@@ -1219,17 +1252,16 @@ func TestHandleSmartRetry_ShortDelay_NetworkError_StickySession_ClearsSession(t 
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
-	require.NotNil(t, result.switchError)
-	require.True(t, result.switchError.IsStickySession)
+	require.Nil(t, result.switchError)
+	require.ErrorContains(t, result.err, "upstream returned nil response")
+	require.Len(t, upstream.calls, 1)
 
 	// 核心断言：网络错误耗尽重试后也应清除粘性绑定
 	require.Len(t, cache.deleteCalls, 1, "should call DeleteSessionAccountID after network error exhausts retry")
 	require.Equal(t, int64(99), cache.deleteCalls[0].groupID)
 	require.Equal(t, "sticky-net-error", cache.deleteCalls[0].sessionHash)
 
-	require.Len(t, repo.modelRateLimitCalls, 2)
-	require.Equal(t, "gemini-3-flash", repo.modelRateLimitCalls[0].modelKey)
-	require.Equal(t, antigravityGeminiModelRateLimitKey, repo.modelRateLimitCalls[1].modelKey)
+	require.Empty(t, repo.modelRateLimitCalls, "传输结果不明不能伪装成新的模型限流事实")
 }
 
 // TestHandleSmartRetry_ShortDelay_503_StickySession_FailedRetry_ClearsSession

@@ -26,8 +26,8 @@ func TestEnterpriseMemberBudgetSummaryIncludesArchivedMembers(t *testing.T) {
 			"usage_5h", "usage_1d", "usage_7d",
 			"window_5h_start", "window_1d_start", "window_7d_start",
 		}).AddRow(100, 30, 0, 25, 50, 75, 0, 0, 0, nil, nil, nil))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0) FROM usage_logs")).
-		WithArgs(int64(11), periodStart, periodEnd).
+	mock.ExpectQuery(`(?s)FROM enterprise_member_budget_entries entry\s+JOIN usage_logs usage.*entry\.period_start = \$2.*entry\.kind = 'usage'`).
+		WithArgs(int64(11), "2026-07-01").
 		WillReturnRows(sqlmock.NewRows([]string{"count", "input_tokens", "output_tokens"}).AddRow(2, 100, 50))
 	mock.ExpectQuery(regexp.QuoteMeta("FROM enterprise_member_import_usage_baselines WHERE member_id = $1 AND period_start = $2")).
 		WithArgs(int64(11), "2026-07-01").
@@ -60,7 +60,7 @@ func TestEnterpriseMemberOwnerSummaryKeepsRemovedFactsOutOfManagedMemberItems(t 
 	}
 	removedAt := periodStart.Add(24 * time.Hour)
 	mock.ExpectQuery(`FROM enterprise_members m`).
-		WithArgs(int64(7), "2026-07-01", periodStart, periodEnd).
+		WithArgs(int64(7), "2026-07-01").
 		WillReturnRows(sqlmock.NewRows(columns).
 			AddRow(11, "~deleted~11", "Deleted member #11", "disabled", 100, removedAt, 30, 0, 2, 100, 50, 0, 0, 0, 0, 0, 0, 0).
 			AddRow(12, "member-12", "Member 12", "active", 200, nil, 20, 0, 1, 40, 10, 0, 0, 0, 0, 0, 0, 0))

@@ -495,6 +495,21 @@ func (s *ChannelService) ResolveChannelMapping(ctx context.Context, groupID int6
 	return resolveMapping(lk, groupID, model)
 }
 
+// ResolveChannelMappingStrict is the fail-closed variant used by budget
+// authorization. A transient channel lookup failure must not silently collapse
+// to the requested model because that could reserve less than the mapped model
+// will actually cost.
+func (s *ChannelService) ResolveChannelMappingStrict(ctx context.Context, groupID int64, model string) (ChannelMappingResult, error) {
+	lk, err := s.lookupGroupChannel(ctx, groupID)
+	if err != nil {
+		return ChannelMappingResult{}, err
+	}
+	if lk == nil {
+		return ChannelMappingResult{MappedModel: model}, nil
+	}
+	return resolveMapping(lk, groupID, model), nil
+}
+
 // IsModelRestricted 检查模型是否被渠道限制。
 // 返回 true 表示模型被限制（不在允许列表中）。
 // 如果渠道未启用模型限制或分组无渠道关联，返回 false。

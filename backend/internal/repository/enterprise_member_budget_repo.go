@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 )
@@ -20,7 +21,7 @@ func NewEnterpriseMemberBudgetRepository(db *sql.DB) service.EnterpriseMemberBud
 	return &enterpriseMemberBudgetRepository{db: db}
 }
 
-func (r *enterpriseMemberBudgetRepository) Reserve(ctx context.Context, requestID string, memberID int64, amount float64, expiresAt time.Time) (_ *service.EnterpriseMemberBudgetReservation, err error) {
+func (r *enterpriseMemberBudgetRepository) Reserve(ctx context.Context, requestID string, memberID int64, groupID *int64, payloadHash string, amount float64, expiresAt time.Time) (_ *service.EnterpriseMemberBudgetReservation, err error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("enterprise member budget repository db is nil")
 	}
@@ -32,11 +33,16 @@ func (r *enterpriseMemberBudgetRepository) Reserve(ctx context.Context, requestI
 
 	var existing service.EnterpriseMemberBudgetReservation
 	err = tx.QueryRowContext(ctx, `
-		SELECT id, request_id, member_id, period_start, reserved_usd, actual_usd, status, usage_log_id, expires_at
+		SELECT id, request_id, member_id, group_id, request_payload_hash, period_start, reserved_usd, actual_usd, status, usage_log_id, expires_at
 		FROM enterprise_member_budget_reservations WHERE request_id = $1 FOR UPDATE`, requestID).
-		Scan(&existing.ID, &existing.RequestID, &existing.MemberID, &existing.PeriodStart, &existing.ReservedUSD, &existing.ActualUSD, &existing.Status, &existing.UsageLogID, &existing.ExpiresAt)
+		Scan(&existing.ID, &existing.RequestID, &existing.MemberID, &existing.GroupID, &existing.PayloadHash, &existing.PeriodStart, &existing.ReservedUSD, &existing.ActualUSD, &existing.Status, &existing.UsageLogID, &existing.ExpiresAt)
 	if err == nil {
-		if existing.MemberID != memberID || mathAbs(existing.ReservedUSD-amount) > 1e-8 {
+		existingPayloadHash := strings.TrimSpace(existing.PayloadHash)
+		if existing.Status != "reserved" ||
+			existing.MemberID != memberID ||
+			mathAbs(existing.ReservedUSD-amount) > 1e-8 ||
+			!sameOptionalInt64(existing.GroupID, groupID) ||
+			existingPayloadHash != strings.TrimSpace(payloadHash) {
 			return nil, service.ErrEnterpriseMemberBudgetConflict
 		}
 		return &existing, nil
@@ -49,14 +55,14 @@ func (r *enterpriseMemberBudgetRepository) Reserve(ctx context.Context, requestI
 	if err != nil {
 		return nil, err
 	}
-	if !enforced {
+	if !enforced && amount > 0 {
 		return nil, service.ErrEnterpriseMemberBudgetConflict
 	}
-	reservation := &service.EnterpriseMemberBudgetReservation{RequestID: requestID, MemberID: memberID, PeriodStart: periodStart, ReservedUSD: amount, Status: "reserved", ExpiresAt: expiresAt}
+	reservation := &service.EnterpriseMemberBudgetReservation{RequestID: requestID, MemberID: memberID, GroupID: groupID, PayloadHash: payloadHash, PeriodStart: periodStart, ReservedUSD: amount, Status: "reserved", ExpiresAt: expiresAt}
 	if err := tx.QueryRowContext(ctx, `
-		INSERT INTO enterprise_member_budget_reservations (request_id, member_id, period_start, reserved_usd, expires_at)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id`, requestID, memberID, periodStart, amount, expiresAt).Scan(&reservation.ID); err != nil {
+		INSERT INTO enterprise_member_budget_reservations (request_id, member_id, group_id, request_payload_hash, period_start, reserved_usd, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id`, requestID, memberID, groupID, strings.TrimSpace(payloadHash), periodStart, amount, expiresAt).Scan(&reservation.ID); err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
 			return nil, service.ErrEnterpriseMemberBudgetConflict
 		}
@@ -82,19 +88,57 @@ func (r *enterpriseMemberBudgetRepository) Release(ctx context.Context, requestI
 	var amount float64
 	var status string
 	err = tx.QueryRowContext(ctx, `SELECT member_id, period_start, reserved_usd, status FROM enterprise_member_budget_reservations WHERE request_id = $1 FOR UPDATE`, requestID).Scan(&memberID, &periodStart, &amount, &status)
-	if errors.Is(err, sql.ErrNoRows) || status != "reserved" {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
+	if status != "reserved" {
+		return nil
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE enterprise_member_budget_periods SET reserved_usd = GREATEST(0, reserved_usd - $1), version = version + 1, updated_at = NOW() WHERE member_id = $2 AND period_start = $3`, amount, memberID, periodStart); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE enterprise_member_budget_reservations SET status = 'released', updated_at = NOW() WHERE request_id = $1`, requestID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE enterprise_member_budget_reservations SET status = 'released', outcome_reason = 'released_before_completion', updated_at = NOW() WHERE request_id = $1`, requestID); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+func (r *enterpriseMemberBudgetRepository) MarkAmbiguous(ctx context.Context, requestID, outcomeReason string) error {
+	if r == nil || r.db == nil {
+		return errors.New("enterprise member budget repository db is nil")
+	}
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE enterprise_member_budget_reservations
+		SET status = 'ambiguous', outcome_reason = $1,
+		    reconcile_attempts = reconcile_attempts + 1,
+		    last_reconcile_at = NOW(), expires_at = NOW() + INTERVAL '10 minutes',
+		    updated_at = NOW()
+		WHERE request_id = $2 AND status = 'reserved'`, outcomeReason, requestID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected > 0 {
+		service.RecordEnterpriseMemberBudgetAmbiguous()
+		return nil
+	}
+	var status string
+	if err := r.db.QueryRowContext(ctx, `SELECT status FROM enterprise_member_budget_reservations WHERE request_id = $1`, requestID).Scan(&status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return service.ErrEnterpriseMemberBudgetReceiptNotFound
+		}
+		return err
+	}
+	if status == "ambiguous" {
+		return nil
+	}
+	return service.ErrEnterpriseMemberBudgetConflict
 }
 
 func (r *enterpriseMemberBudgetRepository) GetPeriod(ctx context.Context, memberID int64, periodStart time.Time) (float64, float64, error) {
@@ -160,9 +204,14 @@ func (r *enterpriseMemberBudgetRepository) GetSummary(ctx context.Context, membe
 		}
 	}
 	if err := r.db.QueryRowContext(ctx, `
-		SELECT COUNT(*), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0)
-		FROM usage_logs
-		WHERE member_id = $1 AND created_at >= $2 AND created_at < $3`, memberID, periodStart, periodEnd).
+		SELECT COUNT(*), COALESCE(SUM(usage.input_tokens), 0), COALESCE(SUM(usage.output_tokens), 0)
+		FROM enterprise_member_budget_entries entry
+		JOIN usage_logs usage
+		  ON usage.id = entry.usage_log_id
+		 AND usage.member_id = entry.member_id
+		WHERE entry.member_id = $1
+		  AND entry.period_start = $2
+		  AND entry.kind = 'usage'`, memberID, periodStart.Format("2006-01-02")).
 		Scan(&summary.RequestCount, &summary.InputTokens, &summary.OutputTokens); err != nil {
 		return nil, err
 	}
@@ -684,8 +733,16 @@ func (r *enterpriseMemberBudgetRepository) GetOwnerUsageSummary(ctx context.Cont
 		FROM enterprise_members m
 		LEFT JOIN enterprise_member_budget_periods p ON p.member_id = m.id AND p.period_start = $2
 		LEFT JOIN LATERAL (
-			SELECT COUNT(*) AS request_count, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens
-			FROM usage_logs ul WHERE ul.member_id = m.id AND ul.created_at >= $3 AND ul.created_at < $4
+			SELECT COUNT(*) AS request_count,
+			       COALESCE(SUM(usage.input_tokens), 0) AS input_tokens,
+			       COALESCE(SUM(usage.output_tokens), 0) AS output_tokens
+			FROM enterprise_member_budget_entries entry
+			JOIN usage_logs usage
+			  ON usage.id = entry.usage_log_id
+			 AND usage.member_id = entry.member_id
+			WHERE entry.member_id = m.id
+			  AND entry.period_start = $2
+			  AND entry.kind = 'usage'
 		) u ON TRUE
 		LEFT JOIN LATERAL (
 			SELECT COALESCE(SUM(billed_usd), 0) AS billed_usd, COALESCE(SUM(total_tokens), 0) AS total_tokens,
@@ -696,7 +753,7 @@ func (r *enterpriseMemberBudgetRepository) GetOwnerUsageSummary(ctx context.Cont
 			WHERE baseline.member_id = m.id AND baseline.period_start = $2
 		) b ON TRUE
 		WHERE m.enterprise_user_id = $1
-		ORDER BY m.id`, ownerID, periodStart.Format("2006-01-02"), periodStart, periodEnd)
+		ORDER BY m.id`, ownerID, periodStart.Format("2006-01-02"))
 	if err != nil {
 		return nil, err
 	}
@@ -775,6 +832,201 @@ func mathAbs(value float64) float64 {
 	return value
 }
 
+func sameOptionalInt64(left, right *int64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func (r *enterpriseMemberBudgetRepository) ListAmbiguousReceipts(ctx context.Context, limit, offset int) ([]service.EnterpriseMemberAmbiguousReceipt, int64, error) {
+	if r == nil || r.db == nil {
+		return nil, 0, errors.New("enterprise member budget repository db is nil")
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var total int64
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM enterprise_member_budget_reservations WHERE status = 'ambiguous'`).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT reservation.id, reservation.request_id, member.enterprise_user_id,
+		       reservation.member_id, member.member_code, member.display_name,
+		       reservation.group_id, reservation.period_start, reservation.reserved_usd,
+		       reservation.outcome_reason, reservation.reconcile_attempts,
+		       reservation.last_reconcile_at, reservation.expires_at,
+		       reservation.created_at, reservation.updated_at
+		FROM enterprise_member_budget_reservations reservation
+		JOIN enterprise_members member ON member.id = reservation.member_id
+		WHERE reservation.status = 'ambiguous'
+		ORDER BY reservation.updated_at DESC, reservation.id DESC
+		LIMIT $1 OFFSET $2`, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = rows.Close() }()
+	items := make([]service.EnterpriseMemberAmbiguousReceipt, 0, limit)
+	for rows.Next() {
+		var item service.EnterpriseMemberAmbiguousReceipt
+		if err := rows.Scan(
+			&item.ID, &item.RequestID, &item.EnterpriseUserID,
+			&item.MemberID, &item.MemberCode, &item.MemberName,
+			&item.GroupID, &item.PeriodStart, &item.ReservedUSD,
+			&item.OutcomeReason, &item.ReconcileAttempts,
+			&item.LastReconcileAt, &item.ExpiresAt,
+			&item.CreatedAt, &item.UpdatedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		items = append(items, item)
+	}
+	return items, total, rows.Err()
+}
+
+func (r *enterpriseMemberBudgetRepository) ResolveAmbiguousReceipt(ctx context.Context, receiptID int64, input service.EnterpriseMemberAmbiguousReceiptResolution, actorUserID int64) (receipt *service.EnterpriseMemberAmbiguousReceipt, err error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("enterprise member budget repository db is nil")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	receipt = &service.EnterpriseMemberAmbiguousReceipt{}
+	var status string
+	err = tx.QueryRowContext(ctx, `
+		SELECT reservation.id, reservation.request_id, member.enterprise_user_id,
+		       reservation.member_id, member.member_code, member.display_name,
+		       reservation.group_id, reservation.period_start, reservation.reserved_usd,
+		       reservation.outcome_reason, reservation.reconcile_attempts,
+		       reservation.last_reconcile_at, reservation.expires_at,
+		       reservation.created_at, reservation.updated_at, reservation.status
+		FROM enterprise_member_budget_reservations reservation
+		JOIN enterprise_members member ON member.id = reservation.member_id
+		WHERE reservation.id = $1
+		FOR UPDATE`, receiptID).Scan(
+		&receipt.ID, &receipt.RequestID, &receipt.EnterpriseUserID,
+		&receipt.MemberID, &receipt.MemberCode, &receipt.MemberName,
+		&receipt.GroupID, &receipt.PeriodStart, &receipt.ReservedUSD,
+		&receipt.OutcomeReason, &receipt.ReconcileAttempts,
+		&receipt.LastReconcileAt, &receipt.ExpiresAt,
+		&receipt.CreatedAt, &receipt.UpdatedAt, &status,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrEnterpriseMemberBudgetReceiptNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if status != "ambiguous" || receipt.ReconcileAttempts != input.ExpectedReconcileAttempts {
+		return nil, service.ErrEnterpriseMemberBudgetConflict
+	}
+
+	if input.Decision != service.EnterpriseMemberReceiptDecisionRelease {
+		return nil, service.ErrEnterpriseMemberBudgetConflict
+	}
+	apiKeyID, usageRequestID, ok := splitEnterpriseBudgetRequestID(receipt.RequestID)
+	if !ok {
+		return nil, service.ErrEnterpriseMemberBudgetConflict
+	}
+	// The administrator's observation can be stale. Re-check local settlement
+	// evidence while the receipt row is locked so a concurrent usage commit can
+	// never race a manual release and refund a billable request.
+	var usageExists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM usage_logs WHERE api_key_id = $1 AND request_id = $2 AND member_id = $3)`, apiKeyID, usageRequestID, receipt.MemberID).Scan(&usageExists); err != nil {
+		return nil, err
+	}
+	if usageExists {
+		return nil, service.ErrEnterpriseMemberBudgetConflict
+	}
+	var billingExists bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM usage_billing_dedup WHERE api_key_id = $1 AND request_id = $2
+			UNION ALL
+			SELECT 1 FROM usage_billing_dedup_archive WHERE api_key_id = $1 AND request_id = $2
+		)`, apiKeyID, usageRequestID).Scan(&billingExists); err != nil {
+		return nil, err
+	}
+	if billingExists {
+		return nil, service.ErrEnterpriseMemberBudgetConflict
+	}
+	var settlementPending bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM enterprise_member_usage_settlement_outbox
+			WHERE api_key_id = $1 AND request_id = $2 AND member_id = $3
+		)`, apiKeyID, usageRequestID, receipt.MemberID).Scan(&settlementPending); err != nil {
+		return nil, err
+	}
+	if settlementPending {
+		return nil, service.ErrEnterpriseMemberBudgetConflict
+	}
+	var batchImageMayStillSettle bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM batch_image_jobs
+			WHERE member_budget_request_id = $1
+			  AND (
+				status NOT IN ('failed', 'cancelled', 'output_deleted')
+				OR success_count > 0
+				OR actual_cost IS NOT NULL
+			  )
+		)`, receipt.RequestID).Scan(&batchImageMayStillSettle); err != nil {
+		return nil, err
+	}
+	if batchImageMayStillSettle {
+		return nil, service.ErrEnterpriseMemberBudgetConflict
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE enterprise_member_budget_periods
+		SET reserved_usd = GREATEST(0, reserved_usd - $1),
+		    version = version + 1, updated_at = NOW()
+		WHERE member_id = $2 AND period_start = $3`, receipt.ReservedUSD, receipt.MemberID, receipt.PeriodStart); err != nil {
+		return nil, err
+	}
+
+	newStatus := "released"
+	outcomeReason := "manual_release"
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE enterprise_member_budget_reservations
+		SET actual_usd = $1, status = $2, outcome_reason = $3,
+		    reconcile_attempts = reconcile_attempts + 1,
+		    last_reconcile_at = NOW(), updated_at = NOW()
+		WHERE id = $4 AND status = 'ambiguous' AND reconcile_attempts = $5`,
+		0, newStatus, outcomeReason, receipt.ID, input.ExpectedReconcileAttempts); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO enterprise_member_audit_logs
+		(enterprise_user_id, member_id, actor_user_id, action, entity_type, entity_id, before_data, after_data, metadata)
+		VALUES ($1, $2, $3, 'member.budget_receipt_reconciled', 'budget_receipt', $4,
+			jsonb_build_object('status', 'ambiguous', 'reserved_usd', CAST($5 AS NUMERIC), 'outcome_reason', CAST($6 AS TEXT), 'reconcile_attempts', $7),
+			jsonb_build_object('status', CAST($8 AS TEXT), 'actual_usd', CAST($9 AS NUMERIC), 'outcome_reason', CAST($10 AS TEXT), 'reconcile_attempts', $7 + 1),
+			jsonb_build_object('decision', CAST($11 AS TEXT), 'reason', CAST($12 AS TEXT)))`,
+		receipt.EnterpriseUserID, receipt.MemberID, actorUserID, receipt.ID,
+		receipt.ReservedUSD, receipt.OutcomeReason, receipt.ReconcileAttempts,
+		newStatus, 0, outcomeReason, input.Decision, input.Reason); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	receipt.OutcomeReason = outcomeReason
+	receipt.ReconcileAttempts++
+	receipt.LastReconcileAt = &now
+	receipt.UpdatedAt = now
+	return receipt, nil
+}
+
 func (r *enterpriseMemberBudgetRepository) RecoverExpired(ctx context.Context, limit int) (recovered int, err error) {
 	if r == nil || r.db == nil {
 		return 0, errors.New("enterprise member budget repository db is nil")
@@ -788,9 +1040,9 @@ func (r *enterpriseMemberBudgetRepository) RecoverExpired(ctx context.Context, l
 	}
 	defer func() { _ = tx.Rollback() }()
 	rows, err := tx.QueryContext(ctx, `
-		SELECT request_id, member_id, period_start, reserved_usd
+		SELECT request_id, member_id, period_start, reserved_usd, status
 		FROM enterprise_member_budget_reservations
-		WHERE status = 'reserved' AND expires_at <= NOW()
+		WHERE status IN ('reserved', 'ambiguous') AND expires_at <= NOW()
 		ORDER BY expires_at, id
 		FOR UPDATE SKIP LOCKED
 		LIMIT $1`, limit)
@@ -802,11 +1054,12 @@ func (r *enterpriseMemberBudgetRepository) RecoverExpired(ctx context.Context, l
 		memberID    int64
 		periodStart time.Time
 		reservedUSD float64
+		status      string
 	}
 	items := make([]expiredReservation, 0, limit)
 	for rows.Next() {
 		var item expiredReservation
-		if err := rows.Scan(&item.requestID, &item.memberID, &item.periodStart, &item.reservedUSD); err != nil {
+		if err := rows.Scan(&item.requestID, &item.memberID, &item.periodStart, &item.reservedUSD, &item.status); err != nil {
 			_ = rows.Close()
 			return 0, err
 		}
@@ -822,12 +1075,39 @@ func (r *enterpriseMemberBudgetRepository) RecoverExpired(ctx context.Context, l
 		}
 		var usageLogID int64
 		var actualUSD float64
-		usageErr := tx.QueryRowContext(ctx, `SELECT id, actual_cost FROM usage_logs WHERE api_key_id = $1 AND request_id = $2`, apiKeyID, usageRequestID).Scan(&usageLogID, &actualUSD)
+		usageErr := tx.QueryRowContext(ctx, `SELECT id, actual_cost FROM usage_logs WHERE api_key_id = $1 AND request_id = $2 AND member_id = $3`, apiKeyID, usageRequestID, item.memberID).Scan(&usageLogID, &actualUSD)
 		if usageErr == nil {
+			if item.reservedUSD > 1e-8 && actualUSD > item.reservedUSD+1e-8 {
+				service.RecordEnterpriseMemberBudgetSettlementOverrun()
+				logger.LegacyPrintf(
+					"repository.enterprise_member_budget",
+					"recovered enterprise member usage exceeded reservation: member=%d reserved=%.8f actual=%.8f",
+					item.memberID,
+					item.reservedUSD,
+					actualUSD,
+				)
+			}
 			if _, err := tx.ExecContext(ctx, `UPDATE enterprise_member_budget_periods SET used_usd = used_usd + $1, reserved_usd = GREATEST(0, reserved_usd - $2), version = version + 1, updated_at = NOW() WHERE member_id = $3 AND period_start = $4`, actualUSD, item.reservedUSD, item.memberID, item.periodStart); err != nil {
 				return recovered, err
 			}
-			if _, err := tx.ExecContext(ctx, `UPDATE enterprise_member_budget_reservations SET actual_usd = $1, status = 'settled', usage_log_id = $2, updated_at = NOW() WHERE request_id = $3`, actualUSD, usageLogID, item.requestID); err != nil {
+			if item.reservedUSD <= 1e-8 {
+				if err := ensureEnterpriseMemberRateLimitPeriod(ctx, tx, item.memberID); err != nil {
+					return recovered, err
+				}
+			}
+			if err := incrementEnterpriseMemberRateLimitUsage(ctx, tx, item.memberID, actualUSD); err != nil {
+				return recovered, err
+			}
+			outcomeReason := "settled_after_recovery"
+			if item.reservedUSD > 1e-8 && actualUSD > item.reservedUSD+1e-8 {
+				outcomeReason = "settled_after_overrun"
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE enterprise_member_budget_reservations
+				SET actual_usd = $1, status = 'settled', usage_log_id = $2,
+				    outcome_reason = $3, reconcile_attempts = reconcile_attempts + 1,
+				    last_reconcile_at = NOW(), updated_at = NOW()
+				WHERE request_id = $4`, actualUSD, usageLogID, outcomeReason, item.requestID); err != nil {
 				return recovered, err
 			}
 			if _, err := tx.ExecContext(ctx, `INSERT INTO enterprise_member_budget_entries (member_id, period_start, kind, request_id, amount_usd, usage_log_id, idempotency_key, note) VALUES ($1, $2, 'usage', $3, $4, $5, $6, 'recovered expired reservation') ON CONFLICT (request_id) DO UPDATE SET usage_log_id = EXCLUDED.usage_log_id`, item.memberID, item.periodStart, item.requestID, actualUSD, usageLogID, "usage:"+item.requestID); err != nil {
@@ -840,22 +1120,45 @@ func (r *enterpriseMemberBudgetRepository) RecoverExpired(ctx context.Context, l
 			return recovered, usageErr
 		}
 		var billed bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM usage_billing_dedup WHERE api_key_id = $1 AND request_id = $2)`, apiKeyID, usageRequestID).Scan(&billed); err != nil {
+		if err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM usage_billing_dedup WHERE api_key_id = $1 AND request_id = $2
+				UNION ALL
+				SELECT 1 FROM usage_billing_dedup_archive WHERE api_key_id = $1 AND request_id = $2
+			)`, apiKeyID, usageRequestID).Scan(&billed); err != nil {
 			return recovered, err
 		}
 		if billed {
-			if _, err := tx.ExecContext(ctx, `UPDATE enterprise_member_budget_reservations SET expires_at = NOW() + INTERVAL '10 minutes', updated_at = NOW() WHERE request_id = $1`, item.requestID); err != nil {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE enterprise_member_budget_reservations
+				SET status = 'ambiguous', outcome_reason = 'billing_without_usage',
+				    reconcile_attempts = reconcile_attempts + 1, last_reconcile_at = NOW(),
+				    expires_at = NOW() + INTERVAL '10 minutes', updated_at = NOW()
+				WHERE request_id = $1`, item.requestID); err != nil {
 				return recovered, err
+			}
+			if item.status == "reserved" {
+				service.RecordEnterpriseMemberBudgetAmbiguous()
+				recovered++
 			}
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE enterprise_member_budget_periods SET reserved_usd = GREATEST(0, reserved_usd - $1), version = version + 1, updated_at = NOW() WHERE member_id = $2 AND period_start = $3`, item.reservedUSD, item.memberID, item.periodStart); err != nil {
+		// Absence of local billing evidence does not prove that the upstream
+		// request failed. Preserve the reservation and mark the receipt for
+		// reconciliation so a successful-but-interrupted request cannot silently
+		// regain budget and disappear from member usage.
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE enterprise_member_budget_reservations
+			SET status = 'ambiguous', outcome_reason = 'outcome_unproven',
+			    reconcile_attempts = reconcile_attempts + 1, last_reconcile_at = NOW(),
+			    expires_at = NOW() + INTERVAL '10 minutes', updated_at = NOW()
+			WHERE request_id = $1`, item.requestID); err != nil {
 			return recovered, err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE enterprise_member_budget_reservations SET status = 'expired', updated_at = NOW() WHERE request_id = $1`, item.requestID); err != nil {
-			return recovered, err
+		if item.status == "reserved" {
+			service.RecordEnterpriseMemberBudgetAmbiguous()
+			recovered++
 		}
-		recovered++
 	}
 	if err := tx.Commit(); err != nil {
 		return recovered, err
@@ -865,8 +1168,9 @@ func (r *enterpriseMemberBudgetRepository) RecoverExpired(ctx context.Context, l
 
 // ReconcilePeriods repairs the rebuildable monthly projection from immutable
 // ledger entries and live reservations. A usage log that survived a crash
-// without a corresponding ledger entry is recovered as an explicit
-// reconciliation entry; it is never silently folded into the projection.
+// without a corresponding ledger entry is recovered as a usage entry linked
+// to that immutable request fact, with a stable reconciliation idempotency key
+// and note; it is never silently folded into the projection.
 func (r *enterpriseMemberBudgetRepository) ReconcilePeriods(ctx context.Context, limit int) (result service.EnterpriseMemberBudgetReconciliationResult, err error) {
 	if r == nil || r.db == nil {
 		return result, errors.New("enterprise member budget repository db is nil")
@@ -952,8 +1256,9 @@ func (r *enterpriseMemberBudgetRepository) ReconcilePeriods(ctx context.Context,
 		}
 		inserted, err := tx.ExecContext(ctx, `
 			INSERT INTO enterprise_member_budget_entries
-				(member_id, period_start, kind, amount_usd, idempotency_key, note)
-			SELECT ul.member_id, $2, 'reconciliation', GREATEST(ul.actual_cost, 0),
+				(member_id, period_start, kind, request_id, amount_usd, usage_log_id, idempotency_key, note)
+			SELECT ul.member_id, $2, 'usage', ul.api_key_id::text || ':' || ul.request_id,
+			       GREATEST(ul.actual_cost, 0), ul.id,
 			       'reconciliation:usage:' || ul.id::text,
 			       'recovered usage evidence missing from member budget ledger'
 			FROM usage_logs ul
@@ -969,7 +1274,7 @@ func (r *enterpriseMemberBudgetRepository) ReconcilePeriods(ctx context.Context,
 			  AND NOT EXISTS (
 				SELECT 1 FROM enterprise_member_budget_reservations reservation
 				WHERE reservation.request_id = ul.api_key_id::text || ':' || ul.request_id
-				  AND reservation.status = 'reserved'
+				  AND reservation.status IN ('reserved', 'ambiguous')
 			  )
 			ON CONFLICT (idempotency_key) DO NOTHING`, period.memberID, period.periodStart.Format("2006-01-02"), enterpriseBudgetTimezone())
 		if err != nil {
@@ -995,7 +1300,7 @@ func (r *enterpriseMemberBudgetRepository) ReconcilePeriods(ctx context.Context,
 		if err := tx.QueryRowContext(ctx, `
 			SELECT COALESCE(SUM(reserved_usd), 0)
 			FROM enterprise_member_budget_reservations
-			WHERE member_id = $1 AND period_start = $2 AND status = 'reserved'`, period.memberID, period.periodStart.Format("2006-01-02")).Scan(&liveReserved); err != nil {
+			WHERE member_id = $1 AND period_start = $2 AND status IN ('reserved', 'ambiguous')`, period.memberID, period.periodStart.Format("2006-01-02")).Scan(&liveReserved); err != nil {
 			return result, err
 		}
 		if mathAbs(period.usedUSD-ledgerUsed) > 1e-8 || mathAbs(period.reservedUSD-liveReserved) > 1e-8 {

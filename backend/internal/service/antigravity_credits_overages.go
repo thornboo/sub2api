@@ -166,6 +166,7 @@ func shouldMarkCreditsExhausted(resp *http.Response, respBody []byte, reqErr err
 type creditsOveragesRetryResult struct {
 	handled bool
 	resp    *http.Response
+	err     error
 }
 
 // attemptCreditsOveragesRetry 在确认免费配额耗尽后，尝试注入 AI Credits 继续请求。
@@ -198,6 +199,10 @@ func (s *AntigravityGatewayService) attemptCreditsOveragesRetry(
 		logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d credit_overages_success model=%s account=%d",
 			p.prefix, creditsResp.StatusCode, modelKey, p.account.ID)
 		return &creditsOveragesRetryResult{handled: true, resp: creditsResp}
+	}
+	if err != nil && !handleUpstreamTransportFailure(p.c, err) {
+		s.handleCreditsRetryFailure(p.ctx, p.prefix, modelKey, p.account, creditsResp, err)
+		return &creditsOveragesRetryResult{handled: true, err: err}
 	}
 
 	s.handleCreditsRetryFailure(p.ctx, p.prefix, modelKey, p.account, creditsResp, err)

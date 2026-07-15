@@ -43,6 +43,18 @@ func (e GrokMediaEndpoint) IsGenerationRequest() bool {
 	}
 }
 
+// IsGrokVideoMutationEndpoint reports whether the endpoint creates a new
+// asynchronous video task whose account/group route must be persisted before
+// its task ID is returned to the client.
+func IsGrokVideoMutationEndpoint(endpoint GrokMediaEndpoint) bool {
+	switch endpoint {
+	case GrokMediaEndpointVideosGenerations, GrokMediaEndpointVideosEdits, GrokMediaEndpointVideosExtensions:
+		return true
+	default:
+		return false
+	}
+}
+
 type GrokMediaRequestInfo struct {
 	Model           string
 	Prompt          string
@@ -355,11 +367,20 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	}
 	usage := grokMediaUsageFromResponse(endpoint, requestInfo, respBody)
 	// Persist asynchronous task routing before committing the task ID to the
-	// client. If this fails, the response remains uncommitted and the outer
-	// member-group orchestrator may safely retry another eligible group.
-	if endpoint == GrokMediaEndpointVideosGenerations && usage.ResponseID != "" {
+	// client. Once the upstream task exists, a local persistence failure is an
+	// ambiguous terminal outcome: no account/group retry is safe, and the member
+	// budget receipt must remain held for reconciliation.
+	if IsGrokVideoMutationEndpoint(endpoint) && usage.ResponseID != "" {
 		if err := recordGrokMediaTask(ctx, usage.ResponseID, account.ID); err != nil {
-			return nil, err
+			MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "task_persistence_failed")
+			return nil, &UpstreamFailoverError{
+				StatusCode:        http.StatusBadGateway,
+				Stage:             GatewayFailureStageLocalPersistence,
+				Scope:             GatewayFailureScopeRequest,
+				NextAccountAction: NextAccountStop,
+				ClientStatusCode:  http.StatusBadGateway,
+				ClientMessage:     "Upstream task was created but local task tracking failed",
+			}
 		}
 	}
 	writeGrokMediaResponse(c, resp, respBody, s.responseHeaderFilter)

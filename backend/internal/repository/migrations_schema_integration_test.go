@@ -97,6 +97,16 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumn(t, tx, "usage_billing_dedup_archive", "request_fingerprint", "character varying", 64, false)
 	requireIndex(t, tx, "usage_billing_dedup_archive", "usage_billing_dedup_archive_pkey")
 
+	// enterprise member settlement outbox: successful upstream usage survives a
+	// failed local billing transaction and can be replayed idempotently.
+	requireColumn(t, tx, "enterprise_member_usage_settlement_outbox", "command_payload", "jsonb", 0, false)
+	requireColumn(t, tx, "enterprise_member_usage_settlement_outbox", "enterprise_user_id", "bigint", 0, false)
+	requireColumn(t, tx, "enterprise_member_usage_settlement_outbox", "request_fingerprint", "character varying", 64, false)
+	requireColumn(t, tx, "enterprise_member_usage_settlement_outbox", "next_attempt_at", "timestamp with time zone", 0, false)
+	requireIndex(t, tx, "enterprise_member_usage_settlement_outbox", "idx_enterprise_member_usage_settlement_outbox_due")
+	requireConstraintDefinitionContains(t, tx, "enterprise_member_usage_settlement_outbox", "enterprise_member_usage_settlement_outbox_key_member_owner_fk", "api_key_id", "member_id", "enterprise_user_id", "api_keys", "user_id", "ON DELETE RESTRICT")
+	requireConstraintDefinitionContains(t, tx, "enterprise_member_usage_settlement_outbox", "enterprise_member_usage_settlement_outbox_member_owner_fk", "member_id", "enterprise_user_id", "enterprise_members", "ON DELETE RESTRICT")
+
 	// settings table should exist
 	var settingsRegclass sql.NullString
 	require.NoError(t, tx.QueryRowContext(context.Background(), "SELECT to_regclass('public.settings')").Scan(&settingsRegclass))
@@ -214,8 +224,14 @@ func TestMigrationsRunner_EnterpriseMemberSchemaStaysAligned(t *testing.T) {
 	requireConstraintDefinitionContains(t, tx, "enterprise_member_budget_periods", "enterprise_member_budget_periods_member_period_unique", "member_id", "period_start")
 	requireConstraintDefinitionContains(t, tx, "enterprise_member_budget_periods", "enterprise_member_budget_periods_amounts_check", "used_usd", "reserved_usd")
 	requireTable(t, tx, "enterprise_member_budget_reservations")
-	requireConstraintDefinitionContains(t, tx, "enterprise_member_budget_reservations", "enterprise_member_budget_reservations_status_check", "reserved", "settled", "released", "expired")
+	requireColumn(t, tx, "enterprise_member_budget_reservations", "group_id", "bigint", 0, true)
+	requireColumn(t, tx, "enterprise_member_budget_reservations", "request_payload_hash", "character varying", 64, false)
+	requireColumn(t, tx, "enterprise_member_budget_reservations", "outcome_reason", "character varying", 64, false)
+	requireColumn(t, tx, "enterprise_member_budget_reservations", "reconcile_attempts", "integer", 0, false)
+	requireColumn(t, tx, "enterprise_member_budget_reservations", "last_reconcile_at", "timestamp with time zone", 0, true)
+	requireConstraintDefinitionContains(t, tx, "enterprise_member_budget_reservations", "enterprise_member_budget_reservations_status_check", "reserved", "settled", "released", "expired", "ambiguous")
 	requireIndex(t, tx, "enterprise_member_budget_reservations", "idx_enterprise_member_budget_reservations_expiry")
+	requireIndex(t, tx, "enterprise_member_budget_reservations", "idx_enterprise_member_budget_reservations_ambiguous")
 	requireTable(t, tx, "enterprise_member_budget_entries")
 	requireTable(t, tx, "enterprise_member_rate_limit_periods")
 	requireConstraintDefinitionContains(t, tx, "enterprise_members", "enterprise_members_rate_limits_check", "rate_limit_5h", "rate_limit_1d", "rate_limit_7d")

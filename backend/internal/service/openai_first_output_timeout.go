@@ -270,10 +270,14 @@ func (s *OpenAIGatewayService) newOpenAIFirstOutputTimeoutError(
 	if s.rateLimitService != nil {
 		s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
 	}
+	MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "upstream_first_output_timeout")
 	return &UpstreamFailoverError{
-		StatusCode:      http.StatusGatewayTimeout,
-		ResponseBody:    []byte(`{"error":{"type":"first_output_timeout","message":"Upstream produced no output before the deadline"}}`),
-		ResponseHeaders: responseHeaders.Clone(), SafeToFailoverAfterWrite: true,
+		StatusCode:        http.StatusGatewayTimeout,
+		ResponseBody:      []byte(`{"error":{"type":"first_output_timeout","message":"Upstream produced no output before the deadline"}}`),
+		ResponseHeaders:   responseHeaders.Clone(),
+		Stage:             GatewayFailureStageInference,
+		Scope:             GatewayFailureScopeRequest,
+		NextAccountAction: NextAccountStop,
 	}
 }
 

@@ -688,6 +688,53 @@ func TestOpenAIGatewayServiceForwardImages_OAuthPassesNAndReturnsAllImages(t *te
 	require.Equal(t, "draw a cat 3", gjson.Get(rec.Body.String(), "data.2.revised_prompt").String())
 }
 
+func TestOpenAIGatewayServiceForwardImagesUnknownTransportPreservesMemberBudget(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name        string
+		accountType string
+		credentials map[string]any
+	}{
+		{name: "api key images endpoint", accountType: AccountTypeAPIKey, credentials: map[string]any{"api_key": "sk-test"}},
+		{name: "oauth responses image bridge", accountType: AccountTypeOAuth, credentials: map[string]any{"access_token": "token", "chatgpt_account_id": "acct-test"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := []byte(`{"model":"gpt-image-2","prompt":"draw a cat"}`)
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			c.Set("api_key", &APIKey{ID: 44})
+			svc := &OpenAIGatewayService{
+				cfg:          &config.Config{},
+				httpUpstream: &httpUpstreamRecorder{err: errors.New("connection reset by peer")},
+			}
+			parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+			require.NoError(t, err)
+			account := &Account{
+				ID:          44,
+				Name:        "image-transport-test",
+				Platform:    PlatformOpenAI,
+				Type:        tt.accountType,
+				Concurrency: 1,
+				Credentials: tt.credentials,
+			}
+
+			result, err := svc.ForwardImages(context.Background(), c, account, body, parsed, "")
+
+			require.Nil(t, result)
+			require.Error(t, err)
+			var failoverErr *UpstreamFailoverError
+			require.ErrorAs(t, err, &failoverErr)
+			require.Equal(t, NextAccountStop, failoverErr.NextAccountAction)
+			require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+			require.Equal(t, "upstream_transport_outcome_unknown", EnterpriseMemberBudgetOutcomeAmbiguousReason(c))
+		})
+	}
+}
+
 func TestOpenAIGatewayServiceForwardImages_OAuthUpstreamHTTPErrorSurfacesRealError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"model":"gpt-image-2","prompt":"draw a cat","response_format":"b64_json"}`)

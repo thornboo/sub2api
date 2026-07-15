@@ -323,6 +323,49 @@ func TestApiKeyService_Delete_OwnerMismatch(t *testing.T) {
 	require.Empty(t, cache.deleteAuthKeys)
 }
 
+func TestAPIKeyService_Update_RejectsEnterpriseMemberKey(t *testing.T) {
+	memberID := int64(44)
+	repo := &apiKeyRepoStub{apiKey: &APIKey{ID: 10, UserID: 7, Key: "member-key", MemberID: &memberID}}
+	svc := &APIKeyService{apiKeyRepo: repo}
+
+	_, err := svc.Update(context.Background(), 10, 7, UpdateAPIKeyRequest{})
+	require.ErrorIs(t, err, ErrAPIKeyManagedByEnterpriseMember)
+	require.Empty(t, repo.updatedKeys)
+}
+
+func TestAPIKeyService_Delete_RejectsEnterpriseMemberKey(t *testing.T) {
+	memberID := int64(44)
+	repo := &apiKeyRepoStub{apiKey: &APIKey{ID: 10, UserID: 7, Key: "member-key", MemberID: &memberID}}
+	svc := &APIKeyService{apiKeyRepo: repo}
+
+	err := svc.Delete(context.Background(), 10, 7)
+	require.ErrorIs(t, err, ErrAPIKeyManagedByEnterpriseMember)
+	require.Empty(t, repo.deletedIDs)
+}
+
+func TestAPIKeyService_EnterpriseMemberKeyManagementRequiresExactMemberScope(t *testing.T) {
+	memberID := int64(44)
+	repo := &apiKeyRepoStub{apiKey: &APIKey{ID: 10, UserID: 7, Key: "member-key", MemberID: &memberID}}
+	svc := &APIKeyService{apiKeyRepo: repo}
+	name := "renamed"
+
+	updated, err := svc.UpdateEnterpriseMemberKey(context.Background(), 10, 7, memberID, UpdateAPIKeyRequest{Name: &name})
+	require.NoError(t, err)
+	require.Equal(t, name, updated.Name)
+	require.Len(t, repo.updatedKeys, 1)
+
+	_, err = svc.UpdateEnterpriseMemberKey(context.Background(), 10, 7, memberID+1, UpdateAPIKeyRequest{Name: &name})
+	require.ErrorIs(t, err, ErrAPIKeyNotFound)
+	require.Len(t, repo.updatedKeys, 1)
+
+	require.NoError(t, svc.DeleteEnterpriseMemberKey(context.Background(), 10, 7, memberID))
+	require.Equal(t, []int64{10}, repo.deletedIDs)
+
+	err = svc.DeleteEnterpriseMemberKey(context.Background(), 10, 7, memberID+1)
+	require.ErrorIs(t, err, ErrAPIKeyNotFound)
+	require.Equal(t, []int64{10}, repo.deletedIDs)
+}
+
 // TestApiKeyService_Delete_Success 测试所有者成功删除 API Key 的场景。
 // 预期行为：
 //   - GetKeyAndOwnerID 返回所有者 ID 为 7

@@ -307,8 +307,10 @@ func (h *APIKeyHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	// 验证所有权
-	if key.UserID != subject.UserID {
+	// Member keys are managed only through the enterprise-member surface. The
+	// legacy API-key endpoint must not disclose their plaintext or internal
+	// membership metadata even to the enterprise owner.
+	if key.UserID != subject.UserID || key.MemberID != nil {
 		response.NotFound(c, "API key not found")
 		return
 	}

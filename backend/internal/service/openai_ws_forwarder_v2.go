@@ -312,6 +312,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 
 	if err := lease.WriteJSONWithContextTimeout(ctx, payload, s.openAIWSWriteTimeout()); err != nil {
 		lease.MarkBroken()
+		MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "upstream_ws_outcome_unknown")
 		logOpenAIWSModeInfo(
 			"write_request_fail account_id=%d conn_id=%s cause=%s payload_bytes=%d",
 			account.ID,
@@ -319,7 +320,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 			truncateOpenAIWSLogValue(err.Error(), openAIWSLogValueMaxLen),
 			resolvePayloadBytes(),
 		)
-		return nil, wrapOpenAIWSFallback("write_request", err)
+		return nil, fmt.Errorf("openai ws write request outcome unknown: %w", err)
 	}
 	if debugEnabled {
 		logOpenAIWSModeDebug(
@@ -364,7 +365,8 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		f, ok := c.Writer.(http.Flusher)
 		if !ok {
 			lease.MarkBroken()
-			return nil, wrapOpenAIWSFallback("streaming_not_supported", errors.New("streaming not supported"))
+			MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "upstream_ws_outcome_unknown")
+			return nil, errors.New("streaming not supported after upstream websocket dispatch")
 		}
 		flusher = f
 	}
@@ -456,6 +458,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 		if readErr != nil {
 			lease.MarkBroken()
+			MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "upstream_ws_outcome_unknown")
 			closeStatus, closeReason := summarizeOpenAIWSReadCloseError(readErr)
 			logOpenAIWSModeInfo(
 				"read_fail account_id=%d conn_id=%s wrote_downstream=%v close_status=%s close_reason=%s cause=%s events=%d token_events=%d terminal_events=%d buffered_pending=%d buffered_flushed=%d first_event=%s last_event=%s",
@@ -473,14 +476,8 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 				truncateOpenAIWSLogValue(firstEventType, openAIWSLogValueMaxLen),
 				truncateOpenAIWSLogValue(lastEventType, openAIWSLogValueMaxLen),
 			)
-			if !wroteDownstream {
-				return nil, wrapOpenAIWSFallback(classifyOpenAIWSReadFallbackReason(readErr), readErr)
-			}
-			if clientDisconnected {
-				break
-			}
 			setOpsUpstreamError(c, 0, sanitizeUpstreamErrorMessage(readErr.Error()), "")
-			return nil, fmt.Errorf("openai ws read event: %w", readErr)
+			return nil, fmt.Errorf("openai ws read event outcome unknown: %w", readErr)
 		}
 
 		eventType, eventResponseID, responseField := parseOpenAIWSEventEnvelope(message)
@@ -660,6 +657,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 
 	if !reqStream {
 		if len(finalResponse) == 0 {
+			MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "upstream_ws_outcome_unknown")
 			logOpenAIWSModeInfo(
 				"missing_final_response account_id=%d conn_id=%s events=%d token_events=%d terminal_events=%d wrote_downstream=%v",
 				account.ID,
@@ -669,10 +667,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 				terminalEventCount,
 				wroteDownstream,
 			)
-			if !wroteDownstream {
-				return nil, wrapOpenAIWSFallback("missing_final_response", errors.New("no terminal response payload"))
-			}
-			return nil, errors.New("ws finished without final response")
+			return nil, errors.New("ws finished without a complete final response")
 		}
 
 		if needModelReplace {

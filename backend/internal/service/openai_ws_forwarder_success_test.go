@@ -1588,6 +1588,7 @@ type openAIWSCaptureConn struct {
 	mu         sync.Mutex
 	readDelays []time.Duration
 	events     [][]byte
+	writeErr   error
 	lastWrite  map[string]any
 	writes     []map[string]any
 	closed     bool
@@ -1599,6 +1600,9 @@ func (c *openAIWSCaptureConn) WriteJSON(ctx context.Context, value any) error {
 	defer c.mu.Unlock()
 	if c.closed {
 		return errOpenAIWSConnClosed
+	}
+	if c.writeErr != nil {
+		return c.writeErr
 	}
 	switch payload := value.(type) {
 	case map[string]any:

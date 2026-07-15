@@ -1073,6 +1073,20 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 
 func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string) ([]Account, error) {
 	platform = normalizeOpenAICompatiblePlatform(platform)
+	// Simple mode intentionally exposes the global account pool to ordinary
+	// requests. Enterprise-member requests are different: ActiveGroup is an
+	// authorization decision, so it must remain group-scoped in every run mode
+	// and must not be widened by either simple mode or a global snapshot bucket.
+	if active, ok := ActiveGroupFromContext(ctx); ok && active.MemberID > 0 {
+		if groupID == nil || *groupID != active.GroupID {
+			return nil, fmt.Errorf("enterprise member active group mismatch: authorized=%d requested=%d", active.GroupID, derefGroupID(groupID))
+		}
+		accounts, err := s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, active.GroupID, platform)
+		if err != nil {
+			return nil, fmt.Errorf("query enterprise member group accounts failed: %w", err)
+		}
+		return accounts, nil
+	}
 	if s.schedulerSnapshot != nil {
 		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, false)
 		return accounts, err

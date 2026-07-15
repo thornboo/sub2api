@@ -3,7 +3,9 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -16,7 +18,18 @@ type usageBillingRepository struct {
 	db *sql.DB
 }
 
+const enterpriseMemberSettlementPayloadVersion = 1
+
+type enterpriseMemberSettlementPayload struct {
+	Version int                          `json:"version"`
+	Command *service.UsageBillingCommand `json:"command"`
+}
+
 func NewUsageBillingRepository(_ *dbent.Client, sqlDB *sql.DB) service.UsageBillingRepository {
+	return &usageBillingRepository{db: sqlDB}
+}
+
+func NewEnterpriseMemberUsageSettlementRepository(_ *dbent.Client, sqlDB *sql.DB) service.EnterpriseMemberUsageSettlementRepository {
 	return &usageBillingRepository{db: sqlDB}
 }
 
@@ -31,6 +44,14 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 	cmd.Normalize()
 	if cmd.RequestID == "" {
 		return nil, service.ErrUsageBillingRequestIDRequired
+	}
+	if cmd.MemberID != nil {
+		if err := validateEnterpriseMemberUsageBillingCommand(cmd); err != nil {
+			return nil, err
+		}
+		if err := r.stageEnterpriseMemberSettlement(ctx, cmd); err != nil {
+			return nil, err
+		}
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -48,11 +69,27 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 		return nil, err
 	}
 	if !applied {
+		if err := r.deleteEnterpriseMemberSettlement(ctx, tx, cmd); err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		tx = nil
 		return &service.UsageBillingApplyResult{Applied: false}, nil
 	}
 
 	result := &service.UsageBillingApplyResult{Applied: true}
 	if err := r.applyUsageBillingEffects(ctx, tx, cmd, result); err != nil {
+		return nil, err
+	}
+	if cmd.MemberID != nil && cmd.UsageLog != nil {
+		if _, err := createUsageLogSingle(ctx, tx, cmd.UsageLog); err != nil {
+			return nil, err
+		}
+		result.UsageLogPersisted = true
+	}
+	if err := r.deleteEnterpriseMemberSettlement(ctx, tx, cmd); err != nil {
 		return nil, err
 	}
 
@@ -61,6 +98,176 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 	}
 	tx = nil
 	return result, nil
+}
+
+func validateEnterpriseMemberUsageBillingCommand(cmd *service.UsageBillingCommand) error {
+	if cmd == nil || cmd.MemberID == nil || cmd.UsageLog == nil || strings.TrimSpace(cmd.MemberBudgetRequestID) == "" {
+		return service.ErrEnterpriseMemberUsagePersistenceUnavailable
+	}
+	usage := cmd.UsageLog
+	if usage.MemberID == nil ||
+		*usage.MemberID != *cmd.MemberID ||
+		usage.UserID != cmd.UserID ||
+		usage.APIKeyID != cmd.APIKeyID ||
+		strings.TrimSpace(usage.RequestID) != cmd.RequestID ||
+		strings.TrimSpace(cmd.MemberBudgetRequestID) != service.EnterpriseMemberBudgetRequestID(cmd.APIKeyID, cmd.RequestID) {
+		return service.ErrUsageBillingRequestConflict
+	}
+	return nil
+}
+
+func (r *usageBillingRepository) stageEnterpriseMemberSettlement(ctx context.Context, cmd *service.UsageBillingCommand) error {
+	if r == nil || r.db == nil || cmd == nil || cmd.MemberID == nil {
+		return service.ErrEnterpriseMemberUsagePersistenceUnavailable
+	}
+	payload, err := json.Marshal(enterpriseMemberSettlementPayload{Version: enterpriseMemberSettlementPayloadVersion, Command: cmd})
+	if err != nil {
+		return fmt.Errorf("marshal enterprise member settlement command: %w", err)
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin enterprise member settlement staging: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Serialize creation of the durable settlement intent with every path that
+	// may release the same budget receipt. Without this row lock, an operator
+	// could observe an empty outbox, release the hold, and race a successful
+	// request that stages its settlement immediately afterwards.
+	var receiptMemberID int64
+	var receiptStatus string
+	err = tx.QueryRowContext(ctx, `
+		SELECT member_id, status
+		FROM enterprise_member_budget_reservations
+		WHERE request_id = $1
+		FOR UPDATE`, cmd.MemberBudgetRequestID).Scan(&receiptMemberID, &receiptStatus)
+	if err == nil {
+		if receiptMemberID != *cmd.MemberID {
+			return service.ErrEnterpriseMemberBudgetConflict
+		}
+		switch receiptStatus {
+		case "reserved", "ambiguous", "settled":
+			// Open receipts may be settled; a settled receipt may be replayed
+			// idempotently and will be cleaned up by the billing dedup record.
+		default:
+			return service.ErrEnterpriseMemberBudgetConflict
+		}
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("lock enterprise member budget receipt for settlement staging: %w", err)
+	}
+
+	var id int64
+	err = tx.QueryRowContext(ctx, `
+			INSERT INTO enterprise_member_usage_settlement_outbox
+			(api_key_id, member_id, enterprise_user_id, request_id, member_budget_request_id, request_fingerprint, command_payload)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (api_key_id, request_id) DO UPDATE
+			SET command_payload = enterprise_member_usage_settlement_outbox.command_payload
+			WHERE enterprise_member_usage_settlement_outbox.member_id = EXCLUDED.member_id
+			  AND enterprise_member_usage_settlement_outbox.enterprise_user_id = EXCLUDED.enterprise_user_id
+			  AND enterprise_member_usage_settlement_outbox.member_budget_request_id = EXCLUDED.member_budget_request_id
+			  AND enterprise_member_usage_settlement_outbox.request_fingerprint = EXCLUDED.request_fingerprint
+			  AND enterprise_member_usage_settlement_outbox.command_payload = EXCLUDED.command_payload
+		RETURNING id`,
+		cmd.APIKeyID, *cmd.MemberID, cmd.UserID, cmd.RequestID, cmd.MemberBudgetRequestID, cmd.RequestFingerprint, payload,
+	).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return service.ErrUsageBillingRequestConflict
+	}
+	if err != nil {
+		return fmt.Errorf("stage enterprise member settlement: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit enterprise member settlement staging: %w", err)
+	}
+	return nil
+}
+
+func (r *usageBillingRepository) deleteEnterpriseMemberSettlement(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) error {
+	if cmd == nil || cmd.MemberID == nil {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `
+		DELETE FROM enterprise_member_usage_settlement_outbox
+		WHERE api_key_id = $1 AND request_id = $2 AND request_fingerprint = $3`,
+		cmd.APIKeyID, cmd.RequestID, cmd.RequestFingerprint,
+	)
+	return err
+}
+
+func (r *usageBillingRepository) ReplayPendingEnterpriseMemberSettlements(ctx context.Context, limit int) (int, error) {
+	if r == nil || r.db == nil {
+		return 0, errors.New("usage billing repository db is nil")
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, command_payload
+		FROM enterprise_member_usage_settlement_outbox
+		WHERE next_attempt_at <= NOW()
+		ORDER BY next_attempt_at, id
+		LIMIT $1`, limit)
+	if err != nil {
+		return 0, err
+	}
+	type pendingSettlement struct {
+		id      int64
+		payload []byte
+	}
+	pending := make([]pendingSettlement, 0, limit)
+	for rows.Next() {
+		var item pendingSettlement
+		if err := rows.Scan(&item.id, &item.payload); err != nil {
+			_ = rows.Close()
+			return 0, err
+		}
+		pending = append(pending, item)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+
+	replayed := 0
+	for _, item := range pending {
+		var payload enterpriseMemberSettlementPayload
+		if err := json.Unmarshal(item.payload, &payload); err != nil || payload.Version != enterpriseMemberSettlementPayloadVersion || payload.Command == nil {
+			replayErr := err
+			if replayErr == nil {
+				replayErr = errors.New("unsupported enterprise member settlement payload")
+			}
+			if updateErr := r.recordEnterpriseMemberSettlementReplayFailure(ctx, item.id, replayErr); updateErr != nil {
+				return replayed, updateErr
+			}
+			continue
+		}
+		if _, err := r.Apply(ctx, payload.Command); err != nil {
+			if updateErr := r.recordEnterpriseMemberSettlementReplayFailure(ctx, item.id, err); updateErr != nil {
+				return replayed, updateErr
+			}
+			continue
+		}
+		replayed++
+	}
+	return replayed, nil
+}
+
+func (r *usageBillingRepository) recordEnterpriseMemberSettlementReplayFailure(ctx context.Context, id int64, replayErr error) error {
+	message := "unknown settlement replay error"
+	if replayErr != nil {
+		message = strings.TrimSpace(replayErr.Error())
+	}
+	if len(message) > 2000 {
+		message = message[:2000]
+	}
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE enterprise_member_usage_settlement_outbox
+		SET attempt_count = attempt_count + 1,
+		    last_error = $1,
+		    next_attempt_at = NOW() + INTERVAL '1 minute',
+		    updated_at = NOW()
+		WHERE id = $2`, message, id)
+	return err
 }
 
 func (r *usageBillingRepository) claimUsageBillingKey(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) (bool, error) {
@@ -136,6 +343,12 @@ func (r *usageBillingRepository) CaptureBatchImageBalance(ctx context.Context, c
 				return nil, err
 			}
 		}
+		if cmd.UsageLog != nil {
+			if _, err := createUsageLogSingle(ctx, tx, cmd.UsageLog); err != nil {
+				return nil, err
+			}
+			result.UsageLogPersisted = true
+		}
 		return result, nil
 	})
 }
@@ -154,21 +367,26 @@ func (r *usageBillingRepository) ReleaseBatchImageBalance(ctx context.Context, c
 }
 
 func reserveBatchImageEnterpriseMemberBudget(ctx context.Context, tx *sql.Tx, cmd *service.BatchImageBalanceHoldCommand) error {
-	if cmd == nil || cmd.MemberID == nil || *cmd.MemberID <= 0 || strings.TrimSpace(cmd.MemberBudgetRequestID) == "" || cmd.HoldAmount <= 0 {
+	if cmd == nil || cmd.MemberID == nil || *cmd.MemberID <= 0 || strings.TrimSpace(cmd.MemberBudgetRequestID) == "" {
 		return nil
 	}
 	periodStart, enforced, err := reserveEnterpriseMemberSpendingLimits(ctx, tx, *cmd.MemberID, cmd.HoldAmount, time.Now())
 	if err != nil {
 		return err
 	}
+	reservedAmount := cmd.HoldAmount
 	if !enforced {
-		return nil
+		reservedAmount = 0
 	}
 	expiresAt := cmd.MemberBudgetExpiresAt
 	if expiresAt.IsZero() {
 		expiresAt = time.Now().Add(30 * 24 * time.Hour)
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO enterprise_member_budget_reservations (request_id, member_id, period_start, reserved_usd, expires_at) VALUES ($1, $2, $3, $4, $5)`, cmd.MemberBudgetRequestID, *cmd.MemberID, periodStart, cmd.HoldAmount, expiresAt)
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO enterprise_member_budget_reservations
+			(request_id, member_id, group_id, request_payload_hash, period_start, reserved_usd, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		cmd.MemberBudgetRequestID, *cmd.MemberID, cmd.GroupID, strings.TrimSpace(cmd.RequestPayloadHash), periodStart, reservedAmount, expiresAt)
 	if err != nil {
 		if isUniqueConstraintViolation(err) {
 			return service.ErrEnterpriseMemberBudgetConflict
@@ -188,16 +406,19 @@ func releaseBatchImageEnterpriseMemberBudget(ctx context.Context, tx *sql.Tx, re
 	var amount float64
 	var status string
 	err := tx.QueryRowContext(ctx, `SELECT member_id, period_start, reserved_usd, status FROM enterprise_member_budget_reservations WHERE request_id = $1 FOR UPDATE`, requestID).Scan(&memberID, &periodStart, &amount, &status)
-	if errors.Is(err, sql.ErrNoRows) || status != "reserved" {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
+	if status != "reserved" {
+		return nil
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE enterprise_member_budget_periods SET reserved_usd = GREATEST(0, reserved_usd - $1), version = version + 1, updated_at = NOW() WHERE member_id = $2 AND period_start = $3`, amount, memberID, periodStart); err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE enterprise_member_budget_reservations SET status = 'released', updated_at = NOW() WHERE request_id = $1`, requestID)
+	_, err = tx.ExecContext(ctx, `UPDATE enterprise_member_budget_reservations SET status = 'released', outcome_reason = 'batch_released', updated_at = NOW() WHERE request_id = $1`, requestID)
 	return err
 }
 
@@ -309,9 +530,10 @@ func settleEnterpriseMemberBudget(ctx context.Context, tx *sql.Tx, cmd *service.
 		WHERE request_id = $1
 		FOR UPDATE`, cmd.MemberBudgetRequestID).Scan(&memberID, &periodStart, &reservedUSD, &status)
 	if errors.Is(err, sql.ErrNoRows) {
-		if cmd.MemberBudgetCost <= 0 {
-			return nil
-		}
+		// Unlimited members do not reserve budget, but every completed request —
+		// including a zero-cost request — still needs a zero-amount ledger row so
+		// request/token facts inherit the authoritative budget period. A member
+		// with any positive limit must have reserved first and fails closed here.
 		return settleUnlimitedEnterpriseMemberBudget(ctx, tx, cmd)
 	}
 	if err != nil {
@@ -323,10 +545,22 @@ func settleEnterpriseMemberBudget(ctx context.Context, tx *sql.Tx, cmd *service.
 	if status == "settled" {
 		return nil
 	}
-	reservedDelta := 0.0
-	if status == "reserved" {
-		reservedDelta = reservedUSD
+	holdsReservation := status == "reserved" || status == "ambiguous"
+	if !holdsReservation {
+		return service.ErrEnterpriseMemberBudgetConflict
 	}
+	reservationWasLimited := reservedUSD > 1e-8
+	if reservationWasLimited && cmd.MemberBudgetCost > reservedUSD+1e-8 {
+		service.RecordEnterpriseMemberBudgetSettlementOverrun()
+		logger.LegacyPrintf(
+			"repository.usage_billing",
+			"enterprise member settlement exceeded reservation: member=%d reserved=%.8f actual=%.8f",
+			memberID,
+			reservedUSD,
+			cmd.MemberBudgetCost,
+		)
+	}
+	reservedDelta := reservedUSD
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE enterprise_member_budget_periods
 		SET used_usd = used_usd + $1,
@@ -336,12 +570,17 @@ func settleEnterpriseMemberBudget(ctx context.Context, tx *sql.Tx, cmd *service.
 		WHERE member_id = $3 AND period_start = $4`, cmd.MemberBudgetCost, reservedDelta, memberID, periodStart); err != nil {
 		return err
 	}
+	if !reservationWasLimited {
+		if err := ensureEnterpriseMemberRateLimitPeriod(ctx, tx, memberID); err != nil {
+			return err
+		}
+	}
 	if err := incrementEnterpriseMemberRateLimitUsage(ctx, tx, memberID, cmd.MemberBudgetCost); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE enterprise_member_budget_reservations
-		SET actual_usd = $1, status = 'settled', updated_at = NOW()
+		SET actual_usd = $1, status = 'settled', outcome_reason = 'settled', updated_at = NOW()
 		WHERE request_id = $2`, cmd.MemberBudgetCost, cmd.MemberBudgetRequestID); err != nil {
 		return err
 	}
@@ -492,15 +731,10 @@ func captureUsageBillingBatchImageBalance(ctx context.Context, tx *sql.Tx, cmd *
 	if cmd.HoldAmount <= 0 && cmd.ActualAmount <= 0 {
 		return &service.BatchImageBalanceHoldResult{}, nil
 	}
-	if cmd.ActualAmount-cmd.HoldAmount > 0.00000001 {
-		return nil, service.ErrBatchImageSettlementCostExceedsHold
-	}
 	var balance, frozen float64
 	err := tx.QueryRowContext(ctx, `
 		UPDATE users
-		SET balance = balance
-				+ CASE WHEN $1 > $2 THEN $1 - $2 ELSE 0 END
-				- CASE WHEN $2 > $1 THEN $2 - $1 ELSE 0 END,
+		SET balance = balance + $1 - $2,
 			frozen_balance = COALESCE(frozen_balance, 0) - $1,
 			updated_at = NOW()
 		WHERE id = $3 AND deleted_at IS NULL AND COALESCE(frozen_balance, 0) >= $1

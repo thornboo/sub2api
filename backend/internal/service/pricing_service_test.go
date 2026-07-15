@@ -601,3 +601,18 @@ func TestListModelNamesByProvider_EmptyCatalog(t *testing.T) {
 	require.NotNil(t, got)
 	require.Empty(t, got)
 }
+
+func TestPricingServicePreservesMaxOutputTokens(t *testing.T) {
+	svc := &PricingService{}
+	data, err := svc.parsePricingData([]byte(`{
+		"bounded-model": {
+			"max_input_tokens": 200000,
+			"max_output_tokens": 64000,
+			"input_cost_per_token": 0.000001,
+			"output_cost_per_token": 0.000002
+		}
+	}`))
+	require.NoError(t, err)
+	require.Equal(t, 200000, data["bounded-model"].MaxInputTokens)
+	require.Equal(t, 64000, data["bounded-model"].MaxOutputTokens)
+}

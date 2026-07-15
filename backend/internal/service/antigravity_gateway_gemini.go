@@ -200,9 +200,14 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 					fallbackReq, err := antigravity.NewAPIRequest(ctx, upstreamAction, accessToken, fallbackWrapped)
 					if err == nil {
 						fallbackResp, err := s.httpUpstream.Do(fallbackReq, proxyURL, account.ID, account.Concurrency)
-						if err == nil && fallbackResp.StatusCode < 400 {
+						if err == nil && fallbackResp != nil && fallbackResp.StatusCode < 400 {
 							_ = resp.Body.Close()
 							resp = fallbackResp
+						} else if err != nil && !handleUpstreamTransportFailure(c, err) {
+							if fallbackResp != nil && fallbackResp.Body != nil {
+								_ = fallbackResp.Body.Close()
+							}
+							return nil, s.writeGoogleError(c, http.StatusBadGateway, "Fallback request outcome is unknown")
 						} else if fallbackResp != nil {
 							_ = fallbackResp.Body.Close()
 						}

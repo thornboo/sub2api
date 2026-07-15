@@ -82,10 +82,6 @@ func lockEnterpriseMemberSpendingLimitState(ctx context.Context, tx *sql.Tx, mem
 	if deletedAt != nil || status != service.EnterpriseMemberStatusActive {
 		return nil, service.ErrEnterpriseMemberNotFound
 	}
-	if state.monthlyLimit <= 0 && state.limit5h <= 0 && state.limit1d <= 0 && state.limit7d <= 0 {
-		return state, nil
-	}
-
 	location, err := time.LoadLocation(enterpriseBudgetTimezone())
 	if err != nil {
 		return nil, err
@@ -102,6 +98,9 @@ func lockEnterpriseMemberSpendingLimitState(ctx context.Context, tx *sql.Tx, mem
 		WHERE member_id = $1 AND period_start = $2 FOR UPDATE`, memberID, state.periodStart).
 		Scan(&state.monthlyUsed, &state.reserved); err != nil {
 		return nil, err
+	}
+	if state.monthlyLimit <= 0 && state.limit5h <= 0 && state.limit1d <= 0 && state.limit7d <= 0 {
+		return state, nil
 	}
 
 	if _, err := tx.ExecContext(ctx, `
@@ -163,4 +162,11 @@ func incrementEnterpriseMemberRateLimitUsage(ctx context.Context, tx *sql.Tx, me
 		return errors.New("enterprise member rate limit period is missing")
 	}
 	return nil
+}
+
+func ensureEnterpriseMemberRateLimitPeriod(ctx context.Context, tx *sql.Tx, memberID int64) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO enterprise_member_rate_limit_periods (member_id)
+		VALUES ($1) ON CONFLICT (member_id) DO NOTHING`, memberID)
+	return err
 }

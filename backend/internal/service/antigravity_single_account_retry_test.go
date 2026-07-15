@@ -7,11 +7,13 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -628,8 +630,13 @@ func TestHandleSingleAccountRetryInPlace_ContextCanceled(t *testing.T) {
 	require.Len(t, upstream.calls, 0, "should not call upstream when context is canceled")
 }
 
-// TestHandleSingleAccountRetryInPlace_NetworkError_ContinuesRetry 网络错误时继续重试
-func TestHandleSingleAccountRetryInPlace_NetworkError_ContinuesRetry(t *testing.T) {
+// TestHandleSingleAccountRetryInPlace_UnknownTransportOutcomeStopsReplay 上游返回结果不明时禁止重放。
+func TestHandleSingleAccountRetryInPlace_UnknownTransportOutcomeStopsReplay(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
 	successResp := &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     http.Header{},
@@ -656,6 +663,7 @@ func TestHandleSingleAccountRetryInPlace_NetworkError_ContinuesRetry(t *testing.
 
 	params := antigravityRetryLoopParams{
 		ctx:          ctxWithSingleAccountRetry(),
+		c:            c,
 		prefix:       "[test]",
 		account:      account,
 		accessToken:  "token",
@@ -669,9 +677,10 @@ func TestHandleSingleAccountRetryInPlace_NetworkError_ContinuesRetry(t *testing.
 
 	require.NotNil(t, result)
 	require.Equal(t, smartRetryActionBreakWithResp, result.action)
-	require.NotNil(t, result.resp, "should return successful response after network error recovery")
-	require.Equal(t, http.StatusOK, result.resp.StatusCode)
-	require.Len(t, upstream.calls, 2, "first call fails (network error), second succeeds")
+	require.Nil(t, result.resp)
+	require.ErrorContains(t, result.err, "upstream returned nil response")
+	require.Len(t, upstream.calls, 1, "已尝试调用上游且结果不明时不得重放")
+	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
 }
 
 // ---------------------------------------------------------------------------

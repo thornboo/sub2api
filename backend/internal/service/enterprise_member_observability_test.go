@@ -22,6 +22,8 @@ func TestEnterpriseMemberMetricsSnapshotUsesBoundedReasonsAndLifecycleCounters(t
 	RecordEnterpriseMemberBudgetReservation(nil)
 	RecordEnterpriseMemberBudgetReservation(ErrEnterpriseMemberBudgetExceeded)
 	RecordEnterpriseMemberBudgetSettlement()
+	RecordEnterpriseMemberBudgetSettlementOverrun()
+	RecordEnterpriseMemberBudgetAmbiguous()
 	RecordEnterpriseMemberBudgetRelease(nil)
 	RecordEnterpriseMemberBudgetRecovery(2, nil)
 	RecordEnterpriseMemberBudgetReconciliation(EnterpriseMemberBudgetReconciliationResult{
@@ -44,6 +46,9 @@ func TestEnterpriseMemberMetricsSnapshotUsesBoundedReasonsAndLifecycleCounters(t
 	require.Equal(t, uint64(1), snapshot.RoutingCrossGroupAttemptTotal)
 	require.Equal(t, uint64(1), snapshot.BudgetReservationCreatedTotal)
 	require.Equal(t, uint64(1), snapshot.BudgetReservationDeniedTotal)
+	require.Equal(t, uint64(1), snapshot.BudgetSettlementTotal)
+	require.Equal(t, uint64(1), snapshot.BudgetSettlementOverrunTotal)
+	require.Equal(t, uint64(1), snapshot.BudgetAmbiguousTotal)
 	require.Equal(t, uint64(2), snapshot.BudgetExpiredRecoveredTotal)
 	require.Equal(t, uint64(4), snapshot.BudgetReconcilePeriodsChecked)
 	require.Equal(t, uint64(2), snapshot.ImportPreviewInvalidRowsTotal)

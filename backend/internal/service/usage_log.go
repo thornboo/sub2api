@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strings"
@@ -189,11 +190,14 @@ type UsageLog struct {
 
 	CreatedAt time.Time
 
-	User         *User
-	APIKey       *APIKey
-	Account      *Account
-	Group        *Group
-	Subscription *UserSubscription
+	// Repository relationship objects are read-side hydration only. Never put
+	// them into durable settlement payloads: APIKey can contain plaintext secret
+	// material and the graphs are not part of the immutable usage fact.
+	User         *User             `json:"-"`
+	APIKey       *APIKey           `json:"-"`
+	Account      *Account          `json:"-"`
+	Group        *Group            `json:"-"`
+	Subscription *UserSubscription `json:"-"`
 }
 
 // applyAPIKeyUsageAttribution copies the immutable enterprise-member identity
@@ -211,6 +215,21 @@ func applyAPIKeyUsageAttribution(log *UsageLog, apiKey *APIKey) {
 	}
 	log.MemberCodeSnapshot = optionalTrimmedStringPtr(apiKey.Member.MemberCode)
 	log.MemberNameSnapshot = optionalTrimmedStringPtr(apiKey.Member.Name)
+}
+
+// usageGroupID returns the immutable request-level group selected for an
+// enterprise member. Ordinary keys retain their configured fixed group.
+func usageGroupID(ctx context.Context, apiKey *APIKey) *int64 {
+	if apiKey == nil {
+		return nil
+	}
+	if apiKey.MemberID != nil {
+		if active, ok := ActiveGroupFromContext(ctx); ok && active.MemberID == *apiKey.MemberID && active.GroupID > 0 {
+			groupID := active.GroupID
+			return &groupID
+		}
+	}
+	return apiKey.GroupID
 }
 
 type UsageScheduleMeta struct {

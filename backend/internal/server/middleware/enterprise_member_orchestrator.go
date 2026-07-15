@@ -41,7 +41,8 @@ func OrchestrateEnterpriseMemberGroups(next gin.HandlerFunc) gin.HandlerFunc {
 			c.Writer = tx
 			next(c)
 
-			if tx.committed || !service.IsOpsGroupFailoverEligible(c) || plan.current+1 >= len(plan.candidates) {
+			_, retryable := service.OpsGroupRetryReasonFromContext(c)
+			if tx.committed || !retryable || plan.current+1 >= len(plan.candidates) {
 				tx.commitBuffered()
 				c.Writer = originalWriter
 				return

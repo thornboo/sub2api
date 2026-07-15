@@ -746,7 +746,7 @@ func (s *EnterpriseMemberService) UpdateKey(ctx context.Context, ownerID, member
 	if !found {
 		return nil, ErrAPIKeyNotFound
 	}
-	return s.apiKeyService.Update(ctx, keyID, ownerID, input)
+	return s.apiKeyService.UpdateEnterpriseMemberKey(ctx, keyID, ownerID, memberID, input)
 }
 
 func (s *EnterpriseMemberService) DeleteKey(ctx context.Context, ownerID, memberID, keyID int64) error {
@@ -770,7 +770,7 @@ func (s *EnterpriseMemberService) DeleteKey(ctx context.Context, ownerID, member
 	if !found {
 		return ErrAPIKeyNotFound
 	}
-	return s.apiKeyService.Delete(ctx, ownerID, keyID)
+	return s.apiKeyService.DeleteEnterpriseMemberKey(ctx, keyID, ownerID, memberID)
 }
 
 func (s *EnterpriseMemberService) requireEnterpriseOwner(ctx context.Context, ownerID int64) (*User, error) {

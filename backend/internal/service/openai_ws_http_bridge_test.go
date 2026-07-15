@@ -41,6 +41,32 @@ func TestPrepareOpenAIWSHTTPBridgeBodyStripsWSFields(t *testing.T) {
 	require.Equal(t, "hi", gjson.GetBytes(body, "input").String())
 }
 
+func TestOpenAIWSHTTPBridgeUnknownTransportMarksMemberBudgetAmbiguous(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	svc := &OpenAIGatewayService{
+		cfg:          &config.Config{},
+		httpUpstream: &httpUpstreamRecorder{err: errors.New("connection reset by peer")},
+	}
+	account := &Account{ID: 45, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1}
+	writes := 0
+
+	result, err := svc.proxyOpenAIWSHTTPBridgeTurn(
+		context.Background(), c, account, "sk-test",
+		[]byte(`{"type":"response.create","model":"gpt-5","input":"hello"}`),
+		64, "gpt-5", "", "", "", "", 1,
+		func([]byte) error { writes++; return nil },
+	)
+
+	require.Nil(t, result)
+	require.Error(t, err)
+	require.Equal(t, 1, writes)
+	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+	require.Equal(t, "upstream_transport_outcome_unknown", EnterpriseMemberBudgetOutcomeAmbiguousReason(c))
+}
+
 func TestOpenAIWSHTTPBridgeDecisionKeepsSmallFramesOnWS(t *testing.T) {
 	svc := &OpenAIGatewayService{
 		cfg: &config.Config{

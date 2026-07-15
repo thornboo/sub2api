@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"net/http"
 	"strings"
 	"time"
 
@@ -43,6 +44,11 @@ const (
 	// ResponseCommittedKey 由 handleErrorResponse 系列函数在写完 HTTP 错误响应后设置。
 	// ensureForwardErrorResponse 检查此 key，为 true 时跳过兜底写入，避免在已完成的 JSON 后追加 SSE。
 	ResponseCommittedKey = "response_committed"
+	// EnterpriseMemberBudgetOutcomeAmbiguousKey marks an upstream side effect
+	// whose local durable task/usage fact could not be committed. Budget
+	// middleware preserves the receipt instead of releasing it on the 5xx.
+	EnterpriseMemberBudgetOutcomeAmbiguousKey = "enterprise_member_budget_outcome_ambiguous"
+	EnterpriseMemberBudgetOutcomeReasonKey    = "enterprise_member_budget_outcome_ambiguous_reason"
 
 	OpsClientBusinessLimitedKey                          = "ops_client_business_limited"
 	OpsClientBusinessLimitedReasonKey                    = "ops_client_business_limited_reason"
@@ -52,10 +58,18 @@ const (
 	OpsClientBusinessLimitedReasonLocalFeatureGate       = "local_feature_gate"
 	OpsClientBusinessLimitedReasonLocalPolicyDenied      = "local_policy_denied"
 
-	// OpsGroupFailoverEligibleKey marks a terminal group-local routing failure
-	// that may be retried against the next ordered enterprise-member group, but
-	// only while the HTTP response is still uncommitted.
-	OpsGroupFailoverEligibleKey = "ops_group_failover_eligible"
+	// OpsGroupRetryReasonKey records a typed terminal group-local routing
+	// failure. Only the closed reason set below may authorize replay against the
+	// next ordered enterprise-member group.
+	OpsGroupRetryReasonKey = "ops_group_retry_reason"
+)
+
+type OpsGroupRetryReason string
+
+const (
+	OpsGroupRetryReasonCapacityExhausted  OpsGroupRetryReason = "capacity_exhausted"
+	OpsGroupRetryReasonTransientUpstream  OpsGroupRetryReason = "transient_upstream"
+	OpsGroupRetryReasonCapabilityMismatch OpsGroupRetryReason = "capability_mismatch"
 )
 
 func MarkResponseCommitted(c *gin.Context) { c.Set(ResponseCommittedKey, true) }
@@ -69,22 +83,96 @@ func IsResponseCommitted(c *gin.Context) bool {
 	return b
 }
 
-func MarkOpsGroupFailoverEligible(c *gin.Context) {
+func MarkEnterpriseMemberBudgetOutcomeAmbiguous(c *gin.Context) {
+	MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "upstream_outcome_unknown")
+}
+
+func MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c *gin.Context, reason string) {
 	if c != nil {
-		c.Set(OpsGroupFailoverEligibleKey, true)
+		c.Set(EnterpriseMemberBudgetOutcomeAmbiguousKey, true)
+		if reason = strings.TrimSpace(reason); reason != "" {
+			c.Set(EnterpriseMemberBudgetOutcomeReasonKey, reason)
+		}
 	}
 }
 
-func IsOpsGroupFailoverEligible(c *gin.Context) bool {
+func IsEnterpriseMemberBudgetOutcomeAmbiguous(c *gin.Context) bool {
 	if c == nil {
 		return false
 	}
-	v, ok := c.Get(OpsGroupFailoverEligibleKey)
-	if !ok {
+	value, exists := c.Get(EnterpriseMemberBudgetOutcomeAmbiguousKey)
+	marked, ok := value.(bool)
+	return exists && ok && marked
+}
+
+func EnterpriseMemberBudgetOutcomeAmbiguousReason(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	value, _ := c.Get(EnterpriseMemberBudgetOutcomeReasonKey)
+	reason, _ := value.(string)
+	return strings.TrimSpace(reason)
+}
+
+// ConsumeEnterpriseMemberBudgetOutcomeAmbiguous returns and clears the current
+// accounting outcome marker. HTTP requests are finalized once by middleware;
+// long-lived WebSocket requests use this at each turn boundary so one failed
+// turn cannot leak its state into the next turn.
+func ConsumeEnterpriseMemberBudgetOutcomeAmbiguous(c *gin.Context) (bool, string) {
+	if c == nil || !IsEnterpriseMemberBudgetOutcomeAmbiguous(c) {
+		return false, ""
+	}
+	reason := EnterpriseMemberBudgetOutcomeAmbiguousReason(c)
+	c.Set(EnterpriseMemberBudgetOutcomeAmbiguousKey, false)
+	c.Set(EnterpriseMemberBudgetOutcomeReasonKey, "")
+	return true, reason
+}
+
+func MarkOpsGroupRetry(c *gin.Context, reason OpsGroupRetryReason) {
+	if c == nil || !reason.Valid() {
+		return
+	}
+	c.Set(OpsGroupRetryReasonKey, reason)
+}
+
+func (r OpsGroupRetryReason) Valid() bool {
+	switch r {
+	case OpsGroupRetryReasonCapacityExhausted, OpsGroupRetryReasonTransientUpstream, OpsGroupRetryReasonCapabilityMismatch:
+		return true
+	default:
 		return false
 	}
-	marked, _ := v.(bool)
-	return marked
+}
+
+func OpsGroupRetryReasonFromContext(c *gin.Context) (OpsGroupRetryReason, bool) {
+	if c == nil {
+		return "", false
+	}
+	v, ok := c.Get(OpsGroupRetryReasonKey)
+	if !ok {
+		return "", false
+	}
+	reason, ok := v.(OpsGroupRetryReason)
+	return reason, ok && reason.Valid()
+}
+
+func OpsGroupRetryReasonForStatus(statusCode int) (OpsGroupRetryReason, bool) {
+	switch statusCode {
+	case http.StatusTooManyRequests:
+		return OpsGroupRetryReasonCapacityExhausted, true
+	default:
+		return "", false
+	}
+}
+
+func OpsGroupRetryReasonForFailoverError(failoverErr *UpstreamFailoverError) (OpsGroupRetryReason, bool) {
+	if failoverErr == nil {
+		return "", false
+	}
+	if failoverErr.IsCredentialFailure() {
+		return OpsGroupRetryReasonCapacityExhausted, true
+	}
+	return OpsGroupRetryReasonForStatus(failoverErr.StatusCode)
 }
 
 func SetOpsLatencyMs(c *gin.Context, key string, value int64) {

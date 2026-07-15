@@ -191,7 +191,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		sessionHash = service.GrokMediaVideoRequestSessionHash(requestID)
 	}
 	requestCtx := c.Request.Context()
-	if endpoint == service.GrokMediaEndpointVideosGenerations && h.grokMediaTaskRepository != nil && apiKey.GroupID != nil {
+	if service.IsGrokVideoMutationEndpoint(endpoint) && h.grokMediaTaskRepository != nil && apiKey.GroupID != nil {
 		groupID := *apiKey.GroupID
 		requestCtx = service.WithGrokMediaTaskRecorder(requestCtx, func(recordCtx context.Context, upstreamRequestID string, accountID int64) error {
 			return h.grokMediaTaskRepository.Create(recordCtx, &service.GrokMediaTask{
@@ -436,7 +436,7 @@ func recordGrokMediaUsage(
 		OriginalModel:      requestModel,
 		ChannelMappedModel: requestModel,
 	}
-	h.submitOpenAIUsageRecordTask(c.Request.Context(), result, func(ctx context.Context) {
+	h.submitOpenAIUsageRecordTask(c, c.Request.Context(), result, apiKey, func(ctx context.Context) {
 		if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 			Result:             result,
 			APIKey:             apiKey,
@@ -452,6 +452,7 @@ func recordGrokMediaUsage(
 			QuotaPlatform:      quotaPlatform,
 			ChannelUsageFields: channelUsageFields,
 		}); err != nil {
+			markEnterpriseMemberUsagePersistenceFailure(c, apiKey)
 			logger.L().With(
 				zap.String("component", "handler.openai_gateway.grok_media"),
 				zap.Int64("user_id", subject.UserID),

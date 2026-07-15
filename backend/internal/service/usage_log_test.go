@@ -1,9 +1,11 @@
 package service
 
 import (
+	"context"
 	"math"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/stretchr/testify/require"
 )
 
@@ -123,6 +125,21 @@ func TestApplyAPIKeyUsageAttributionKeepsMemberIDWithoutLoadedSnapshot(t *testin
 	require.Equal(t, memberID, *log.MemberID)
 	require.Nil(t, log.MemberCodeSnapshot)
 	require.Nil(t, log.MemberNameSnapshot)
+}
+
+func TestUsageGroupIDPrefersRequestActiveGroupForMemberKey(t *testing.T) {
+	t.Parallel()
+
+	memberID := int64(42)
+	staleGroupID := int64(10)
+	ctx := context.WithValue(context.Background(), ctxkey.ActiveGroup, &ActiveGroupContext{
+		MemberID: memberID,
+		GroupID:  11,
+	})
+
+	got := usageGroupID(ctx, &APIKey{MemberID: &memberID, GroupID: &staleGroupID})
+	require.NotNil(t, got)
+	require.Equal(t, int64(11), *got)
 }
 
 func TestUsageScheduleMetaFromOpenAIDecision(t *testing.T) {

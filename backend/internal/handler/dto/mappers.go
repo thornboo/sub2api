@@ -688,6 +688,15 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 	}
 	usageLog := usageLogFromServiceUser(l)
 	usageLog.UpstreamEndpoint = l.UpstreamEndpoint
+	// Member attribution belongs to the enterprise owner's dedicated member
+	// usage surface. The default admin usage API intentionally stays at the
+	// owning-user/API-key level and must not expose member identities.
+	usageLog.MemberID = nil
+	usageLog.MemberCode = nil
+	usageLog.MemberName = nil
+	if usageLog.APIKey != nil {
+		usageLog.APIKey.MemberID = nil
+	}
 	return &AdminUsageLog{
 		UsageLog:              usageLog,
 		AccountID:             l.AccountID,

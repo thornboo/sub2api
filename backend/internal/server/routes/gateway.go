@@ -33,8 +33,8 @@ func RegisterGatewayRoutes(
 	requireGroupGoogle := middleware.RequireGroupAssignment(settingService, middleware.GoogleErrorWriter)
 	resolveMemberGroupAnthropic := middleware.ResolveEnterpriseMemberGroup(subscriptionService, cfg, middleware.AnthropicErrorWriter)
 	resolveMemberGroupGoogle := middleware.ResolveEnterpriseMemberGroup(subscriptionService, cfg, middleware.GoogleErrorWriter)
-	enforceMemberBudgetAnthropic := middleware.EnforceEnterpriseMemberBudget(memberBudgetService, middleware.AnthropicErrorWriter)
-	enforceMemberBudgetGoogle := middleware.EnforceEnterpriseMemberBudget(memberBudgetService, middleware.GoogleErrorWriter)
+	enforceMemberBudgetAnthropic := middleware.EnforceEnterpriseMemberBudget(memberBudgetService, cfg, middleware.AnthropicErrorWriter)
+	enforceMemberBudgetGoogle := middleware.EnforceEnterpriseMemberBudget(memberBudgetService, cfg, middleware.GoogleErrorWriter)
 	orchestrateMemberGroups := middleware.OrchestrateEnterpriseMemberGroups
 
 	isOpenAIResponsesCompatibleGatewayPlatform := func(c *gin.Context) bool {

@@ -26,13 +26,13 @@ func TestEnterpriseMemberBudgetReconcileRepairsEvidenceAndProjection(t *testing.
 	mock.ExpectExec(`UPDATE enterprise_member_budget_reservations reservation`).
 		WithArgs(int64(42), "2026-07-01").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`INSERT INTO enterprise_member_budget_entries`).
+	mock.ExpectExec(`(?s)INSERT INTO enterprise_member_budget_entries.*kind, request_id, amount_usd, usage_log_id.*SELECT ul.member_id, \$2, 'usage'.*reservation.status IN \('reserved', 'ambiguous'\)`).
 		WithArgs(int64(42), "2026-07-01", enterpriseBudgetTimezone()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`SELECT COALESCE\(SUM\(amount_usd\), 0\)`).
 		WithArgs(int64(42), "2026-07-01").
 		WillReturnRows(sqlmock.NewRows([]string{"used_usd"}).AddRow(5.0))
-	mock.ExpectQuery(`SELECT COALESCE\(SUM\(reserved_usd\), 0\)`).
+	mock.ExpectQuery(`(?s)SELECT COALESCE\(SUM\(reserved_usd\), 0\).*status IN \('reserved', 'ambiguous'\)`).
 		WithArgs(int64(42), "2026-07-01").
 		WillReturnRows(sqlmock.NewRows([]string{"reserved_usd"}).AddRow(2.0))
 	mock.ExpectExec(`UPDATE enterprise_member_budget_periods`).

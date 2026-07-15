@@ -1077,22 +1077,40 @@ func init() {
 			return nil
 		}
 	}()
+	// enterprisememberbudgetreservationDescRequestPayloadHash is the schema descriptor for request_payload_hash field.
+	enterprisememberbudgetreservationDescRequestPayloadHash := enterprisememberbudgetreservationFields[3].Descriptor()
+	// enterprisememberbudgetreservation.DefaultRequestPayloadHash holds the default value on creation for the request_payload_hash field.
+	enterprisememberbudgetreservation.DefaultRequestPayloadHash = enterprisememberbudgetreservationDescRequestPayloadHash.Default.(string)
+	// enterprisememberbudgetreservation.RequestPayloadHashValidator is a validator for the "request_payload_hash" field. It is called by the builders before save.
+	enterprisememberbudgetreservation.RequestPayloadHashValidator = enterprisememberbudgetreservationDescRequestPayloadHash.Validators[0].(func(string) error)
+	// enterprisememberbudgetreservationDescOutcomeReason is the schema descriptor for outcome_reason field.
+	enterprisememberbudgetreservationDescOutcomeReason := enterprisememberbudgetreservationFields[4].Descriptor()
+	// enterprisememberbudgetreservation.DefaultOutcomeReason holds the default value on creation for the outcome_reason field.
+	enterprisememberbudgetreservation.DefaultOutcomeReason = enterprisememberbudgetreservationDescOutcomeReason.Default.(string)
+	// enterprisememberbudgetreservation.OutcomeReasonValidator is a validator for the "outcome_reason" field. It is called by the builders before save.
+	enterprisememberbudgetreservation.OutcomeReasonValidator = enterprisememberbudgetreservationDescOutcomeReason.Validators[0].(func(string) error)
+	// enterprisememberbudgetreservationDescReconcileAttempts is the schema descriptor for reconcile_attempts field.
+	enterprisememberbudgetreservationDescReconcileAttempts := enterprisememberbudgetreservationFields[5].Descriptor()
+	// enterprisememberbudgetreservation.DefaultReconcileAttempts holds the default value on creation for the reconcile_attempts field.
+	enterprisememberbudgetreservation.DefaultReconcileAttempts = enterprisememberbudgetreservationDescReconcileAttempts.Default.(int)
+	// enterprisememberbudgetreservation.ReconcileAttemptsValidator is a validator for the "reconcile_attempts" field. It is called by the builders before save.
+	enterprisememberbudgetreservation.ReconcileAttemptsValidator = enterprisememberbudgetreservationDescReconcileAttempts.Validators[0].(func(int) error)
 	// enterprisememberbudgetreservationDescActualUsd is the schema descriptor for actual_usd field.
-	enterprisememberbudgetreservationDescActualUsd := enterprisememberbudgetreservationFields[4].Descriptor()
+	enterprisememberbudgetreservationDescActualUsd := enterprisememberbudgetreservationFields[9].Descriptor()
 	// enterprisememberbudgetreservation.DefaultActualUsd holds the default value on creation for the actual_usd field.
 	enterprisememberbudgetreservation.DefaultActualUsd = enterprisememberbudgetreservationDescActualUsd.Default.(float64)
 	// enterprisememberbudgetreservationDescStatus is the schema descriptor for status field.
-	enterprisememberbudgetreservationDescStatus := enterprisememberbudgetreservationFields[5].Descriptor()
+	enterprisememberbudgetreservationDescStatus := enterprisememberbudgetreservationFields[10].Descriptor()
 	// enterprisememberbudgetreservation.DefaultStatus holds the default value on creation for the status field.
 	enterprisememberbudgetreservation.DefaultStatus = enterprisememberbudgetreservationDescStatus.Default.(string)
 	// enterprisememberbudgetreservation.StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	enterprisememberbudgetreservation.StatusValidator = enterprisememberbudgetreservationDescStatus.Validators[0].(func(string) error)
 	// enterprisememberbudgetreservationDescCreatedAt is the schema descriptor for created_at field.
-	enterprisememberbudgetreservationDescCreatedAt := enterprisememberbudgetreservationFields[8].Descriptor()
+	enterprisememberbudgetreservationDescCreatedAt := enterprisememberbudgetreservationFields[13].Descriptor()
 	// enterprisememberbudgetreservation.DefaultCreatedAt holds the default value on creation for the created_at field.
 	enterprisememberbudgetreservation.DefaultCreatedAt = enterprisememberbudgetreservationDescCreatedAt.Default.(func() time.Time)
 	// enterprisememberbudgetreservationDescUpdatedAt is the schema descriptor for updated_at field.
-	enterprisememberbudgetreservationDescUpdatedAt := enterprisememberbudgetreservationFields[9].Descriptor()
+	enterprisememberbudgetreservationDescUpdatedAt := enterprisememberbudgetreservationFields[14].Descriptor()
 	// enterprisememberbudgetreservation.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	enterprisememberbudgetreservation.DefaultUpdatedAt = enterprisememberbudgetreservationDescUpdatedAt.Default.(func() time.Time)
 	// enterprisememberbudgetreservation.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.

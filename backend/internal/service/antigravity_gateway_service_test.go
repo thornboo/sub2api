@@ -181,6 +181,34 @@ func (s *queuedHTTPUpstreamStub) Do(req *http.Request, _ string, _ int64, _ int)
 	return resp, err
 }
 
+func TestAntigravityRetryLoopStopsUnknownTransportReplay(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	upstream := &queuedHTTPUpstreamStub{errors: []error{errors.New("connection reset by peer")}}
+	account := &Account{ID: 301, Name: "antigravity-transport-test", Platform: PlatformAntigravity, Type: AccountTypeOAuth, Concurrency: 1}
+	svc := &AntigravityGatewayService{}
+
+	result, err := svc.antigravityRetryLoop(antigravityRetryLoopParams{
+		ctx:            context.Background(),
+		prefix:         "[transport-test]",
+		account:        account,
+		accessToken:    "token",
+		action:         "generateContent",
+		body:           []byte(`{"model":"gemini-2.5-flash","request":{}}`),
+		c:              c,
+		httpUpstream:   upstream,
+		requestedModel: "gemini-2.5-flash",
+	})
+
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, 1, upstream.callCount)
+	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+	require.Equal(t, "upstream_transport_outcome_unknown", EnterpriseMemberBudgetOutcomeAmbiguousReason(c))
+}
+
 func (s *queuedHTTPUpstreamStub) DoWithTLS(req *http.Request, proxyURL string, accountID int64, concurrency int, _ *tlsfingerprint.Profile) (*http.Response, error) {
 	return s.Do(req, proxyURL, accountID, concurrency)
 }

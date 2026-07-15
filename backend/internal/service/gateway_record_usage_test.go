@@ -167,6 +167,76 @@ func TestGatewayServiceRecordUsage_BillingFingerprintFallsBackToContextRequestID
 	require.Equal(t, "local:req-local-123", billingRepo.lastCmd.RequestPayloadHash)
 }
 
+func TestGatewayServiceRecordUsage_MemberUsagePersistedByBillingTransactionSkipsSeparateWrite(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{}
+	billingRepo := &openAIRecordUsageBillingRepoStub{
+		result: &UsageBillingApplyResult{Applied: true, UsageLogPersisted: true},
+	}
+	svc := newGatewayRecordUsageServiceWithBillingRepoForTest(
+		usageRepo,
+		billingRepo,
+		&openAIRecordUsageUserRepoStub{},
+		&openAIRecordUsageSubRepoStub{},
+	)
+	memberID := int64(42)
+
+	err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "gateway_member_atomic_usage",
+			Usage: ClaudeUsage{
+				InputTokens:  10,
+				OutputTokens: 6,
+			},
+			Model:    "claude-sonnet-4",
+			Duration: time.Second,
+		},
+		APIKey: &APIKey{
+			ID:       501,
+			MemberID: &memberID,
+			Member:   &EnterpriseMember{ID: memberID, MemberCode: "member-42", Name: "Member 42"},
+		},
+		User:    &User{ID: 601},
+		Account: &Account{ID: 701},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, billingRepo.calls)
+	require.NotNil(t, billingRepo.lastCmd)
+	require.Equal(t, &memberID, billingRepo.lastCmd.MemberID)
+	require.NotNil(t, billingRepo.lastCmd.UsageLog)
+	require.Equal(t, memberID, *billingRepo.lastCmd.UsageLog.MemberID)
+	require.Equal(t, 0, usageRepo.calls, "成员 usage_log 已随计费事务提交，不应再次走独立日志写入")
+}
+
+func TestGatewayServiceRecordUsage_MemberFailsClosedWithoutTransactionalBillingRepository(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{}
+	svc := newGatewayRecordUsageServiceForTest(
+		usageRepo,
+		&openAIRecordUsageUserRepoStub{},
+		&openAIRecordUsageSubRepoStub{},
+	)
+	memberID := int64(42)
+
+	err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "gateway_member_missing_billing_repo",
+			Usage:     ClaudeUsage{InputTokens: 10, OutputTokens: 6},
+			Model:     "claude-sonnet-4",
+			Duration:  time.Second,
+		},
+		APIKey: &APIKey{
+			ID:       501,
+			MemberID: &memberID,
+			Member:   &EnterpriseMember{ID: memberID},
+		},
+		User:    &User{ID: 601},
+		Account: &Account{ID: 701},
+	})
+
+	require.ErrorIs(t, err, ErrEnterpriseMemberUsagePersistenceUnavailable)
+	require.Equal(t, 0, usageRepo.calls)
+}
+
 func TestGatewayServiceRecordUsage_PreservesRequestedAndUpstreamModels(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	svc := newGatewayRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})

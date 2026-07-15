@@ -98,6 +98,14 @@ func usageRecordContext(parent context.Context, base context.Context) context.Co
 	if requestID, _ := parent.Value(ctxkey.RequestID).(string); strings.TrimSpace(requestID) != "" {
 		base = context.WithValue(base, ctxkey.RequestID, strings.TrimSpace(requestID))
 	}
+	if active, ok := service.ActiveGroupFromContext(parent); ok {
+		// The request context is detached before usage persistence. Preserve a
+		// defensive copy of the immutable routing decision so member usage and
+		// account statistics are attributed to the group that actually served the
+		// request, even after a candidate retry.
+		activeSnapshot := *active
+		base = context.WithValue(base, ctxkey.ActiveGroup, &activeSnapshot)
+	}
 	return base
 }
 
@@ -634,7 +642,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 		// 使用量记录通过有界 worker 池提交，避免请求热路径创建无界 goroutine。
 		cyberBlocked := service.GetOpsCyberPolicy(c) != nil
-		h.submitOpenAIUsageRecordTask(c.Request.Context(), result, func(ctx context.Context) {
+		h.submitOpenAIUsageRecordTask(c, c.Request.Context(), result, apiKey, func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 				Result:             result,
 				APIKey:             apiKey,
@@ -652,6 +660,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				ChannelUsageFields: channelMapping.ToUsageFields(reqModel, result.UpstreamModel),
 				CyberBlocked:       cyberBlocked,
 			}); err != nil {
+				markEnterpriseMemberUsagePersistenceFailure(c, apiKey)
 				logger.L().With(
 					zap.String("component", "handler.openai_gateway.responses"),
 					zap.Int64("user_id", subject.UserID),
@@ -1138,7 +1147,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 
 		cyberBlocked := service.GetOpsCyberPolicy(c) != nil
-		h.submitOpenAIUsageRecordTask(c.Request.Context(), result, func(ctx context.Context) {
+		h.submitOpenAIUsageRecordTask(c, c.Request.Context(), result, apiKey, func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 				Result:             result,
 				APIKey:             apiKey,
@@ -1156,6 +1165,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				ChannelUsageFields: channelMappingMsg.ToUsageFields(reqModel, result.UpstreamModel),
 				CyberBlocked:       cyberBlocked,
 			}); err != nil {
+				markEnterpriseMemberUsagePersistenceFailure(c, apiKey)
 				logger.L().With(
 					zap.String("component", "handler.openai_gateway.messages"),
 					zap.Int64("user_id", subject.UserID),
@@ -1571,7 +1581,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		var err error
 		if h.memberBudgetService != nil {
 			reservation, err = h.memberBudgetService.Reserve(turnCtx, service.EnterpriseMemberBudgetEstimateInput{
-				RequestID: turnRequestID, APIKey: apiKey, RequestedModel: model, Endpoint: c.Request.URL.Path, Body: payload,
+				RequestID: turnRequestID, APIKey: apiKey, RequestedModel: model, Method: c.Request.Method, Endpoint: c.Request.URL.Path, ContentType: "application/json", Body: payload,
 			})
 			if err != nil {
 				return nil, err
@@ -1603,7 +1613,37 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		defer releaseCancel()
 		_ = h.memberBudgetService.Release(releaseCtx, apiKey.ID, state.requestID)
 	}
+	markWSTurnBudgetAmbiguous := func(state wsTurnBudgetState, reason string) {
+		if h.memberBudgetService == nil || apiKey == nil || strings.TrimSpace(state.requestID) == "" {
+			return
+		}
+		if strings.TrimSpace(reason) == "" {
+			reason = "upstream_outcome_unknown"
+		}
+		reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer reconcileCancel()
+		if err := h.memberBudgetService.MarkAmbiguous(reconcileCtx, apiKey.ID, state.requestID, reason); err != nil {
+			reqLog.Error("openai.websocket_mark_budget_ambiguous_failed",
+				zap.String("request_id", state.requestID),
+				zap.String("reason", reason),
+				zap.Error(err),
+			)
+		}
+	}
+	rebindPendingWSTurnBudgetContexts := func(base context.Context) {
+		wsTurnBudgetMu.Lock()
+		defer wsTurnBudgetMu.Unlock()
+		for turn, state := range wsTurnBudgets {
+			turnCtx := context.WithValue(base, ctxkey.ClientRequestID, state.requestID)
+			if reservation := state.ctx.Value(ctxkey.MemberBudgetReservation); reservation != nil {
+				turnCtx = context.WithValue(turnCtx, ctxkey.MemberBudgetReservation, reservation)
+			}
+			state.ctx = turnCtx
+			wsTurnBudgets[turn] = state
+		}
+	}
 	defer func() {
+		ambiguous, ambiguousReason := service.ConsumeEnterpriseMemberBudgetOutcomeAmbiguous(c)
 		wsTurnBudgetMu.Lock()
 		pending := make([]wsTurnBudgetState, 0, len(wsTurnBudgets))
 		for _, state := range wsTurnBudgets {
@@ -1612,6 +1652,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		wsTurnBudgets = make(map[int]wsTurnBudgetState)
 		wsTurnBudgetMu.Unlock()
 		for _, state := range pending {
+			if ambiguous {
+				markWSTurnBudgetAmbiguous(state, ambiguousReason)
+				continue
+			}
 			releaseWSTurnBudget(state)
 		}
 	}()
@@ -1753,6 +1797,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			)
 			if apiKey.MemberID != nil && middleware2.ActivateNextEnterpriseMemberGroupForModel(c, reqModel) {
 				apiKey, _ = middleware2.GetAPIKeyFromContext(c)
+				// Group activation replaces the request context with the next
+				// authorized ActiveGroup. Keep the long-lived WebSocket loop on that
+				// context so account selection and final usage attribution agree.
+				ctx = c.Request.Context()
+				rebindPendingWSTurnBudgetContexts(ctx)
 				subscription, _ = middleware2.GetSubscriptionFromContext(c)
 				requestPlatform = openAICompatibleRequestPlatform(apiKey)
 				requiredTransport = service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
@@ -1902,6 +1951,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
 				turnBudget, hasTurnBudget := takeWSTurnBudget(turn)
+				turnBudgetFinalized := false
+				defer func() {
+					ambiguous, reason := service.ConsumeEnterpriseMemberBudgetOutcomeAmbiguous(c)
+					if hasTurnBudget && !turnBudgetFinalized && ambiguous {
+						markWSTurnBudgetAmbiguous(turnBudget, reason)
+					}
+				}()
 				turnCtx := ctx
 				requestPayloadHash := ""
 				if hasTurnBudget {
@@ -1919,8 +1975,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				}
 				if turnErr != nil {
 					if result == nil || result.ImageCount <= 0 {
-						if hasTurnBudget && service.GetOpsCyberPolicy(c) == nil {
+						if hasTurnBudget && service.GetOpsCyberPolicy(c) == nil && !service.IsEnterpriseMemberBudgetOutcomeAmbiguous(c) {
 							releaseWSTurnBudget(turnBudget)
+							turnBudgetFinalized = true
 						}
 						return
 					}
@@ -1936,8 +1993,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					)
 				}
 				if result == nil {
-					if hasTurnBudget {
+					if hasTurnBudget && !service.IsEnterpriseMemberBudgetOutcomeAmbiguous(c) {
 						releaseWSTurnBudget(turnBudget)
+						turnBudgetFinalized = true
 					}
 					return
 				}
@@ -1950,7 +2008,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				upstreamEndpoint := resolveOpenAIUpstreamEndpoint(c, account, result)
 				quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 				cyberBlocked := service.GetOpsCyberPolicy(c) != nil
-				h.submitOpenAIUsageRecordTask(turnCtx, result, func(taskCtx context.Context) {
+				h.submitOpenAIUsageRecordTask(c, turnCtx, result, apiKey, func(taskCtx context.Context) {
 					if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
 						Result:             result,
 						APIKey:             apiKey,
@@ -1968,6 +2026,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 						ChannelUsageFields: channelMappingWS.ToUsageFields(reqModel, result.UpstreamModel),
 						CyberBlocked:       cyberBlocked,
 					}); err != nil {
+						markEnterpriseMemberUsagePersistenceFailure(c, apiKey)
 						reqLog.Error("openai.websocket_record_usage_failed",
 							zap.Int64("account_id", account.ID),
 							zap.String("request_id", result.RequestID),
@@ -2182,12 +2241,46 @@ func (h *OpenAIGatewayHandler) submitUsageRecordTask(parent context.Context, tas
 	task(ctx)
 }
 
-func (h *OpenAIGatewayHandler) submitOpenAIUsageRecordTask(parent context.Context, result *service.OpenAIForwardResult, task service.UsageRecordTask) {
+func (h *OpenAIGatewayHandler) submitOpenAIUsageRecordTask(c *gin.Context, parent context.Context, result *service.OpenAIForwardResult, apiKey *service.APIKey, task service.UsageRecordTask) {
+	if apiKey != nil && apiKey.MemberID != nil {
+		executeUsageRecordTaskSynchronously(parent, "handler.openai_gateway.usage", task, func() {
+			markEnterpriseMemberUsagePersistenceFailure(c, apiKey)
+		})
+		return
+	}
 	if result != nil && result.ImageCount > 0 {
 		h.submitMandatoryUsageRecordTask(parent, task)
 		return
 	}
 	h.submitUsageRecordTask(parent, task)
+}
+
+func executeUsageRecordTaskSynchronously(parent context.Context, component string, task service.UsageRecordTask, onPanic func()) {
+	if task == nil {
+		return
+	}
+	task = wrapUsageRecordTaskContext(parent, task)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			if onPanic != nil {
+				onPanic()
+			}
+			logger.L().With(
+				zap.String("component", component),
+				zap.Any("panic", recovered),
+			).Error("usage_record_task_panic_recovered")
+		}
+	}()
+	task(ctx)
+}
+
+func markEnterpriseMemberUsagePersistenceFailure(c *gin.Context, apiKey *service.APIKey) {
+	if c == nil || apiKey == nil || apiKey.MemberID == nil {
+		return
+	}
+	service.MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "usage_persistence_failed")
 }
 
 func (h *OpenAIGatewayHandler) submitMandatoryUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
@@ -2245,14 +2338,13 @@ func (h *OpenAIGatewayHandler) handleConcurrencyError(c *gin.Context, err error,
 
 func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
 	if failoverErr == nil {
-		if !streamStarted {
-			service.MarkOpsGroupFailoverEligible(c)
-		}
 		h.handleFailoverExhaustedSimple(c, http.StatusBadGateway, streamStarted)
 		return
 	}
 	if !streamStarted {
-		service.MarkOpsGroupFailoverEligible(c)
+		if reason, ok := service.OpsGroupRetryReasonForFailoverError(failoverErr); ok {
+			service.MarkOpsGroupRetry(c, reason)
+		}
 	}
 	copyFailoverRetryAfter(c, failoverErr.ResponseHeaders)
 	if failoverErr.IsCredentialFailure() {
@@ -2303,7 +2395,7 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 
 func (h *OpenAIGatewayHandler) handleAccountCapabilityMismatchExhausted(c *gin.Context, capabilityErr *service.AccountCapabilityMismatchError, streamStarted bool) {
 	if !streamStarted {
-		service.MarkOpsGroupFailoverEligible(c)
+		service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
 	}
 	message := "No available OpenAI account can preserve the requested Responses API features"
 	if capabilityErr != nil && strings.TrimSpace(capabilityErr.Message) != "" {
@@ -2366,7 +2458,9 @@ func isSafeRetryAfter(value string) bool {
 // handleFailoverExhaustedSimple 简化版本，用于没有响应体的情况
 func (h *OpenAIGatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCode int, streamStarted bool) {
 	if !streamStarted {
-		service.MarkOpsGroupFailoverEligible(c)
+		if reason, ok := service.OpsGroupRetryReasonForStatus(statusCode); ok {
+			service.MarkOpsGroupRetry(c, reason)
+		}
 	}
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
 	service.SetOpsUpstreamError(c, statusCode, errMsg, "")

@@ -128,3 +128,26 @@ func TestSelectAccountWithLoadAwareness_UsesFallbackGroupForChannelRestriction(t
 	require.NotNil(t, result.Account)
 	require.Equal(t, int64(1), result.Account.ID)
 }
+
+func TestResolveGatewayGroupRejectsLegacyFallbackForEnterpriseMember(t *testing.T) {
+	t.Parallel()
+
+	groupID := int64(10)
+	fallbackID := int64(11)
+	svc := &GatewayService{
+		groupRepo: &mockGroupRepoForGateway{groups: map[int64]*Group{
+			groupID: {
+				ID: groupID, Platform: PlatformAnthropic, Status: StatusActive,
+				ClaudeCodeOnly: true, FallbackGroupID: &fallbackID, Hydrated: true,
+			},
+			fallbackID: {ID: fallbackID, Platform: PlatformAnthropic, Status: StatusActive, Hydrated: true},
+		}},
+	}
+	ctx := context.WithValue(context.Background(), ctxkey.ActiveGroup, &ActiveGroupContext{
+		MemberID: 42,
+		GroupID:  groupID,
+	})
+
+	_, _, err := svc.resolveGatewayGroup(ctx, &groupID)
+	require.ErrorIs(t, err, ErrClaudeCodeOnly)
+}

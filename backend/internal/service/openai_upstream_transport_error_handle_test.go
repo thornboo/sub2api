@@ -87,8 +87,10 @@ func TestHandleOpenAIUpstreamTransportError_PersistentEvictsAndFailsOver(t *test
 	require.Equal(t, 0, rec.Body.Len())
 }
 
-// A transient blip should fail over but must NOT evict the account.
-func TestHandleOpenAIUpstreamTransportError_TransientFailsOverWithoutEviction(t *testing.T) {
+// A transport timeout after dispatch has an unknown upstream outcome. It must
+// not replay the request against another account, but also must not evict the
+// selected account as if it had a durable configuration fault.
+func TestHandleOpenAIUpstreamTransportError_TransientStopsReplayAndMarksAmbiguous(t *testing.T) {
 	repo := &openaiTransportAccountRepoStub{}
 	svc := &OpenAIGatewayService{accountRepo: repo}
 	account := &Account{ID: 99, Name: "flaky", Platform: PlatformOpenAI}
@@ -100,6 +102,10 @@ func TestHandleOpenAIUpstreamTransportError_TransientFailsOverWithoutEviction(t 
 	var fo *UpstreamFailoverError
 	require.True(t, errors.As(err, &fo), "transient error must return *UpstreamFailoverError")
 	require.Equal(t, http.StatusBadGateway, fo.StatusCode)
+	require.Equal(t, NextAccountStop, fo.NextAccountAction)
+	require.Equal(t, GatewayFailureScopeRequest, fo.Scope)
+	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+	require.Equal(t, "upstream_transport_outcome_unknown", EnterpriseMemberBudgetOutcomeAmbiguousReason(c))
 
 	// Transient → do NOT evict.
 	require.Empty(t, repo.tempUnschedCalls)
@@ -122,6 +128,7 @@ func TestHandleOpenAIUpstreamTransportError_ContextCanceled_NoFailoverNoEviction
 	var fo *UpstreamFailoverError
 	require.False(t, errors.As(err, &fo), "context.Canceled must NOT return *UpstreamFailoverError")
 	require.NotNil(t, err, "must return a non-nil error")
+	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
 
 	// Must NOT evict the account.
 	require.Empty(t, repo.tempUnschedCalls, "context.Canceled must not trigger temp-unsched DB write")
@@ -143,6 +150,7 @@ func TestHandleOpenAIUpstreamTransportError_WrappedContextCanceled_NoFailover(t 
 
 	var fo *UpstreamFailoverError
 	require.False(t, errors.As(err, &fo), "wrapped context.Canceled must NOT return *UpstreamFailoverError")
+	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
 	require.Empty(t, repo.tempUnschedCalls)
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
@@ -163,8 +171,8 @@ func TestTempUnscheduleOpenAITransportError_NilAccountRepo_InMemoryBlockOnly(t *
 		"in-memory block must apply even when accountRepo is nil")
 }
 
-// context.DeadlineExceeded is NOT special-cased — a slow upstream is worth failing over.
-func TestHandleOpenAIUpstreamTransportError_DeadlineExceeded_StillFailsOver(t *testing.T) {
+// DeadlineExceeded after dispatch is ambiguous and must stop account replay.
+func TestHandleOpenAIUpstreamTransportError_DeadlineExceeded_StopsReplay(t *testing.T) {
 	repo := &openaiTransportAccountRepoStub{}
 	svc := &OpenAIGatewayService{accountRepo: repo}
 	account := &Account{ID: 79, Name: "slow", Platform: PlatformOpenAI}
@@ -174,10 +182,12 @@ func TestHandleOpenAIUpstreamTransportError_DeadlineExceeded_StillFailsOver(t *t
 		context.DeadlineExceeded, false)
 
 	var fo *UpstreamFailoverError
-	require.True(t, errors.As(err, &fo), "context.DeadlineExceeded must still return *UpstreamFailoverError")
+	require.True(t, errors.As(err, &fo), "context.DeadlineExceeded must return a terminal failover envelope")
+	require.Equal(t, NextAccountStop, fo.NextAccountAction)
+	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
 }
 
-func TestForwardAsRawChatCompletions_TransportErrorFailsOver(t *testing.T) {
+func TestForwardAsRawChatCompletions_UnknownTransportOutcomeStopsReplay(t *testing.T) {
 	repo := &openaiTransportAccountRepoStub{}
 	upstream := &failingOpenAIHTTPUpstream{
 		err: errors.New(`Post "https://opencode.ai/zen/v1/chat/completions": EOF`),
@@ -205,8 +215,10 @@ func TestForwardAsRawChatCompletions_TransportErrorFailsOver(t *testing.T) {
 
 	require.Equal(t, 1, upstream.calls)
 	var fo *UpstreamFailoverError
-	require.True(t, errors.As(err, &fo), "transport error must trigger account failover")
+	require.True(t, errors.As(err, &fo), "transport error must return a terminal failover envelope")
 	require.Equal(t, http.StatusBadGateway, fo.StatusCode)
+	require.Equal(t, NextAccountStop, fo.NextAccountAction)
+	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
 	require.Empty(t, repo.tempUnschedCalls, "plain EOF is transient: fail over but do not evict")
 	require.Equal(t, 0, rec.Body.Len(), "service must not write a hard 502 before handler can fail over")
 }

@@ -292,7 +292,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
 
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
+		h.submitGatewayUsageRecordTask(c, c.Request.Context(), apiKey, func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 				Result:             result,
 				QuotaPlatform:      quotaPlatform,
@@ -308,6 +308,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				APIKeyService:      h.apiKeyService,
 				ChannelUsageFields: channelMapping.ToUsageFields(reqModel, result.UpstreamModel),
 			}); err != nil {
+				markEnterpriseMemberUsagePersistenceFailure(c, apiKey)
 				reqLog.Error("gateway.cc.record_usage_failed",
 					zap.Int64("account_id", account.ID),
 					zap.Error(err),
@@ -333,7 +334,11 @@ func (h *GatewayHandler) handleCCFailoverExhausted(c *gin.Context, lastErr *serv
 	if streamStarted {
 		return
 	}
-	service.MarkOpsGroupFailoverEligible(c)
+	if reason, ok := service.OpsGroupRetryReasonForFailoverError(lastErr); ok {
+		service.MarkOpsGroupRetry(c, reason)
+	} else if lastErr == nil {
+		service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapacityExhausted)
+	}
 	if lastErr != nil {
 		copyFailoverRetryAfter(c, lastErr.ResponseHeaders)
 	}

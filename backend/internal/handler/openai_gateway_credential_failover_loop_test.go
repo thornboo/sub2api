@@ -29,6 +29,8 @@ type grokCredentialHandlerRepo struct {
 	service.AccountRepository
 	mu             sync.Mutex
 	accounts       []service.Account
+	groupAccounts  map[int64][]service.Account
+	selectedGroups []int64
 	setErrorIDs    []int64
 	setTempIDs     []int64
 	rateLimitIDs   []int64
@@ -52,7 +54,20 @@ func (r *grokCredentialHandlerRepo) ListSchedulableByPlatform(_ context.Context,
 	return out, nil
 }
 
-func (r *grokCredentialHandlerRepo) ListSchedulableByGroupIDAndPlatform(ctx context.Context, _ int64, platform string) ([]service.Account, error) {
+func (r *grokCredentialHandlerRepo) ListSchedulableByGroupIDAndPlatform(ctx context.Context, groupID int64, platform string) ([]service.Account, error) {
+	r.mu.Lock()
+	r.selectedGroups = append(r.selectedGroups, groupID)
+	groupAccounts, scoped := r.groupAccounts[groupID]
+	r.mu.Unlock()
+	if scoped {
+		out := make([]service.Account, 0, len(groupAccounts))
+		for _, account := range groupAccounts {
+			if account.Platform == platform && account.IsSchedulable() {
+				out = append(out, account)
+			}
+		}
+		return out, nil
+	}
 	return r.ListSchedulableByPlatform(ctx, platform)
 }
 
@@ -237,6 +252,12 @@ func (r *grokCredentialHandlerRepo) rateLimitedAccountIDs() []int64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]int64(nil), r.rateLimitIDs...)
+}
+
+func (r *grokCredentialHandlerRepo) selectedGroupIDs() []int64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]int64(nil), r.selectedGroups...)
 }
 
 type grokCredentialHandlerTokenCache struct {
@@ -802,6 +823,22 @@ func TestResponsesWebSocketCredentialFailoverLoop(t *testing.T) {
 		require.Empty(t, repo.errorIDs())
 		require.Empty(t, upstream.accountHits())
 	})
+
+	t.Run("member group fallback refreshes websocket routing context", func(t *testing.T) {
+		_, repo, upstream, router, cleanup := newGrokCredentialFailoverHandler(t, "enterprise_group_fallback")
+		defer cleanup()
+		conn, closeConn := dial(t, router)
+		defer closeConn()
+		writeFirst(t, conn)
+
+		readCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, payload, err := conn.Read(readCtx)
+		cancel()
+		require.NoError(t, err)
+		require.Contains(t, string(payload), "resp_healthy")
+		require.Equal(t, []int64{901, 904}, repo.selectedGroupIDs())
+		require.Equal(t, []int64{802}, upstream.accountHits())
+	})
 }
 
 var handlerRefresherStarted sync.Map
@@ -853,6 +890,12 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 		accounts[1].Credentials["expires_at"] = time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
 	}
 	repo := &grokCredentialHandlerRepo{accounts: accounts, missingOnGet: map[int64]bool{}}
+	if mode == "enterprise_group_fallback" {
+		repo.groupAccounts = map[int64][]service.Account{
+			901: {},
+			904: {accounts[1]},
+		}
+	}
 	if mode == "missing_row" {
 		repo.missingOnGet[801] = true
 	}
@@ -902,9 +945,23 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 	}
 	h := NewOpenAIGatewayHandler(gateway, service.NewConcurrencyService(cache), billingCache, &service.APIKeyService{}, nil, nil, nil, nil, nil, nil, cfg)
 	apiKey := &service.APIKey{
-		ID: 902, GroupID: &groupID,
+		ID: 902, UserID: 903, GroupID: &groupID,
 		User:  &service.User{ID: 903, Status: service.StatusActive},
 		Group: &service.Group{ID: groupID, Platform: service.PlatformGrok, Status: service.StatusActive},
+	}
+	if mode == "enterprise_group_fallback" {
+		memberID := int64(905)
+		apiKey.GroupID = nil
+		apiKey.User.Role = service.RoleUser
+		apiKey.User.AccountType = service.UserAccountTypeEnterprise
+		apiKey.MemberID = &memberID
+		apiKey.Member = &service.EnterpriseMember{
+			ID: memberID, EnterpriseUserID: apiKey.User.ID, Status: service.EnterpriseMemberStatusActive,
+			Groups: []service.Group{
+				{ID: 901, Platform: service.PlatformGrok, Status: service.StatusActive, Hydrated: true},
+				{ID: 904, Platform: service.PlatformGrok, Status: service.StatusActive, Hydrated: true},
+			},
+		}
 	}
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -912,6 +969,9 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: apiKey.User.ID, Concurrency: 1})
 		c.Next()
 	})
+	if mode == "enterprise_group_fallback" {
+		router.Use(middleware.ResolveEnterpriseMemberGroup(nil, cfg, middleware.AnthropicErrorWriter))
+	}
 	router.POST("/openai/v1/responses", h.Responses)
 	router.GET("/openai/v1/responses", h.ResponsesWebSocket)
 	router.POST("/openai/v1/messages", h.Messages)

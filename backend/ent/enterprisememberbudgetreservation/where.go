@@ -65,6 +65,31 @@ func MemberID(v int64) predicate.EnterpriseMemberBudgetReservation {
 	return predicate.EnterpriseMemberBudgetReservation(sql.FieldEQ(FieldMemberID, v))
 }
 
+// GroupID applies equality check predicate on the "group_id" field. It's identical to GroupIDEQ.
+func GroupID(v int64) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldEQ(FieldGroupID, v))
+}
+
+// RequestPayloadHash applies equality check predicate on the "request_payload_hash" field. It's identical to RequestPayloadHashEQ.
+func RequestPayloadHash(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldEQ(FieldRequestPayloadHash, v))
+}
+
+// OutcomeReason applies equality check predicate on the "outcome_reason" field. It's identical to OutcomeReasonEQ.
+func OutcomeReason(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldEQ(FieldOutcomeReason, v))
+}
+
+// ReconcileAttempts applies equality check predicate on the "reconcile_attempts" field. It's identical to ReconcileAttemptsEQ.
+func ReconcileAttempts(v int) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldEQ(FieldReconcileAttempts, v))
+}
+
+// LastReconcileAt applies equality check predicate on the "last_reconcile_at" field. It's identical to LastReconcileAtEQ.
+func LastReconcileAt(v time.Time) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldEQ(FieldLastReconcileAt, v))
+}
+
 // PeriodStart applies equality check predicate on the "period_start" field. It's identical to PeriodStartEQ.
 func PeriodStart(v time.Time) predicate.EnterpriseMemberBudgetReservation {
 	return predicate.EnterpriseMemberBudgetReservation(sql.FieldEQ(FieldPeriodStart, v))
@@ -188,6 +213,276 @@ func MemberIDIn(vs ...int64) predicate.EnterpriseMemberBudgetReservation {
 // MemberIDNotIn applies the NotIn predicate on the "member_id" field.
 func MemberIDNotIn(vs ...int64) predicate.EnterpriseMemberBudgetReservation {
 	return predicate.EnterpriseMemberBudgetReservation(sql.FieldNotIn(FieldMemberID, vs...))
+}
+
+// GroupIDEQ applies the EQ predicate on the "group_id" field.
+func GroupIDEQ(v int64) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldEQ(FieldGroupID, v))
+}
+
+// GroupIDNEQ applies the NEQ predicate on the "group_id" field.
+func GroupIDNEQ(v int64) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldNEQ(FieldGroupID, v))
+}
+
+// GroupIDIn applies the In predicate on the "group_id" field.
+func GroupIDIn(vs ...int64) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldIn(FieldGroupID, vs...))
+}
+
+// GroupIDNotIn applies the NotIn predicate on the "group_id" field.
+func GroupIDNotIn(vs ...int64) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldNotIn(FieldGroupID, vs...))
+}
+
+// GroupIDGT applies the GT predicate on the "group_id" field.
+func GroupIDGT(v int64) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldGT(FieldGroupID, v))
+}
+
+// GroupIDGTE applies the GTE predicate on the "group_id" field.
+func GroupIDGTE(v int64) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldGTE(FieldGroupID, v))
+}
+
+// GroupIDLT applies the LT predicate on the "group_id" field.
+func GroupIDLT(v int64) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldLT(FieldGroupID, v))
+}
+
+// GroupIDLTE applies the LTE predicate on the "group_id" field.
+func GroupIDLTE(v int64) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldLTE(FieldGroupID, v))
+}
+
+// GroupIDIsNil applies the IsNil predicate on the "group_id" field.
+func GroupIDIsNil() predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldIsNull(FieldGroupID))
+}
+
+// GroupIDNotNil applies the NotNil predicate on the "group_id" field.
+func GroupIDNotNil() predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldNotNull(FieldGroupID))
+}
+
+// RequestPayloadHashEQ applies the EQ predicate on the "request_payload_hash" field.
+func RequestPayloadHashEQ(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldEQ(FieldRequestPayloadHash, v))
+}
+
+// RequestPayloadHashNEQ applies the NEQ predicate on the "request_payload_hash" field.
+func RequestPayloadHashNEQ(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldNEQ(FieldRequestPayloadHash, v))
+}
+
+// RequestPayloadHashIn applies the In predicate on the "request_payload_hash" field.
+func RequestPayloadHashIn(vs ...string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldIn(FieldRequestPayloadHash, vs...))
+}
+
+// RequestPayloadHashNotIn applies the NotIn predicate on the "request_payload_hash" field.
+func RequestPayloadHashNotIn(vs ...string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldNotIn(FieldRequestPayloadHash, vs...))
+}
+
+// RequestPayloadHashGT applies the GT predicate on the "request_payload_hash" field.
+func RequestPayloadHashGT(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldGT(FieldRequestPayloadHash, v))
+}
+
+// RequestPayloadHashGTE applies the GTE predicate on the "request_payload_hash" field.
+func RequestPayloadHashGTE(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldGTE(FieldRequestPayloadHash, v))
+}
+
+// RequestPayloadHashLT applies the LT predicate on the "request_payload_hash" field.
+func RequestPayloadHashLT(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldLT(FieldRequestPayloadHash, v))
+}
+
+// RequestPayloadHashLTE applies the LTE predicate on the "request_payload_hash" field.
+func RequestPayloadHashLTE(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldLTE(FieldRequestPayloadHash, v))
+}
+
+// RequestPayloadHashContains applies the Contains predicate on the "request_payload_hash" field.
+func RequestPayloadHashContains(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldContains(FieldRequestPayloadHash, v))
+}
+
+// RequestPayloadHashHasPrefix applies the HasPrefix predicate on the "request_payload_hash" field.
+func RequestPayloadHashHasPrefix(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldHasPrefix(FieldRequestPayloadHash, v))
+}
+
+// RequestPayloadHashHasSuffix applies the HasSuffix predicate on the "request_payload_hash" field.
+func RequestPayloadHashHasSuffix(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldHasSuffix(FieldRequestPayloadHash, v))
+}
+
+// RequestPayloadHashEqualFold applies the EqualFold predicate on the "request_payload_hash" field.
+func RequestPayloadHashEqualFold(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldEqualFold(FieldRequestPayloadHash, v))
+}
+
+// RequestPayloadHashContainsFold applies the ContainsFold predicate on the "request_payload_hash" field.
+func RequestPayloadHashContainsFold(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldContainsFold(FieldRequestPayloadHash, v))
+}
+
+// OutcomeReasonEQ applies the EQ predicate on the "outcome_reason" field.
+func OutcomeReasonEQ(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldEQ(FieldOutcomeReason, v))
+}
+
+// OutcomeReasonNEQ applies the NEQ predicate on the "outcome_reason" field.
+func OutcomeReasonNEQ(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldNEQ(FieldOutcomeReason, v))
+}
+
+// OutcomeReasonIn applies the In predicate on the "outcome_reason" field.
+func OutcomeReasonIn(vs ...string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldIn(FieldOutcomeReason, vs...))
+}
+
+// OutcomeReasonNotIn applies the NotIn predicate on the "outcome_reason" field.
+func OutcomeReasonNotIn(vs ...string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldNotIn(FieldOutcomeReason, vs...))
+}
+
+// OutcomeReasonGT applies the GT predicate on the "outcome_reason" field.
+func OutcomeReasonGT(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldGT(FieldOutcomeReason, v))
+}
+
+// OutcomeReasonGTE applies the GTE predicate on the "outcome_reason" field.
+func OutcomeReasonGTE(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldGTE(FieldOutcomeReason, v))
+}
+
+// OutcomeReasonLT applies the LT predicate on the "outcome_reason" field.
+func OutcomeReasonLT(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldLT(FieldOutcomeReason, v))
+}
+
+// OutcomeReasonLTE applies the LTE predicate on the "outcome_reason" field.
+func OutcomeReasonLTE(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldLTE(FieldOutcomeReason, v))
+}
+
+// OutcomeReasonContains applies the Contains predicate on the "outcome_reason" field.
+func OutcomeReasonContains(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldContains(FieldOutcomeReason, v))
+}
+
+// OutcomeReasonHasPrefix applies the HasPrefix predicate on the "outcome_reason" field.
+func OutcomeReasonHasPrefix(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldHasPrefix(FieldOutcomeReason, v))
+}
+
+// OutcomeReasonHasSuffix applies the HasSuffix predicate on the "outcome_reason" field.
+func OutcomeReasonHasSuffix(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldHasSuffix(FieldOutcomeReason, v))
+}
+
+// OutcomeReasonEqualFold applies the EqualFold predicate on the "outcome_reason" field.
+func OutcomeReasonEqualFold(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldEqualFold(FieldOutcomeReason, v))
+}
+
+// OutcomeReasonContainsFold applies the ContainsFold predicate on the "outcome_reason" field.
+func OutcomeReasonContainsFold(v string) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldContainsFold(FieldOutcomeReason, v))
+}
+
+// ReconcileAttemptsEQ applies the EQ predicate on the "reconcile_attempts" field.
+func ReconcileAttemptsEQ(v int) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldEQ(FieldReconcileAttempts, v))
+}
+
+// ReconcileAttemptsNEQ applies the NEQ predicate on the "reconcile_attempts" field.
+func ReconcileAttemptsNEQ(v int) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldNEQ(FieldReconcileAttempts, v))
+}
+
+// ReconcileAttemptsIn applies the In predicate on the "reconcile_attempts" field.
+func ReconcileAttemptsIn(vs ...int) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldIn(FieldReconcileAttempts, vs...))
+}
+
+// ReconcileAttemptsNotIn applies the NotIn predicate on the "reconcile_attempts" field.
+func ReconcileAttemptsNotIn(vs ...int) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldNotIn(FieldReconcileAttempts, vs...))
+}
+
+// ReconcileAttemptsGT applies the GT predicate on the "reconcile_attempts" field.
+func ReconcileAttemptsGT(v int) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldGT(FieldReconcileAttempts, v))
+}
+
+// ReconcileAttemptsGTE applies the GTE predicate on the "reconcile_attempts" field.
+func ReconcileAttemptsGTE(v int) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldGTE(FieldReconcileAttempts, v))
+}
+
+// ReconcileAttemptsLT applies the LT predicate on the "reconcile_attempts" field.
+func ReconcileAttemptsLT(v int) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldLT(FieldReconcileAttempts, v))
+}
+
+// ReconcileAttemptsLTE applies the LTE predicate on the "reconcile_attempts" field.
+func ReconcileAttemptsLTE(v int) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldLTE(FieldReconcileAttempts, v))
+}
+
+// LastReconcileAtEQ applies the EQ predicate on the "last_reconcile_at" field.
+func LastReconcileAtEQ(v time.Time) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldEQ(FieldLastReconcileAt, v))
+}
+
+// LastReconcileAtNEQ applies the NEQ predicate on the "last_reconcile_at" field.
+func LastReconcileAtNEQ(v time.Time) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldNEQ(FieldLastReconcileAt, v))
+}
+
+// LastReconcileAtIn applies the In predicate on the "last_reconcile_at" field.
+func LastReconcileAtIn(vs ...time.Time) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldIn(FieldLastReconcileAt, vs...))
+}
+
+// LastReconcileAtNotIn applies the NotIn predicate on the "last_reconcile_at" field.
+func LastReconcileAtNotIn(vs ...time.Time) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldNotIn(FieldLastReconcileAt, vs...))
+}
+
+// LastReconcileAtGT applies the GT predicate on the "last_reconcile_at" field.
+func LastReconcileAtGT(v time.Time) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldGT(FieldLastReconcileAt, v))
+}
+
+// LastReconcileAtGTE applies the GTE predicate on the "last_reconcile_at" field.
+func LastReconcileAtGTE(v time.Time) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldGTE(FieldLastReconcileAt, v))
+}
+
+// LastReconcileAtLT applies the LT predicate on the "last_reconcile_at" field.
+func LastReconcileAtLT(v time.Time) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldLT(FieldLastReconcileAt, v))
+}
+
+// LastReconcileAtLTE applies the LTE predicate on the "last_reconcile_at" field.
+func LastReconcileAtLTE(v time.Time) predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldLTE(FieldLastReconcileAt, v))
+}
+
+// LastReconcileAtIsNil applies the IsNil predicate on the "last_reconcile_at" field.
+func LastReconcileAtIsNil() predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldIsNull(FieldLastReconcileAt))
+}
+
+// LastReconcileAtNotNil applies the NotNil predicate on the "last_reconcile_at" field.
+func LastReconcileAtNotNil() predicate.EnterpriseMemberBudgetReservation {
+	return predicate.EnterpriseMemberBudgetReservation(sql.FieldNotNull(FieldLastReconcileAt))
 }
 
 // PeriodStartEQ applies the EQ predicate on the "period_start" field.

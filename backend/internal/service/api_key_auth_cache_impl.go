@@ -113,6 +113,10 @@ func (s *APIKeyService) getAuthCacheEntry(ctx context.Context, cacheKey string) 
 	if s.authCacheL1 != nil {
 		if val, ok := s.authCacheL1.Get(cacheKey); ok {
 			if entry, ok := val.(*APIKeyAuthCacheEntry); ok {
+				if authCacheEntryContainsEnterpriseMember(entry) {
+					s.deleteAuthCache(ctx, cacheKey)
+					return nil, false
+				}
 				return entry, true
 			}
 		}
@@ -124,8 +128,16 @@ func (s *APIKeyService) getAuthCacheEntry(ctx context.Context, cacheKey string) 
 	if err != nil {
 		return nil, false
 	}
+	if authCacheEntryContainsEnterpriseMember(entry) {
+		s.deleteAuthCache(ctx, cacheKey)
+		return nil, false
+	}
 	s.setAuthCacheL1(cacheKey, entry)
 	return entry, true
+}
+
+func authCacheEntryContainsEnterpriseMember(entry *APIKeyAuthCacheEntry) bool {
+	return entry != nil && entry.Snapshot != nil && entry.Snapshot.MemberID != nil
 }
 
 func (s *APIKeyService) setAuthCacheL1(cacheKey string, entry *APIKeyAuthCacheEntry) {
@@ -141,7 +153,7 @@ func (s *APIKeyService) setAuthCacheL1(cacheKey string, entry *APIKeyAuthCacheEn
 }
 
 func (s *APIKeyService) setAuthCacheEntry(ctx context.Context, cacheKey string, entry *APIKeyAuthCacheEntry, ttl time.Duration) {
-	if entry == nil {
+	if entry == nil || authCacheEntryContainsEnterpriseMember(entry) {
 		return
 	}
 	s.setAuthCacheL1(cacheKey, entry)

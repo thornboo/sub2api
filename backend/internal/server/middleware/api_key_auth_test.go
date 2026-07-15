@@ -1161,6 +1161,80 @@ func newAuthTestRouter(apiKeyService *service.APIKeyService, subscriptionService
 	return router
 }
 
+func TestAPIKeyAuthEnforcesMemberKeyLifecycle(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	memberID := int64(44)
+	user := &service.User{
+		ID:          7,
+		Role:        service.RoleUser,
+		Status:      service.StatusActive,
+		AccountType: service.UserAccountTypeEnterprise,
+		Balance:     10,
+		Concurrency: 3,
+	}
+	member := &service.EnterpriseMember{
+		ID:               memberID,
+		EnterpriseUserID: user.ID,
+		Status:           service.EnterpriseMemberStatusActive,
+	}
+
+	tests := []struct {
+		name       string
+		mutate     func(*service.APIKey)
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name: "expired",
+			mutate: func(key *service.APIKey) {
+				expiresAt := time.Now().Add(-time.Minute)
+				key.ExpiresAt = &expiresAt
+			},
+			wantStatus: http.StatusForbidden,
+			wantCode:   "API_KEY_EXPIRED",
+		},
+		{
+			name: "quota exhausted",
+			mutate: func(key *service.APIKey) {
+				key.Quota = 1
+				key.QuotaUsed = 1
+			},
+			wantStatus: http.StatusTooManyRequests,
+			wantCode:   "API_KEY_QUOTA_EXHAUSTED",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			key := &service.APIKey{
+				ID:       100,
+				UserID:   user.ID,
+				Key:      "member-key",
+				Status:   service.StatusActive,
+				User:     user,
+				MemberID: &memberID,
+				Member:   member,
+			}
+			tt.mutate(key)
+			repo := &stubApiKeyRepo{getByKey: func(context.Context, string) (*service.APIKey, error) {
+				clone := *key
+				return &clone, nil
+			}}
+			cfg := &config.Config{RunMode: config.RunModeStandard}
+			apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+			router := newAuthTestRouter(apiKeyService, nil, cfg)
+
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/t", nil)
+			req.Header.Set("x-api-key", key.Key)
+			router.ServeHTTP(w, req)
+
+			require.Equal(t, tt.wantStatus, w.Code)
+			require.Contains(t, w.Body.String(), tt.wantCode)
+		})
+	}
+}
+
 func requireAPIKeyAuthError(t *testing.T, w *httptest.ResponseRecorder, code, message string) {
 	t.Helper()
 

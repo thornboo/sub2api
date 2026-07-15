@@ -371,6 +371,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		// 发送请求
 		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
 		if err != nil {
+			markEnterpriseMemberBudgetTransportOutcome(c, err)
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
 			}
@@ -501,6 +502,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 											resp = retryResp2
 											break
 										}
+										markEnterpriseMemberBudgetTransportOutcome(c, retryErr2)
 										if retryResp2 != nil && retryResp2.Body != nil {
 											_ = retryResp2.Body.Close()
 										}
@@ -528,6 +530,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 							}
 							break
 						}
+						markEnterpriseMemberBudgetTransportOutcome(c, retryErr)
 						if retryResp != nil && retryResp.Body != nil {
 							_ = retryResp.Body.Close()
 						}
@@ -580,6 +583,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 								resp = budgetRetryResp
 								break
 							}
+							markEnterpriseMemberBudgetTransportOutcome(c, retryErr)
 							if budgetRetryResp != nil && budgetRetryResp.Body != nil {
 								_ = budgetRetryResp.Body.Close()
 							}

@@ -332,17 +332,18 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		usageLog.IPAddress = &input.IPAddress
 	}
 
-	if apiKey.GroupID != nil {
-		usageLog.GroupID = apiKey.GroupID
+	resolvedGroupID := usageGroupID(ctx, apiKey)
+	if resolvedGroupID != nil {
+		usageLog.GroupID = resolvedGroupID
 	}
 	if subscription != nil {
 		usageLog.SubscriptionID = &subscription.ID
 	}
 
 	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
-	if apiKey.GroupID != nil {
+	if resolvedGroupID != nil {
 		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,
-			account.ID, *apiKey.GroupID, result.UpstreamModel, result.Model,
+			account.ID, *resolvedGroupID, result.UpstreamModel, result.Model,
 			tokens, cost.TotalCost,
 		)
 	}
@@ -361,8 +362,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		quotaPlatform = PlatformFromAPIKey(apiKey)
 	}
 
-	billingErr := func() error {
-		_, err := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
+	usageLogPersisted, billingErr := func() (bool, error) {
+		persisted, err := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
 			Cost:                  cost,
 			User:                  user,
 			APIKey:                apiKey,
@@ -374,13 +375,15 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			APIKeyService:         input.APIKeyService,
 			Platform:              quotaPlatform,
 		}, s.billingDeps(), s.usageBillingRepo)
-		return err
+		return persisted, err
 	}()
 
 	if billingErr != nil {
 		return billingErr
 	}
-	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
+	if !usageLogPersisted {
+		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
+	}
 
 	return nil
 }

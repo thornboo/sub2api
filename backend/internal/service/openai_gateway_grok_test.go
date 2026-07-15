@@ -595,7 +595,14 @@ func TestForwardGrokMediaVideoGenerationReturnsUsageAndResponseID(t *testing.T) 
 	persistErr := errors.New("task route persistence failed")
 	blockedCtx := WithGrokMediaTaskRecorder(context.Background(), func(context.Context, string, int64) error { return persistErr })
 	_, err = blockedService.ForwardGrokMedia(blockedCtx, blockedContext, account, GrokMediaEndpointVideosGenerations, "", body, "application/json")
-	require.ErrorIs(t, err, persistErr)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, GatewayFailureStageLocalPersistence, failoverErr.Stage)
+	require.Equal(t, GatewayFailureScopeRequest, failoverErr.Scope)
+	require.Equal(t, NextAccountStop, failoverErr.NextAccountAction)
+	require.False(t, failoverErr.ShouldRetryNextAccount(), "an upstream task may already exist; retrying another account could duplicate it")
+	require.False(t, failoverErr.ShouldReportAccountScheduleFailure(), "local persistence failures must not degrade the selected account")
+	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(blockedContext))
 	require.Empty(t, blockedResponse.Body.String(), "a task ID without durable routing identity must never reach the client")
 }
 
@@ -751,9 +758,16 @@ func TestForwardGrokMediaVideoMutationEndpoints(t *testing.T) {
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 				Body:       io.NopCloser(strings.NewReader(`{"request_id":"video-mutation-123"}`)),
 			}}
+			recorded := false
+			taskCtx := WithGrokMediaTaskRecorder(context.Background(), func(_ context.Context, upstreamRequestID string, accountID int64) error {
+				recorded = true
+				require.Equal(t, "video-mutation-123", upstreamRequestID)
+				require.Equal(t, int64(71), accountID)
+				return nil
+			})
 			svc := &OpenAIGatewayService{httpUpstream: upstream}
 
-			result, err := svc.ForwardGrokMedia(context.Background(), c, account, tt.endpoint, "", body, "application/json")
+			result, err := svc.ForwardGrokMedia(taskCtx, c, account, tt.endpoint, "", body, "application/json")
 			require.NoError(t, err)
 			require.Equal(t, "https://xai.test/v1"+tt.path, upstream.lastReq.URL.String())
 			require.Equal(t, http.MethodPost, upstream.lastReq.Method)
@@ -761,6 +775,7 @@ func TestForwardGrokMediaVideoMutationEndpoints(t *testing.T) {
 			require.Equal(t, "video-mutation-123", result.ResponseID)
 			require.Equal(t, 1, result.VideoCount)
 			require.Equal(t, 6, result.VideoDurationSeconds)
+			require.True(t, recorded)
 		})
 	}
 }

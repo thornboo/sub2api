@@ -57,6 +57,102 @@ func (_u *EnterpriseMemberBudgetReservationUpdate) SetNillableMemberID(v *int64)
 	return _u
 }
 
+// SetGroupID sets the "group_id" field.
+func (_u *EnterpriseMemberBudgetReservationUpdate) SetGroupID(v int64) *EnterpriseMemberBudgetReservationUpdate {
+	_u.mutation.ResetGroupID()
+	_u.mutation.SetGroupID(v)
+	return _u
+}
+
+// SetNillableGroupID sets the "group_id" field if the given value is not nil.
+func (_u *EnterpriseMemberBudgetReservationUpdate) SetNillableGroupID(v *int64) *EnterpriseMemberBudgetReservationUpdate {
+	if v != nil {
+		_u.SetGroupID(*v)
+	}
+	return _u
+}
+
+// AddGroupID adds value to the "group_id" field.
+func (_u *EnterpriseMemberBudgetReservationUpdate) AddGroupID(v int64) *EnterpriseMemberBudgetReservationUpdate {
+	_u.mutation.AddGroupID(v)
+	return _u
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (_u *EnterpriseMemberBudgetReservationUpdate) ClearGroupID() *EnterpriseMemberBudgetReservationUpdate {
+	_u.mutation.ClearGroupID()
+	return _u
+}
+
+// SetRequestPayloadHash sets the "request_payload_hash" field.
+func (_u *EnterpriseMemberBudgetReservationUpdate) SetRequestPayloadHash(v string) *EnterpriseMemberBudgetReservationUpdate {
+	_u.mutation.SetRequestPayloadHash(v)
+	return _u
+}
+
+// SetNillableRequestPayloadHash sets the "request_payload_hash" field if the given value is not nil.
+func (_u *EnterpriseMemberBudgetReservationUpdate) SetNillableRequestPayloadHash(v *string) *EnterpriseMemberBudgetReservationUpdate {
+	if v != nil {
+		_u.SetRequestPayloadHash(*v)
+	}
+	return _u
+}
+
+// SetOutcomeReason sets the "outcome_reason" field.
+func (_u *EnterpriseMemberBudgetReservationUpdate) SetOutcomeReason(v string) *EnterpriseMemberBudgetReservationUpdate {
+	_u.mutation.SetOutcomeReason(v)
+	return _u
+}
+
+// SetNillableOutcomeReason sets the "outcome_reason" field if the given value is not nil.
+func (_u *EnterpriseMemberBudgetReservationUpdate) SetNillableOutcomeReason(v *string) *EnterpriseMemberBudgetReservationUpdate {
+	if v != nil {
+		_u.SetOutcomeReason(*v)
+	}
+	return _u
+}
+
+// SetReconcileAttempts sets the "reconcile_attempts" field.
+func (_u *EnterpriseMemberBudgetReservationUpdate) SetReconcileAttempts(v int) *EnterpriseMemberBudgetReservationUpdate {
+	_u.mutation.ResetReconcileAttempts()
+	_u.mutation.SetReconcileAttempts(v)
+	return _u
+}
+
+// SetNillableReconcileAttempts sets the "reconcile_attempts" field if the given value is not nil.
+func (_u *EnterpriseMemberBudgetReservationUpdate) SetNillableReconcileAttempts(v *int) *EnterpriseMemberBudgetReservationUpdate {
+	if v != nil {
+		_u.SetReconcileAttempts(*v)
+	}
+	return _u
+}
+
+// AddReconcileAttempts adds value to the "reconcile_attempts" field.
+func (_u *EnterpriseMemberBudgetReservationUpdate) AddReconcileAttempts(v int) *EnterpriseMemberBudgetReservationUpdate {
+	_u.mutation.AddReconcileAttempts(v)
+	return _u
+}
+
+// SetLastReconcileAt sets the "last_reconcile_at" field.
+func (_u *EnterpriseMemberBudgetReservationUpdate) SetLastReconcileAt(v time.Time) *EnterpriseMemberBudgetReservationUpdate {
+	_u.mutation.SetLastReconcileAt(v)
+	return _u
+}
+
+// SetNillableLastReconcileAt sets the "last_reconcile_at" field if the given value is not nil.
+func (_u *EnterpriseMemberBudgetReservationUpdate) SetNillableLastReconcileAt(v *time.Time) *EnterpriseMemberBudgetReservationUpdate {
+	if v != nil {
+		_u.SetLastReconcileAt(*v)
+	}
+	return _u
+}
+
+// ClearLastReconcileAt clears the value of the "last_reconcile_at" field.
+func (_u *EnterpriseMemberBudgetReservationUpdate) ClearLastReconcileAt() *EnterpriseMemberBudgetReservationUpdate {
+	_u.mutation.ClearLastReconcileAt()
+	return _u
+}
+
 // SetPeriodStart sets the "period_start" field.
 func (_u *EnterpriseMemberBudgetReservationUpdate) SetPeriodStart(v time.Time) *EnterpriseMemberBudgetReservationUpdate {
 	_u.mutation.SetPeriodStart(v)
@@ -233,6 +329,21 @@ func (_u *EnterpriseMemberBudgetReservationUpdate) check() error {
 			return &ValidationError{Name: "request_id", err: fmt.Errorf(`ent: validator failed for field "EnterpriseMemberBudgetReservation.request_id": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.RequestPayloadHash(); ok {
+		if err := enterprisememberbudgetreservation.RequestPayloadHashValidator(v); err != nil {
+			return &ValidationError{Name: "request_payload_hash", err: fmt.Errorf(`ent: validator failed for field "EnterpriseMemberBudgetReservation.request_payload_hash": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.OutcomeReason(); ok {
+		if err := enterprisememberbudgetreservation.OutcomeReasonValidator(v); err != nil {
+			return &ValidationError{Name: "outcome_reason", err: fmt.Errorf(`ent: validator failed for field "EnterpriseMemberBudgetReservation.outcome_reason": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.ReconcileAttempts(); ok {
+		if err := enterprisememberbudgetreservation.ReconcileAttemptsValidator(v); err != nil {
+			return &ValidationError{Name: "reconcile_attempts", err: fmt.Errorf(`ent: validator failed for field "EnterpriseMemberBudgetReservation.reconcile_attempts": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Status(); ok {
 		if err := enterprisememberbudgetreservation.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "EnterpriseMemberBudgetReservation.status": %w`, err)}
@@ -258,6 +369,33 @@ func (_u *EnterpriseMemberBudgetReservationUpdate) sqlSave(ctx context.Context) 
 	}
 	if value, ok := _u.mutation.RequestID(); ok {
 		_spec.SetField(enterprisememberbudgetreservation.FieldRequestID, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.GroupID(); ok {
+		_spec.SetField(enterprisememberbudgetreservation.FieldGroupID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedGroupID(); ok {
+		_spec.AddField(enterprisememberbudgetreservation.FieldGroupID, field.TypeInt64, value)
+	}
+	if _u.mutation.GroupIDCleared() {
+		_spec.ClearField(enterprisememberbudgetreservation.FieldGroupID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.RequestPayloadHash(); ok {
+		_spec.SetField(enterprisememberbudgetreservation.FieldRequestPayloadHash, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.OutcomeReason(); ok {
+		_spec.SetField(enterprisememberbudgetreservation.FieldOutcomeReason, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.ReconcileAttempts(); ok {
+		_spec.SetField(enterprisememberbudgetreservation.FieldReconcileAttempts, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedReconcileAttempts(); ok {
+		_spec.AddField(enterprisememberbudgetreservation.FieldReconcileAttempts, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.LastReconcileAt(); ok {
+		_spec.SetField(enterprisememberbudgetreservation.FieldLastReconcileAt, field.TypeTime, value)
+	}
+	if _u.mutation.LastReconcileAtCleared() {
+		_spec.ClearField(enterprisememberbudgetreservation.FieldLastReconcileAt, field.TypeTime)
 	}
 	if value, ok := _u.mutation.PeriodStart(); ok {
 		_spec.SetField(enterprisememberbudgetreservation.FieldPeriodStart, field.TypeTime, value)
@@ -366,6 +504,102 @@ func (_u *EnterpriseMemberBudgetReservationUpdateOne) SetNillableMemberID(v *int
 	if v != nil {
 		_u.SetMemberID(*v)
 	}
+	return _u
+}
+
+// SetGroupID sets the "group_id" field.
+func (_u *EnterpriseMemberBudgetReservationUpdateOne) SetGroupID(v int64) *EnterpriseMemberBudgetReservationUpdateOne {
+	_u.mutation.ResetGroupID()
+	_u.mutation.SetGroupID(v)
+	return _u
+}
+
+// SetNillableGroupID sets the "group_id" field if the given value is not nil.
+func (_u *EnterpriseMemberBudgetReservationUpdateOne) SetNillableGroupID(v *int64) *EnterpriseMemberBudgetReservationUpdateOne {
+	if v != nil {
+		_u.SetGroupID(*v)
+	}
+	return _u
+}
+
+// AddGroupID adds value to the "group_id" field.
+func (_u *EnterpriseMemberBudgetReservationUpdateOne) AddGroupID(v int64) *EnterpriseMemberBudgetReservationUpdateOne {
+	_u.mutation.AddGroupID(v)
+	return _u
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (_u *EnterpriseMemberBudgetReservationUpdateOne) ClearGroupID() *EnterpriseMemberBudgetReservationUpdateOne {
+	_u.mutation.ClearGroupID()
+	return _u
+}
+
+// SetRequestPayloadHash sets the "request_payload_hash" field.
+func (_u *EnterpriseMemberBudgetReservationUpdateOne) SetRequestPayloadHash(v string) *EnterpriseMemberBudgetReservationUpdateOne {
+	_u.mutation.SetRequestPayloadHash(v)
+	return _u
+}
+
+// SetNillableRequestPayloadHash sets the "request_payload_hash" field if the given value is not nil.
+func (_u *EnterpriseMemberBudgetReservationUpdateOne) SetNillableRequestPayloadHash(v *string) *EnterpriseMemberBudgetReservationUpdateOne {
+	if v != nil {
+		_u.SetRequestPayloadHash(*v)
+	}
+	return _u
+}
+
+// SetOutcomeReason sets the "outcome_reason" field.
+func (_u *EnterpriseMemberBudgetReservationUpdateOne) SetOutcomeReason(v string) *EnterpriseMemberBudgetReservationUpdateOne {
+	_u.mutation.SetOutcomeReason(v)
+	return _u
+}
+
+// SetNillableOutcomeReason sets the "outcome_reason" field if the given value is not nil.
+func (_u *EnterpriseMemberBudgetReservationUpdateOne) SetNillableOutcomeReason(v *string) *EnterpriseMemberBudgetReservationUpdateOne {
+	if v != nil {
+		_u.SetOutcomeReason(*v)
+	}
+	return _u
+}
+
+// SetReconcileAttempts sets the "reconcile_attempts" field.
+func (_u *EnterpriseMemberBudgetReservationUpdateOne) SetReconcileAttempts(v int) *EnterpriseMemberBudgetReservationUpdateOne {
+	_u.mutation.ResetReconcileAttempts()
+	_u.mutation.SetReconcileAttempts(v)
+	return _u
+}
+
+// SetNillableReconcileAttempts sets the "reconcile_attempts" field if the given value is not nil.
+func (_u *EnterpriseMemberBudgetReservationUpdateOne) SetNillableReconcileAttempts(v *int) *EnterpriseMemberBudgetReservationUpdateOne {
+	if v != nil {
+		_u.SetReconcileAttempts(*v)
+	}
+	return _u
+}
+
+// AddReconcileAttempts adds value to the "reconcile_attempts" field.
+func (_u *EnterpriseMemberBudgetReservationUpdateOne) AddReconcileAttempts(v int) *EnterpriseMemberBudgetReservationUpdateOne {
+	_u.mutation.AddReconcileAttempts(v)
+	return _u
+}
+
+// SetLastReconcileAt sets the "last_reconcile_at" field.
+func (_u *EnterpriseMemberBudgetReservationUpdateOne) SetLastReconcileAt(v time.Time) *EnterpriseMemberBudgetReservationUpdateOne {
+	_u.mutation.SetLastReconcileAt(v)
+	return _u
+}
+
+// SetNillableLastReconcileAt sets the "last_reconcile_at" field if the given value is not nil.
+func (_u *EnterpriseMemberBudgetReservationUpdateOne) SetNillableLastReconcileAt(v *time.Time) *EnterpriseMemberBudgetReservationUpdateOne {
+	if v != nil {
+		_u.SetLastReconcileAt(*v)
+	}
+	return _u
+}
+
+// ClearLastReconcileAt clears the value of the "last_reconcile_at" field.
+func (_u *EnterpriseMemberBudgetReservationUpdateOne) ClearLastReconcileAt() *EnterpriseMemberBudgetReservationUpdateOne {
+	_u.mutation.ClearLastReconcileAt()
 	return _u
 }
 
@@ -558,6 +792,21 @@ func (_u *EnterpriseMemberBudgetReservationUpdateOne) check() error {
 			return &ValidationError{Name: "request_id", err: fmt.Errorf(`ent: validator failed for field "EnterpriseMemberBudgetReservation.request_id": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.RequestPayloadHash(); ok {
+		if err := enterprisememberbudgetreservation.RequestPayloadHashValidator(v); err != nil {
+			return &ValidationError{Name: "request_payload_hash", err: fmt.Errorf(`ent: validator failed for field "EnterpriseMemberBudgetReservation.request_payload_hash": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.OutcomeReason(); ok {
+		if err := enterprisememberbudgetreservation.OutcomeReasonValidator(v); err != nil {
+			return &ValidationError{Name: "outcome_reason", err: fmt.Errorf(`ent: validator failed for field "EnterpriseMemberBudgetReservation.outcome_reason": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.ReconcileAttempts(); ok {
+		if err := enterprisememberbudgetreservation.ReconcileAttemptsValidator(v); err != nil {
+			return &ValidationError{Name: "reconcile_attempts", err: fmt.Errorf(`ent: validator failed for field "EnterpriseMemberBudgetReservation.reconcile_attempts": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Status(); ok {
 		if err := enterprisememberbudgetreservation.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "EnterpriseMemberBudgetReservation.status": %w`, err)}
@@ -600,6 +849,33 @@ func (_u *EnterpriseMemberBudgetReservationUpdateOne) sqlSave(ctx context.Contex
 	}
 	if value, ok := _u.mutation.RequestID(); ok {
 		_spec.SetField(enterprisememberbudgetreservation.FieldRequestID, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.GroupID(); ok {
+		_spec.SetField(enterprisememberbudgetreservation.FieldGroupID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedGroupID(); ok {
+		_spec.AddField(enterprisememberbudgetreservation.FieldGroupID, field.TypeInt64, value)
+	}
+	if _u.mutation.GroupIDCleared() {
+		_spec.ClearField(enterprisememberbudgetreservation.FieldGroupID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.RequestPayloadHash(); ok {
+		_spec.SetField(enterprisememberbudgetreservation.FieldRequestPayloadHash, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.OutcomeReason(); ok {
+		_spec.SetField(enterprisememberbudgetreservation.FieldOutcomeReason, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.ReconcileAttempts(); ok {
+		_spec.SetField(enterprisememberbudgetreservation.FieldReconcileAttempts, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedReconcileAttempts(); ok {
+		_spec.AddField(enterprisememberbudgetreservation.FieldReconcileAttempts, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.LastReconcileAt(); ok {
+		_spec.SetField(enterprisememberbudgetreservation.FieldLastReconcileAt, field.TypeTime, value)
+	}
+	if _u.mutation.LastReconcileAtCleared() {
+		_spec.ClearField(enterprisememberbudgetreservation.FieldLastReconcileAt, field.TypeTime)
 	}
 	if value, ok := _u.mutation.PeriodStart(); ok {
 		_spec.SetField(enterprisememberbudgetreservation.FieldPeriodStart, field.TypeTime, value)

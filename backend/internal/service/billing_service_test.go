@@ -1562,3 +1562,20 @@ func TestComputeTokenBreakdown_NonExplicitZeroImagePrice_FallsBackToOutput(t *te
 	// textOutputTokens = 200 - 50 = 150
 	require.InDelta(t, 150*15e-6, bd.OutputCost, 1e-12)
 }
+
+func TestBillingServiceGetModelPricing_MapsDynamicMaxOutputTokens(t *testing.T) {
+	pricingService := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"bounded-model": {
+			MaxInputTokens:     200000,
+			MaxOutputTokens:    64000,
+			InputCostPerToken:  0.000001,
+			OutputCostPerToken: 0.000002,
+		},
+	}}
+	svc := &BillingService{pricingService: pricingService}
+
+	pricing, err := svc.GetModelPricing("bounded-model")
+	require.NoError(t, err)
+	require.Equal(t, 200000, pricing.MaxInputTokens)
+	require.Equal(t, 64000, pricing.MaxOutputTokens)
+}

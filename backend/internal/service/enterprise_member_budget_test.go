@@ -1,12 +1,303 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"mime/multipart"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+type enterpriseMemberBudgetRateRepoStub struct {
+	UserGroupRateRepository
+	rate *float64
+	err  error
+}
+
+type enterpriseMemberBudgetAccountRepoStub struct {
+	accounts []Account
+	err      error
+}
+
+func (s *enterpriseMemberBudgetAccountRepoStub) ListSchedulableByGroupID(context.Context, int64) ([]Account, error) {
+	return append([]Account(nil), s.accounts...), s.err
+}
+
+type enterpriseMemberBudgetReceiptRepoSpy struct {
+	EnterpriseMemberBudgetRepository
+	requestID              string
+	memberID               int64
+	groupID                *int64
+	payloadHash            string
+	amount                 float64
+	resolvedReceiptID      int64
+	resolvedInput          EnterpriseMemberAmbiguousReceiptResolution
+	resolvedActorUserID    int64
+	resolveAmbiguousCalled bool
+}
+
+func (s *enterpriseMemberBudgetReceiptRepoSpy) Reserve(_ context.Context, requestID string, memberID int64, groupID *int64, payloadHash string, amount float64, expiresAt time.Time) (*EnterpriseMemberBudgetReservation, error) {
+	s.requestID = requestID
+	s.memberID = memberID
+	s.groupID = groupID
+	s.payloadHash = payloadHash
+	s.amount = amount
+	return &EnterpriseMemberBudgetReservation{
+		ID:          91,
+		RequestID:   requestID,
+		MemberID:    memberID,
+		GroupID:     groupID,
+		PayloadHash: payloadHash,
+		ReservedUSD: amount,
+		Status:      "reserved",
+		ExpiresAt:   expiresAt,
+	}, nil
+}
+
+func (s *enterpriseMemberBudgetReceiptRepoSpy) ResolveAmbiguousReceipt(_ context.Context, receiptID int64, input EnterpriseMemberAmbiguousReceiptResolution, actorUserID int64) (*EnterpriseMemberAmbiguousReceipt, error) {
+	s.resolveAmbiguousCalled = true
+	s.resolvedReceiptID = receiptID
+	s.resolvedInput = input
+	s.resolvedActorUserID = actorUserID
+	return &EnterpriseMemberAmbiguousReceipt{ID: receiptID, OutcomeReason: "manual_release"}, nil
+}
+
+func TestEnterpriseMemberBudgetManualResolutionOnlyAllowsProvenRelease(t *testing.T) {
+	repo := &enterpriseMemberBudgetReceiptRepoSpy{}
+	budgetService := NewEnterpriseMemberBudgetService(repo, nil, nil)
+
+	_, err := budgetService.ResolveAmbiguousReceipt(context.Background(), 91, EnterpriseMemberAmbiguousReceiptResolution{
+		Decision:                  "settle",
+		ExpectedReconcileAttempts: 2,
+		Reason:                    "provider charged the request",
+	}, 7)
+	require.ErrorIs(t, err, ErrEnterpriseMemberBudgetConflict)
+	require.False(t, repo.resolveAmbiguousCalled, "manual settlement must not bypass the unified billing transaction")
+
+	resolved, err := budgetService.ResolveAmbiguousReceipt(context.Background(), 91, EnterpriseMemberAmbiguousReceiptResolution{
+		Decision:                  " RELEASE ",
+		ExpectedReconcileAttempts: 2,
+		Reason:                    " upstream confirmed no task exists ",
+	}, 7)
+	require.NoError(t, err)
+	require.Equal(t, int64(91), resolved.ID)
+	require.True(t, repo.resolveAmbiguousCalled)
+	require.Equal(t, int64(91), repo.resolvedReceiptID)
+	require.Equal(t, EnterpriseMemberReceiptDecisionRelease, repo.resolvedInput.Decision)
+	require.Equal(t, "upstream confirmed no task exists", repo.resolvedInput.Reason)
+	require.Equal(t, int64(7), repo.resolvedActorUserID)
+}
+
+func TestEnterpriseMemberBudgetReserveCreatesDurableReceiptForUnlimitedMember(t *testing.T) {
+	repo := &enterpriseMemberBudgetReceiptRepoSpy{}
+	budgetService := NewEnterpriseMemberBudgetService(repo, nil, nil)
+	memberID := int64(44)
+	groupID := int64(9)
+	body := []byte(`{"model":"gpt-test"}`)
+
+	receipt, err := budgetService.Reserve(context.Background(), EnterpriseMemberBudgetEstimateInput{
+		RequestID:   "request-uuid",
+		APIKey:      &APIKey{ID: 17, MemberID: &memberID, GroupID: &groupID, Member: &EnterpriseMember{ID: memberID}},
+		Endpoint:    "/v1/responses",
+		ContentType: "application/json",
+		Body:        body,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, receipt)
+	require.Equal(t, "17:client:request-uuid", repo.requestID)
+	require.Equal(t, memberID, repo.memberID)
+	require.Equal(t, &groupID, repo.groupID)
+	require.Equal(t, HashUsageRequestPayload(body), repo.payloadHash)
+	require.Zero(t, repo.amount)
+}
+
+func (s *enterpriseMemberBudgetRateRepoStub) GetByUserAndGroup(context.Context, int64, int64) (*float64, error) {
+	return s.rate, s.err
+}
+
+func TestEnterpriseMemberBudgetRequestShapeParsesMultipartImageEditFields(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	require.NoError(t, writer.WriteField("model", "gpt-image-1"))
+	require.NoError(t, writer.WriteField("n", "3"))
+	file, err := writer.CreateFormFile("image", "input.png")
+	require.NoError(t, err)
+	_, err = file.Write([]byte("not-a-real-image"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	shape, err := parseEnterpriseMemberBudgetRequestShape(writer.FormDataContentType(), body.Bytes())
+	require.NoError(t, err)
+	require.Equal(t, "gpt-image-1", shape.Model)
+	require.Equal(t, 3, shape.N)
+}
+
+func TestEnterpriseMemberBudgetFailsClosedWhenUserRateCannotBeResolved(t *testing.T) {
+	service := &EnterpriseMemberBudgetService{
+		pricingResolver:   &ModelPricingResolver{billingService: NewBillingService(nil, nil)},
+		userGroupRateRepo: &enterpriseMemberBudgetRateRepoStub{err: errors.New("db unavailable")},
+	}
+	memberID := int64(44)
+	_, err := service.estimateUpperBound(context.Background(), EnterpriseMemberBudgetEstimateInput{
+		APIKey:         &APIKey{UserID: 7, MemberID: &memberID, Member: &EnterpriseMember{Groups: []Group{{ID: 9, RateMultiplier: 1}}}},
+		RequestedModel: "gpt-5",
+		Endpoint:       "/v1/responses",
+		ContentType:    "application/json",
+		Body:           []byte(`{"max_output_tokens":1}`),
+	})
+	require.ErrorIs(t, err, ErrEnterpriseMemberBudgetUnbounded)
+}
+
+func TestEnterpriseMemberBudgetFailsClosedWhenAnyCandidateGroupCannotBePriced(t *testing.T) {
+	channelService := &ChannelService{}
+	channelCache := newEmptyChannelCache()
+	channelCache.loadedAt = time.Now()
+	channelService.cache.Store(channelCache)
+	budgetService := &EnterpriseMemberBudgetService{
+		pricingResolver: NewModelPricingResolver(channelService, NewBillingService(nil, nil)),
+	}
+	memberID := int64(44)
+	_, err := budgetService.estimateUpperBound(context.Background(), EnterpriseMemberBudgetEstimateInput{
+		APIKey: &APIKey{
+			UserID:   7,
+			MemberID: &memberID,
+			Member: &EnterpriseMember{Groups: []Group{
+				{ID: 9, RateMultiplier: 1, DefaultMappedModel: "gpt-5"},
+				{ID: 10, RateMultiplier: 1},
+			}},
+		},
+		RequestedModel: "model-without-pricing",
+		Endpoint:       "/v1/responses",
+		ContentType:    "application/json",
+		Body:           []byte(`{"max_output_tokens":1}`),
+	})
+	require.ErrorIs(t, err, ErrEnterpriseMemberBudgetUnbounded)
+}
+
+func TestEnterpriseMemberBudgetModelCandidatesIncludeConfiguredMappings(t *testing.T) {
+	models := enterpriseMemberBudgetModelCandidates("requested", &Group{
+		DefaultMappedModel: "default-mapped",
+		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
+			OpusMappedModel:    "opus-mapped",
+			ExactModelMappings: map[string]string{"input": "exact-mapped"},
+		},
+	})
+	require.ElementsMatch(t, []string{"requested", "default-mapped", "opus-mapped", "exact-mapped"}, models)
+}
+
+func TestEnterpriseMemberBudgetReachableModelsIncludeChannelAndAccountMappings(t *testing.T) {
+	channelService := &ChannelService{}
+	channelCache := newEmptyChannelCache()
+	channelCache.loadedAt = time.Now()
+	channelCache.channelByGroupID[9] = &Channel{ID: 19, Status: StatusActive, BillingModelSource: BillingModelSourceUpstream}
+	channelCache.groupPlatform[9] = PlatformOpenAI
+	channelCache.mappingByGroupModel[channelModelKey{groupID: 9, platform: PlatformOpenAI, model: "requested"}] = "channel-mapped"
+	channelService.cache.Store(channelCache)
+
+	budgetService := &EnterpriseMemberBudgetService{
+		pricingResolver: NewModelPricingResolver(channelService, NewBillingService(nil, nil)),
+		accountRepo: &enterpriseMemberBudgetAccountRepoStub{accounts: []Account{{
+			ID: 71, Platform: PlatformOpenAI, Credentials: map[string]any{
+				"model_mapping": map[string]any{"channel-mapped": "upstream-mapped"},
+			},
+		}}},
+	}
+	models, err := budgetService.enterpriseMemberBudgetReachableModelCandidates(context.Background(), "requested", &Group{ID: 9})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"requested", "channel-mapped", "upstream-mapped"}, models)
+}
+
+func TestEnterpriseMemberBudgetFailsClosedWhenReachableAccountsCannotBeLoaded(t *testing.T) {
+	budgetService := &EnterpriseMemberBudgetService{
+		pricingResolver: NewModelPricingResolver(nil, NewBillingService(nil, nil)),
+		accountRepo:     &enterpriseMemberBudgetAccountRepoStub{err: errors.New("database unavailable")},
+	}
+	memberID := int64(44)
+	_, err := budgetService.estimateUpperBound(context.Background(), EnterpriseMemberBudgetEstimateInput{
+		APIKey:         &APIKey{MemberID: &memberID, Member: &EnterpriseMember{Groups: []Group{{ID: 9, RateMultiplier: 1}}}},
+		RequestedModel: "gpt-5",
+		Endpoint:       "/v1/responses",
+		Body:           []byte(`{"max_output_tokens":1}`),
+	})
+	require.ErrorIs(t, err, ErrEnterpriseMemberBudgetUnbounded)
+}
+
+func TestEnterpriseMemberBudgetReservesForMostExpensiveAccountMappedModel(t *testing.T) {
+	pricingService := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"requested":       {InputCostPerToken: 1e-9, OutputCostPerToken: 1e-9, MaxOutputTokens: 100},
+		"upstream-mapped": {InputCostPerToken: 1e-3, OutputCostPerToken: 2e-3, MaxOutputTokens: 100},
+	}}
+	resolver := NewModelPricingResolver(nil, NewBillingService(nil, pricingService))
+	memberID := int64(44)
+	input := EnterpriseMemberBudgetEstimateInput{
+		APIKey:         &APIKey{MemberID: &memberID, Member: &EnterpriseMember{Groups: []Group{{ID: 9, RateMultiplier: 1}}}},
+		RequestedModel: "requested",
+		Endpoint:       "/v1/responses",
+		Body:           []byte(`{"input":"hello","max_output_tokens":10}`),
+	}
+
+	requestedOnly := &EnterpriseMemberBudgetService{pricingResolver: resolver}
+	requestedCost, err := requestedOnly.estimateUpperBound(context.Background(), input)
+	require.NoError(t, err)
+
+	mapped := &EnterpriseMemberBudgetService{
+		pricingResolver: resolver,
+		accountRepo: &enterpriseMemberBudgetAccountRepoStub{accounts: []Account{{
+			ID: 71, Platform: PlatformOpenAI,
+			Credentials: map[string]any{"model_mapping": map[string]any{"requested": "upstream-mapped"}},
+		}}},
+	}
+	mappedCost, err := mapped.estimateUpperBound(context.Background(), input)
+	require.NoError(t, err)
+	require.Greater(t, mappedCost, requestedCost*1000)
+}
+
+func TestEnterpriseMemberBudgetFailsClosedForUnpricedMappingWithinPricedGroup(t *testing.T) {
+	pricingService := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"requested": {InputCostPerToken: 1e-6, OutputCostPerToken: 1e-6, MaxOutputTokens: 100},
+	}}
+	memberID := int64(44)
+	budgetService := &EnterpriseMemberBudgetService{
+		pricingResolver: NewModelPricingResolver(nil, NewBillingService(nil, pricingService)),
+		accountRepo: &enterpriseMemberBudgetAccountRepoStub{accounts: []Account{{
+			ID: 71, Platform: PlatformOpenAI,
+			Credentials: map[string]any{"model_mapping": map[string]any{"requested": "unpriced-upstream-model"}},
+		}}},
+	}
+
+	_, err := budgetService.estimateUpperBound(context.Background(), EnterpriseMemberBudgetEstimateInput{
+		APIKey:         &APIKey{MemberID: &memberID, Member: &EnterpriseMember{Groups: []Group{{ID: 9, RateMultiplier: 1}}}},
+		RequestedModel: "requested",
+		Endpoint:       "/v1/responses",
+		Body:           []byte(`{"input":"hello","max_output_tokens":10}`),
+	})
+
+	require.ErrorIs(t, err, ErrEnterpriseMemberBudgetUnbounded)
+}
+
+func TestEnterpriseMemberBudgetAlphaSearchUsesPerCallPriceWithoutModelPricing(t *testing.T) {
+	memberID := int64(44)
+	unitPrice := 0.005
+	budgetService := &EnterpriseMemberBudgetService{
+		pricingResolver: NewModelPricingResolver(nil, NewBillingService(nil, &PricingService{pricingData: map[string]*LiteLLMModelPricing{}})),
+	}
+
+	cost, err := budgetService.estimateUpperBound(context.Background(), EnterpriseMemberBudgetEstimateInput{
+		APIKey: &APIKey{MemberID: &memberID, Member: &EnterpriseMember{Groups: []Group{{
+			ID: 9, RateMultiplier: 2, WebSearchPricePerCall: &unitPrice,
+		}}}},
+		RequestedModel: "search-model-without-token-pricing",
+		Endpoint:       "/v1/alpha/search",
+		Body:           []byte(`{"query":"weather"}`),
+	})
+
+	require.NoError(t, err)
+	require.InDelta(t, 0.0125, cost, 1e-12)
+}
 
 func TestResolvedPricingUpperBoundUsesWorstTokenAndTierPrices(t *testing.T) {
 	input := 0.02
@@ -17,6 +308,70 @@ func TestResolvedPricingUpperBoundUsesWorstTokenAndTierPrices(t *testing.T) {
 		Intervals:   []PricingInterval{{InputPrice: &input, OutputPrice: &output}},
 	}
 	require.InDelta(t, 0.2, resolvedPricingUpperBound(pricing, 5, 2, 1), 1e-12)
+}
+
+func TestResolvedPricingUpperBoundMultipliesTokenCostByRequestedCount(t *testing.T) {
+	pricing := &ResolvedPricing{
+		Mode: BillingModeToken,
+		BasePricing: &ModelPricing{
+			InputPricePerToken:  0.01,
+			OutputPricePerToken: 0.03,
+		},
+	}
+
+	require.InDelta(t, 0.38, resolvedPricingUpperBound(pricing, 2, 3, 4), 1e-12)
+}
+
+func TestEnterpriseMemberOutputTokenUpperBoundUsesConservativeHardCapWhenOmitted(t *testing.T) {
+	require.Equal(t, enterpriseMemberMaxOutputTokensUpperBound, enterpriseMemberOutputTokenUpperBound(0, 0))
+	require.Equal(t, 64000, enterpriseMemberOutputTokenUpperBound(0, 64000))
+	require.Equal(t, 8192, enterpriseMemberOutputTokenUpperBound(8192, 64000))
+	require.Equal(t, enterpriseMemberMaxOutputTokensUpperBound, enterpriseMemberOutputTokenUpperBound(0, enterpriseMemberMaxOutputTokensUpperBound+1))
+}
+
+func TestEnterpriseMemberBudgetRejectsRequestCountAboveSafeBound(t *testing.T) {
+	service := &EnterpriseMemberBudgetService{
+		pricingResolver: &ModelPricingResolver{billingService: &BillingService{}},
+	}
+	memberID := int64(44)
+	_, err := service.estimateUpperBound(context.Background(), EnterpriseMemberBudgetEstimateInput{
+		APIKey: &APIKey{
+			MemberID: &memberID,
+			Member: &EnterpriseMember{Groups: []Group{{
+				ID:             9,
+				RateMultiplier: 1,
+			}}},
+		},
+		RequestedModel: "gpt-5",
+		Endpoint:       "/v1/responses",
+		Body:           []byte(`{"n":1025,"max_output_tokens":1}`),
+	})
+	require.ErrorIs(t, err, ErrEnterpriseMemberBudgetUnbounded)
+}
+
+func TestEnterpriseMemberVideoUpperBoundIncludesDurationAndCount(t *testing.T) {
+	price := 0.10
+	group := &Group{VideoPrice720P: &price}
+	billingService := &BillingService{}
+
+	require.InDelta(t, 2*15*defaultImageGenerationPrice*1.5, enterpriseMemberVideoUpperBound(billingService, "unknown", group, 2, 15), 1e-12, "unset resolution prices fall back to the model default")
+	require.InDelta(t, VideoBillingDefaultDurationSeconds*defaultImageGenerationPrice*1.5, enterpriseMemberVideoUpperBound(billingService, "unknown", group, 1, 0), 1e-12, "omitted duration and prices use upstream defaults")
+	require.InDelta(t, 3.75, enterpriseMemberVideoUpperBound(billingService, "grok-imagine-video-1.5", &Group{}, 1, 15), 1e-12, "missing group prices use the most expensive model default")
+}
+
+func TestEnterpriseMemberRequestMayExpandInput(t *testing.T) {
+	require.False(t, enterpriseMemberRequestMayExpandInput([]byte(`{"input":"plain text"}`)))
+	require.True(t, enterpriseMemberRequestMayExpandInput([]byte(`{"previous_response_id":"resp_123"}`)))
+	require.True(t, enterpriseMemberRequestMayExpandInput([]byte(`{"input":[{"type":"input_image","image_url":"https://example.com/a.png"}]}`)))
+	require.Equal(t, 200000, enterpriseMemberInputTokenUpperBound(200000))
+	require.Equal(t, enterpriseMemberMaxInputTokensUpperBound, enterpriseMemberInputTokenUpperBound(0))
+}
+
+func TestEnterpriseMemberImageUpperBoundUsesConfiguredAndDefaultPrices(t *testing.T) {
+	price := 0.20
+	billingService := &BillingService{}
+	require.InDelta(t, 2*defaultImageGenerationPrice*2, enterpriseMemberImageUpperBound(billingService, "unknown", &Group{ImagePrice2K: &price}, 2), 1e-12, "unset tiers keep their default prices")
+	require.InDelta(t, defaultGrokImagineImageQualityPrice2K, enterpriseMemberImageUpperBound(billingService, "grok-imagine-image-quality", &Group{}, 1), 1e-12)
 }
 
 func TestEnterpriseMemberBudgetRequestIDScopesClientIDByKey(t *testing.T) {
@@ -34,9 +389,19 @@ func TestNormalizeEnterpriseMemberBudgetRequestIDMatchesUnifiedBilling(t *testin
 }
 
 func TestEnterpriseMemberEndpointIsBillableDelegatesAsyncBatchLifecycle(t *testing.T) {
-	require.False(t, enterpriseMemberEndpointIsBillable("/v1/images/batches"))
-	require.False(t, enterpriseMemberEndpointIsBillable("/v1/images/batches/job-1"))
-	require.True(t, enterpriseMemberEndpointIsBillable("/v1/images/generations"))
+	require.False(t, enterpriseMemberEndpointIsBillable("POST", "/v1/images/batches"))
+	require.False(t, enterpriseMemberEndpointIsBillable("GET", "/v1/images/batches/job-1"))
+	require.True(t, enterpriseMemberEndpointIsBillable("POST", "/v1/images/generations"))
+	require.True(t, enterpriseMemberEndpointIsBillable("POST", "/v1/videos/generations"))
+	require.True(t, enterpriseMemberEndpointIsBillable("POST", "/v1/videos/edits"))
+	require.True(t, enterpriseMemberEndpointIsBillable("POST", "/v1/videos/extensions"))
+	require.False(t, enterpriseMemberEndpointIsBillable("GET", "/v1/videos/video-1"))
+	require.False(t, enterpriseMemberEndpointIsBillable("POST", "/v1/messages/count_tokens"))
+	require.False(t, enterpriseMemberEndpointIsBillable("POST", "/v1beta/models/gemini-2.5-pro:countTokens"))
+	require.False(t, enterpriseMemberEndpointIsBillable("POST", "/v1/responses/input_tokens"))
+	require.False(t, enterpriseMemberEndpointIsBillable("GET", "/v1beta/models/gemini-2.5-pro"))
+	require.False(t, enterpriseMemberEndpointIsBillable("GET", "/v1beta/models"))
+	require.True(t, enterpriseMemberEndpointIsBillable("GET", "/v1/responses"), "responses websocket requests remain billable")
 }
 
 func TestEnterpriseMemberCurrentBudgetPeriodUsesShanghaiCalendarBoundary(t *testing.T) {

@@ -49,3 +49,28 @@ func TestUsageUnrestrictedIncludesWeeklyWindowStart(t *testing.T) {
 	require.NotNil(t, response.Subscription.WeeklyWindowStart)
 	require.True(t, weeklyWindowStart.Equal(*response.Subscription.WeeklyWindowStart))
 }
+
+func TestUsageMemberKeyNeverReturnsOwnerBalance(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/usage", nil)
+	memberID := int64(44)
+	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
+		ID:       11,
+		UserID:   7,
+		Status:   service.StatusAPIKeyActive,
+		MemberID: &memberID,
+	})
+	c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 7})
+
+	(&GatewayHandler{}).Usage(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response map[string]any
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Equal(t, "quota_limited", response["mode"])
+	require.NotContains(t, response, "balance")
+	require.NotContains(t, response, "subscription")
+	require.NotContains(t, response, "remaining")
+}

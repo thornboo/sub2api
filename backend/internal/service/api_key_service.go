@@ -69,6 +69,11 @@ const (
 	apiKeyStatusLookupLocalMax = 4096
 )
 
+var ErrAPIKeyManagedByEnterpriseMember = infraerrors.Conflict(
+	"API_KEY_MANAGED_BY_ENTERPRISE_MEMBER",
+	"enterprise member keys must be managed from enterprise members",
+)
+
 type APIKeyRepository interface {
 	Create(ctx context.Context, key *APIKey) error
 	GetByID(ctx context.Context, id int64) (*APIKey, error)
@@ -766,6 +771,9 @@ func (s *APIKeyService) listOwnedAPIKeysForBatch(ctx context.Context, userID int
 	}
 	byID := make(map[int64]APIKey, len(keys))
 	for _, key := range keys {
+		if key.MemberID != nil {
+			return nil, ErrAPIKeyManagedByEnterpriseMember
+		}
 		byID[key.ID] = key
 	}
 	for _, id := range ids {
@@ -1495,6 +1503,17 @@ func (s *APIKeyService) GetByKey(ctx context.Context, key string) (*APIKey, erro
 
 // Update 更新API Key
 func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req UpdateAPIKeyRequest) (*APIKey, error) {
+	return s.update(ctx, id, userID, nil, req)
+}
+
+// UpdateEnterpriseMemberKey updates a member-owned key after the caller has
+// already established the enterprise owner/member scope. Legacy key handlers
+// must continue using Update so member keys remain isolated from that surface.
+func (s *APIKeyService) UpdateEnterpriseMemberKey(ctx context.Context, id, userID, memberID int64, req UpdateAPIKeyRequest) (*APIKey, error) {
+	return s.update(ctx, id, userID, &memberID, req)
+}
+
+func (s *APIKeyService) update(ctx context.Context, id int64, userID int64, expectedMemberID *int64, req UpdateAPIKeyRequest) (*APIKey, error) {
 	apiKey, err := s.apiKeyRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("get api key: %w", err)
@@ -1503,6 +1522,13 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 	// 验证所有权
 	if apiKey.UserID != userID {
 		return nil, ErrInsufficientPerms
+	}
+	if expectedMemberID == nil {
+		if apiKey.MemberID != nil {
+			return nil, ErrAPIKeyManagedByEnterpriseMember
+		}
+	} else if apiKey.MemberID == nil || *apiKey.MemberID != *expectedMemberID {
+		return nil, ErrAPIKeyNotFound
 	}
 
 	// 验证 IP 白名单格式
@@ -1638,14 +1664,31 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 
 // Delete 删除API Key
 func (s *APIKeyService) Delete(ctx context.Context, id int64, userID int64) error {
-	key, ownerID, err := s.apiKeyRepo.GetKeyAndOwnerID(ctx, id)
+	return s.delete(ctx, id, userID, nil)
+}
+
+// DeleteEnterpriseMemberKey deletes a member-owned key inside the already
+// authorized enterprise-member scope without exposing it to legacy handlers.
+func (s *APIKeyService) DeleteEnterpriseMemberKey(ctx context.Context, id, userID, memberID int64) error {
+	return s.delete(ctx, id, userID, &memberID)
+}
+
+func (s *APIKeyService) delete(ctx context.Context, id int64, userID int64, expectedMemberID *int64) error {
+	apiKey, err := s.apiKeyRepo.GetByID(ctx, id)
 	if err != nil {
 		return fmt.Errorf("get api key: %w", err)
 	}
 
 	// 验证当前用户是否为该 API Key 的所有者
-	if ownerID != userID {
+	if apiKey.UserID != userID {
 		return ErrInsufficientPerms
+	}
+	if expectedMemberID == nil {
+		if apiKey.MemberID != nil {
+			return ErrAPIKeyManagedByEnterpriseMember
+		}
+	} else if apiKey.MemberID == nil || *apiKey.MemberID != *expectedMemberID {
+		return ErrAPIKeyNotFound
 	}
 
 	// 事务内:写审计 + 软删除(tombstone)。
@@ -1657,7 +1700,7 @@ func (s *APIKeyService) Delete(ctx context.Context, id int64, userID int64) erro
 	if s.cache != nil {
 		_ = s.cache.DeleteCreateAttemptCount(ctx, userID)
 	}
-	s.InvalidateAuthCacheByKey(ctx, key)
+	s.InvalidateAuthCacheByKey(ctx, apiKey.Key)
 	s.lastUsedTouchL1.Delete(id)
 
 	return nil

@@ -22,6 +22,16 @@ type EnterpriseMemberBudgetReservation struct {
 	RequestID string `json:"request_id,omitempty"`
 	// MemberID holds the value of the "member_id" field.
 	MemberID int64 `json:"member_id,omitempty"`
+	// GroupID holds the value of the "group_id" field.
+	GroupID *int64 `json:"group_id,omitempty"`
+	// RequestPayloadHash holds the value of the "request_payload_hash" field.
+	RequestPayloadHash string `json:"request_payload_hash,omitempty"`
+	// OutcomeReason holds the value of the "outcome_reason" field.
+	OutcomeReason string `json:"outcome_reason,omitempty"`
+	// ReconcileAttempts holds the value of the "reconcile_attempts" field.
+	ReconcileAttempts int `json:"reconcile_attempts,omitempty"`
+	// LastReconcileAt holds the value of the "last_reconcile_at" field.
+	LastReconcileAt *time.Time `json:"last_reconcile_at,omitempty"`
 	// PeriodStart holds the value of the "period_start" field.
 	PeriodStart time.Time `json:"period_start,omitempty"`
 	// ReservedUsd holds the value of the "reserved_usd" field.
@@ -71,11 +81,11 @@ func (*EnterpriseMemberBudgetReservation) scanValues(columns []string) ([]any, e
 		switch columns[i] {
 		case enterprisememberbudgetreservation.FieldReservedUsd, enterprisememberbudgetreservation.FieldActualUsd:
 			values[i] = new(sql.NullFloat64)
-		case enterprisememberbudgetreservation.FieldID, enterprisememberbudgetreservation.FieldMemberID, enterprisememberbudgetreservation.FieldUsageLogID:
+		case enterprisememberbudgetreservation.FieldID, enterprisememberbudgetreservation.FieldMemberID, enterprisememberbudgetreservation.FieldGroupID, enterprisememberbudgetreservation.FieldReconcileAttempts, enterprisememberbudgetreservation.FieldUsageLogID:
 			values[i] = new(sql.NullInt64)
-		case enterprisememberbudgetreservation.FieldRequestID, enterprisememberbudgetreservation.FieldStatus:
+		case enterprisememberbudgetreservation.FieldRequestID, enterprisememberbudgetreservation.FieldRequestPayloadHash, enterprisememberbudgetreservation.FieldOutcomeReason, enterprisememberbudgetreservation.FieldStatus:
 			values[i] = new(sql.NullString)
-		case enterprisememberbudgetreservation.FieldPeriodStart, enterprisememberbudgetreservation.FieldExpiresAt, enterprisememberbudgetreservation.FieldCreatedAt, enterprisememberbudgetreservation.FieldUpdatedAt:
+		case enterprisememberbudgetreservation.FieldLastReconcileAt, enterprisememberbudgetreservation.FieldPeriodStart, enterprisememberbudgetreservation.FieldExpiresAt, enterprisememberbudgetreservation.FieldCreatedAt, enterprisememberbudgetreservation.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -109,6 +119,38 @@ func (_m *EnterpriseMemberBudgetReservation) assignValues(columns []string, valu
 				return fmt.Errorf("unexpected type %T for field member_id", values[i])
 			} else if value.Valid {
 				_m.MemberID = value.Int64
+			}
+		case enterprisememberbudgetreservation.FieldGroupID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field group_id", values[i])
+			} else if value.Valid {
+				_m.GroupID = new(int64)
+				*_m.GroupID = value.Int64
+			}
+		case enterprisememberbudgetreservation.FieldRequestPayloadHash:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field request_payload_hash", values[i])
+			} else if value.Valid {
+				_m.RequestPayloadHash = value.String
+			}
+		case enterprisememberbudgetreservation.FieldOutcomeReason:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field outcome_reason", values[i])
+			} else if value.Valid {
+				_m.OutcomeReason = value.String
+			}
+		case enterprisememberbudgetreservation.FieldReconcileAttempts:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field reconcile_attempts", values[i])
+			} else if value.Valid {
+				_m.ReconcileAttempts = int(value.Int64)
+			}
+		case enterprisememberbudgetreservation.FieldLastReconcileAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field last_reconcile_at", values[i])
+			} else if value.Valid {
+				_m.LastReconcileAt = new(time.Time)
+				*_m.LastReconcileAt = value.Time
 			}
 		case enterprisememberbudgetreservation.FieldPeriodStart:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -205,6 +247,25 @@ func (_m *EnterpriseMemberBudgetReservation) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("member_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.MemberID))
+	builder.WriteString(", ")
+	if v := _m.GroupID; v != nil {
+		builder.WriteString("group_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("request_payload_hash=")
+	builder.WriteString(_m.RequestPayloadHash)
+	builder.WriteString(", ")
+	builder.WriteString("outcome_reason=")
+	builder.WriteString(_m.OutcomeReason)
+	builder.WriteString(", ")
+	builder.WriteString("reconcile_attempts=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ReconcileAttempts))
+	builder.WriteString(", ")
+	if v := _m.LastReconcileAt; v != nil {
+		builder.WriteString("last_reconcile_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
 	builder.WriteString(", ")
 	builder.WriteString("period_start=")
 	builder.WriteString(_m.PeriodStart.Format(time.ANSIC))

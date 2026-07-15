@@ -6,9 +6,13 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http/httptest"
 	"os"
 	"syscall"
 	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 )
 
 // TestClassifyOpenAITransportError pins which transport-level upstream failures
@@ -82,6 +86,39 @@ func TestClassifyOpenAITransportError(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMarkEnterpriseMemberBudgetTransportOutcome(t *testing.T) {
+	t.Run("unknown outcome is ambiguous", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		markEnterpriseMemberBudgetTransportOutcome(c, errors.New("connection reset by peer"))
+		require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+		require.Equal(t, "upstream_transport_outcome_unknown", EnterpriseMemberBudgetOutcomeAmbiguousReason(c))
+	})
+
+	t.Run("client cancellation after dispatch is ambiguous", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		markEnterpriseMemberBudgetTransportOutcome(c, context.Canceled)
+		require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+		require.Equal(t, "client_disconnected_after_upstream_dispatch", EnterpriseMemberBudgetOutcomeAmbiguousReason(c))
+	})
+
+	t.Run("proven pre-dispatch failure remains releasable", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		markEnterpriseMemberBudgetTransportOutcome(c, syscall.ECONNREFUSED)
+		require.False(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+	})
+}
+
+func TestConsumeEnterpriseMemberBudgetOutcomeAmbiguousClearsTurnState(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "upstream_transport_outcome_unknown")
+
+	ambiguous, reason := ConsumeEnterpriseMemberBudgetOutcomeAmbiguous(c)
+	require.True(t, ambiguous)
+	require.Equal(t, "upstream_transport_outcome_unknown", reason)
+	require.False(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+	require.Empty(t, EnterpriseMemberBudgetOutcomeAmbiguousReason(c))
 }
 
 func errString(err error) string {

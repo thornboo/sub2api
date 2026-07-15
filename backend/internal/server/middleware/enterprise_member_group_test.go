@@ -1,17 +1,53 @@
 package middleware
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+type enterpriseMemberBudgetMiddlewareRepo struct {
+	service.EnterpriseMemberBudgetRepository
+	reservedRequestID  string
+	markedRequestID    string
+	markedReason       string
+	releasedRequestIDs []string
+}
+
+func (r *enterpriseMemberBudgetMiddlewareRepo) Reserve(_ context.Context, requestID string, memberID int64, groupID *int64, payloadHash string, amount float64, expiresAt time.Time) (*service.EnterpriseMemberBudgetReservation, error) {
+	r.reservedRequestID = requestID
+	return &service.EnterpriseMemberBudgetReservation{
+		ID:          1,
+		RequestID:   requestID,
+		MemberID:    memberID,
+		GroupID:     groupID,
+		PayloadHash: payloadHash,
+		ReservedUSD: amount,
+		ExpiresAt:   expiresAt,
+		Status:      "reserved",
+	}, nil
+}
+
+func (r *enterpriseMemberBudgetMiddlewareRepo) MarkAmbiguous(_ context.Context, requestID, outcomeReason string) error {
+	r.markedRequestID = requestID
+	r.markedReason = outcomeReason
+	return nil
+}
+
+func (r *enterpriseMemberBudgetMiddlewareRepo) Release(_ context.Context, requestID string) error {
+	r.releasedRequestIDs = append(r.releasedRequestIDs, requestID)
+	return nil
+}
 
 func TestResolveEnterpriseMemberGroupSelectsOrderedEligibleGroupAndReplaysBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -39,6 +75,9 @@ func TestResolveEnterpriseMemberGroupSelectsOrderedEligibleGroupAndReplaysBody(t
 		require.True(t, ok)
 		require.NotSame(t, key, requestKey)
 		require.Equal(t, int64(12), *requestKey.GroupID)
+		require.NotSame(t, key.Member, requestKey.Member)
+		require.Len(t, requestKey.Member.Groups, 1, "request snapshot must expose only currently authorized candidates")
+		require.Equal(t, int64(12), requestKey.Member.Groups[0].ID)
 		active, ok := service.ActiveGroupFromContext(c.Request.Context())
 		require.True(t, ok)
 		require.Equal(t, int64(12), active.GroupID)
@@ -67,6 +106,60 @@ func TestValidateEnterpriseMemberAPIKeyFailsClosedForDisabledMember(t *testing.T
 	code, _, valid := validateEnterpriseMemberAPIKey(key)
 	require.False(t, valid)
 	require.Equal(t, "ENTERPRISE_MEMBER_DISABLED", code)
+}
+
+func TestEnterpriseMemberBudgetRequiredIncludesRateOnlyLimits(t *testing.T) {
+	memberID := int64(8)
+	key := &service.APIKey{
+		MemberID: &memberID,
+		Member: &service.EnterpriseMember{
+			ID:          memberID,
+			RateLimit5h: 25,
+		},
+	}
+
+	require.True(t, enterpriseMemberBudgetRequired(key), "every member request must create a durable zero or non-zero receipt")
+	key.Member.RateLimit5h = 0
+	require.True(t, enterpriseMemberBudgetRequired(key), "unlimited members still need a zero-amount request receipt")
+	key.MemberID = nil
+	require.False(t, enterpriseMemberBudgetRequired(key))
+}
+
+func TestEnforceEnterpriseMemberBudgetKeepsAmbiguousOutcomeReservedEvenAfterSuccessStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	memberID := int64(8)
+	key := &service.APIKey{
+		ID:       17,
+		UserID:   3,
+		MemberID: &memberID,
+		Member:   &service.EnterpriseMember{ID: memberID, EnterpriseUserID: 3, Status: service.EnterpriseMemberStatusActive},
+	}
+	repo := &enterpriseMemberBudgetMiddlewareRepo{}
+	budgetService := service.NewEnterpriseMemberBudgetService(repo, nil, nil)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(ContextKeyAPIKey), key)
+		requestContext := context.WithValue(c.Request.Context(), ctxkey.ClientRequestID, "request-1")
+		c.Request = c.Request.WithContext(requestContext)
+		c.Next()
+	})
+	router.Use(EnforceEnterpriseMemberBudget(budgetService, &config.Config{RunMode: config.RunModeStandard}, AnthropicErrorWriter))
+	router.POST("/v1/videos/generations", func(c *gin.Context) {
+		service.MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "task_persistence_failed")
+		c.Status(http.StatusOK)
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/videos/generations", strings.NewReader(`{"model":"grok-imagine-video"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Equal(t, "17:client:request-1", repo.reservedRequestID)
+	require.Equal(t, "17:client:request-1", repo.markedRequestID)
+	require.Equal(t, "task_persistence_failed", repo.markedReason)
+	require.Empty(t, repo.releasedRequestIDs, "ambiguous upstream side effects must keep their reservation until reconciliation")
 }
 
 func TestEnterpriseMemberGroupEligibleUsesBatchAndWebSocketCapabilities(t *testing.T) {

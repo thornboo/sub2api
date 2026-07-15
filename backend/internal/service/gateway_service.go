@@ -564,8 +564,9 @@ type ForwardResult struct {
 type GatewayFailureStage string
 
 const (
-	GatewayFailureStageInference   GatewayFailureStage = "inference"
-	GatewayFailureStageAccountAuth GatewayFailureStage = "account_auth"
+	GatewayFailureStageInference        GatewayFailureStage = "inference"
+	GatewayFailureStageAccountAuth      GatewayFailureStage = "account_auth"
+	GatewayFailureStageLocalPersistence GatewayFailureStage = "local_persistence"
 )
 
 // GatewayFailureScope identifies whether selecting another account can help.
@@ -627,6 +628,9 @@ func (e *UpstreamFailoverError) IsCredentialFailure() bool {
 // and inference failures retain their existing scheduler-health behavior.
 func (e *UpstreamFailoverError) ShouldReportAccountScheduleFailure() bool {
 	if e == nil {
+		return false
+	}
+	if e.Stage == GatewayFailureStageLocalPersistence {
 		return false
 	}
 	return !e.IsCredentialFailure() || e.Scope == GatewayFailureScopeAccount

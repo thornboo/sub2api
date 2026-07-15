@@ -1,10 +1,36 @@
 package service
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestOpsGroupRetryReasonRequiresExplicitRetryableFailure(t *testing.T) {
+	for _, statusCode := range []int{
+		http.StatusRequestTimeout,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout,
+	} {
+		reason, ok := OpsGroupRetryReasonForStatus(statusCode)
+		require.False(t, ok, "status %d alone cannot prove that replay is safe", statusCode)
+		require.Empty(t, reason)
+	}
+
+	reason, ok := OpsGroupRetryReasonForFailoverError(&UpstreamFailoverError{StatusCode: http.StatusTooManyRequests})
+	require.True(t, ok)
+	require.Equal(t, OpsGroupRetryReasonCapacityExhausted, reason)
+
+	reason, ok = OpsGroupRetryReasonForFailoverError(&UpstreamFailoverError{
+		StatusCode: http.StatusBadGateway,
+		Stage:      GatewayFailureStageAccountAuth,
+	})
+	require.True(t, ok)
+	require.Equal(t, OpsGroupRetryReasonCapacityExhausted, reason)
+}
 
 func TestSafeUpstreamURL(t *testing.T) {
 	tests := []struct {

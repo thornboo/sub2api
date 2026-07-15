@@ -324,6 +324,49 @@ func TestOpenAIGatewayServiceRecordUsage_ZeroUsageStillWritesUsageLog(t *testing
 	require.Zero(t, billingRepo.lastCmd.AccountQuotaCost)
 }
 
+func TestOpenAIGatewayServiceRecordUsage_MemberUsagePersistedByBillingTransactionSkipsSeparateWrite(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{}
+	billingRepo := &openAIRecordUsageBillingRepoStub{
+		result: &UsageBillingApplyResult{Applied: true, UsageLogPersisted: true},
+	}
+	svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(
+		usageRepo,
+		billingRepo,
+		&openAIRecordUsageUserRepoStub{},
+		&openAIRecordUsageSubRepoStub{},
+		nil,
+	)
+	memberID := int64(42)
+
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID: "openai_member_atomic_usage",
+			Usage: OpenAIUsage{
+				InputTokens:  10,
+				OutputTokens: 6,
+			},
+			Model:    "gpt-5.1",
+			Duration: time.Second,
+		},
+		APIKey: &APIKey{
+			ID:       1001,
+			MemberID: &memberID,
+			Member:   &EnterpriseMember{ID: memberID, MemberCode: "member-42", Name: "Member 42"},
+			Group:    &Group{RateMultiplier: 1},
+		},
+		User:    &User{ID: 2001},
+		Account: &Account{ID: 3001, Type: AccountTypeAPIKey},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, billingRepo.calls)
+	require.NotNil(t, billingRepo.lastCmd)
+	require.Equal(t, &memberID, billingRepo.lastCmd.MemberID)
+	require.NotNil(t, billingRepo.lastCmd.UsageLog)
+	require.Equal(t, memberID, *billingRepo.lastCmd.UsageLog.MemberID)
+	require.Equal(t, 0, usageRepo.calls, "成员 usage_log 已随计费事务提交，不应再次走独立日志写入")
+}
+
 func TestOpenAIGatewayServiceRecordUsage_PropagatesScheduleMeta(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}
@@ -2737,8 +2780,12 @@ func TestRecordUsageMarksCyberRequestType(t *testing.T) {
 
 func TestRecordUsageAttributesEnterpriseMemberFromAPIKey(t *testing.T) {
 	logStub := &openAIRecordUsageLogRepoStub{inserted: true}
-	svc := newOpenAIRecordUsageServiceForTest(
+	billingStub := &openAIRecordUsageBillingRepoStub{
+		result: &UsageBillingApplyResult{Applied: true, UsageLogPersisted: true},
+	}
+	svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(
 		logStub,
+		billingStub,
 		&openAIRecordUsageUserRepoStub{},
 		&openAIRecordUsageSubRepoStub{},
 		&openAIUserGroupRateRepoStub{},
@@ -2766,13 +2813,15 @@ func TestRecordUsageAttributesEnterpriseMemberFromAPIKey(t *testing.T) {
 	}
 
 	require.NoError(t, svc.RecordUsage(context.Background(), in))
-	require.NotNil(t, logStub.lastLog)
-	require.NotNil(t, logStub.lastLog.MemberID)
-	require.NotNil(t, logStub.lastLog.MemberCodeSnapshot)
-	require.NotNil(t, logStub.lastLog.MemberNameSnapshot)
-	require.Equal(t, memberID, *logStub.lastLog.MemberID)
-	require.Equal(t, "finance-01", *logStub.lastLog.MemberCodeSnapshot)
-	require.Equal(t, "Finance", *logStub.lastLog.MemberNameSnapshot)
+	require.Equal(t, 0, logStub.calls, "成员用量必须随预算结算事务写入，不能再独立落 usage_log")
+	require.NotNil(t, billingStub.lastCmd)
+	require.NotNil(t, billingStub.lastCmd.UsageLog)
+	require.NotNil(t, billingStub.lastCmd.UsageLog.MemberID)
+	require.NotNil(t, billingStub.lastCmd.UsageLog.MemberCodeSnapshot)
+	require.NotNil(t, billingStub.lastCmd.UsageLog.MemberNameSnapshot)
+	require.Equal(t, memberID, *billingStub.lastCmd.UsageLog.MemberID)
+	require.Equal(t, "finance-01", *billingStub.lastCmd.UsageLog.MemberCodeSnapshot)
+	require.Equal(t, "Finance", *billingStub.lastCmd.UsageLog.MemberNameSnapshot)
 }
 
 func TestGatewayServiceCalculateRecordUsageCost_ChannelImageBillingNormalizesMissingSizeTier(t *testing.T) {

@@ -3,7 +3,6 @@ package middleware
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -116,6 +115,15 @@ func activateEnterpriseMemberGroupCandidate(c *gin.Context, plan *enterpriseMemb
 	service.RecordEnterpriseMemberRoutingActivation(candidateIndex > 0)
 	requestKey := *plan.apiKey
 	requestGroup := candidate.group
+	requestMember := *plan.apiKey.Member
+	requestMember.Groups = make([]service.Group, 0, len(plan.candidates))
+	requestMember.GroupIDs = make([]int64, 0, len(plan.candidates))
+	for i := range plan.candidates {
+		group := plan.candidates[i].group
+		requestMember.Groups = append(requestMember.Groups, group)
+		requestMember.GroupIDs = append(requestMember.GroupIDs, group.ID)
+	}
+	requestKey.Member = &requestMember
 	requestKey.GroupID = &requestGroup.ID
 	requestKey.Group = &requestGroup
 	c.Set(string(ContextKeyAPIKey), &requestKey)
@@ -159,6 +167,9 @@ func GetEnterpriseMemberCandidateGroups(c *gin.Context) []service.Group {
 
 func enterpriseMemberGroupEligible(c *gin.Context, user *service.User, group *service.Group, requestedModel string) bool {
 	if user == nil || group == nil || !group.IsActive() || !service.IsGroupContextValid(group) {
+		return false
+	}
+	if group.ClaudeCodeOnly && (c == nil || c.Request == nil || !service.IsClaudeCodeClient(c.Request.Context())) {
 		return false
 	}
 	if !group.IsSubscriptionType() && !user.CanBindGroup(group.ID, group.IsExclusive) {
@@ -312,8 +323,9 @@ func extractEnterpriseMemberRequestedModel(c *gin.Context) (string, error) {
 	if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodDelete || c.Request.Body == nil {
 		return "", nil
 	}
-	contentType := strings.ToLower(c.GetHeader("Content-Type"))
-	if contentType != "" && !strings.Contains(contentType, "application/json") {
+	contentType := c.GetHeader("Content-Type")
+	normalizedContentType := strings.ToLower(contentType)
+	if normalizedContentType != "" && !strings.Contains(normalizedContentType, "application/json") && !strings.Contains(normalizedContentType, "multipart/form-data") {
 		return "", nil
 	}
 	body, err := io.ReadAll(c.Request.Body)
@@ -324,23 +336,17 @@ func extractEnterpriseMemberRequestedModel(c *gin.Context) (string, error) {
 	if len(bytes.TrimSpace(body)) == 0 {
 		return "", nil
 	}
-	var envelope struct {
-		Model string `json:"model"`
-	}
-	if err := json.Unmarshal(body, &envelope); err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(envelope.Model), nil
+	return service.ExtractEnterpriseMemberBudgetRequestModel(contentType, body)
 }
 
 // EnforceEnterpriseMemberBudget creates a durable upper-bound reservation
 // before the request reaches any upstream handler. Failed local/upstream
 // attempts release the reservation; successful requests are settled by the
 // unified billing transaction.
-func EnforceEnterpriseMemberBudget(budgetService *service.EnterpriseMemberBudgetService, writeError GatewayErrorWriter) gin.HandlerFunc {
+func EnforceEnterpriseMemberBudget(budgetService *service.EnterpriseMemberBudgetService, cfg *config.Config, writeError GatewayErrorWriter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		apiKey, ok := GetAPIKeyFromContext(c)
-		if !ok || apiKey == nil || apiKey.MemberID == nil || budgetService == nil || apiKey.Member == nil || apiKey.Member.MonthlyLimitUSD <= 0 {
+		if !ok || budgetService == nil || cfg == nil || cfg.RunMode == config.RunModeSimple || !enterpriseMemberBudgetRequired(apiKey) {
 			c.Next()
 			return
 		}
@@ -365,7 +371,7 @@ func EnforceEnterpriseMemberBudget(budgetService *service.EnterpriseMemberBudget
 		requestID, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string)
 		model, _ := c.Request.Context().Value(ctxkey.Model).(string)
 		reservation, err := budgetService.Reserve(c.Request.Context(), service.EnterpriseMemberBudgetEstimateInput{
-			RequestID: requestID, APIKey: apiKey, RequestedModel: model, Endpoint: c.Request.URL.Path, Body: body,
+			RequestID: requestID, APIKey: apiKey, RequestedModel: model, Method: c.Request.Method, Endpoint: c.Request.URL.Path, ContentType: c.GetHeader("Content-Type"), Body: body,
 		})
 		if err != nil {
 			status := http.StatusBadRequest
@@ -383,12 +389,26 @@ func EnforceEnterpriseMemberBudget(budgetService *service.EnterpriseMemberBudget
 		ctx := context.WithValue(c.Request.Context(), ctxkey.MemberBudgetReservation, reservation)
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
+		if service.IsEnterpriseMemberBudgetOutcomeAmbiguous(c) {
+			reconcileCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			reason := service.EnterpriseMemberBudgetOutcomeAmbiguousReason(c)
+			if reason == "" {
+				reason = "upstream_outcome_unknown"
+			}
+			_ = budgetService.MarkAmbiguous(reconcileCtx, apiKey.ID, requestID, reason)
+			return
+		}
 		if c.IsAborted() || c.Writer.Status() >= http.StatusBadRequest {
 			releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_ = budgetService.Release(releaseCtx, apiKey.ID, requestID)
 		}
 	}
+}
+
+func enterpriseMemberBudgetRequired(apiKey *service.APIKey) bool {
+	return apiKey != nil && apiKey.MemberID != nil && apiKey.Member != nil
 }
 
 func isWebSocketUpgrade(r *http.Request) bool {

@@ -79,7 +79,7 @@ func TestGetOwnerMemberAnalyticsLeaderboardReturnsOnlyRealMemberScope(t *testing
 		int64(180), 30.0, 20.0, now, int64(36),
 		int64(36), int64(4), 18.5, 120.0,
 	)
-	mock.ExpectQuery(`(?s)member_scope AS \(\s*SELECT em\.id AS member_id\s*FROM enterprise_members em\s*WHERE em\.enterprise_user_id = \$\d+\s*\),\s*ranked AS`).WillReturnRows(rows)
+	mock.ExpectQuery(`(?s)member_scope AS \(\s*SELECT em\.id AS member_id\s*FROM enterprise_members em\s*WHERE em\.enterprise_user_id = \$\d+ AND em\.removed_at IS NULL\s*\),\s*ranked AS`).WillReturnRows(rows)
 
 	result, err := repo.GetOwnerMemberAnalyticsLeaderboard(context.Background(), service.OwnerAPIKeyAnalyticsFilters{
 		UserID:      7,

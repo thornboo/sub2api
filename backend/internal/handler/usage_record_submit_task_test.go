@@ -2,11 +2,14 @@ package handler
 
 import (
 	"context"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -182,10 +185,76 @@ func TestOpenAIGatewayHandlerSubmitOpenAIUsageRecordTask_ImageResultUsesMandator
 	pool.Submit(func(ctx context.Context) {})
 
 	var called atomic.Bool
-	h.submitOpenAIUsageRecordTask(context.Background(), &service.OpenAIForwardResult{ImageCount: 1}, func(ctx context.Context) {
+	h.submitOpenAIUsageRecordTask(nil, context.Background(), &service.OpenAIForwardResult{ImageCount: 1}, nil, func(ctx context.Context) {
 		called.Store(true)
 	})
 	close(release)
 
 	require.True(t, called.Load(), "image usage task must be mandatory when async submit is dropped")
+}
+
+func TestGatewayHandlerSubmitMemberUsageRecordTaskRunsSynchronously(t *testing.T) {
+	h := &GatewayHandler{usageRecordWorkerPool: newUsageRecordTestPool(t)}
+	memberID := int64(44)
+	var called atomic.Bool
+
+	h.submitGatewayUsageRecordTask(nil, context.Background(), &service.APIKey{MemberID: &memberID}, func(context.Context) {
+		called.Store(true)
+	})
+
+	require.True(t, called.Load())
+}
+
+func TestOpenAIGatewayHandlerSubmitMemberUsageRecordTaskRunsSynchronously(t *testing.T) {
+	h := &OpenAIGatewayHandler{usageRecordWorkerPool: newUsageRecordTestPool(t)}
+	memberID := int64(44)
+	var called atomic.Bool
+
+	h.submitOpenAIUsageRecordTask(nil, context.Background(), &service.OpenAIForwardResult{}, &service.APIKey{MemberID: &memberID}, func(context.Context) {
+		called.Store(true)
+	})
+
+	require.True(t, called.Load())
+}
+
+func TestMemberUsageRecordTaskPanicMarksBudgetOutcomeAmbiguous(t *testing.T) {
+	memberID := int64(44)
+	apiKey := &service.APIKey{MemberID: &memberID}
+
+	t.Run("openai", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		h := &OpenAIGatewayHandler{}
+		h.submitOpenAIUsageRecordTask(c, context.Background(), &service.OpenAIForwardResult{}, apiKey, func(context.Context) {
+			panic("usage task panic")
+		})
+		require.True(t, service.IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+		require.Equal(t, "usage_persistence_failed", service.EnterpriseMemberBudgetOutcomeAmbiguousReason(c))
+	})
+
+	t.Run("generic_gateway", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		h := &GatewayHandler{}
+		h.submitGatewayUsageRecordTask(c, context.Background(), apiKey, func(context.Context) {
+			panic("usage task panic")
+		})
+		require.True(t, service.IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+		require.Equal(t, "usage_persistence_failed", service.EnterpriseMemberBudgetOutcomeAmbiguousReason(c))
+	})
+}
+
+func TestUsageRecordContextPreservesActiveEnterpriseMemberGroup(t *testing.T) {
+	parent := context.WithValue(context.Background(), ctxkey.ActiveGroup, &service.ActiveGroupContext{
+		MemberID: 44,
+		GroupID:  9,
+	})
+
+	ctx := usageRecordContext(parent, context.Background())
+	active, ok := service.ActiveGroupFromContext(ctx)
+	require.True(t, ok)
+	require.Equal(t, int64(44), active.MemberID)
+	require.Equal(t, int64(9), active.GroupID)
+
+	original, _ := service.ActiveGroupFromContext(parent)
+	active.GroupID = 10
+	require.Equal(t, int64(9), original.GroupID, "usage context must not retain a mutable routing pointer")
 }

@@ -12,6 +12,7 @@ import (
 
 var ErrUsageBillingRequestIDRequired = errors.New("usage billing request_id is required")
 var ErrUsageBillingRequestConflict = errors.New("usage billing request fingerprint conflict")
+var ErrEnterpriseMemberUsagePersistenceUnavailable = errors.New("enterprise member usage persistence is unavailable")
 
 // UsageBillingCommand describes one billable request that must be applied at most once.
 type UsageBillingCommand struct {
@@ -37,6 +38,10 @@ type UsageBillingCommand struct {
 	CacheReadTokens       int
 	ImageCount            int
 	MediaType             string
+	// UsageLog is an in-process persistence payload. It is intentionally omitted
+	// from the idempotency fingerprint; its immutable billing facts are already
+	// represented by the scalar fields above.
+	UsageLog *UsageLog
 
 	BalanceCost         float64
 	SubscriptionCost    float64
@@ -119,6 +124,7 @@ type AccountQuotaState struct {
 
 type UsageBillingApplyResult struct {
 	Applied              bool
+	UsageLogPersisted    bool // committed atomically with billing
 	APIKeyQuotaExhausted bool
 	NewBalance           *float64           // post-deduction balance (nil = no balance deduction)
 	BalanceOverdrafted   bool               // true when the sufficient-balance guard missed and debt was still recorded
@@ -136,8 +142,10 @@ type BatchImageBalanceHoldCommand struct {
 	HoldAmount            float64
 	ActualAmount          float64
 	MemberID              *int64
+	GroupID               *int64
 	MemberBudgetRequestID string
 	MemberBudgetExpiresAt time.Time
+	UsageLog              *UsageLog
 }
 
 func (c *BatchImageBalanceHoldCommand) Normalize() {
@@ -173,9 +181,10 @@ func buildBatchImageBalanceHoldFingerprint(c *BatchImageBalanceHoldCommand) stri
 }
 
 type BatchImageBalanceHoldResult struct {
-	Applied       bool
-	NewBalance    *float64
-	FrozenBalance *float64
+	Applied           bool
+	UsageLogPersisted bool
+	NewBalance        *float64
+	FrozenBalance     *float64
 }
 
 type UsageBillingRepository interface {
@@ -183,4 +192,11 @@ type UsageBillingRepository interface {
 	ReserveBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error)
 	CaptureBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error)
 	ReleaseBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error)
+}
+
+// EnterpriseMemberUsageSettlementRepository is intentionally separate from
+// real-time billing. Only the recovery worker needs to replay durable member
+// settlements; request paths and batch-image fakes should not depend on it.
+type EnterpriseMemberUsageSettlementRepository interface {
+	ReplayPendingEnterpriseMemberSettlements(ctx context.Context, limit int) (int, error)
 }
