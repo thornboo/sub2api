@@ -1,5 +1,23 @@
 # 补丁记录
 
+## 2026-07-16 - 上游 main 增量同步：Grok 自定义上游、Agent Identity 与订阅币种
+
+实现：
+- 合并 `origin/main@eb2b8632d` 的 14 个提交，覆盖 Grok 自定义 `base_url` / 请求头覆写、Agent Identity 独立导入与 Codex 能力、订阅套餐币种、管理员充值返佣设置和 locale 运行时编译保护。
+- Grok OAuth 官方地址继续使用可信端点；自定义转发地址统一受 operator URL 策略校验，认证与会话头不可覆写，billing / quota / media / Responses / Chat 请求使用同一账号上游解析口径。
+- 账号创建、编辑和批量编辑共享请求头覆写数据结构；JSON 导入拒绝无效对象，复制只输出具名项，OAuth 建号三条路径在消耗授权凭据前完成自定义上游配置校验。
+- 订阅计划新增 `currency`，迁移、Ent schema、支付配置、DTO 和前端展示保持一致；管理员充值返佣开关进入设置审计与保存合同。
+
+冲突与兼容：
+- 唯一内容冲突位于 `CreateAccountModal.vue` import 区；同时保留 dev-zz 模型目录推荐 / 搜索与上游请求头编辑器。
+- 新增 migration `177_add_subscription_plan_currency.sql` 与既有企业成员 `177` 迁移按完整文件名并存，不修改已应用迁移；版本继续保留 `1.7.2`。
+- 为上游 locale 编译测试补齐直接开发依赖 `@intlify/message-compiler@9.14.5`；新增账号控件继续采用 stone / emerald / rose 视觉，并补充 switch 无障碍状态。
+
+验证：
+- 后端目标包测试、全包编译、完整 tagged unit 闸门。
+- 前端 typecheck、ESLint、全量 Vitest、生产构建和 docs-site 构建。
+- `git diff --check`、冲突标记与未合并索引扫描。
+
 ## 2026-07-15 - 上游 main 增量同步：Grok OAuth 池、Chat bridge、账号复制与 Key ID
 
 实现：

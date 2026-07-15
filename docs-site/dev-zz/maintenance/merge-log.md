@@ -1,5 +1,49 @@
 # 上游合并记录
 
+## 2026-07-16 - 增量合并上游 `main`：Grok 自定义上游、Agent Identity、订阅币种与管理员充值返佣
+
+分支：
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`d515c3045`
+- 合并前目标：`85f3dcda4`
+- 上游 head：`eb2b8632d`
+- 结果提交：本次合并提交
+
+上游要点：
+- Grok API Key / OAuth 账号支持自定义转发 `base_url` 与请求头覆写；OAuth 官方地址继续走可信端点，自定义地址受全局 URL allowlist / HTTPS 策略约束，认证头和会话路由头不能被覆写。
+- OpenAI Agent Identity 增加独立导入入口、Codex 能力、过期校验和授权层级修正；models / quota 相关服务同步补齐 Agent Identity 行为。
+- 订阅套餐新增币种字段及迁移，用户套餐卡和管理员套餐编辑显示真实币种；管理员手工充值可以按设置决定是否计入 affiliate rebate。
+- 账号请求头编辑器增加 JSON 导入 / 复制与全部 locale 消息编译测试，Grok 建号表单补齐上游配置入口并修复 JSON 示例导致的运行时 i18n 编译崩溃。
+
+合并策略：
+- 合并前完整读取 `docs-site/dev-zz` 分支策略、上游同步流程、补丁 / 变更记录、变更地图与验证矩阵，刷新 `origin/main` 后使用 `git merge-tree --write-tree --messages --name-only` 只读预演，再执行 `git merge --no-commit origin/main`。
+- 接受上游 14 个提交、79 个文件中的 Grok、Agent Identity、订阅币种、充值返佣和 i18n 正确性改进；继续保留 dev-zz 企业成员路由 / 预算 / 归因、owner / admin 数据边界、`1.7.2` 版本线与 stone / emerald 视觉契约。
+- 上游新增 `177_add_subscription_plan_currency.sql` 与既有 `177_enterprise_member_audit_logs.sql` 按完整文件名并存；没有修改任何已应用迁移。
+
+冲突文件：
+- `frontend/src/components/account/CreateAccountModal.vue`
+
+解决说明：
+- 账号创建表单同时保留 dev-zz 的 `ModelCatalogSearch` / `buildChannelModelRecommendations` 与上游的 `HeaderOverrideEditor`，避免在唯一 import 冲突中丢失任一侧能力。
+- 上游新增 locale 编译测试直接导入 `@intlify/message-compiler`，但没有声明直接依赖；补充与现有 `vue-i18n` 一致的 `9.14.5` 开发依赖并更新 lockfile，确保 pnpm 严格依赖布局和干净 CI 环境可解析测试。
+- 新增请求头编辑器、JSON 工具和 Grok OAuth 开关从上游 `primary / blue / dark-*` 色板收敛为 dev-zz 的 stone / emerald / rose 体系；开关补充 `role="switch"` 与 `aria-checked`。
+
+验证：
+- `mise x -C backend -- go test ./internal/pkg/xai ./internal/service ./internal/handler/admin ./internal/handler ./internal/server -count=1`
+- `mise x -C backend -- go test ./... -run '^$' -count=1`
+- `make -C backend test-unit`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run`
+- `pnpm --dir frontend build`
+- `pnpm --dir docs-site docs:build`
+- `git diff --check`、`git diff --cached --check`、未合并索引与冲突标记扫描。
+
+未验证：
+- 浏览器人工 smoke。
+- Docker / testcontainers 集成测试。
+
 ## 2026-07-15 - 增量合并上游 `main`：Grok OAuth 池、Chat bridge、账号复制与 Key ID
 
 分支：
