@@ -1527,6 +1527,8 @@ func TestOpenAIResponses_APIKeyPassthroughPool5xxRetriesThenExhaustsMaxSwitches(
 		nil,
 		nil,
 		nil,
+		nil,
+		nil,
 		cfg,
 	)
 
