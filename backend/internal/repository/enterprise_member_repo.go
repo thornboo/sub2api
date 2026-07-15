@@ -598,7 +598,7 @@ func enterpriseMemberGroupIDsInTx(ctx context.Context, tx *sql.Tx, memberID int6
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	groupIDs := make([]int64, 0)
 	for rows.Next() {
 		var groupID int64
