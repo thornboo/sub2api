@@ -186,18 +186,55 @@ describe('EnterpriseMembersView layout contract', () => {
     expect(source).not.toContain('partialStatusFailures')
   })
 
-  it('shows member request records without exposing upstream routing internals', () => {
-    expect(source).toContain('enterpriseMembersAPI.listUsageRecords(member.id, 1, 20)')
+  it('reuses the complete usage table for member request records without exposing upstream routing internals', () => {
+    expect(source).toContain("import UsageTable from '@/components/admin/usage/UsageTable.vue'")
+    expect(source).toContain("import { usageAPI } from '@/api/usage'")
+    expect(source).toContain('return usageAPI.query({')
+    expect(source).toContain('member_id: memberID')
+    expect(source).toContain(':columns="budgetUsageRecordColumns"')
+    expect(source).toContain(':show-account-billing="false"')
+    expect(source).toContain(':show-upstream-endpoint="false"')
+    expect(source).toContain("{ key: 'reasoning_effort', label: t('usage.reasoningEffort')")
+    expect(source).toContain("{ key: 'ip_address', label: 'IP'")
+    expect(source).toContain("{ key: 'billing_mode', label: t('admin.usage.billingMode')")
+    expect(source).toContain("{ key: 'latency', label: t('usage.latency')")
     expect(source).toContain("t('enterpriseMembers.copy.requestRecords')")
     expect(source).toContain("t('enterpriseMembers.copy.showsMemberFacingKeyModelPublicGroupAndBilledCostOnlyUpstreamAccountChannelAndMarginDataRemainPr')")
     expect(source).not.toContain('record.account_id')
     expect(source).not.toContain('record.channel_id')
     expect(source).not.toContain('record.account_cost')
+    expect(source).not.toContain('EnterpriseMemberUsageRecordsTable')
   })
 
-  it('links the member detail workflow to the unified usage page with a durable member filter', () => {
+  it('presents member budget usage as one monthly summary plus distinct rolling windows', () => {
+    expect(source).toContain("t('enterpriseMembers.copy.monthlyBudgetOverview')")
+    expect(source).toContain('const budgetCommittedUsd = computed')
+    expect(source).toContain("t('enterpriseMembers.copy.budgetCommitted')")
+    expect(source).toContain('v-if="budgetSummary.limit_usd > 0"')
+    expect(source).toContain("t('enterpriseMembers.copy.monthlyLimitNotSet')")
+    expect(source).toContain("t('enterpriseMembers.copy.shortWindowLimits')")
+    expect(source).toContain("t('enterpriseMembers.copy.limitNotSet')")
+    expect(source).toContain("{ key: '5h', label: t('enterpriseMembers.copy.fiveHourWindow')")
+    expect(source).toContain("{ key: '1d', label: t('enterpriseMembers.copy.oneDayWindow')")
+    expect(source).toContain("{ key: '7d', label: t('enterpriseMembers.copy.sevenDayWindow')")
+    expect(source).not.toContain('class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"')
+    expect(source).not.toContain("t('enterpriseMembers.copy.currentPeriodStatus')")
+  })
+
+  it('fills sparse member trend dates before rendering bounded daily bars', () => {
+    expect(source).toContain("import { fillEnterpriseMemberUsageTrend } from '@/utils/enterpriseMemberUsageTrend'")
+    expect(source).toContain('const normalizedBudgetTrend = computed')
+    expect(source).toContain('v-for="point in normalizedBudgetTrend"')
+    expect(source).toContain('width: `max(100%, ${normalizedBudgetTrend.length * 5}px)`')
+    expect(source).toContain('gridTemplateColumns: `repeat(${normalizedBudgetTrend.length}, minmax(3px, 1fr))`')
+    expect(source).toContain('v-if="point.actual_cost > 0"')
+    expect(source).not.toContain('v-for="point in budgetAnalytics.trend"')
+    expect(source).not.toContain('class="group relative min-w-[5px] flex-1 rounded-t')
+  })
+
+  it('links the member detail workflow to the dedicated member usage page with a durable member filter', () => {
     expect(source).toContain("t('enterpriseMembers.copy.viewFullUsageRecords')")
-    expect(source).toContain("router.push({ name: 'Usage', query: { tab: 'usage', member_id: String(member.id) } })")
+    expect(source).toContain("router.push({ name: 'EnterpriseMemberUsage', query: { tab: 'usage', member_id: String(member.id) } })")
   })
 
   it('uses formal locale keys instead of a page-local bilingual helper', () => {

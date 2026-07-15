@@ -309,10 +309,14 @@ export default {
     },
     // Usage
     usage: {
+        memberUsageTitle: '成员使用记录',
+        memberUsageDescription: '查看企业成员的请求、消费、Token 与错误记录',
+        memberScopeTitle: '成员筛选',
+        memberScopeDescription: '选择全部成员或单个成员，统计、图表、请求明细和错误记录会同步更新。',
         member: '企业成员',
-        memberFilter: '请求归属',
+        memberFilter: '成员',
         members: {
-            all: '全部请求',
+            all: '全部成员',
             assigned: '企业成员请求',
             unassigned: '普通 Key 请求',
             unassignedShort: '普通 Key',
@@ -325,9 +329,10 @@ export default {
         },
         analytics: {
             title: '企业使用分析',
+            memberTitle: '成员用量分析',
             dimensionMember: '按成员',
             dimensionKey: '按密钥',
-            memberScope: '按成员归属查看所选时间范围内的历史请求；成员归档或密钥删除不会抹除已有记录。',
+            memberScope: '汇总所选成员在当前时间范围内的消费、请求、Token、模型和实际分组。',
             scope: '按日期和面板筛选统计当前账号名下 API 密钥；平台管理员成本和上游路由字段不会展示。',
             singleKeyScope: '跟随上方日期筛选，仅分析当前选中的 API 密钥；平台管理员成本和上游路由字段不会展示。',
             loadFailed: '加载用量分析失败',

@@ -22,6 +22,9 @@ declare module 'vue-router' {
 	/** Whether this route requires an enabled enterprise user account. */
 	requiresEnterprise?: boolean
 
+	/** Whether this route requires enterprise account identity, even if its write capability is disabled. */
+	requiresEnterpriseAccount?: boolean
+
     /**
      * Page title for this route
      */

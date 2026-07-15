@@ -2,19 +2,24 @@ import { shallowMount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { archive, batchReplaceGroups, batchUpdate, createEnterpriseMemberOperationIdempotencyKey, getOwnerUsageSummary, getAvailableGroups, listMembers, permanentlyDelete, restore, setStatus, showError, showSuccess } = vi.hoisted(() => ({
+const { archive, batchReplaceGroups, batchUpdate, createEnterpriseMemberOperationIdempotencyKey, getBudget, getOwnerUsageSummary, getUsageAnalytics, getAvailableGroups, listAuditEvents, listBudgetEntries, listMembers, permanentlyDelete, restore, setStatus, showError, showSuccess, usageQuery } = vi.hoisted(() => ({
   archive: vi.fn(),
   batchReplaceGroups: vi.fn(),
   batchUpdate: vi.fn(),
   createEnterpriseMemberOperationIdempotencyKey: vi.fn(() => 'stable-operation-key'),
+  getBudget: vi.fn(),
   getOwnerUsageSummary: vi.fn(),
+  getUsageAnalytics: vi.fn(),
   getAvailableGroups: vi.fn(),
+  listAuditEvents: vi.fn(),
+  listBudgetEntries: vi.fn(),
   listMembers: vi.fn(),
   permanentlyDelete: vi.fn(),
   restore: vi.fn(),
   setStatus: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
+  usageQuery: vi.fn(),
 }))
 
 vi.mock('vue-i18n', async importOriginal => ({
@@ -44,6 +49,10 @@ vi.mock('@/api/keys', () => ({
   keysAPI: {},
 }))
 
+vi.mock('@/api/usage', () => ({
+  usageAPI: { query: usageQuery },
+}))
+
 vi.mock('@/composables/useClipboard', () => ({
   useClipboard: () => ({ copyToClipboard: vi.fn() }),
 }))
@@ -57,7 +66,11 @@ vi.mock('@/api/enterpriseMembers', () => ({
     batchReplaceGroups,
     batchUpdate,
     createEnterpriseMemberOperationIdempotencyKey,
+    getBudget,
+    getUsageAnalytics,
     permanentlyDelete,
+    listAuditEvents,
+    listBudgetEntries,
     restore,
     setStatus,
   },
@@ -86,6 +99,40 @@ const member = {
   deleted_at: null,
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((res) => { resolve = res })
+  return { promise, resolve }
+}
+
+const budgetSummaryFixture = (memberID: number, marker: string) => ({
+  marker,
+  member_id: memberID,
+  period_start: '2026-07-01',
+  period_end: '2026-07-31',
+  timezone: 'Asia/Shanghai',
+  limit_usd: 100,
+  used_usd: 1,
+  reserved_usd: 0,
+  remaining_usd: 99,
+  request_count: 1,
+  input_tokens: 10,
+  output_tokens: 5,
+  migration_billed_usd: 0,
+  migration_total_tokens: 0,
+  migration_input_tokens: 0,
+  migration_output_tokens: 0,
+  migration_cache_tokens: 0,
+  migration_cache_write_tokens: 0,
+  migration_cache_read_tokens: 0,
+  rate_limit_5h: 0,
+  rate_limit_1d: 0,
+  rate_limit_7d: 0,
+  usage_5h: 0,
+  usage_1d: 0,
+  usage_7d: 0,
+})
+
 function mountView() {
   return shallowMount(EnterpriseMembersView, {
     global: {
@@ -107,6 +154,10 @@ describe('EnterpriseMembersView destructive batch group confirmation', () => {
     listMembers.mockResolvedValue([member])
     getAvailableGroups.mockResolvedValue([])
     getOwnerUsageSummary.mockResolvedValue(null)
+    getUsageAnalytics.mockResolvedValue({ trend: [], groups: [], models: [] })
+    listBudgetEntries.mockResolvedValue({ items: [], total: 0 })
+    listAuditEvents.mockResolvedValue({ items: [], total: 0 })
+    usageQuery.mockResolvedValue({ items: [], total: 0, page: 1, pages: 0 })
     batchReplaceGroups.mockResolvedValue([{ id: member.id, version: 4, group_ids: [], status: 'disabled', updated_at: '2026-07-02T00:00:00Z' }])
     batchUpdate.mockResolvedValue({ updated_count: 1 })
     restore.mockResolvedValue({ ...member, status: 'disabled', version: 4 })
@@ -182,6 +233,39 @@ describe('EnterpriseMembersView destructive batch group confirmation', () => {
       { status: 'disabled', group_mode: 'keep' },
       'stable-operation-key'
     )
+  })
+
+  it('does not let an older member budget request overwrite a newer dialog session', async () => {
+    const first = deferred<Record<string, unknown>>()
+    const second = deferred<Record<string, unknown>>()
+    const secondMember = { ...member, id: 42, member_code: 'member-42', name: '成员 42' }
+    getBudget.mockImplementation((memberID: number) => memberID === member.id ? first.promise : second.promise)
+
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+    const vm = wrapper.vm as unknown as {
+      budgetMember: typeof member | null
+      budgetSummary: Record<string, unknown> | null
+      budgetLoading: boolean
+      openBudget: (target: typeof member) => Promise<void>
+    }
+
+    const firstOpen = vm.openBudget(member)
+    const secondOpen = vm.openBudget(secondMember)
+    second.resolve(budgetSummaryFixture(secondMember.id, 'second'))
+    await secondOpen
+
+    expect(vm.budgetMember?.id).toBe(secondMember.id)
+    expect(vm.budgetSummary).toEqual(budgetSummaryFixture(secondMember.id, 'second'))
+    expect(vm.budgetLoading).toBe(false)
+
+    first.resolve(budgetSummaryFixture(member.id, 'first'))
+    await firstOpen
+
+    expect(vm.budgetMember?.id).toBe(secondMember.id)
+    expect(vm.budgetSummary).toEqual(budgetSummaryFixture(secondMember.id, 'second'))
+    expect(vm.budgetLoading).toBe(false)
   })
 
   it('uses the project confirmation dialog and permanently removes historical members through the server strategy', async () => {

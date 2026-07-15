@@ -552,46 +552,115 @@
       </div>
     </BaseDialog>
 
-    <BaseDialog :show="budgetOpen" :title="t('enterpriseMembers.dynamic.budgetUsageTitle', { name: budgetMember?.name || '' })" width="extra-wide" @close="budgetOpen = false">
+    <BaseDialog :show="budgetOpen" :title="t('enterpriseMembers.dynamic.budgetUsageTitle', { name: budgetMember?.name || '' })" width="extra-wide" @close="closeBudget">
       <div v-if="budgetLoading" class="py-16 text-center text-sm text-stone-500">{{ t('enterpriseMembers.copy.loadingBudgetAndUsage') }}</div>
       <div v-else-if="budgetSummary && budgetAnalytics" class="space-y-6">
         <section v-if="budgetMember?.deleted_at" class="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-amber-100">
           <Icon name="lock" size="sm" class="mt-0.5 shrink-0" />
           <p class="text-xs leading-5">{{ t('enterpriseMembers.copy.archivedMemberReadOnly') }}</p>
         </section>
-        <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <div class="metric-card"><p>{{ t('enterpriseMembers.copy.calendarMonthLimit') }}</p><strong>{{ budgetSummary.limit_usd > 0 ? formatMoney(budgetSummary.limit_usd) : t('enterpriseMembers.copy.unlimited6381d248') }}</strong></div>
-          <div class="metric-card"><p>{{ t('enterpriseMembers.copy.settled') }}</p><strong>{{ formatMoney(budgetSummary.used_usd) }}</strong></div>
-          <div class="metric-card"><p>{{ t('enterpriseMembers.copy.inFlightReserved') }}</p><strong class="text-amber-700 dark:text-amber-300">{{ formatMoney(budgetSummary.reserved_usd) }}</strong></div>
-          <div class="metric-card"><p>{{ t('enterpriseMembers.copy.available') }}</p><strong class="text-emerald-700 dark:text-emerald-300">{{ budgetSummary.remaining_usd < 0 ? t('enterpriseMembers.copy.unlimited6381d248') : formatMoney(budgetSummary.remaining_usd) }}</strong></div>
+        <section class="overflow-hidden rounded-3xl border border-stone-200 bg-white dark:border-white/10 dark:bg-white/[0.02]">
+          <header class="flex flex-wrap items-start justify-between gap-4 border-b border-stone-200 bg-stone-50/80 px-5 py-4 dark:border-white/10 dark:bg-white/[0.03]">
+            <div class="flex items-start gap-3">
+              <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300">
+                <Icon name="chartBar" size="sm" />
+              </span>
+              <div>
+                <h3 class="font-semibold text-stone-950 dark:text-white">{{ t('enterpriseMembers.copy.monthlyBudgetOverview') }}</h3>
+                <p class="mt-1 text-xs text-stone-500">{{ formatDate(budgetSummary.period_start) }} – {{ formatDate(budgetSummary.period_end) }} · {{ budgetSummary.timezone }}</p>
+              </div>
+            </div>
+            <div class="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-medium text-stone-600 dark:border-white/10 dark:bg-white/5 dark:text-stone-300">
+              <template v-if="budgetSummary.limit_usd > 0">{{ t('enterpriseMembers.copy.calendarMonthLimit') }} <b class="ml-1 tabular-nums text-stone-950 dark:text-white">{{ formatMoney(budgetSummary.limit_usd) }}</b></template>
+              <template v-else>{{ t('enterpriseMembers.copy.monthlyLimitNotSet') }}</template>
+            </div>
+          </header>
+
+          <div class="p-5">
+            <div class="grid gap-4 xl:grid-cols-[minmax(260px,0.95fr)_minmax(0,2.05fr)]">
+              <div class="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-800/50 dark:bg-emerald-400/[0.08]">
+                <p class="text-xs font-medium text-emerald-800 dark:text-emerald-200">{{ t('enterpriseMembers.copy.budgetCommitted') }}</p>
+                <strong class="mt-2 block text-3xl font-semibold tabular-nums tracking-tight text-stone-950 dark:text-white">{{ formatMoney(budgetCommittedUsd) }}</strong>
+                <p class="mt-2 text-xs leading-5 text-emerald-800/80 dark:text-emerald-200/70">{{ t('enterpriseMembers.copy.budgetCommittedHint') }}</p>
+              </div>
+
+              <dl class="grid gap-3" :class="budgetSummary.limit_usd > 0 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'">
+                <div class="rounded-2xl border border-stone-200 bg-stone-50 p-4 dark:border-white/10 dark:bg-white/[0.04]">
+                  <dt class="text-xs text-stone-500">{{ t('enterpriseMembers.copy.settled') }}</dt>
+                  <dd class="mt-2 text-xl font-semibold tabular-nums text-stone-950 dark:text-white">{{ formatMoney(budgetSummary.used_usd) }}</dd>
+                </div>
+                <div class="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-800/50 dark:bg-amber-400/[0.07]">
+                  <dt class="text-xs text-amber-800 dark:text-amber-200">{{ t('enterpriseMembers.copy.inFlightReserved') }}</dt>
+                  <dd class="mt-2 text-xl font-semibold tabular-nums text-amber-800 dark:text-amber-200">{{ formatMoney(budgetSummary.reserved_usd) }}</dd>
+                </div>
+                <div v-if="budgetSummary.limit_usd > 0" class="rounded-2xl border border-stone-200 bg-stone-50 p-4 dark:border-white/10 dark:bg-white/[0.04]">
+                  <dt class="text-xs text-stone-500">{{ t('enterpriseMembers.copy.available') }}</dt>
+                  <dd class="mt-2 text-xl font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">{{ formatMoney(Math.max(0, budgetSummary.remaining_usd)) }}</dd>
+                </div>
+              </dl>
+            </div>
+
+            <div v-if="budgetSummary.limit_usd > 0" class="mt-5">
+              <div class="mb-2 flex items-center justify-between gap-3 text-xs">
+                <span class="font-medium text-stone-600 dark:text-stone-300">{{ t('enterpriseMembers.copy.budgetCommitted') }}</span>
+                <span class="tabular-nums text-stone-500">{{ Math.round(budgetUsagePercent) }}%</span>
+              </div>
+              <div class="h-2 overflow-hidden rounded-full bg-stone-100 dark:bg-white/5" role="progressbar" :aria-valuenow="budgetUsagePercent" aria-valuemin="0" aria-valuemax="100">
+                <div class="h-full rounded-full transition-all" :class="budgetUsagePercent >= 100 ? 'bg-rose-500' : budgetUsagePercent >= 80 ? 'bg-amber-500' : 'bg-emerald-500'" :style="{ width: `${budgetUsagePercent}%` }"></div>
+              </div>
+            </div>
+
+            <div class="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-stone-200 pt-4 dark:border-white/10">
+              <p class="text-xs font-medium text-stone-600 dark:text-stone-300">{{ t('enterpriseMembers.copy.periodActivity') }}</p>
+              <dl class="flex flex-wrap items-center gap-x-8 gap-y-3">
+                <div><dt class="text-[11px] text-stone-500">{{ t('enterpriseMembers.copy.requests') }}</dt><dd class="mt-0.5 text-base font-semibold tabular-nums text-stone-950 dark:text-white">{{ formatNumber(budgetSummary.request_count) }}</dd></div>
+                <div><dt class="text-[11px] text-stone-500">{{ t('enterpriseMembers.copy.tokens') }}</dt><dd class="mt-0.5 text-base font-semibold tabular-nums text-stone-950 dark:text-white">{{ formatNumber(budgetSummary.input_tokens + budgetSummary.output_tokens) }}</dd></div>
+              </dl>
+            </div>
+          </div>
         </section>
 
         <section v-if="hasMigrationBaseline(budgetSummary)" class="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sky-950 dark:border-sky-800/50 dark:bg-sky-950/20 dark:text-sky-100">
           <div class="flex flex-wrap items-start justify-between gap-3"><h3 class="text-sm font-semibold">{{ t('enterpriseMembers.copy.migrationBaselineEvidence') }}</h3><div class="text-right"><b class="block text-sm">{{ formatMoney(budgetSummary.migration_billed_usd) }} · {{ formatNumber(budgetSummary.migration_total_tokens) }} Token</b><span class="text-xs opacity-70">↓ {{ formatNumber(budgetSummary.migration_input_tokens) }} · ↑ {{ formatNumber(budgetSummary.migration_output_tokens) }} · C {{ formatNumber(budgetSummary.migration_cache_tokens) }}</span></div></div>
         </section>
 
-        <section class="grid gap-3 sm:grid-cols-3">
-          <div v-for="window in memberRateLimitWindows" :key="window.label" class="metric-card">
-            <div class="flex items-center justify-between gap-3"><p>{{ window.label }}</p><span v-if="window.resetAt" class="text-[10px] text-stone-400">{{ t('enterpriseMembers.copy.expires') }} {{ formatDateTime(window.resetAt) }}</span></div>
-            <strong>{{ formatMoney(window.used) }} <span class="text-sm font-normal text-stone-400">/ {{ window.limit > 0 ? formatMoney(window.limit) : t('enterpriseMembers.copy.unlimited6381d248') }}</span></strong>
-            <div v-if="window.limit > 0" class="mt-3 h-1.5 overflow-hidden rounded-full bg-stone-200 dark:bg-white/10"><div class="h-full rounded-full bg-emerald-500" :style="{ width: `${Math.min(100, (window.used / window.limit) * 100)}%` }"></div></div>
+        <section>
+          <div class="mb-3">
+            <h3 class="font-semibold text-stone-950 dark:text-white">{{ t('enterpriseMembers.copy.shortWindowLimits') }}</h3>
+            <p class="mt-1 text-xs leading-5 text-stone-500">{{ t('enterpriseMembers.copy.shortWindowLimitsHint') }}</p>
           </div>
-        </section>
-
-        <section class="rounded-3xl border border-stone-200 p-5 dark:border-white/10">
-          <div class="flex flex-wrap items-start justify-between gap-4">
-            <div><h3 class="font-semibold text-stone-950 dark:text-white">{{ t('enterpriseMembers.copy.currentPeriodStatus') }}</h3><p class="mt-1 text-xs text-stone-500">{{ formatDate(budgetSummary.period_start) }} – {{ formatDate(budgetSummary.period_end) }} · {{ budgetSummary.timezone }}</p></div>
-            <div class="flex gap-5 text-right text-xs text-stone-500"><span>{{ t('enterpriseMembers.copy.requests') }}<b class="mt-1 block text-base text-stone-900 dark:text-white">{{ formatNumber(budgetSummary.request_count) }}</b></span><span>Tokens<b class="mt-1 block text-base text-stone-900 dark:text-white">{{ formatNumber(budgetSummary.input_tokens + budgetSummary.output_tokens) }}</b></span></div>
+          <div class="grid gap-3 sm:grid-cols-3">
+            <article v-for="window in memberRateLimitWindows" :key="window.key" class="rounded-2xl border border-stone-200 bg-stone-50 p-4 dark:border-white/10 dark:bg-white/[0.04]">
+              <div class="flex min-h-9 items-start justify-between gap-3">
+                <h4 class="text-sm font-semibold text-stone-900 dark:text-white">{{ window.label }}</h4>
+                <span v-if="window.resetAt" class="text-right text-[10px] leading-4 text-stone-400">{{ t('enterpriseMembers.copy.expires') }}<br>{{ formatDateTime(window.resetAt) }}</span>
+              </div>
+              <p class="mt-4 text-xs text-stone-500">{{ t('enterpriseMembers.copy.used') }}</p>
+              <strong class="mt-1 block text-2xl font-semibold tabular-nums text-stone-950 dark:text-white">{{ formatMoney(window.used) }}</strong>
+              <div class="mt-4 flex items-center justify-between gap-3 border-t border-stone-200 pt-3 text-xs dark:border-white/10">
+                <span class="text-stone-500">{{ t('enterpriseMembers.copy.limit') }}</span>
+                <b v-if="window.limit > 0" class="tabular-nums text-stone-800 dark:text-stone-100">{{ formatMoney(window.limit) }}</b>
+                <span v-else class="rounded-full bg-stone-200/70 px-2 py-1 font-medium text-stone-500 dark:bg-white/5 dark:text-stone-400">{{ t('enterpriseMembers.copy.limitNotSet') }}</span>
+              </div>
+              <div v-if="window.limit > 0" class="mt-3 h-1.5 overflow-hidden rounded-full bg-stone-200 dark:bg-white/10"><div class="h-full rounded-full bg-emerald-500" :style="{ width: `${Math.min(100, (window.used / window.limit) * 100)}%` }"></div></div>
+            </article>
           </div>
-          <div class="mt-5 h-3 overflow-hidden rounded-full bg-stone-100 dark:bg-white/5" role="progressbar" :aria-valuenow="budgetUsagePercent" aria-valuemin="0" aria-valuemax="100"><div class="h-full rounded-full bg-gradient-to-r from-emerald-400 via-amber-400 to-rose-500 transition-all" :style="{ width: `${budgetUsagePercent}%` }"></div></div>
-          <p class="mt-2 text-xs text-stone-500">{{ t('enterpriseMembers.copy.progressIncludesSettledUsageAndConservativeInFlightReservationsFailedOrExpiredRequestsAreRelease') }}</p>
         </section>
 
         <section class="grid gap-5 xl:grid-cols-[1.4fr_1fr]">
           <div class="rounded-3xl border border-stone-200 p-5 dark:border-white/10">
             <div class="flex items-center justify-between gap-3"><div><h3 class="font-semibold text-stone-950 dark:text-white">{{ t('enterpriseMembers.copy.usageTrend') }}</h3><p class="mt-1 text-xs text-stone-500">{{ t('enterpriseMembers.copy.showsMemberFacingCostOnlyUpstreamAccountsAndChannelCostStayPrivate') }}</p></div><select v-model.number="analyticsDays" class="input w-28" @change="reloadAnalytics"><option :value="7">7d</option><option :value="30">30d</option><option :value="90">90d</option><option :value="365">365d</option></select></div>
-            <div v-if="budgetAnalytics.trend.length" class="mt-5 flex h-44 items-end gap-1 overflow-hidden" :aria-label="t('enterpriseMembers.copy.dailyCostBarChart')">
-              <div v-for="point in budgetAnalytics.trend" :key="point.date" class="group relative min-w-[5px] flex-1 rounded-t bg-amber-300/70 hover:bg-amber-400" :style="{ height: `${trendHeight(point.actual_cost)}%` }"><span class="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-stone-950 px-2 py-1 text-[10px] text-white group-hover:block">{{ point.date }} · {{ formatMoney(point.actual_cost) }} · {{ point.request_count }} req</span></div>
+            <div v-if="budgetAnalytics.trend.length" class="mt-5 overflow-x-auto pb-1">
+              <div :style="{ width: `max(100%, ${normalizedBudgetTrend.length * 5}px)` }">
+                <div class="grid h-44 w-full items-end gap-px border-b border-stone-200 dark:border-white/10" :style="{ gridTemplateColumns: `repeat(${normalizedBudgetTrend.length}, minmax(3px, 1fr))` }" role="img" :aria-label="t('enterpriseMembers.copy.dailyCostBarChart')">
+                  <div v-for="point in normalizedBudgetTrend" :key="point.date" class="group relative flex h-full min-w-0 items-end justify-center pt-8" :title="`${point.date} · ${formatMoney(point.actual_cost)} · ${formatNumber(point.request_count)} ${t('enterpriseMembers.copy.requests')}`">
+                    <div v-if="point.actual_cost > 0" class="relative w-full max-w-6 rounded-t-sm bg-amber-300/80 transition-colors hover:bg-amber-400 dark:bg-amber-400/70 dark:hover:bg-amber-300" :style="{ height: `${trendHeight(point.actual_cost)}%` }">
+                      <span class="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-stone-950 px-2 py-1 text-[10px] text-white shadow-lg group-hover:block">{{ point.date }} · {{ formatMoney(point.actual_cost) }} · {{ formatNumber(point.request_count) }} {{ t('enterpriseMembers.copy.requests') }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="mt-2 flex justify-between text-[10px] tabular-nums text-stone-400"><span>{{ normalizedBudgetTrend[0]?.date }}</span><span>{{ normalizedBudgetTrend[normalizedBudgetTrend.length - 1]?.date }}</span></div>
+              </div>
             </div>
             <p v-else class="mt-5 rounded-2xl bg-stone-50 py-16 text-center text-sm text-stone-500 dark:bg-white/[0.03]">{{ t('enterpriseMembers.copy.noUsageInThisRange') }}</p>
           </div>
@@ -615,12 +684,20 @@
               <button class="btn btn-secondary btn-sm" type="button" :aria-label="t('enterpriseMembers.copy.nextRequestRecordsPage')" :disabled="usageRecordsLoading || usageRecordPage >= usageRecordPages" @click="loadUsageRecords(usageRecordPage + 1)">→</button>
             </div>
           </div>
-          <div class="mt-4 overflow-auto rounded-2xl border border-stone-100 dark:border-white/5">
-            <table class="w-full min-w-[980px] text-left text-xs">
-              <thead class="bg-stone-50 text-stone-500 dark:bg-white/[0.03]"><tr><th class="p-3">{{ t('enterpriseMembers.copy.timeRequest') }}</th><th>Key</th><th>{{ t('enterpriseMembers.copy.modelEndpoint') }}</th><th>{{ t('enterpriseMembers.copy.group') }}</th><th>{{ t('enterpriseMembers.copy.type') }}</th><th>Tokens</th><th>{{ t('enterpriseMembers.copy.latency') }}</th><th class="pr-3 text-right">{{ t('enterpriseMembers.copy.cost') }}</th></tr></thead>
-              <tbody class="divide-y divide-stone-100 dark:divide-white/5"><tr v-for="record in usageRecords" :key="record.id"><td class="p-3"><span class="block whitespace-nowrap text-stone-700 dark:text-stone-200">{{ formatDateTime(record.created_at) }}</span><code class="mt-0.5 block max-w-44 truncate text-[10px] text-stone-400" :title="record.request_id">{{ record.request_id }}</code></td><td><b class="block max-w-36 truncate text-stone-800 dark:text-stone-100" :title="record.api_key_name">{{ record.api_key_name || `#${record.api_key_id}` }}</b><span class="text-[10px] text-stone-400">#{{ record.api_key_id }}</span></td><td><code class="block max-w-52 truncate text-stone-700 dark:text-stone-200" :title="record.model">{{ record.model }}</code><span class="text-[10px] text-stone-400">{{ record.inbound_endpoint || '—' }}</span></td><td>{{ record.group_name || (record.group_id ? groupName(record.group_id) : '—') }}</td><td><span class="rounded-md bg-stone-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-stone-600 dark:bg-white/5 dark:text-stone-300">{{ requestTypeLabel(record.request_type) }}</span></td><td>{{ formatNumber(record.input_tokens + record.output_tokens + record.cache_creation_tokens + record.cache_read_tokens) }}</td><td>{{ record.duration_ms == null ? '—' : `${record.duration_ms} ms` }}<span v-if="record.first_token_ms != null" class="block text-[10px] text-stone-400">TTFT {{ record.first_token_ms }} ms</span></td><td class="pr-3 text-right font-semibold text-stone-900 dark:text-white">{{ formatMoney(record.actual_cost) }}</td></tr></tbody>
-            </table>
-            <p v-if="usageRecordsLoading" class="py-10 text-center text-sm text-stone-500">{{ t('enterpriseMembers.copy.loadingRequestRecords') }}</p><p v-else-if="!usageRecords.length" class="py-10 text-center text-sm text-stone-500">{{ t('enterpriseMembers.copy.noRequestRecordsYet') }}</p>
+          <div class="mt-4 overflow-hidden rounded-2xl border border-stone-200 dark:border-white/10">
+            <UsageTable
+              flat
+              :data="usageRecords"
+              :loading="usageRecordsLoading"
+              :columns="budgetUsageRecordColumns"
+              :server-side-sort="true"
+              :show-account-billing="false"
+              :show-upstream-endpoint="false"
+              default-sort-key="created_at"
+              default-sort-order="desc"
+              @sort="handleUsageRecordSort"
+              @ipGeoBatchFailed="handleUsageIpGeoBatchFailed"
+            />
           </div>
         </section>
 
@@ -682,6 +759,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
+import UsageTable from '@/components/admin/usage/UsageTable.vue'
 import EnterpriseMemberBatchPolicyDialog from '@/components/enterprise/EnterpriseMemberBatchPolicyDialog.vue'
 import EnterpriseMemberBatchUsageDialog, { type EnterpriseMemberBatchUsageTarget } from '@/components/enterprise/EnterpriseMemberBatchUsageDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -689,11 +767,14 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import { useAppStore, useAuthStore } from '@/stores'
 import { useClipboard } from '@/composables/useClipboard'
 import { extractI18nErrorMessage } from '@/utils/apiError'
+import { fillEnterpriseMemberUsageTrend } from '@/utils/enterpriseMemberUsageTrend'
 import { tableSelectionCheckboxClasses as selectionCheckboxClasses } from '@/utils/tableSelectionCheckbox'
 import { userGroupsAPI } from '@/api/groups'
 import { keysAPI } from '@/api/keys'
-import { enterpriseMembersAPI, type EnterpriseMember, type EnterpriseMemberAuditEvent, type EnterpriseMemberBatchPolicyInput, type EnterpriseMemberBudgetEntry, type EnterpriseMemberBudgetSummary, type EnterpriseMemberDraft, type EnterpriseMemberImportJob, type EnterpriseMemberImportPreview, type EnterpriseMemberImportResult, type EnterpriseMemberKeyUpdate, type EnterpriseMemberOwnerUsageItem, type EnterpriseMemberOwnerUsageSummary, type EnterpriseMemberStatus, type EnterpriseMemberUsageAnalytics, type EnterpriseMemberUsageDeltaInput, type EnterpriseMemberUsageRecord } from '@/api/enterpriseMembers'
-import type { ApiKey, Group } from '@/types'
+import { usageAPI } from '@/api/usage'
+import { enterpriseMembersAPI, type EnterpriseMember, type EnterpriseMemberAuditEvent, type EnterpriseMemberBatchPolicyInput, type EnterpriseMemberBudgetEntry, type EnterpriseMemberBudgetSummary, type EnterpriseMemberDraft, type EnterpriseMemberImportJob, type EnterpriseMemberImportPreview, type EnterpriseMemberImportResult, type EnterpriseMemberKeyUpdate, type EnterpriseMemberOwnerUsageItem, type EnterpriseMemberOwnerUsageSummary, type EnterpriseMemberStatus, type EnterpriseMemberUsageAnalytics, type EnterpriseMemberUsageDeltaInput } from '@/api/enterpriseMembers'
+import type { ApiKey, Group, UsageLog } from '@/types'
+import type { Column } from '@/components/common/types'
 
 const { t, locale } = useI18n()
 const router = useRouter()
@@ -779,15 +860,21 @@ const budgetSummary = ref<EnterpriseMemberBudgetSummary | null>(null)
 const budgetAnalytics = ref<EnterpriseMemberUsageAnalytics | null>(null)
 const budgetEntries = ref<EnterpriseMemberBudgetEntry[]>([])
 const budgetEntryTotal = ref(0)
-const usageRecords = ref<EnterpriseMemberUsageRecord[]>([])
+const USAGE_RECORD_PAGE_SIZE = 20
+const usageRecords = ref<UsageLog[]>([])
 const usageRecordTotal = ref(0)
 const usageRecordPage = ref(1)
 const usageRecordsLoading = ref(false)
+const usageRecordSortBy = ref('created_at')
+const usageRecordSortOrder = ref<'asc' | 'desc'>('desc')
 const auditEvents = ref<EnterpriseMemberAuditEvent[]>([])
 const auditEventTotal = ref(0)
 const analyticsDays = ref(30)
 const adjusting = ref(false)
 const adjustment = reactive({ amount: 0, note: '' })
+let budgetSessionSeq = 0
+let usageRecordsReqSeq = 0
+let budgetAnalyticsReqSeq = 0
 
 const importOpen = ref(false)
 const importFile = ref<File | null>(null)
@@ -880,7 +967,21 @@ const batchGroupModeOptions = computed<SelectOption[]>(() => [
   { value: 'replace', label: t('enterpriseMembers.copy.replaceAccessibleGroups') },
   { value: 'append', label: t('enterpriseMembers.copy.appendAccessibleGroups') }
 ])
-const usageRecordPages = computed(() => Math.max(1, Math.ceil(usageRecordTotal.value / 20)))
+const usageRecordPages = computed(() => Math.max(1, Math.ceil(usageRecordTotal.value / USAGE_RECORD_PAGE_SIZE)))
+const budgetUsageRecordColumns = computed<Column[]>(() => [
+  { key: 'api_key', label: t('usage.apiKeyFilter'), sortable: false },
+  { key: 'model', label: t('usage.model'), sortable: true },
+  { key: 'reasoning_effort', label: t('usage.reasoningEffort'), sortable: false },
+  { key: 'endpoint', label: t('usage.endpoint'), sortable: false },
+  { key: 'ip_address', label: 'IP', sortable: false },
+  { key: 'group', label: t('admin.usage.group'), sortable: false },
+  { key: 'stream', label: t('usage.type'), sortable: false },
+  { key: 'billing_mode', label: t('admin.usage.billingMode'), sortable: false },
+  { key: 'tokens', label: t('usage.tokens'), sortable: false },
+  { key: 'cost', label: t('usage.cost'), sortable: false },
+  { key: 'latency', label: t('usage.latency'), sortable: false },
+  { key: 'created_at', label: t('usage.time'), sortable: true }
+])
 const filteredMembers = computed(() => {
   const term = search.value.toLocaleLowerCase()
   const list = members.value.filter(member => {
@@ -910,16 +1011,22 @@ const budgetUsagePercent = computed(() => {
   if (!budgetSummary.value || budgetSummary.value.limit_usd <= 0) return 0
   return Math.min(100, Math.max(0, ((budgetSummary.value.used_usd + budgetSummary.value.reserved_usd) / budgetSummary.value.limit_usd) * 100))
 })
+const budgetCommittedUsd = computed(() => (budgetSummary.value?.used_usd || 0) + (budgetSummary.value?.reserved_usd || 0))
 const memberRateLimitWindows = computed(() => {
   const summary = budgetSummary.value
   if (!summary) return []
   return [
-    { label: `5h ${t('enterpriseMembers.copy.limit')}`, limit: summary.rate_limit_5h, used: summary.usage_5h, resetAt: summary.reset_5h_at || null },
-    { label: `1d ${t('enterpriseMembers.copy.limit')}`, limit: summary.rate_limit_1d, used: summary.usage_1d, resetAt: summary.reset_1d_at || null },
-    { label: `7d ${t('enterpriseMembers.copy.limit')}`, limit: summary.rate_limit_7d, used: summary.usage_7d, resetAt: summary.reset_7d_at || null }
+    { key: '5h', label: t('enterpriseMembers.copy.fiveHourWindow'), limit: summary.rate_limit_5h, used: summary.usage_5h, resetAt: summary.reset_5h_at || null },
+    { key: '1d', label: t('enterpriseMembers.copy.oneDayWindow'), limit: summary.rate_limit_1d, used: summary.usage_1d, resetAt: summary.reset_1d_at || null },
+    { key: '7d', label: t('enterpriseMembers.copy.sevenDayWindow'), limit: summary.rate_limit_7d, used: summary.usage_7d, resetAt: summary.reset_7d_at || null }
   ]
 })
-const maxTrendCost = computed(() => Math.max(0, ...(budgetAnalytics.value?.trend.map(point => point.actual_cost) || [])))
+const normalizedBudgetTrend = computed(() => {
+  const analytics = budgetAnalytics.value
+  if (!analytics) return []
+  return fillEnterpriseMemberUsageTrend(analytics.trend, analytics.start, analyticsDays.value, budgetSummary.value?.timezone || 'Asia/Shanghai')
+})
+const maxTrendCost = computed(() => Math.max(0, ...normalizedBudgetTrend.value.map(point => point.actual_cost)))
 const allValidImportRowsSelected = computed(() => Boolean(importPreview.value?.valid_rows) && importPreview.value?.rows.filter(row => row.valid).every(row => importSelectedRows.value.has(row.row_number)))
 
 async function loadMembers() {
@@ -1556,49 +1663,119 @@ async function saveMemberKey() {
   finally { keyEditing.value = false }
 }
 async function openBudget(member: EnterpriseMember) {
+  const session = ++budgetSessionSeq
+  const recordsSeq = ++usageRecordsReqSeq
+  const analyticsSeq = ++budgetAnalyticsReqSeq
+  const initialAnalyticsDays = analyticsDays.value
   budgetMember.value = member
   budgetOpen.value = true
   budgetLoading.value = true
+  usageRecordsLoading.value = false
+  usageRecordSortBy.value = 'created_at'
+  usageRecordSortOrder.value = 'desc'
+  budgetSummary.value = null
+  budgetAnalytics.value = null
+  budgetEntries.value = []
+  budgetEntryTotal.value = 0
+  auditEvents.value = []
+  auditEventTotal.value = 0
+  usageRecords.value = []
+  usageRecordTotal.value = 0
+  usageRecordPage.value = 1
   try {
     const [summary, analytics, ledger, audit, records] = await Promise.all([
       enterpriseMembersAPI.getBudget(member.id),
-      enterpriseMembersAPI.getUsageAnalytics(member.id, analyticsDays.value),
+      enterpriseMembersAPI.getUsageAnalytics(member.id, initialAnalyticsDays),
       enterpriseMembersAPI.listBudgetEntries(member.id),
       enterpriseMembersAPI.listAuditEvents(member.id),
-      enterpriseMembersAPI.listUsageRecords(member.id, 1, 20)
+      queryMemberUsageRecords(member.id, 1)
     ])
+    if (session !== budgetSessionSeq || !budgetOpen.value || budgetMember.value?.id !== member.id) return
     budgetSummary.value = summary
-    budgetAnalytics.value = analytics
+    if (analyticsSeq === budgetAnalyticsReqSeq && analyticsDays.value === initialAnalyticsDays) {
+      budgetAnalytics.value = analytics
+    }
     budgetEntries.value = ledger.items
     budgetEntryTotal.value = ledger.total
     auditEvents.value = audit.items
     auditEventTotal.value = audit.total
-    usageRecords.value = records.items
-    usageRecordTotal.value = records.total
-    usageRecordPage.value = records.page
-  } catch (error: unknown) { appStore.showError(extractI18nErrorMessage(error, t, 'enterpriseMembers.errors', t('enterpriseMembers.copy.failedToLoadBudgetAndUsage'))) }
-  finally { budgetLoading.value = false }
+    if (recordsSeq === usageRecordsReqSeq) {
+      usageRecords.value = records.items
+      usageRecordTotal.value = records.total
+      usageRecordPage.value = records.page
+    }
+  } catch (error: unknown) {
+    if (session === budgetSessionSeq) appStore.showError(extractI18nErrorMessage(error, t, 'enterpriseMembers.errors', t('enterpriseMembers.copy.failedToLoadBudgetAndUsage')))
+  } finally {
+    if (session === budgetSessionSeq) budgetLoading.value = false
+  }
+}
+function closeBudget() {
+  budgetOpen.value = false
+  budgetSessionSeq += 1
+  usageRecordsReqSeq += 1
+  budgetAnalyticsReqSeq += 1
+  budgetLoading.value = false
+  usageRecordsLoading.value = false
 }
 function openUnifiedUsage(member: EnterpriseMember | null) {
   if (!member) return
-  budgetOpen.value = false
-  void router.push({ name: 'Usage', query: { tab: 'usage', member_id: String(member.id) } })
+  closeBudget()
+  void router.push({ name: 'EnterpriseMemberUsage', query: { tab: 'usage', member_id: String(member.id) } })
+}
+function queryMemberUsageRecords(
+  memberID: number,
+  page: number,
+  sortBy = usageRecordSortBy.value,
+  sortOrder = usageRecordSortOrder.value
+) {
+  return usageAPI.query({
+    member_id: memberID,
+    page,
+    page_size: USAGE_RECORD_PAGE_SIZE,
+    sort_by: sortBy,
+    sort_order: sortOrder
+  })
 }
 async function loadUsageRecords(page: number) {
   if (!budgetMember.value || page < 1 || page > usageRecordPages.value) return
+  const memberID = budgetMember.value.id
+  const sortBy = usageRecordSortBy.value
+  const sortOrder = usageRecordSortOrder.value
+  const seq = ++usageRecordsReqSeq
   usageRecordsLoading.value = true
   try {
-    const records = await enterpriseMembersAPI.listUsageRecords(budgetMember.value.id, page, 20)
+    const records = await queryMemberUsageRecords(memberID, page, sortBy, sortOrder)
+    if (seq !== usageRecordsReqSeq || !budgetOpen.value || budgetMember.value?.id !== memberID) return
     usageRecords.value = records.items
     usageRecordTotal.value = records.total
     usageRecordPage.value = records.page
-  } catch (error: any) { appStore.showError(error.response?.data?.message || t('enterpriseMembers.copy.failedToLoadRequestRecords')) }
-  finally { usageRecordsLoading.value = false }
+  } catch (error: unknown) {
+    if (seq === usageRecordsReqSeq) appStore.showError(extractI18nErrorMessage(error, t, 'enterpriseMembers.errors', t('enterpriseMembers.copy.failedToLoadRequestRecords')))
+  } finally {
+    if (seq === usageRecordsReqSeq) usageRecordsLoading.value = false
+  }
+}
+function handleUsageRecordSort(key: string, order: 'asc' | 'desc') {
+  usageRecordSortBy.value = key
+  usageRecordSortOrder.value = order
+  void loadUsageRecords(1)
+}
+function handleUsageIpGeoBatchFailed() {
+  appStore.showError(t('usage.ipGeo.batchFailed'))
 }
 async function reloadAnalytics() {
   if (!budgetMember.value) return
-  try { budgetAnalytics.value = await enterpriseMembersAPI.getUsageAnalytics(budgetMember.value.id, analyticsDays.value) }
-  catch (error: any) { appStore.showError(error.response?.data?.message || error.message || t('enterpriseMembers.copy.failedToLoadTrend')) }
+  const memberID = budgetMember.value.id
+  const days = analyticsDays.value
+  const seq = ++budgetAnalyticsReqSeq
+  try {
+    const analytics = await enterpriseMembersAPI.getUsageAnalytics(memberID, days)
+    if (seq !== budgetAnalyticsReqSeq || !budgetOpen.value || budgetMember.value?.id !== memberID || analyticsDays.value !== days) return
+    budgetAnalytics.value = analytics
+  } catch (error: unknown) {
+    if (seq === budgetAnalyticsReqSeq) appStore.showError(extractI18nErrorMessage(error, t, 'enterpriseMembers.errors', t('enterpriseMembers.copy.failedToLoadTrend')))
+  }
 }
 async function submitAdjustment() {
   if (!budgetMember.value || !adjustment.amount || !adjustment.note) return
@@ -1676,9 +1853,8 @@ const formatMoney = (value: number) => new Intl.NumberFormat(locale.value, { sty
 const formatNumber = (value: number) => new Intl.NumberFormat(locale.value, { notation: value >= 1_000_000 ? 'compact' : 'standard', maximumFractionDigits: 1 }).format(value)
 const formatDate = (value: string) => new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium' }).format(new Date(value))
 const formatDateTime = (value: string) => new Intl.DateTimeFormat(locale.value, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
-const trendHeight = (value: number) => maxTrendCost.value > 0 ? Math.max(4, (value / maxTrendCost.value) * 100) : 4
+const trendHeight = (value: number) => value > 0 && maxTrendCost.value > 0 ? Math.max(4, (value / maxTrendCost.value) * 100) : 0
 const entryKindLabel = (kind: string) => ({ usage: t('enterpriseMembers.copy.usage'), manual_adjustment: t('enterpriseMembers.copy.adjustment'), migration_opening: t('enterpriseMembers.copy.opening'), reconciliation: t('enterpriseMembers.copy.reconciliation') }[kind] || kind)
-const requestTypeLabel = (kind: string) => ({ sync: t('enterpriseMembers.copy.sync'), stream: t('enterpriseMembers.copy.stream'), ws_v2: 'WebSocket', cyber: t('enterpriseMembers.copy.policyBlocked'), unknown: t('enterpriseMembers.copy.unknown') }[kind] || kind)
 const importJobStatusLabel = (status: EnterpriseMemberImportJob['status']) => ({ previewed: t('enterpriseMembers.copy.ready'), queued: t('enterpriseMembers.copy.queued'), queued_v2: t('enterpriseMembers.copy.queued'), processing: t('enterpriseMembers.copy.processing'), processing_v2: t('enterpriseMembers.copy.processing'), completed: t('enterpriseMembers.copy.completed'), failed: t('enterpriseMembers.copy.failed') }[status])
 const auditActionLabel = (action: string) => ({
   'member.created': t('enterpriseMembers.copy.memberCreated'),
@@ -1751,19 +1927,13 @@ const statusClass = (member: EnterpriseMember) => member.deleted_at ? 'bg-stone-
 onMounted(loadMembers)
 onBeforeUnmount(() => {
   if (importPollTimer) clearTimeout(importPollTimer)
+  budgetSessionSeq += 1
+  usageRecordsReqSeq += 1
+  budgetAnalyticsReqSeq += 1
 })
 </script>
 
 <style scoped>
-.metric-card {
-  @apply rounded-2xl border border-stone-200 bg-stone-50 p-4 dark:border-white/10 dark:bg-white/[0.04];
-}
-.metric-card p {
-  @apply text-xs text-stone-500;
-}
-.metric-card strong {
-  @apply mt-2 block text-xl font-semibold text-stone-950 dark:text-white;
-}
 .limit-field {
   @apply rounded-xl bg-stone-50 p-3 dark:bg-white/[0.04];
 }

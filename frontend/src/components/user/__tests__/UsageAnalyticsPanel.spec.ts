@@ -220,4 +220,50 @@ describe('UsageAnalyticsPanel member metrics', () => {
     expect(wrapper.text()).toContain('Finance')
     expect(wrapper.text()).not.toContain('usage.members.unassignedShort')
   })
+
+  it('keeps the dedicated member module scoped to assigned usage until a member is selected', async () => {
+    const wrapper = mount(UsageAnalyticsPanel, {
+      props: {
+        enterprise: true,
+        memberCentric: true,
+        memberScope: 'assigned',
+        startDate: '2026-07-01',
+        endDate: '2026-07-08',
+        members: [{ id: 42, member_code: 'finance-01', name: 'Finance', status: 'active', archived: false, key_count: 1, monthly_limit_usd: 100 }],
+      },
+      global: {
+        stubs: {
+          Icon: true,
+          Select: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll('button').some((button) => button.text() === 'usage.analytics.dimensionKey')).toBe(false)
+    expect(wrapper.findAll('label').some((label) => label.text().includes('usage.analytics.apiKey'))).toBe(false)
+    expect(wrapper.findAll('label').some((label) => label.text().includes('usage.memberFilter'))).toBe(false)
+    expect(wrapper.text()).toContain('usage.analytics.memberTitle')
+    expect(getKeyLeaderboard).not.toHaveBeenCalled()
+
+    expect(getSummary).toHaveBeenLastCalledWith(
+      expect.objectContaining({ member_scope: 'assigned' }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+    expect(getMemberLeaderboard).toHaveBeenLastCalledWith(
+      expect.objectContaining({ member_scope: 'assigned' }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+
+    await wrapper.setProps({ memberFilter: 'member:42' })
+    vi.advanceTimersByTime(300)
+    await flushPromises()
+
+    expect(getSummary).toHaveBeenLastCalledWith(
+      expect.objectContaining({ member_id: 42 }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+    const params = getSummary.mock.calls.at(-1)?.[0] as Record<string, unknown>
+    expect(params).not.toHaveProperty('member_scope')
+  })
 })

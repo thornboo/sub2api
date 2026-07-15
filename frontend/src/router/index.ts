@@ -219,6 +219,20 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/enterprise/member-usage',
+    name: 'EnterpriseMemberUsage',
+    component: () => import('@/views/user/UsageView.vue'),
+    props: { usageScope: 'members' },
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      requiresEnterpriseAccount: true,
+      title: 'Member Usage Records',
+      titleKey: 'usage.memberUsageTitle',
+      descriptionKey: 'usage.memberUsageDescription'
+    }
+  },
+  {
     path: '/batch-image',
     name: 'BatchImageGuide',
     alias: '/docs/batch-image',
@@ -235,6 +249,7 @@ const routes: RouteRecordRaw[] = [
     path: '/usage',
     name: 'Usage',
     component: () => import('@/views/user/UsageView.vue'),
+    props: { usageScope: 'account' },
     meta: {
       requiresAuth: true,
       requiresAdmin: false,
@@ -825,6 +840,11 @@ router.beforeEach(async (to, _from, next) => {
   }
 
   if (to.meta.requiresEnterprise && (authStore.user?.role !== 'user' || authStore.user?.account_type !== 'enterprise' || Boolean(authStore.user?.enterprise_disabled_at))) {
+    next('/dashboard')
+    return
+  }
+
+  if (to.meta.requiresEnterpriseAccount && (authStore.user?.role !== 'user' || authStore.user?.account_type !== 'enterprise')) {
     next('/dashboard')
     return
   }

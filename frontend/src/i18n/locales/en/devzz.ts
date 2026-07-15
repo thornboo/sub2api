@@ -309,10 +309,14 @@ export default {
     },
     // Usage
     usage: {
+        memberUsageTitle: 'Member Usage',
+        memberUsageDescription: 'Review enterprise member requests, spend, tokens, and errors',
+        memberScopeTitle: 'Member filter',
+        memberScopeDescription: 'Choose all members or one member to update the metrics, charts, request details, and errors together.',
         member: 'Enterprise Member',
-        memberFilter: 'Request Attribution',
+        memberFilter: 'Member',
         members: {
-            all: 'All requests',
+            all: 'All members',
             assigned: 'Enterprise member requests',
             unassigned: 'Regular Key requests',
             unassignedShort: 'Regular Key',
@@ -325,9 +329,10 @@ export default {
         },
         analytics: {
             title: 'Enterprise Usage Analytics',
+            memberTitle: 'Member Usage Analytics',
             dimensionMember: 'By Member',
             dimensionKey: 'By Key',
-            memberScope: 'Uses immutable member attribution for the selected time range; archived members and deleted keys retain their historical records.',
+            memberScope: 'Summarizes spend, requests, tokens, models, and actual groups for the selected members and time range.',
             scope: 'Uses the selected date range and panel filters for current-account API keys; admin-only cost and upstream routing fields are not exposed.',
             singleKeyScope: 'Follows the date filter above and analyzes only the selected API key. Admin-only cost and upstream routing fields are not exposed.',
             loadFailed: 'Failed to load usage analytics',

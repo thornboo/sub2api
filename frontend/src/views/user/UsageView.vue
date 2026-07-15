@@ -1,6 +1,33 @@
 <template>
   <AppLayout>
     <div class="space-y-6">
+      <section v-if="showMemberContext" class="card p-5" aria-labelledby="member-usage-scope-title">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div class="max-w-2xl">
+            <div class="flex items-center gap-2">
+              <Icon name="users" size="md" class="text-emerald-500" />
+              <h2 id="member-usage-scope-title" class="text-base font-semibold text-stone-950 dark:text-white">
+                {{ t('usage.memberScopeTitle') }}
+              </h2>
+            </div>
+            <p class="mt-1 text-sm text-stone-500 dark:text-stone-400">
+              {{ t('usage.memberScopeDescription') }}
+            </p>
+          </div>
+          <div class="w-full lg:w-[360px]">
+            <label class="input-label" for="member-usage-filter">{{ t('usage.memberFilter') }}</label>
+            <Select
+              id="member-usage-filter"
+              data-testid="member-usage-global-filter"
+              v-model="selectedMemberFilter"
+              :options="memberFilterOptions"
+              searchable
+              @change="onMemberFilterChange"
+            />
+          </div>
+        </div>
+      </section>
+
       <UsageStatsCards :stats="usageStats" :show-account-cost="false" :strike-standard-cost="true" />
 
       <div class="space-y-4">
@@ -69,14 +96,20 @@
         </div>
       </div>
 
-      <div class="card p-6">
+      <div v-if="!showMemberContext || activeTab !== 'analytics'" class="card p-6">
         <div class="flex flex-wrap items-end justify-between gap-4">
           <div v-if="activeTab === 'errors'" class="flex flex-1 flex-wrap items-end gap-4">
-            <div v-if="isEnterpriseAccount" class="w-full sm:w-auto sm:min-w-[240px]">
+            <div v-if="showMemberContext" class="w-full sm:w-auto sm:min-w-[280px]">
               <label class="input-label">{{ t('usage.memberFilter') }}</label>
-              <Select v-model="selectedMemberFilter" :options="memberFilterOptions" searchable="auto" @change="onMemberFilterChange" />
+              <Select
+                data-testid="member-error-detail-filter"
+                v-model="selectedMemberFilter"
+                :options="memberFilterOptions"
+                searchable
+                @change="onMemberFilterChange"
+              />
             </div>
-            <div class="w-full sm:w-auto sm:min-w-[220px]">
+            <div v-if="!showMemberContext" class="w-full sm:w-auto sm:min-w-[220px]">
               <label class="input-label">{{ t('usage.errors.keyName') }}</label>
               <Select v-model="errorFilter.api_key_id" :options="errorKeyOptions" @change="applyErrorFilters" />
             </div>
@@ -102,11 +135,17 @@
             </div>
           </div>
           <div v-else class="flex flex-1 flex-wrap items-end gap-4">
-            <div v-if="isEnterpriseAccount" class="w-full sm:w-auto sm:min-w-[240px]">
+            <div v-if="showMemberContext" class="w-full sm:w-auto sm:min-w-[280px]">
               <label class="input-label">{{ t('usage.memberFilter') }}</label>
-              <Select v-model="selectedMemberFilter" :options="memberFilterOptions" searchable="auto" @change="onMemberFilterChange" />
+              <Select
+                data-testid="member-usage-detail-filter"
+                v-model="selectedMemberFilter"
+                :options="memberFilterOptions"
+                searchable
+                @change="onMemberFilterChange"
+              />
             </div>
-            <div class="w-full sm:w-auto sm:min-w-[220px]">
+            <div v-if="!showMemberContext" class="w-full sm:w-auto sm:min-w-[220px]">
               <label class="input-label">{{ t('usage.apiKeyFilter') }}</label>
               <Select v-model="filters.api_key_id" :options="apiKeyOptions" @change="applyFilters" />
             </div>
@@ -187,9 +226,11 @@
       <UsageAnalyticsPanel
         v-if="activeTab === 'analytics'"
         :api-key-id="selectedApiKeyID"
-        :api-keys="apiKeys"
+        :api-keys="filteredApiKeys"
         :groups="groups"
-        :enterprise="isEnterpriseAccount"
+        :enterprise="showMemberContext"
+        :member-centric="showMemberContext"
+        :member-scope="analyticsMemberScope"
         :members="usageMembers"
         :member-filter="selectedMemberFilter"
         :start-date="filters.start_date || startDate"
@@ -231,7 +272,7 @@
         :page="errorPage"
         :page-size="errorPageSize"
         :visible-column-keys="errVisibleColumnKeys"
-        :show-member="isEnterpriseAccount"
+        :show-member="showMemberContext"
         @sort="onErrorSort"
         @update:page="onErrorPage"
         @update:pageSize="onErrorPageSize"
@@ -291,6 +332,13 @@ const router = useRouter()
 
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
+type UsageScope = 'account' | 'members'
+
+const props = withDefaults(defineProps<{
+  usageScope?: UsageScope
+}>(), {
+  usageScope: 'account',
+})
 
 const usageStats = ref<UsageStatsResponse | null>(null)
 const usageLogs = ref<UsageLog[]>([])
@@ -324,26 +372,28 @@ const apiKeys = ref<ApiKey[]>([])
 const isEnterpriseAccount = computed(
   () => authStore.user?.role === 'user' && authStore.user?.account_type === 'enterprise'
 )
+const isMemberUsageView = computed(() => isEnterpriseAccount.value && props.usageScope === 'members')
+const showMemberContext = computed(() => isMemberUsageView.value)
+const analyticsMemberScope = computed<'assigned' | 'unassigned' | null>(() => {
+  if (!isEnterpriseAccount.value) return null
+  return isMemberUsageView.value ? 'assigned' : 'unassigned'
+})
 const usageMembers = ref<OwnerUsageMember[]>([])
 const selectedMemberFilter = ref('all')
 
 const memberFilterParams = computed<Pick<UsageQueryParams, 'member_id' | 'member_scope'>>(() => {
   if (!isEnterpriseAccount.value) return {}
+  if (!isMemberUsageView.value) return { member_scope: 'unassigned' }
   const selected = selectedMemberFilter.value
   if (selected.startsWith('member:')) {
     const memberID = Number(selected.slice('member:'.length))
-    return Number.isFinite(memberID) && memberID > 0 ? { member_id: memberID } : { member_scope: 'all' }
+    return Number.isFinite(memberID) && memberID > 0 ? { member_id: memberID } : { member_scope: 'assigned' }
   }
-  if (selected === 'assigned' || selected === 'unassigned') {
-    return { member_scope: selected }
-  }
-  return {}
+  return { member_scope: 'assigned' }
 })
 
 const memberFilterOptions = computed<SelectOption[]>(() => [
   { value: 'all', label: t('usage.members.all') },
-  { value: 'assigned', label: t('usage.members.assigned') },
-  { value: 'unassigned', label: t('usage.members.unassigned') },
   ...usageMembers.value.map((member) => ({
     value: `member:${member.id}`,
     label: member.archived
@@ -353,11 +403,11 @@ const memberFilterOptions = computed<SelectOption[]>(() => [
 ])
 
 const keyMatchesSelectedMember = (key: ApiKey): boolean => {
+  if (!isEnterpriseAccount.value) return true
+  if (!isMemberUsageView.value) return key.member_id == null
   const selected = selectedMemberFilter.value
-  if (selected === 'assigned') return key.member_id != null
-  if (selected === 'unassigned') return key.member_id == null
   if (selected.startsWith('member:')) return key.member_id === Number(selected.slice('member:'.length))
-  return true
+  return key.member_id != null
 }
 
 const filteredApiKeys = computed(() => apiKeys.value.filter(keyMatchesSelectedMember))
@@ -400,9 +450,18 @@ const applyErrorFilters = () => {
 }
 
 let abortController: AbortController | null = null
+let errorAbortController: AbortController | null = null
 let chartReqSeq = 0
 let statsReqSeq = 0
 let modelStatsReqSeq = 0
+let errorReqSeq = 0
+let filterOptionsReqSeq = 0
+let scopeLifecycleSeq = 0
+
+const isCanceledRequest = (error: unknown): boolean => {
+  const candidate = error as { name?: string; code?: string }
+  return candidate?.name === 'AbortError' || candidate?.code === 'ERR_CANCELED'
+}
 
 const formatLocalDate = (date: Date): string =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -516,14 +575,15 @@ const normalizedFilters = computed<UsageQueryParams>(() => {
 })
 
 const syncMemberFilterToRoute = () => {
-  if (!isEnterpriseAccount.value) return
   const query = { ...route.query }
   delete query.member_id
   delete query.member_scope
-  if (memberFilterParams.value.member_id) {
-    query.member_id = String(memberFilterParams.value.member_id)
-  } else if (memberFilterParams.value.member_scope) {
-    query.member_scope = memberFilterParams.value.member_scope
+  if (isMemberUsageView.value) {
+    if (memberFilterParams.value.member_id) {
+      query.member_id = String(memberFilterParams.value.member_id)
+    } else if (memberFilterParams.value.member_scope) {
+      query.member_scope = memberFilterParams.value.member_scope
+    }
   }
   void router.replace({ query })
 }
@@ -766,10 +826,10 @@ const exportToCSV = async () => {
       appStore.showWarning(t('usage.noDataToExport'))
       return
     }
-    const memberHeaders = isEnterpriseAccount.value
+    const memberHeaders = showMemberContext.value
       ? ['Member ID', 'Member Code', 'Member Name']
       : []
-    const keyIDHeaders = isEnterpriseAccount.value ? ['API Key ID'] : []
+    const keyIDHeaders = showMemberContext.value ? ['API Key ID'] : []
     const headers = [
       'Time',
       ...memberHeaders,
@@ -793,10 +853,10 @@ const exportToCSV = async () => {
     ]
     const rows = allLogs.map((log) => [
       log.created_at,
-      ...(isEnterpriseAccount.value
+      ...(showMemberContext.value
         ? [log.member_id ?? '', log.member_code_snapshot || '', log.member_name_snapshot || '']
         : []),
-      ...(isEnterpriseAccount.value ? [log.api_key_id ?? ''] : []),
+      ...(showMemberContext.value ? [log.api_key_id ?? ''] : []),
       log.api_key?.name || '',
       log.model,
       formatReasoningEffort(log.reasoning_effort),
@@ -836,7 +896,7 @@ const DEFAULT_HIDDEN_COLUMNS = ['user_agent']
 const HIDDEN_COLUMNS_KEY = 'user-usage-hidden-columns'
 
 const allColumns = computed<Column[]>(() => [
-  ...(isEnterpriseAccount.value
+  ...(showMemberContext.value
     ? [{ key: 'member', label: t('usage.member'), sortable: false }]
     : []),
   { key: 'api_key', label: t('usage.apiKeyFilter'), sortable: false },
@@ -882,7 +942,7 @@ const ERR_HIDDEN_COLUMNS_KEY = 'user-usage-error-hidden-columns'
 
 // key 须与 UserErrorRequestsTable 的 allColumns 一致
 const errAllColumns = computed<Column[]>(() => [
-  ...(isEnterpriseAccount.value
+  ...(showMemberContext.value
     ? [{ key: 'member', label: t('usage.member') }]
     : []),
   { key: 'key_name', label: t('usage.errors.keyName') },
@@ -943,18 +1003,27 @@ const handleColumnClickOutside = (event: MouseEvent) => {
   }
 }
 
-const loadFilterOptions = async () => {
+const loadFilterOptions = async (): Promise<boolean> => {
+  const seq = ++filterOptionsReqSeq
+  const memberView = isMemberUsageView.value
   try {
     const [keys, availableGroups, memberResponse] = await Promise.all([
-      listAllUsageAPIKeys(),
+      memberView ? Promise.resolve([]) : listAllUsageAPIKeys(),
       userGroupsAPI.getAvailable(),
-      isEnterpriseAccount.value ? usageAPI.listOwnerUsageMembers() : Promise.resolve({ members: [] }),
+      memberView ? usageAPI.listOwnerUsageMembers() : Promise.resolve({ members: [] }),
     ])
+    if (seq !== filterOptionsReqSeq || memberView !== isMemberUsageView.value) return false
     apiKeys.value = keys
     groups.value = availableGroups
     usageMembers.value = memberResponse.members
+    return true
   } catch (error) {
+    if (seq !== filterOptionsReqSeq || memberView !== isMemberUsageView.value) return false
     console.error('Failed to load usage filter options:', error)
+    apiKeys.value = []
+    groups.value = []
+    usageMembers.value = []
+    return true
   }
 }
 
@@ -998,16 +1067,23 @@ const buildErrorListParams = (page: number, pageSize: number): UserErrorListPara
 })
 
 const loadErrors = async () => {
+  errorAbortController?.abort()
+  const controller = new AbortController()
+  errorAbortController = controller
+  const seq = ++errorReqSeq
+  const params = buildErrorListParams(errorPage.value, errorPageSize.value)
   errorLoading.value = true
   try {
-    const resp = await usageAPI.listMyErrorRequests(buildErrorListParams(errorPage.value, errorPageSize.value))
+    const resp = await usageAPI.listMyErrorRequests(params, { signal: controller.signal })
+    if (seq !== errorReqSeq || controller.signal.aborted) return
     errorRows.value = resp.items
     errorTotal.value = resp.total
-  } catch (error) {
+  } catch (error: unknown) {
+    if (seq !== errorReqSeq || isCanceledRequest(error)) return
     console.error('[UsageView] loadErrors failed:', error)
     appStore.showError(t('usage.errors.failedToLoad'))
   } finally {
-    errorLoading.value = false
+    if (seq === errorReqSeq) errorLoading.value = false
   }
 }
 
@@ -1026,7 +1102,7 @@ const exportErrorsToCSV = async () => {
       const response = await usageAPI.listMyErrorRequests(buildErrorListParams(page, pageSize))
       allRows.push(...response.items)
     }
-    const memberHeaders = isEnterpriseAccount.value
+    const memberHeaders = showMemberContext.value
       ? ['Member ID', 'Member Code', 'Member Name']
       : []
     const headers = [
@@ -1045,7 +1121,7 @@ const exportErrorsToCSV = async () => {
     ]
     const rows = allRows.map((row) => [
       row.created_at,
-      ...(isEnterpriseAccount.value
+      ...(showMemberContext.value
         ? [row.member_id ?? '', row.member_code_snapshot || '', row.member_name_snapshot || '']
         : []),
       row.key_name,
@@ -1109,33 +1185,76 @@ const initializeTabFromRoute = () => {
 }
 
 const initializeMemberFilterFromRoute = () => {
-  if (!isEnterpriseAccount.value) return false
+  if (!isMemberUsageView.value) return false
   let nextFilter = 'all'
   const memberID = Number(route.query.member_id)
   if (Number.isFinite(memberID) && memberID > 0 && usageMembers.value.some((member) => member.id === memberID)) {
     nextFilter = `member:${memberID}`
-  } else {
-    const scope = String(route.query.member_scope || '')
-    if (scope === 'assigned' || scope === 'unassigned') nextFilter = scope
   }
   if (selectedMemberFilter.value === nextFilter) return false
   selectedMemberFilter.value = nextFilter
   return true
 }
 
+const resetScopeBoundState = () => {
+  abortController?.abort()
+  abortController = null
+  errorAbortController?.abort()
+  errorAbortController = null
+  chartReqSeq += 1
+  statsReqSeq += 1
+  modelStatsReqSeq += 1
+  errorReqSeq += 1
+  filterOptionsReqSeq += 1
+
+  usageStats.value = null
+  usageLogs.value = []
+  trendData.value = []
+  requestedModelStats.value = []
+  groupStats.value = []
+  inboundEndpointStats.value = []
+  upstreamEndpointStats.value = []
+  endpointPathStats.value = []
+  errorRows.value = []
+  errorTotal.value = 0
+  apiKeys.value = []
+  usageMembers.value = []
+  groups.value = []
+  modelOptionValues.value = []
+  selectedMemberFilter.value = 'all'
+  filters.value.api_key_id = undefined
+  errorFilter.value.api_key_id = null
+  pagination.page = 1
+  pagination.total = 0
+  errorPage.value = 1
+  loading.value = false
+  chartsLoading.value = false
+  modelStatsLoading.value = false
+  endpointStatsLoading.value = false
+  errorLoading.value = false
+}
+
+const initializeUsageScope = async () => {
+  const lifecycle = ++scopeLifecycleSeq
+  resetScopeBoundState()
+  initializeTabFromRoute()
+  const loaded = await loadFilterOptions()
+  if (!loaded || lifecycle !== scopeLifecycleSeq) return
+  initializeMemberFilterFromRoute()
+  syncMemberFilterToRoute()
+  refreshData()
+}
+
 onMounted(async () => {
   loadSavedColumns()
   loadSavedErrColumns()
   document.addEventListener('click', handleColumnClickOutside)
-  initializeTabFromRoute()
-  await loadFilterOptions()
-  initializeMemberFilterFromRoute()
-  syncMemberFilterToRoute()
-  refreshData()
+  await initializeUsageScope()
 })
 
 onUnmounted(() => {
-  abortController?.abort()
+  scopeLifecycleSeq += 1
+  resetScopeBoundState()
   document.removeEventListener('click', handleColumnClickOutside)
 })
 
@@ -1151,6 +1270,10 @@ watch(activeTab, (tab) => {
 })
 
 watch(() => route.query.tab, initializeTabFromRoute)
+
+watch(() => props.usageScope, () => {
+  void initializeUsageScope()
+})
 
 watch(
   [() => route.query.member_id, () => route.query.member_scope],

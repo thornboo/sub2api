@@ -10,9 +10,11 @@ const {
   getDashboardModels,
   getDashboardSnapshotV2,
   listOwnerUsageMembers,
+  listMyErrorRequests,
   list,
   getAvailable,
   authStore,
+  publicSettings,
   routeQueryState,
   routerReplace,
   showError,
@@ -25,9 +27,11 @@ const {
   getDashboardModels: vi.fn(),
   getDashboardSnapshotV2: vi.fn(),
   listOwnerUsageMembers: vi.fn(),
+  listMyErrorRequests: vi.fn(),
   list: vi.fn(),
   getAvailable: vi.fn(),
   authStore: { user: { role: 'user', account_type: 'individual' } as Record<string, unknown> },
+  publicSettings: {} as Record<string, unknown>,
   routeQueryState: { value: {} as Record<string, string> },
   routerReplace: vi.fn(),
   showError: vi.fn(),
@@ -57,6 +61,9 @@ const messages: Record<string, string> = {
   'admin.usage.allModels': 'All models',
   'usage.allApiKeys': 'All API Keys',
   'usage.apiKeyFilter': 'API Key',
+  'usage.memberScopeTitle': 'Member filter',
+  'usage.memberScopeDescription': 'Choose a member to update every view.',
+  'usage.memberFilter': 'Member',
   'usage.model': 'Model',
   'usage.type': 'Type',
   'usage.ws': 'WS',
@@ -80,6 +87,7 @@ vi.mock('@/api', () => ({
     getDashboardModels,
     getDashboardSnapshotV2,
     listOwnerUsageMembers,
+    listMyErrorRequests,
   },
   keysAPI: {
     list,
@@ -90,7 +98,7 @@ vi.mock('@/api', () => ({
 }))
 
 vi.mock('@/stores/app', () => ({
-  useAppStore: () => ({ showError, showWarning, showSuccess, showInfo, cachedPublicSettings: {} }),
+  useAppStore: () => ({ showError, showWarning, showSuccess, showInfo, cachedPublicSettings: publicSettings }),
 }))
 
 vi.mock('@/stores/auth', () => ({
@@ -118,6 +126,30 @@ vi.mock('vue-i18n', async () => {
 
 const simpleStub = { template: '<div><slot /></div>' }
 const chartStub = { template: '<div />' }
+const usageAnalyticsPanelStub = {
+  props: ['memberCentric'],
+  template: '<div data-testid="usage-analytics-panel" :data-member-centric="String(memberCentric)" />',
+}
+const usageTableStub = {
+  name: 'UsageTable',
+  props: ['data', 'columns', 'showAccountBilling', 'showUpstreamEndpoint'],
+  template: '<div data-testid="usage-table" :data-row-count="data.length" />',
+}
+const userErrorRequestsTableStub = {
+  name: 'UserErrorRequestsTable',
+  props: ['rows', 'total', 'loading'],
+  template: '<div data-testid="error-table" :data-row-count="rows.length" :data-total="total" :data-loading="String(loading)" />',
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
 
 const usageLog = {
   id: 1,
@@ -150,8 +182,9 @@ const usageLog = {
   stream: false,
 }
 
-function mountUsageView() {
+function mountUsageView(props: { usageScope?: 'account' | 'members' } = {}) {
   return mount(UsageView, {
+    props,
     global: {
       stubs: {
         AppLayout: simpleStub,
@@ -160,12 +193,13 @@ function mountUsageView() {
         DateRangePicker: true,
         Icon: true,
         UsageStatsCards: chartStub,
-        UsageTable: chartStub,
+        UsageTable: usageTableStub,
         ModelDistributionChart: chartStub,
         GroupDistributionChart: chartStub,
         EndpointDistributionChart: chartStub,
         TokenUsageTrend: chartStub,
-        UsageAnalyticsPanel: chartStub,
+        UsageAnalyticsPanel: usageAnalyticsPanelStub,
+        UserErrorRequestsTable: userErrorRequestsTableStub,
       },
     },
   })
@@ -178,10 +212,12 @@ describe('user UsageView', () => {
     getDashboardModels.mockReset()
     getDashboardSnapshotV2.mockReset()
     listOwnerUsageMembers.mockReset()
+    listMyErrorRequests.mockReset()
     list.mockReset()
     getAvailable.mockReset()
     routerReplace.mockReset()
     authStore.user = { role: 'user', account_type: 'individual' }
+    for (const key of Object.keys(publicSettings)) delete publicSettings[key]
     for (const key of Object.keys(routeQueryState.value)) delete routeQueryState.value[key]
     showError.mockReset()
     showWarning.mockReset()
@@ -216,6 +252,7 @@ describe('user UsageView', () => {
       groups: [],
     })
     listOwnerUsageMembers.mockResolvedValue({ members: [] })
+    listMyErrorRequests.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
     list.mockResolvedValue({ items: [{ id: 1, name: 'demo-key' }] })
     getAvailable.mockResolvedValue([{ id: 1, name: 'default' }])
   })
@@ -250,17 +287,20 @@ describe('user UsageView', () => {
 
   it('restores an enterprise member deep link and scopes every usage query to that member', async () => {
     authStore.user = { role: 'user', account_type: 'enterprise' }
-    routeQueryState.value.tab = 'usage'
     routeQueryState.value.member_id = '42'
     listOwnerUsageMembers.mockResolvedValue({
       members: [{ id: 42, member_code: 'finance-01', name: 'Finance', status: 'active', archived: false, key_count: 1 }],
     })
     list.mockResolvedValue({ items: [{ id: 7, name: 'finance-key', member_id: 42 }] })
 
-    mountUsageView()
+    const wrapper = mountUsageView({ usageScope: 'members' })
     await flushPromises()
 
     expect(listOwnerUsageMembers).toHaveBeenCalledOnce()
+    expect(list).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Member filter')
+    expect(wrapper.text()).not.toContain('API Key')
+    expect(wrapper.get('[data-testid="usage-analytics-panel"]').attributes('data-member-centric')).toBe('true')
     expect(query).toHaveBeenCalledWith(
       expect.objectContaining({ member_id: 42 }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
@@ -268,6 +308,114 @@ describe('user UsageView', () => {
     expect(getStats).toHaveBeenCalledWith(expect.objectContaining({ member_id: 42 }))
     expect(getDashboardModels).toHaveBeenCalledWith(expect.objectContaining({ member_id: 42 }))
     expect(getDashboardSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({ member_id: 42 }))
+
+    const usageTab = wrapper.findAll('button.tab').find((button) => button.text() === 'usage.tabs.usage')
+    expect(usageTab).toBeDefined()
+    await usageTab!.trigger('click')
+    await nextTick()
+
+    const detailMemberFilter = wrapper.get('[data-testid="member-usage-detail-filter"]')
+    expect(detailMemberFilter.attributes('searchable')).toBe('true')
+    expect(wrapper.text()).not.toContain('API Key')
+    expect(wrapper.text()).toContain('Columns')
+    const usageTable = wrapper.getComponent({ name: 'UsageTable' })
+    expect(usageTable.props('data')).toEqual([usageLog])
+    expect(usageTable.props('columns').map((column: { key: string }) => column.key)).toEqual(expect.arrayContaining([
+      'api_key',
+      'model',
+      'reasoning_effort',
+      'endpoint',
+      'ip_address',
+      'group',
+      'stream',
+      'billing_mode',
+      'tokens',
+      'cost',
+      'latency',
+      'created_at',
+    ]))
+    expect(usageTable.props('showAccountBilling')).toBe(false)
+    expect(usageTable.props('showUpstreamEndpoint')).toBe(false)
+  })
+
+  it('keeps enterprise account usage scoped to regular keys', async () => {
+    authStore.user = { role: 'user', account_type: 'enterprise' }
+    list.mockResolvedValue({
+      items: [
+        { id: 7, name: 'member-key', member_id: 42 },
+        { id: 8, name: 'regular-key', member_id: null },
+      ],
+    })
+
+    const wrapper = mountUsageView()
+    await flushPromises()
+
+    expect(listOwnerUsageMembers).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('API Key')
+    expect(wrapper.get('[data-testid="usage-analytics-panel"]').attributes('data-member-centric')).toBe('false')
+    expect(query).toHaveBeenCalledWith(
+      expect.objectContaining({ member_scope: 'unassigned' }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+    expect(getStats).toHaveBeenCalledWith(expect.objectContaining({ member_scope: 'unassigned' }))
+    expect(getDashboardModels).toHaveBeenCalledWith(expect.objectContaining({ member_scope: 'unassigned' }))
+    expect(getDashboardSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({ member_scope: 'unassigned' }))
+  })
+
+  it('reinitializes filters and data when the shared component switches usage scope', async () => {
+    authStore.user = { role: 'user', account_type: 'enterprise' }
+    listOwnerUsageMembers.mockResolvedValue({
+      members: [{ id: 42, member_code: 'finance-01', name: 'Finance', status: 'active', archived: false, key_count: 1 }],
+    })
+
+    const wrapper = mountUsageView({ usageScope: 'account' })
+    await flushPromises()
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({ member_scope: 'unassigned' }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+
+    await wrapper.setProps({ usageScope: 'members' })
+    await flushPromises()
+    expect(listOwnerUsageMembers).toHaveBeenCalledOnce()
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({ member_scope: 'assigned' }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+
+    await wrapper.setProps({ usageScope: 'account' })
+    await flushPromises()
+    expect(list).toHaveBeenCalledTimes(2)
+    expect(query).toHaveBeenLastCalledWith(
+      expect.objectContaining({ member_scope: 'unassigned' }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+  })
+
+  it('keeps the newest error-request response when requests complete out of order', async () => {
+    publicSettings.allow_user_view_error_requests = true
+    routeQueryState.value.tab = 'errors'
+    const first = deferred<{ items: Array<Record<string, unknown>>; total: number; page: number; page_size: number; pages: number }>()
+    const second = deferred<{ items: Array<Record<string, unknown>>; total: number; page: number; page_size: number; pages: number }>()
+    listMyErrorRequests
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise)
+
+    const wrapper = mountUsageView()
+    await flushPromises()
+    wrapper.getComponent({ name: 'UserErrorRequestsTable' }).vm.$emit('update:page', 2)
+    await nextTick()
+
+    second.resolve({ items: [{ id: 2 }], total: 1, page: 2, page_size: 20, pages: 2 })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="error-table"]').attributes('data-row-count')).toBe('1')
+    expect(wrapper.get('[data-testid="error-table"]').attributes('data-total')).toBe('1')
+    expect(wrapper.get('[data-testid="error-table"]').attributes('data-loading')).toBe('false')
+
+    first.resolve({ items: [{ id: 1 }, { id: 3 }], total: 2, page: 1, page_size: 20, pages: 1 })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="error-table"]').attributes('data-row-count')).toBe('1')
+    expect(wrapper.get('[data-testid="error-table"]').attributes('data-total')).toBe('1')
   })
 
   it('returns to the default analytics tab when browser navigation removes the tab query', async () => {

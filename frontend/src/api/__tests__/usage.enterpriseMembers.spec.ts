@@ -10,6 +10,7 @@ vi.mock('@/api/client', () => ({
 
 import {
   getOwnerMemberAnalyticsLeaderboard,
+  listMyErrorRequests,
   listOwnerUsageMembers,
   type OwnerMemberLeaderboardResponse,
   type OwnerUsageMembersResponse,
@@ -70,6 +71,18 @@ describe('enterprise member usage API', () => {
         start_date: '2026-07-01',
         end_date: '2026-07-14',
       },
+    })
+  })
+
+  it('forwards cancellation to member-scoped error requests', async () => {
+    const signal = new AbortController().signal
+    get.mockResolvedValue({ data: { items: [], total: 0, page: 1, page_size: 20, pages: 0 } })
+
+    await listMyErrorRequests({ member_scope: 'assigned', page: 1, page_size: 20 }, { signal })
+
+    expect(get).toHaveBeenCalledWith('/usage/errors', {
+      params: { member_scope: 'assigned', page: 1, page_size: 20 },
+      signal,
     })
   })
 })

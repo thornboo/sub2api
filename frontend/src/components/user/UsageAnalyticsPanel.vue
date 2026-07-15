@@ -5,7 +5,7 @@
         <div class="flex items-center gap-2">
           <Icon name="trendingUp" size="md" class="text-primary-500" />
           <h2 class="text-base font-semibold text-stone-950 dark:text-white">
-            {{ t('usage.analytics.title') }}
+            {{ panelTitle }}
           </h2>
         </div>
         <p class="mt-1 text-xs text-stone-500 dark:text-stone-400">
@@ -13,7 +13,7 @@
         </p>
       </div>
       <div class="flex flex-wrap items-end gap-2">
-        <div v-if="enterprise" class="inline-flex h-10 rounded-lg border border-stone-200 bg-stone-50 p-1 dark:border-white/10 dark:bg-white/[0.04]">
+        <div v-if="enterprise && !memberCentric" class="inline-flex h-10 rounded-lg border border-stone-200 bg-stone-50 p-1 dark:border-white/10 dark:bg-white/[0.04]">
           <button
             type="button"
             class="rounded-md px-3 text-xs font-medium transition-colors"
@@ -54,8 +54,8 @@
     </div>
 
     <div class="mt-4 rounded-lg border border-stone-200/80 bg-stone-50/70 p-3 dark:border-white/10 dark:bg-white/[0.035]">
-      <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-        <label v-if="enterprise">
+      <div class="grid gap-3 md:grid-cols-2" :class="memberCentric ? 'xl:grid-cols-4' : 'xl:grid-cols-6'">
+        <label v-if="enterprise && !memberCentric">
           <span class="mb-1.5 block text-xs font-medium text-stone-500 dark:text-stone-400">
             {{ t('usage.memberFilter') }}
           </span>
@@ -76,7 +76,7 @@
             :placeholder="t('usage.analytics.filters.searchPlaceholder')"
           />
         </label>
-        <label>
+        <label v-if="!memberCentric">
           <span class="mb-1.5 block text-xs font-medium text-stone-500 dark:text-stone-400">
             {{ t('usage.analytics.apiKey') }}
           </span>
@@ -314,6 +314,8 @@ const props = withDefaults(defineProps<{
   apiKeys?: ApiKey[]
   groups?: Group[]
   enterprise?: boolean
+  memberCentric?: boolean
+  memberScope?: 'assigned' | 'unassigned' | null
   members?: OwnerUsageMember[]
   memberFilter?: string
 }>(), {
@@ -322,6 +324,8 @@ const props = withDefaults(defineProps<{
   apiKeys: () => [],
   groups: () => [],
   enterprise: false,
+  memberCentric: false,
+  memberScope: null,
   members: () => [],
   memberFilter: 'all'
 })
@@ -333,7 +337,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 
 const activeTab = ref<AnalyticsTab>('leaderboard')
-const analyticsDimension = ref<AnalyticsDimension>(props.enterprise ? 'member' : 'key')
+const analyticsDimension = ref<AnalyticsDimension>(props.memberCentric || props.enterprise ? 'member' : 'key')
 const granularity = ref<ApiKeyUsageTrendGranularity>('day')
 const loading = ref(false)
 const error = ref('')
@@ -400,8 +404,12 @@ const granularityOptions = computed(() => [
 ])
 const memberFilterOptions = computed(() => [
   { value: 'all', label: t('usage.members.all') },
-  { value: 'assigned', label: t('usage.members.assigned') },
-  { value: 'unassigned', label: t('usage.members.unassigned') },
+  ...(props.memberScope
+    ? []
+    : [
+        { value: 'assigned', label: t('usage.members.assigned') },
+        { value: 'unassigned', label: t('usage.members.unassigned') }
+      ]),
   ...props.members.map((member) => ({
     value: `member:${member.id}`,
     label: member.archived
@@ -475,6 +483,9 @@ const limitOptions = computed(() => [
 ])
 
 const snapshot = computed(() => summary.value?.current_key_snapshot || emptySnapshot)
+const panelTitle = computed(() =>
+  props.memberCentric ? t('usage.analytics.memberTitle') : t('usage.analytics.title')
+)
 const scopeText = computed(() =>
   analyticsDimension.value === 'member'
     ? t('usage.analytics.memberScope')
@@ -741,6 +752,7 @@ const requestSignature = computed(() => JSON.stringify({
   tab: activeTab.value,
   dimension: analyticsDimension.value,
   memberFilter: selectedAnalyticsMemberFilter.value,
+  memberScope: props.memberScope,
   granularity: granularity.value,
   apiKeyId: props.apiKeyId || null,
   analyticsApiKeyId: selectedAnalyticsAPIKeyID.value,
@@ -768,17 +780,23 @@ function buildParams(): OwnerApiKeyAnalyticsParams {
     timezone: timezoneName(),
     limit: analyticsLimit.value
   }
-  if (selectedAnalyticsAPIKeyID.value) {
+  if (!props.memberCentric && selectedAnalyticsAPIKeyID.value) {
     params.api_key_id = selectedAnalyticsAPIKeyID.value
+  }
+  if (props.memberScope) {
+    params.member_scope = props.memberScope
   }
   if (props.enterprise) {
     const selectedMember = selectedAnalyticsMemberFilter.value
     if (selectedMember.startsWith('member:')) {
       const memberID = Number(selectedMember.slice('member:'.length))
-      if (Number.isFinite(memberID) && memberID > 0) params.member_id = memberID
-    } else if (selectedMember === 'assigned' || selectedMember === 'unassigned') {
+      if (Number.isFinite(memberID) && memberID > 0) {
+        params.member_id = memberID
+        delete params.member_scope
+      }
+    } else if (!props.memberScope && (selectedMember === 'assigned' || selectedMember === 'unassigned')) {
       params.member_scope = selectedMember
-    } else if (analyticsDimension.value === 'member') {
+    } else if (analyticsDimension.value === 'member' && !params.member_scope) {
       params.member_scope = 'all'
     }
   }
@@ -1070,6 +1088,7 @@ function memberLeaderboardLabel(item: OwnerMemberLeaderboardItem) {
 }
 
 function setAnalyticsDimension(value: AnalyticsDimension) {
+  if (props.memberCentric && value !== 'member') return
   analyticsDimension.value = value
   if (value === 'member' && activeTab.value === 'tags') {
     activeTab.value = 'leaderboard'
@@ -1108,7 +1127,7 @@ function selectAnalyticsTag(item: OwnerTagAnalyticsItem) {
 
 function resetAnalyticsFilters() {
   selectedAnalyticsMemberFilter.value = props.memberFilter
-  selectedAnalyticsAPIKeyID.value = props.apiKeyId || null
+  selectedAnalyticsAPIKeyID.value = props.memberCentric ? null : props.apiKeyId || null
   selectedAnalyticsGroupID.value = null
   selectedAnalyticsTag.value = null
   selectedAnalyticsStatus.value = null
@@ -1587,8 +1606,18 @@ watch(() => props.memberFilter, (memberFilter) => {
 })
 
 watch(() => props.enterprise, (enterprise) => {
-  analyticsDimension.value = enterprise ? 'member' : 'key'
+  analyticsDimension.value = props.memberCentric || enterprise ? 'member' : 'key'
   if (!enterprise) selectedAnalyticsMemberFilter.value = 'all'
+})
+
+watch(() => props.memberCentric, (memberCentric) => {
+  if (!memberCentric) return
+  analyticsDimension.value = 'member'
+  selectedAnalyticsAPIKeyID.value = null
+  selectedAnalyticsTag.value = null
+  selectedAnalyticsStatus.value = null
+  analyticsSearch.value = ''
+  if (activeTab.value === 'tags') activeTab.value = 'leaderboard'
 })
 
 watch(selectedAnalyticsMemberFilter, (memberFilter) => {
