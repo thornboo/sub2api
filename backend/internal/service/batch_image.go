@@ -18,6 +18,8 @@ const (
 const (
 	BatchImageJobStatusCreated       = "created"
 	BatchImageJobStatusUploading     = "uploading"
+	BatchImageJobStatusSubmitting    = "provider_submitting"
+	BatchImageJobStatusSubmitUnknown = "submission_unknown"
 	BatchImageJobStatusSubmitted     = "submitted"
 	BatchImageJobStatusRunning       = "running"
 	BatchImageJobStatusIndexing      = "indexing"
@@ -76,6 +78,7 @@ var (
 	ErrBatchImageReferenceImagesTooLarge    = infraerrors.New(http.StatusBadRequest, "BATCH_IMAGE_REFERENCE_IMAGES_TOO_LARGE", "batch image reference images are too large")
 	ErrBatchImageTooManyOutputImages        = infraerrors.New(http.StatusBadRequest, "BATCH_IMAGE_TOO_MANY_OUTPUT_IMAGES", "too many batch image output images")
 	ErrBatchImageProviderSubmitFailed       = infraerrors.New(http.StatusBadGateway, "BATCH_IMAGE_PROVIDER_SUBMIT_FAILED", "batch image provider submit failed")
+	ErrBatchImageProviderSubmitUnknown      = infraerrors.New(http.StatusBadGateway, "BATCH_IMAGE_PROVIDER_SUBMIT_OUTCOME_UNKNOWN", "batch image provider submission outcome is unknown")
 	ErrBatchImageQueueFailed                = infraerrors.New(http.StatusBadGateway, "BATCH_IMAGE_QUEUE_FAILED", "batch image queue failed")
 	ErrBatchImageIdempotencyConflict        = infraerrors.New(http.StatusConflict, "BATCH_IMAGE_IDEMPOTENCY_CONFLICT", "idempotency key reused with different batch image request")
 	ErrBatchImageCancelFailed               = infraerrors.New(http.StatusBadGateway, "BATCH_IMAGE_CANCEL_FAILED", "batch image cancel failed")
@@ -318,15 +321,19 @@ type BatchImageRepository interface {
 	GetBatchImageJobByID(ctx context.Context, id int64) (*BatchImageJob, error)
 	ListBatchImageJobsForOwner(ctx context.Context, userID, apiKeyID int64, filter BatchImageJobFilter) ([]*BatchImageJob, error)
 	TransitionBatchImageJobStatus(ctx context.Context, batchID, toStatus string, opts BatchImageTransitionOptions) error
-	// TouchBatchImageJobSubmitting 刷新未提交（created/uploading）job 的 updated_at，
+	// TouchBatchImageJobSubmitting 刷新未提交（created/uploading/provider_submitting）job 的 updated_at，
 	// 作为慢提交期间的心跳，防止被 stale 恢复扫描误杀。
 	TouchBatchImageJobSubmitting(ctx context.Context, batchID string) error
 	// FailStaleUnsubmittedBatchImageJob 原子地将仍处于 created/uploading 且
 	// provider_job_name 为空、updated_at 早于 cutoff 的 job 转为 failed。
 	// 返回 false 表示 job 已被并发推进（如已提交成功），调用方不得释放冻结。
 	FailStaleUnsubmittedBatchImageJob(ctx context.Context, batchID string, cutoff time.Time, code, message string) (bool, error)
+	// MarkStaleBatchImageJobSubmissionUnknown 原子地将已越过 provider
+	// 提交边界、但长期没有可验证 provider job ID 的任务转为待对账；调用方不得退款。
+	MarkStaleBatchImageJobSubmissionUnknown(ctx context.Context, batchID string, cutoff time.Time, code, message string) (bool, error)
 	UpdateBatchImageJobProviderOutputRef(ctx context.Context, batchID, providerOutputRef string) error
 	UpdateBatchImageJobProviderSubmit(ctx context.Context, params UpdateBatchImageJobProviderSubmitParams) error
+	MarkBatchImageJobSubmissionUnknown(ctx context.Context, batchID, code, message string) error
 	RecordBatchImageJobSubmitFailure(ctx context.Context, batchID, code, message string, markFailed bool) error
 	MarkBatchImageJobSettled(ctx context.Context, params MarkBatchImageJobSettledParams) error
 	SetBatchImageJobSettlementFailed(ctx context.Context, batchID, code, message string) (int, error)
@@ -396,9 +403,14 @@ func CanTransitionBatchImageJob(from, to string) bool {
 			BatchImageJobStatusCancelled: {},
 		},
 		BatchImageJobStatusUploading: {
-			BatchImageJobStatusSubmitted: {},
-			BatchImageJobStatusCancelled: {},
+			BatchImageJobStatusSubmitting: {},
+			BatchImageJobStatusCancelled:  {},
 		},
+		BatchImageJobStatusSubmitting: {
+			BatchImageJobStatusSubmitUnknown: {},
+			BatchImageJobStatusSubmitted:     {},
+		},
+		BatchImageJobStatusSubmitUnknown: {},
 		BatchImageJobStatusSubmitted: {
 			BatchImageJobStatusRunning:   {},
 			BatchImageJobStatusIndexing:  {},

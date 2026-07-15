@@ -334,9 +334,10 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		})
 	}
 
-	// 上游提交（上传参考图 + 创建批任务）可能长达数分钟且不刷新 updated_at，
-	// 会被 stale 恢复扫描误判为滞留并退款。提交前转入 uploading 刷新时间戳，
-	// 提交期间用心跳持续续期。
+	// 上游提交（上传参考图 + 创建批任务）可能长达数分钟且不刷新 updated_at。
+	// uploading 仍表示尚未越过外部副作用边界；真正调用 provider 前必须先把
+	// fail-closed 的 provider_submitting 状态持久化。这样即使进程在 provider
+	// 接受请求后立即退出，stale recovery 也只会转待对账，绝不会自动退款。
 	if err := s.Repo.TransitionBatchImageJobStatus(ctx, job.BatchID, BatchImageJobStatusUploading, BatchImageTransitionOptions{
 		EventType:    "upload_started",
 		EventPayload: map[string]any{"batch_id": job.BatchID},
@@ -352,6 +353,20 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		return nil, err
 	}
 	job.Status = BatchImageJobStatusUploading
+	if err := s.Repo.TransitionBatchImageJobStatus(ctx, job.BatchID, BatchImageJobStatusSubmitting, BatchImageTransitionOptions{
+		EventType:    "provider_submit_started",
+		EventPayload: map[string]any{"batch_id": job.BatchID, "provider": provider.Name()},
+	}); err != nil {
+		cleanupCtx, cleanupCancel := batchImagePostSubmitPersistenceContext(ctx)
+		defer cleanupCancel()
+		if releaseErr := s.releaseFailedSubmitHold(cleanupCtx, job, requestHash); releaseErr != nil {
+			return nil, releaseErr
+		}
+		_ = s.Repo.RecordBatchImageJobSubmitFailure(cleanupCtx, job.BatchID, "PROVIDER_SUBMIT_TRANSITION_FAILED", sanitizeBatchImagePublicMessage(err.Error()), true)
+		s.hidePreUpstreamSubmitFailure(cleanupCtx, owner, job)
+		return nil, err
+	}
+	job.Status = BatchImageJobStatusSubmitting
 
 	hbCtx, hbCancel := context.WithCancel(ctx)
 	hbDone := make(chan struct{})
@@ -359,26 +374,42 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 	providerJob, err := provider.Submit(ctx, job, account, input)
 	hbCancel()
 	<-hbDone
+	persistCtx, persistCancel := batchImagePostSubmitPersistenceContext(ctx)
+	defer persistCancel()
 	if err != nil {
-		if releaseErr := s.releaseFailedSubmitHold(ctx, job, requestHash); releaseErr != nil {
+		if isBatchImageProviderSubmitUnknownError(err) {
+			reason := "PROVIDER_SUBMIT_OUTCOME_UNKNOWN"
+			message := "provider may have accepted the batch; billing hold retained for reconciliation"
+			if markErr := s.Repo.MarkBatchImageJobSubmissionUnknown(persistCtx, job.BatchID, reason, message); markErr != nil {
+				return nil, markErr
+			}
+			return nil, ErrBatchImageProviderSubmitUnknown
+		}
+		if releaseErr := s.releaseFailedSubmitHold(persistCtx, job, requestHash); releaseErr != nil {
 			return nil, releaseErr
 		}
 		publicErr := batchImageProviderSubmitPublicError(err)
 		reason := batchImageProviderSubmitRecordCode(publicErr)
-		_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, reason, sanitizeBatchImagePublicMessage(err.Error()), true)
-		s.hidePreUpstreamSubmitFailure(ctx, owner, job)
+		_ = s.Repo.RecordBatchImageJobSubmitFailure(persistCtx, job.BatchID, reason, sanitizeBatchImagePublicMessage(err.Error()), true)
+		s.hidePreUpstreamSubmitFailure(persistCtx, owner, job)
 		return nil, publicErr
 	}
 	if providerJob == nil || strings.TrimSpace(providerJob.ProviderJobName) == "" {
-		if releaseErr := s.releaseFailedSubmitHold(ctx, job, requestHash); releaseErr != nil {
-			return nil, releaseErr
+		// A provider returning without a verifiable remote job ID is not proof
+		// that the create request was rejected. Fail closed at this shared
+		// boundary even if a future provider forgets to wrap the condition.
+		if markErr := s.Repo.MarkBatchImageJobSubmissionUnknown(
+			persistCtx,
+			job.BatchID,
+			"PROVIDER_SUBMIT_OUTCOME_UNKNOWN",
+			"provider may have accepted the batch but returned no job id; billing hold retained for reconciliation",
+		); markErr != nil {
+			return nil, markErr
 		}
-		_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "PROVIDER_SUBMIT_FAILED", "provider job name missing", true)
-		s.hidePreUpstreamSubmitFailure(ctx, owner, job)
-		return nil, ErrBatchImageProviderSubmitFailed
+		return nil, ErrBatchImageProviderSubmitUnknown
 	}
 
-	if err := s.Repo.UpdateBatchImageJobProviderSubmit(ctx, UpdateBatchImageJobProviderSubmitParams{
+	if err := s.Repo.UpdateBatchImageJobProviderSubmit(persistCtx, UpdateBatchImageJobProviderSubmitParams{
 		BatchID:           job.BatchID,
 		ProviderJobName:   providerJob.ProviderJobName,
 		ProviderInputRef:  providerJob.ProviderInputRef,
@@ -389,7 +420,7 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 	}); err != nil {
 		// job 可能已被恢复扫描转 failed 并退款：上游批任务已创建成功，
 		// 必须尽力取消并清理输入，否则上游照常产生成本（孤儿任务）。
-		s.abortOrphanProviderJob(ctx, provider, job, account, providerJob)
+		s.abortOrphanProviderJob(persistCtx, provider, job, account, providerJob)
 		return nil, err
 	}
 
@@ -423,6 +454,10 @@ func (s *BatchImagePublicService) releaseFailedSubmitHold(ctx context.Context, j
 	}
 	s.invalidateAuthCache(ctx, job.UserID)
 	return nil
+}
+
+func batchImagePostSubmitPersistenceContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(parent), 30*time.Second)
 }
 
 // runSubmitHeartbeat 在 provider.Submit 期间周期性刷新 job 的 updated_at，
@@ -722,6 +757,11 @@ func (s *BatchImagePublicService) Cancel(ctx context.Context, owner BatchImageOw
 	job, err := s.Repo.GetBatchImageJobByBatchIDForOwner(ctx, owner.UserID, owner.APIKeyID, batchID)
 	if err != nil {
 		return nil, err
+	}
+	if job.Status == BatchImageJobStatusSubmitting || job.Status == BatchImageJobStatusSubmitUnknown {
+		// We do not know the provider job name, so neither cancellation nor a
+		// refund can be proven safe. Preserve the hold for reconciliation.
+		return nil, ErrBatchImageProviderSubmitUnknown
 	}
 	if isBatchImageProcessorDoneStatus(job.Status) {
 		if job.Status == BatchImageJobStatusFailed || job.Status == BatchImageJobStatusCancelled {
@@ -1242,8 +1282,10 @@ func batchImageItemErrorSource(item *BatchImageItem) string {
 
 func PublicBatchImageStatus(status string) string {
 	switch status {
-	case BatchImageJobStatusCreated, BatchImageJobStatusUploading, BatchImageJobStatusSubmitted:
+	case BatchImageJobStatusCreated, BatchImageJobStatusUploading, BatchImageJobStatusSubmitting, BatchImageJobStatusSubmitted:
 		return "queued"
+	case BatchImageJobStatusSubmitUnknown:
+		return "submission_unknown"
 	case BatchImageJobStatusRunning:
 		return "running"
 	case BatchImageJobStatusIndexing:
@@ -1340,6 +1382,8 @@ func batchImageGCSRef(provider, ref string) string {
 func batchImageProviderSubmitPublicError(err error) error {
 	reason := strings.TrimSpace(infraerrors.Reason(err))
 	switch reason {
+	case "BATCH_IMAGE_PROVIDER_SUBMIT_OUTCOME_UNKNOWN":
+		return ErrBatchImageProviderSubmitUnknown
 	case "VERTEX_MANAGED_GCS_BUCKET_MISSING":
 		return ErrBatchImageVertexGCSBucketMissing
 	case "BATCH_IMAGE_PROVIDER_MISSING_API_KEY":

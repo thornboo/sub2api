@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -146,6 +147,32 @@ var (
 	ErrBatchImageProviderUnsafeCleanupPath       = infraerrors.New(http.StatusBadRequest, "VERTEX_UNSAFE_CLEANUP_PATH", "unsafe batch image cleanup path")
 	ErrUnsupportedCleanupTarget                  = infraerrors.New(http.StatusBadRequest, "BATCH_IMAGE_PROVIDER_UNSUPPORTED_CLEANUP_TARGET", "unsupported batch image cleanup target")
 )
+
+func newBatchImageProviderSubmitUnknownError(cause error) error {
+	return ErrBatchImageProviderSubmitUnknown.WithCause(cause)
+}
+
+func isBatchImageProviderSubmitUnknownError(err error) bool {
+	return errors.Is(err, ErrBatchImageProviderSubmitUnknown)
+}
+
+// batchImageCreateRequestOutcomeUnknown reports whether a create-job failure
+// may have happened after the provider accepted the request. Explicit 4xx
+// responses and durable pre-dispatch network failures are safe to treat as
+// rejected; timeouts, resets, decode failures, cancellations, and 5xx replies
+// are not proof that no remote job was created.
+func batchImageCreateRequestOutcomeUnknown(err error, statusCode int) bool {
+	if err == nil {
+		return false
+	}
+	if statusCode >= http.StatusBadRequest && statusCode < http.StatusInternalServerError {
+		return false
+	}
+	if classifyOpenAITransportError(err).Persistent {
+		return false
+	}
+	return true
+}
 
 func batchImageProviderJobName(job *BatchImageJob) string {
 	if job == nil || job.ProviderJobName == nil {

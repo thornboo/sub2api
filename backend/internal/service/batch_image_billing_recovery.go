@@ -49,6 +49,29 @@ func (s *BatchImageBillingRecoveryService) ReleaseStaleUnsubmittedOnce(ctx conte
 		if err := ctx.Err(); err != nil {
 			return released, err
 		}
+		if job.Status == BatchImageJobStatusSubmitting {
+			msg := "provider submission may have been accepted before the local process stopped; billing hold retained for reconciliation"
+			applied, markErr := s.Repo.MarkStaleBatchImageJobSubmissionUnknown(
+				ctx,
+				job.BatchID,
+				cutoff,
+				"PROVIDER_SUBMIT_OUTCOME_UNKNOWN",
+				msg,
+			)
+			if markErr != nil {
+				// applied=true means the fail-closed state is already durable and
+				// only the audit event failed. Never refund this job either way.
+				lastErr = markErr
+				if applied {
+					logger.L().Warn("batch_image.recovery_unknown_event_append_failed",
+						zap.String("batch_id", job.BatchID),
+						zap.Error(markErr),
+					)
+				}
+				continue
+			}
+			continue
+		}
 		msg := "batch image submission did not reach provider before recovery cutoff"
 		// 原子转 failed 并复核 stale 条件：List 与转态之间 job 可能已被慢提交
 		// 心跳续期或提交成功（provider_job_name 已写入），此时绝不能退款，

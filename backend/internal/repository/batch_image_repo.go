@@ -157,7 +157,7 @@ func (r *batchImageRepository) TouchBatchImageJobSubmitting(ctx context.Context,
 UPDATE batch_image_jobs
 SET updated_at = $2
 WHERE batch_id = $1
-  AND status IN ('created', 'uploading')`, batchID, time.Now())
+  AND status IN ('created', 'uploading', 'provider_submitting')`, batchID, time.Now())
 	return err
 }
 
@@ -188,6 +188,36 @@ WHERE batch_id = $1
 	return true, appendBatchImageEventWithSQL(ctx, r.sql, batchID, "billing_hold_recovery_failed_unsubmitted", map[string]any{
 		"batch_id":   batchID,
 		"error_code": code,
+	})
+}
+
+func (r *batchImageRepository) MarkStaleBatchImageJobSubmissionUnknown(ctx context.Context, batchID string, cutoff time.Time, code, message string) (bool, error) {
+	now := time.Now()
+	res, err := r.sql.ExecContext(ctx, `
+UPDATE batch_image_jobs
+SET status = 'submission_unknown',
+    last_error_code = $2,
+    last_error_message = $3,
+    updated_at = $4,
+    version = version + 1
+WHERE batch_id = $1
+  AND status = 'provider_submitting'
+  AND provider_job_name IS NULL
+  AND updated_at <= $5`, batchID, code, message, now, cutoff)
+	if err != nil {
+		return false, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if affected == 0 {
+		return false, nil
+	}
+	return true, appendBatchImageEventWithSQL(ctx, r.sql, batchID, "provider_submit_outcome_unknown", map[string]any{
+		"batch_id":   batchID,
+		"error_code": code,
+		"source":     "stale_recovery",
 	})
 }
 
@@ -247,6 +277,34 @@ WHERE batch_id = $1`, params.BatchID, params.ProviderJobName, params.ProviderInp
 		return err
 	}
 	return appendBatchImageEventWithSQL(ctx, sqlq, params.BatchID, "provider_submitted", params.EventPayload)
+}
+
+func (r *batchImageRepository) MarkBatchImageJobSubmissionUnknown(ctx context.Context, batchID, code, message string) error {
+	now := time.Now()
+	res, err := r.sql.ExecContext(ctx, `
+UPDATE batch_image_jobs
+SET status = 'submission_unknown',
+    last_error_code = $2,
+    last_error_message = $3,
+    updated_at = $4,
+    version = version + 1
+WHERE batch_id = $1
+  AND status IN ('uploading', 'provider_submitting')
+  AND provider_job_name IS NULL`, batchID, code, message, now)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrBatchImageInvalidTransition
+	}
+	return appendBatchImageEventWithSQL(ctx, r.sql, batchID, "provider_submit_outcome_unknown", map[string]any{
+		"batch_id":   batchID,
+		"error_code": code,
+	})
 }
 
 func (r *batchImageRepository) RecordBatchImageJobSubmitFailure(ctx context.Context, batchID, code, message string, markFailed bool) error {
@@ -609,7 +667,7 @@ func (r *batchImageRepository) ListStaleUnsubmittedBatchImageJobs(ctx context.Co
 		limit = 100
 	}
 	rows, err := r.sql.QueryContext(ctx, batchImageJobSelectSQL+`
- WHERE status IN ('created', 'uploading')
+ WHERE status IN ('created', 'uploading', 'provider_submitting')
    AND provider_job_name IS NULL
    AND COALESCE(hold_amount, estimated_cost, 0) > 0
    AND updated_at <= $1

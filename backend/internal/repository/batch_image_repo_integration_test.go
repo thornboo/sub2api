@@ -119,6 +119,49 @@ func TestBatchImageRepository_InvalidTransition(t *testing.T) {
 	require.True(t, errors.Is(err, service.ErrBatchImageInvalidTransition))
 }
 
+func TestBatchImageRepository_StaleProviderSubmissionBecomesUnknownAtomically(t *testing.T) {
+	ctx := context.Background()
+	tx := testTx(t)
+	repo := newBatchImageRepositoryWithSQL(tx)
+	batchID := batchImageTestID(t, "stale-provider-submit")
+
+	_, err := repo.CreateBatchImageJob(ctx, service.CreateBatchImageJobParams{
+		BatchID:   batchID,
+		UserID:    1001,
+		Provider:  service.BatchImageProviderGeminiAPI,
+		Model:     "gemini-2.5-flash-image",
+		Status:    service.BatchImageJobStatusSubmitting,
+		ItemCount: 1,
+	})
+	require.NoError(t, err)
+
+	applied, err := repo.MarkStaleBatchImageJobSubmissionUnknown(
+		ctx,
+		batchID,
+		time.Now().Add(time.Minute),
+		"PROVIDER_SUBMIT_OUTCOME_UNKNOWN",
+		"provider submission interrupted",
+	)
+	require.NoError(t, err)
+	require.True(t, applied)
+
+	job, err := repo.GetBatchImageJobByBatchID(ctx, batchID)
+	require.NoError(t, err)
+	require.Equal(t, service.BatchImageJobStatusSubmitUnknown, job.Status)
+	require.NotNil(t, job.LastErrorCode)
+	require.Equal(t, "PROVIDER_SUBMIT_OUTCOME_UNKNOWN", *job.LastErrorCode)
+
+	applied, err = repo.MarkStaleBatchImageJobSubmissionUnknown(
+		ctx,
+		batchID,
+		time.Now().Add(time.Minute),
+		"PROVIDER_SUBMIT_OUTCOME_UNKNOWN",
+		"provider submission interrupted",
+	)
+	require.NoError(t, err)
+	require.False(t, applied)
+}
+
 func TestBatchImageRepository_TerminalStatusCannotMoveBack(t *testing.T) {
 	ctx := context.Background()
 	tx := testTx(t)

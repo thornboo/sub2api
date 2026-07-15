@@ -118,6 +118,25 @@ func TestGeminiProvider_SubmitUploadsJSONLThenCreatesBatch(t *testing.T) {
 	require.NotContains(t, string(client.uploadedJSONL), "sk-secret")
 }
 
+func TestGeminiProvider_CreateBatchUnknownOutcomeIsPreserved(t *testing.T) {
+	client := &fakeGeminiBatchClient{createErr: io.ErrUnexpectedEOF}
+	provider := NewGeminiAPIBatchImageProvider(client)
+
+	_, err := provider.Submit(context.Background(), nil, geminiAPIKeyAccount("sk-secret"), validGeminiBatchInput())
+	require.ErrorIs(t, err, ErrBatchImageProviderSubmitUnknown)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.Equal(t, []string{"upload", "create"}, client.calls)
+}
+
+func TestGeminiProvider_CreateBatchExplicitClientErrorIsDefinitive(t *testing.T) {
+	client := &fakeGeminiBatchClient{createErr: &GeminiAPIError{StatusCode: 400, Message: "invalid request"}}
+	provider := NewGeminiAPIBatchImageProvider(client)
+
+	_, err := provider.Submit(context.Background(), nil, geminiAPIKeyAccount("sk-secret"), validGeminiBatchInput())
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrBatchImageProviderSubmitUnknown)
+}
+
 func TestGeminiProvider_GetMapsStates(t *testing.T) {
 	tests := []struct {
 		name      string

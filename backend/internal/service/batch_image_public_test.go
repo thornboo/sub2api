@@ -363,6 +363,100 @@ func TestBatchImagePublicService_Submit(t *testing.T) {
 		}
 	})
 
+	t.Run("unknown provider submission preserves hold and visible reconciliation state", func(t *testing.T) {
+		svc, repo, queue, gemini, _ := newTestBatchImagePublicService(true)
+		gemini.submitErr = newBatchImageProviderSubmitUnknownError(io.ErrUnexpectedEOF)
+		billing := svc.BillingRepo.(*fakeBatchImageBillingRepo)
+
+		_, err := svc.Submit(ctx, testBatchImageOwner(), validBatchImageSubmitRequest(), "unknown-submit")
+		require.ErrorIs(t, err, ErrBatchImageProviderSubmitUnknown)
+		require.Empty(t, queue.enqueued)
+		require.Len(t, billing.reserves, 1)
+		require.Empty(t, billing.releases)
+		require.Len(t, repo.jobs, 1)
+		for _, job := range repo.jobs {
+			require.Equal(t, BatchImageJobStatusSubmitUnknown, job.Status)
+			require.Equal(t, "PROVIDER_SUBMIT_OUTCOME_UNKNOWN", batchImageDerefString(job.LastErrorCode))
+			require.Nil(t, job.UserDeletedAt)
+			require.Contains(t, repo.events[job.BatchID], "provider_submit_outcome_unknown")
+
+			replayed, replayErr := svc.Submit(ctx, testBatchImageOwner(), validBatchImageSubmitRequest(), "unknown-submit")
+			require.NoError(t, replayErr)
+			require.Equal(t, "submission_unknown", replayed.Status)
+			require.Len(t, gemini.submits, 1, "idempotent retry must not create a second provider batch")
+
+			_, cancelErr := svc.Cancel(ctx, testBatchImageOwner(), job.BatchID)
+			require.ErrorIs(t, cancelErr, ErrBatchImageProviderSubmitUnknown)
+			require.Empty(t, billing.releases)
+		}
+	})
+
+	t.Run("provider response without job id is treated as unknown", func(t *testing.T) {
+		svc, repo, queue, gemini, _ := newTestBatchImagePublicService(true)
+		gemini.submitResult = &BatchProviderJob{}
+		billing := svc.BillingRepo.(*fakeBatchImageBillingRepo)
+
+		_, err := svc.Submit(ctx, testBatchImageOwner(), validBatchImageSubmitRequest(), "missing-provider-job-id")
+		require.ErrorIs(t, err, ErrBatchImageProviderSubmitUnknown)
+		require.Empty(t, queue.enqueued)
+		require.Len(t, billing.reserves, 1)
+		require.Empty(t, billing.releases)
+		require.Len(t, repo.jobs, 1)
+		for _, job := range repo.jobs {
+			require.Equal(t, BatchImageJobStatusSubmitUnknown, job.Status)
+			require.Equal(t, "PROVIDER_SUBMIT_OUTCOME_UNKNOWN", batchImageDerefString(job.LastErrorCode))
+			require.Contains(t, repo.events[job.BatchID], "provider_submit_outcome_unknown")
+		}
+	})
+
+	t.Run("cancelled request still persists unknown submission with detached context", func(t *testing.T) {
+		svc, repo, _, gemini, _ := newTestBatchImagePublicService(true)
+		gemini.submitErr = newBatchImageProviderSubmitUnknownError(context.Canceled)
+		observingRepo := &contextObservingBatchImageRepository{BatchImageRepository: repo}
+		svc.Repo = observingRepo
+		cancelledCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := svc.Submit(cancelledCtx, testBatchImageOwner(), validBatchImageSubmitRequest(), "cancelled-unknown-submit")
+		require.ErrorIs(t, err, ErrBatchImageProviderSubmitUnknown)
+		require.NoError(t, observingRepo.markContextErr)
+		require.Len(t, repo.jobs, 1)
+		for _, job := range repo.jobs {
+			require.Equal(t, BatchImageJobStatusSubmitUnknown, job.Status)
+		}
+	})
+
+	t.Run("unknown state persistence failure remains fail closed", func(t *testing.T) {
+		svc, repo, _, gemini, _ := newTestBatchImagePublicService(true)
+		gemini.submitErr = newBatchImageProviderSubmitUnknownError(io.ErrUnexpectedEOF)
+		repo.markSubmissionUnknownErr = errors.New("database unavailable")
+		billing := svc.BillingRepo.(*fakeBatchImageBillingRepo)
+
+		_, err := svc.Submit(ctx, testBatchImageOwner(), validBatchImageSubmitRequest(), "unknown-mark-failed")
+		require.EqualError(t, err, "database unavailable")
+		require.Empty(t, billing.releases)
+		require.Len(t, repo.jobs, 1)
+		for _, job := range repo.jobs {
+			require.Equal(t, BatchImageJobStatusSubmitting, job.Status)
+		}
+	})
+
+	t.Run("provider job persistence and cancellation failure do not refund", func(t *testing.T) {
+		svc, repo, _, gemini, _ := newTestBatchImagePublicService(true)
+		repo.providerSubmitErr = errors.New("database unavailable")
+		gemini.cancelErr = errors.New("provider cancellation unavailable")
+		billing := svc.BillingRepo.(*fakeBatchImageBillingRepo)
+
+		_, err := svc.Submit(ctx, testBatchImageOwner(), validBatchImageSubmitRequest(), "provider-job-persist-failed")
+		require.EqualError(t, err, "database unavailable")
+		require.Empty(t, billing.releases)
+		require.Equal(t, 1, gemini.cancelCount)
+		require.Len(t, repo.jobs, 1)
+		for _, job := range repo.jobs {
+			require.Equal(t, BatchImageJobStatusSubmitting, job.Status)
+		}
+	})
+
 	t.Run("provider failure with release failure enqueues billing retry", func(t *testing.T) {
 		svc, repo, queue, gemini, _ := newTestBatchImagePublicService(true)
 		gemini.submitErr = errors.New("projects/secret-provider-job failed")
@@ -676,6 +770,29 @@ func TestBatchImagePublicService_StatusItemsAndCancel(t *testing.T) {
 		require.Contains(t, repo.events["imgbatch_cancel"], "job_cancel_requested")
 	})
 
+	t.Run("cancel cannot refund a provider submission still in flight", func(t *testing.T) {
+		svc, repo, _, gemini, _ := newTestBatchImagePublicService(true)
+		apiKeyID := int64(22)
+		holdAmount := 0.5
+		repo.jobs["imgbatch_submitting"] = &BatchImageJob{
+			BatchID:       "imgbatch_submitting",
+			UserID:        11,
+			APIKeyID:      &apiKeyID,
+			Provider:      BatchImageProviderGeminiAPI,
+			Model:         "gemini-2.5-flash-image",
+			Status:        BatchImageJobStatusSubmitting,
+			EstimatedCost: holdAmount,
+			HoldAmount:    &holdAmount,
+			CreatedAt:     time.Now(),
+		}
+
+		_, err := svc.Cancel(ctx, testBatchImageOwner(), "imgbatch_submitting")
+		require.ErrorIs(t, err, ErrBatchImageProviderSubmitUnknown)
+		require.Zero(t, gemini.cancelCount)
+		require.Empty(t, svc.BillingRepo.(*fakeBatchImageBillingRepo).releases)
+		require.Equal(t, BatchImageJobStatusSubmitting, repo.jobs["imgbatch_submitting"].Status)
+	})
+
 	t.Run("cancel terminal job is idempotent", func(t *testing.T) {
 		svc, repo, _, gemini, _ := newTestBatchImagePublicService(true)
 		apiKeyID := int64(22)
@@ -903,11 +1020,22 @@ type publicBatchImageProvider struct {
 	name           string
 	submits        []BatchImageInput
 	submitErr      error
+	submitResult   *BatchProviderJob
 	cancelCount    int
 	cancelErr      error
 	result         string
 	cleanupTargets []CleanupTarget
 	cleanupErr     error
+}
+
+type contextObservingBatchImageRepository struct {
+	BatchImageRepository
+	markContextErr error
+}
+
+func (r *contextObservingBatchImageRepository) MarkBatchImageJobSubmissionUnknown(ctx context.Context, batchID, code, message string) error {
+	r.markContextErr = ctx.Err()
+	return r.BatchImageRepository.MarkBatchImageJobSubmissionUnknown(ctx, batchID, code, message)
 }
 
 func (p *publicBatchImageProvider) Name() string { return p.name }
@@ -918,6 +1046,9 @@ func (p *publicBatchImageProvider) Submit(_ context.Context, _ *BatchImageJob, _
 	p.submits = append(p.submits, input)
 	if p.submitErr != nil {
 		return nil, p.submitErr
+	}
+	if p.submitResult != nil {
+		return p.submitResult, nil
 	}
 	return &BatchProviderJob{
 		ProviderJobName:   "providers/" + p.name + "/job",

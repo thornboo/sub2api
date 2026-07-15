@@ -137,6 +137,24 @@ func TestVertexProvider_SubmitUploadsJSONLAndCreatesBatchPredictionJob(t *testin
 	require.NotContains(t, string(store.uploadedJSONL), "private_key")
 }
 
+func TestVertexProvider_CreateBatchUnknownOutcomeIsPreserved(t *testing.T) {
+	vertexClient := &fakeVertexBatchClient{createErr: io.ErrUnexpectedEOF}
+	provider := newTestVertexProvider(vertexClient, &fakeVertexObjectStore{})
+
+	_, err := provider.Submit(context.Background(), nil, vertexServiceAccount(), validVertexBatchInput())
+	require.ErrorIs(t, err, ErrBatchImageProviderSubmitUnknown)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+}
+
+func TestVertexProvider_CreateBatchExplicitClientErrorIsDefinitive(t *testing.T) {
+	vertexClient := &fakeVertexBatchClient{createErr: &VertexAPIError{StatusCode: 400, Message: "invalid request"}}
+	provider := newTestVertexProvider(vertexClient, &fakeVertexObjectStore{})
+
+	_, err := provider.Submit(context.Background(), nil, vertexServiceAccount(), validVertexBatchInput())
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrBatchImageProviderSubmitUnknown)
+}
+
 func TestVertexProvider_GetMapsStates(t *testing.T) {
 	tests := []struct {
 		name      string

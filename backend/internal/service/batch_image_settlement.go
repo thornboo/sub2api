@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 const (
 	batchImageSettlementRequestPrefix = "batch_image_settlement:"
 	batchImageSettlementRetryDelay    = time.Minute
+	batchImageSettlementReviewDelay   = 15 * time.Minute
 	batchImageSettlementMaxRetries    = 5
 	batchImageCostEpsilon             = 0.00000001
 )
@@ -106,11 +108,6 @@ func (s *BatchImageSettlementService) Settle(ctx context.Context, batchID string
 	if job.AccountID == nil || *job.AccountID <= 0 {
 		return nil, ErrBatchImageSettlementMissingAccountID
 	}
-	// 重试耗尽检查必须先于各类可重复失败的校验（counts/manifest/定价/超冻结），
-	// 否则这些错误路径会绕过耗尽出口，settling job 无限 requeue、冻结余额永不释放。
-	if isBatchImageSettlementRetryExhausted(job) {
-		return nil, s.failExhaustedSettlement(ctx, job, "settlement retry limit reached: "+batchImageDerefString(job.LastErrorCode))
-	}
 	if job.SuccessCount < 0 || job.FailCount < 0 || job.ItemCount < 0 || job.SuccessCount+job.FailCount > job.ItemCount {
 		if failErr := s.recordSettlementFailure(ctx, job, "SETTLEMENT_INVALID_COUNTS",
 			fmt.Sprintf("success=%d fail=%d item_count=%d", job.SuccessCount, job.FailCount, job.ItemCount)); failErr != nil {
@@ -142,14 +139,17 @@ func (s *BatchImageSettlementService) Settle(ctx context.Context, batchID string
 		holdAmount = *job.HoldAmount
 	}
 	if actualCost-holdAmount > batchImageCostEpsilon {
-		msg := fmt.Sprintf("actual cost %.10f exceeds held amount %.10f", actualCost, holdAmount)
-		if failErr := s.recordSettlementFailure(ctx, job, "SETTLEMENT_COST_EXCEEDS_HOLD", msg); failErr != nil {
-			return nil, failErr
-		}
-		return nil, ErrBatchImageSettlementCostExceedsHold
+		logger.L().Warn("batch_image.settlement_cost_exceeds_hold",
+			zap.String("batch_id", job.BatchID),
+			zap.Float64("actual_cost", actualCost),
+			zap.Float64("hold_amount", holdAmount),
+			zap.Float64("overrun_usd", actualCost-holdAmount),
+		)
 	}
 
-	if err := captureBatchImageBalanceHold(ctx, s.BillingRepo, job, actualCost, manifestHash); err != nil {
+	now := time.Now()
+	usageLog := buildBatchImageUsageLog(job, actualCost, result.RequestID, now)
+	if err := captureBatchImageBalanceHold(ctx, s.BillingRepo, job, actualCost, manifestHash, usageLog); err != nil {
 		msg := truncateBatchImageMessage(err.Error(), batchImageMaxErrorMessageLength)
 		if failErr := s.recordSettlementFailure(ctx, job, "SETTLEMENT_BILLING_FAILED", msg); failErr != nil {
 			return nil, failErr
@@ -158,7 +158,6 @@ func (s *BatchImageSettlementService) Settle(ctx context.Context, batchID string
 	}
 	s.invalidateAuthCache(ctx, job.UserID)
 
-	now := time.Now()
 	outputExpiresAt := now.Add(s.outputRetentionAfterTerminal())
 	if err := s.Repo.MarkBatchImageJobSettled(ctx, MarkBatchImageJobSettledParams{
 		BatchID:         job.BatchID,
@@ -173,12 +172,12 @@ func (s *BatchImageSettlementService) Settle(ctx context.Context, batchID string
 			"fail_count":    job.FailCount,
 			"actual_cost":   actualCost,
 			"manifest_hash": manifestHash,
+			"hold_amount":   holdAmount,
+			"overrun_usd":   math.Max(0, actualCost-holdAmount),
 		},
 	}); err != nil {
 		return nil, err
 	}
-	s.recordUsageLog(ctx, job, actualCost, result.RequestID, now)
-
 	return result, nil
 }
 
@@ -192,9 +191,10 @@ func isBatchImageSettlementRetryExhausted(job *BatchImageJob) bool {
 		strings.HasPrefix(batchImageDerefString(job.LastErrorCode), "SETTLEMENT_")
 }
 
-// recordSettlementFailure 记录一次结算失败并递增 retry_count。
-// 重试达到上限时立即走耗尽出口（释放冻结余额并转 failed）；
-// 返回非 nil 时调用方应直接返回该错误。
+// recordSettlementFailure records a failed settlement attempt. Once the fast
+// retry limit is reached the hold and settling state are deliberately retained.
+// Every later slow-cadence run still attempts the full settlement; exhaustion
+// changes scheduling frequency, never the ability to recover.
 func (s *BatchImageSettlementService) recordSettlementFailure(ctx context.Context, job *BatchImageJob, code, message string) error {
 	retryCount, recordErr := s.Repo.SetBatchImageJobSettlementFailed(ctx, job.BatchID, code, truncateBatchImageMessage(message, batchImageMaxErrorMessageLength))
 	if recordErr != nil {
@@ -208,57 +208,35 @@ func (s *BatchImageSettlementService) recordSettlementFailure(ctx context.Contex
 	job.RetryCount = retryCount
 	job.LastErrorCode = &code
 	if retryCount >= batchImageSettlementMaxRetries {
-		return s.failExhaustedSettlement(ctx, job, message)
+		return s.exhaustedSettlementError(job, message)
 	}
 	return nil
 }
 
-func (s *BatchImageSettlementService) failExhaustedSettlement(ctx context.Context, job *BatchImageJob, message string) error {
-	if s == nil || s.Repo == nil {
-		return ErrBatchImageSettlementBillingFailed
-	}
-	// 释放指纹必须与其余所有释放点（processor/Cancel/recovery）一致地使用 RequestHash：
-	// 它们共享同一 request id，payloadHash 不同会触发 ErrUsageBillingRequestConflict，
-	// 导致后续 Cancel/重试永远失败、terminal job 变成毒消息。
-	if err := releaseBatchImageBalanceHold(ctx, s.BillingRepo, job, batchImageDerefString(job.RequestHash)); err != nil {
-		msg := truncateBatchImageMessage(err.Error(), batchImageMaxErrorMessageLength)
-		if _, recordErr := s.Repo.SetBatchImageJobSettlementFailed(ctx, job.BatchID, "SETTLEMENT_RELEASE_FAILED", msg); recordErr != nil {
-			logger.L().Warn("batch_image.settlement_release_failure_record_failed",
-				zap.String("batch_id", job.BatchID),
-				zap.Error(recordErr),
-			)
-		}
-		return ErrBatchImageSettlementBillingFailed.WithCause(err)
-	}
-	s.invalidateAuthCache(ctx, job.UserID)
+func (s *BatchImageSettlementService) exhaustedSettlementError(job *BatchImageJob, message string) error {
 	msg := strings.TrimSpace(message)
 	if msg == "" {
 		msg = "settlement billing retry limit reached"
 	}
-	if err := s.Repo.TransitionBatchImageJobStatus(ctx, job.BatchID, BatchImageJobStatusFailed, BatchImageTransitionOptions{
-		ErrorCode:    batchImageStringPtr("SETTLEMENT_BILLING_RETRY_EXHAUSTED"),
-		ErrorMessage: batchImageStringPtr(msg),
-		EventType:    "settlement_retry_exhausted",
-		EventPayload: map[string]any{
-			"batch_id":    job.BatchID,
-			"retry_count": job.RetryCount,
-		},
-	}); err != nil {
-		return err
-	}
-	return ErrBatchImageSettlementBillingFailed
+	logger.L().Error("batch_image.settlement_reconciliation_required",
+		zap.String("batch_id", job.BatchID),
+		zap.Int("retry_count", job.RetryCount),
+		zap.String("last_error_code", batchImageDerefString(job.LastErrorCode)),
+		zap.String("message", msg),
+	)
+	return ErrBatchImageSettlementBillingFailed.WithCause(errors.New(msg))
 }
 
-func (s *BatchImageSettlementService) recordUsageLog(ctx context.Context, job *BatchImageJob, actualCost float64, requestID string, createdAt time.Time) {
-	if s == nil || s.UsageLogRepo == nil || job == nil || job.APIKeyID == nil || job.AccountID == nil {
-		return
+func buildBatchImageUsageLog(job *BatchImageJob, actualCost float64, requestID string, createdAt time.Time) *UsageLog {
+	if job == nil || job.APIKeyID == nil || job.AccountID == nil {
+		return nil
 	}
 	billingMode := string(BillingModeImage)
 	accountRateMultiplier := job.AccountRateMultiplier
 	inboundEndpoint := "/v1/images/batches"
 	upstreamEndpoint := "vertex:batchPredictionJobs"
 	imageSize := "1K"
-	usageLog := &UsageLog{
+	return &UsageLog{
 		UserID:                job.UserID,
 		APIKeyID:              *job.APIKeyID,
 		AccountID:             *job.AccountID,
@@ -283,7 +261,6 @@ func (s *BatchImageSettlementService) recordUsageLog(ctx context.Context, job *B
 		ImageSize:             &imageSize,
 		CreatedAt:             createdAt,
 	}
-	writeUsageLogBestEffort(ctx, s.UsageLogRepo, usageLog, "service.batch_image_settlement")
 }
 
 func (s *BatchImageSettlementService) invalidateAuthCache(ctx context.Context, userID int64) {
@@ -362,7 +339,11 @@ func (p *BatchImagePipelineProcessor) Process(ctx context.Context, batchID strin
 				}
 				delay := p.RetryDelay
 				if delay <= 0 {
-					delay = batchImageSettlementRetryDelay
+					if getErr == nil && isBatchImageSettlementRetryExhausted(updated) {
+						delay = batchImageSettlementReviewDelay
+					} else {
+						delay = batchImageSettlementRetryDelay
+					}
 				}
 				return BatchImageProcessResult{RequeueAfter: delay}, nil
 			}

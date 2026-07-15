@@ -17,7 +17,11 @@ func TestCanTransitionBatchImageJob(t *testing.T) {
 		want bool
 	}{
 		{name: "created_to_uploading", from: BatchImageJobStatusCreated, to: BatchImageJobStatusUploading, want: true},
-		{name: "uploading_to_submitted", from: BatchImageJobStatusUploading, to: BatchImageJobStatusSubmitted, want: true},
+		{name: "uploading_to_provider_submitting", from: BatchImageJobStatusUploading, to: BatchImageJobStatusSubmitting, want: true},
+		{name: "uploading_cannot_skip_submit_boundary", from: BatchImageJobStatusUploading, to: BatchImageJobStatusSubmitted, want: false},
+		{name: "provider_submitting_to_submitted", from: BatchImageJobStatusSubmitting, to: BatchImageJobStatusSubmitted, want: true},
+		{name: "provider_submitting_to_submission_unknown", from: BatchImageJobStatusSubmitting, to: BatchImageJobStatusSubmitUnknown, want: true},
+		{name: "submission_unknown_cannot_cancel", from: BatchImageJobStatusSubmitUnknown, to: BatchImageJobStatusCancelled, want: false},
 		{name: "submitted_to_running", from: BatchImageJobStatusSubmitted, to: BatchImageJobStatusRunning, want: true},
 		{name: "running_self_poll", from: BatchImageJobStatusRunning, to: BatchImageJobStatusRunning, want: true},
 		{name: "running_to_indexing", from: BatchImageJobStatusRunning, to: BatchImageJobStatusIndexing, want: true},

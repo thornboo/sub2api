@@ -228,10 +228,21 @@ func (p *VertexBatchImageProvider) Submit(ctx context.Context, job *BatchImageJo
 	}
 	created, err := p.client.CreateBatchPredictionJob(ctx, accessToken, req)
 	if err != nil {
-		return nil, mapVertexClientError(err)
+		mappedErr := mapVertexClientError(err)
+		statusCode := 0
+		var apiErr *VertexAPIError
+		if errors.As(err, &apiErr) && apiErr != nil {
+			statusCode = apiErr.StatusCode
+		}
+		if batchImageCreateRequestOutcomeUnknown(err, statusCode) {
+			return nil, newBatchImageProviderSubmitUnknownError(mappedErr)
+		}
+		return nil, mappedErr
 	}
 	if created == nil || strings.TrimSpace(created.Name) == "" {
-		return nil, vertexProviderError("VERTEX_INVALID_RESPONSE", "Vertex batch response is missing job name", nil)
+		return nil, newBatchImageProviderSubmitUnknownError(
+			vertexProviderError("VERTEX_INVALID_RESPONSE", "Vertex batch response is missing job name", nil),
+		)
 	}
 	return &BatchProviderJob{
 		ProviderJobName:   created.Name,

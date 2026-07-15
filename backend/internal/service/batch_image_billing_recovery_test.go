@@ -88,6 +88,57 @@ func TestBatchImageBillingRecoveryService_SkipsJobRefreshedByHeartbeat(t *testin
 	require.Empty(t, billing.releases)
 }
 
+func TestBatchImageBillingRecoveryService_DoesNotRefundUnknownProviderSubmission(t *testing.T) {
+	repo := newFakeBatchImageRepository()
+	apiKeyID := int64(22)
+	holdAmount := 0.5
+	unknown := &BatchImageJob{
+		BatchID:       "imgbatch_submission_unknown",
+		UserID:        11,
+		APIKeyID:      &apiKeyID,
+		Status:        BatchImageJobStatusSubmitUnknown,
+		EstimatedCost: holdAmount,
+		HoldAmount:    &holdAmount,
+		CreatedAt:     time.Now().Add(-time.Hour),
+		UpdatedAt:     time.Now().Add(-time.Hour),
+	}
+	repo.jobs[unknown.BatchID] = unknown
+	billing := &fakeBatchImageBillingRepo{}
+	svc := &BatchImageBillingRecoveryService{Repo: repo, Billing: billing, StaleAfter: time.Minute, Limit: 10}
+
+	released, err := svc.ReleaseStaleUnsubmittedOnce(context.Background())
+	require.NoError(t, err)
+	require.Zero(t, released)
+	require.Equal(t, BatchImageJobStatusSubmitUnknown, repo.jobs[unknown.BatchID].Status)
+	require.Empty(t, billing.releases)
+}
+
+func TestBatchImageBillingRecoveryService_InterruptedProviderSubmissionBecomesUnknownWithoutRefund(t *testing.T) {
+	repo := newFakeBatchImageRepository()
+	apiKeyID := int64(22)
+	holdAmount := 0.5
+	interrupted := &BatchImageJob{
+		BatchID:       "imgbatch_provider_submit_interrupted",
+		UserID:        11,
+		APIKeyID:      &apiKeyID,
+		Status:        BatchImageJobStatusSubmitting,
+		EstimatedCost: holdAmount,
+		HoldAmount:    &holdAmount,
+		CreatedAt:     time.Now().Add(-time.Hour),
+		UpdatedAt:     time.Now().Add(-time.Hour),
+	}
+	repo.jobs[interrupted.BatchID] = interrupted
+	billing := &fakeBatchImageBillingRepo{}
+	svc := &BatchImageBillingRecoveryService{Repo: repo, Billing: billing, StaleAfter: time.Minute, Limit: 10}
+
+	released, err := svc.ReleaseStaleUnsubmittedOnce(context.Background())
+	require.NoError(t, err)
+	require.Zero(t, released)
+	require.Equal(t, BatchImageJobStatusSubmitUnknown, repo.jobs[interrupted.BatchID].Status)
+	require.Equal(t, "PROVIDER_SUBMIT_OUTCOME_UNKNOWN", batchImageDerefString(repo.jobs[interrupted.BatchID].LastErrorCode))
+	require.Empty(t, billing.releases)
+}
+
 func TestBatchImageBillingRecoveryService_EnqueuesRetryWhenReleaseFails(t *testing.T) {
 	repo := newFakeBatchImageRepository()
 	apiKeyID := int64(22)

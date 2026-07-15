@@ -380,13 +380,15 @@ func (p *fakeProcessorProvider) Cleanup(context.Context, *BatchImageJob, *Accoun
 }
 
 type fakeBatchImageRepository struct {
-	jobs          map[string]*BatchImageJob
-	items         map[string][]CreateBatchImageItemParams
-	counts        map[string]BatchImageCounts
-	transitions   map[string][]string
-	events        map[string][]string
-	transitionErr error
-	replaceCalls  int
+	jobs                     map[string]*BatchImageJob
+	items                    map[string][]CreateBatchImageItemParams
+	counts                   map[string]BatchImageCounts
+	transitions              map[string][]string
+	events                   map[string][]string
+	transitionErr            error
+	providerSubmitErr        error
+	markSubmissionUnknownErr error
+	replaceCalls             int
 }
 
 func newFakeBatchImageRepository() *fakeBatchImageRepository {
@@ -543,10 +545,27 @@ func (r *fakeBatchImageRepository) TouchBatchImageJobSubmitting(_ context.Contex
 	if !ok {
 		return ErrBatchImageJobNotFound
 	}
-	if job.Status == BatchImageJobStatusCreated || job.Status == BatchImageJobStatusUploading {
+	if job.Status == BatchImageJobStatusCreated || job.Status == BatchImageJobStatusUploading || job.Status == BatchImageJobStatusSubmitting {
 		job.UpdatedAt = time.Now()
 	}
 	return nil
+}
+
+func (r *fakeBatchImageRepository) MarkStaleBatchImageJobSubmissionUnknown(_ context.Context, batchID string, cutoff time.Time, code, message string) (bool, error) {
+	job, ok := r.jobs[batchID]
+	if !ok {
+		return false, ErrBatchImageJobNotFound
+	}
+	if job.Status != BatchImageJobStatusSubmitting || batchImageDerefString(job.ProviderJobName) != "" || job.UpdatedAt.After(cutoff) {
+		return false, nil
+	}
+	job.Status = BatchImageJobStatusSubmitUnknown
+	job.LastErrorCode = batchImageStringPtr(code)
+	job.LastErrorMessage = batchImageStringPtr(message)
+	job.UpdatedAt = time.Now()
+	r.transitions[batchID] = append(r.transitions[batchID], BatchImageJobStatusSubmitUnknown)
+	r.events[batchID] = append(r.events[batchID], "provider_submit_outcome_unknown")
+	return true, nil
 }
 
 func (r *fakeBatchImageRepository) FailStaleUnsubmittedBatchImageJob(_ context.Context, batchID string, cutoff time.Time, code, message string) (bool, error) {
@@ -579,6 +598,9 @@ func (r *fakeBatchImageRepository) UpdateBatchImageJobProviderOutputRef(_ contex
 }
 
 func (r *fakeBatchImageRepository) UpdateBatchImageJobProviderSubmit(_ context.Context, params UpdateBatchImageJobProviderSubmitParams) error {
+	if r.providerSubmitErr != nil {
+		return r.providerSubmitErr
+	}
 	job, ok := r.jobs[params.BatchID]
 	if !ok {
 		return ErrBatchImageJobNotFound
@@ -596,6 +618,26 @@ func (r *fakeBatchImageRepository) UpdateBatchImageJobProviderSubmit(_ context.C
 	job.SubmittedAt = &now
 	r.transitions[params.BatchID] = append(r.transitions[params.BatchID], BatchImageJobStatusSubmitted)
 	r.events[params.BatchID] = append(r.events[params.BatchID], "provider_submitted")
+	return nil
+}
+
+func (r *fakeBatchImageRepository) MarkBatchImageJobSubmissionUnknown(_ context.Context, batchID, code, message string) error {
+	if r.markSubmissionUnknownErr != nil {
+		return r.markSubmissionUnknownErr
+	}
+	job, ok := r.jobs[batchID]
+	if !ok {
+		return ErrBatchImageJobNotFound
+	}
+	if (job.Status != BatchImageJobStatusUploading && job.Status != BatchImageJobStatusSubmitting) || batchImageDerefString(job.ProviderJobName) != "" {
+		return ErrBatchImageInvalidTransition
+	}
+	job.Status = BatchImageJobStatusSubmitUnknown
+	job.LastErrorCode = batchImageOptionalStringPtr(code)
+	job.LastErrorMessage = batchImageOptionalStringPtr(message)
+	job.UpdatedAt = time.Now()
+	r.transitions[batchID] = append(r.transitions[batchID], BatchImageJobStatusSubmitUnknown)
+	r.events[batchID] = append(r.events[batchID], "provider_submit_outcome_unknown")
 	return nil
 }
 
@@ -829,7 +871,7 @@ func (r *fakeBatchImageRepository) ListStaleUnsubmittedBatchImageJobs(_ context.
 		if len(jobs) >= limit {
 			break
 		}
-		if job.Status != BatchImageJobStatusCreated && job.Status != BatchImageJobStatusUploading {
+		if job.Status != BatchImageJobStatusCreated && job.Status != BatchImageJobStatusUploading && job.Status != BatchImageJobStatusSubmitting {
 			continue
 		}
 		if batchImageDerefString(job.ProviderJobName) != "" {

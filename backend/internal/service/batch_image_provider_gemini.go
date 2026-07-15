@@ -122,10 +122,21 @@ func (p *GeminiAPIBatchImageProvider) Submit(ctx context.Context, job *BatchImag
 
 	batch, err := p.client.CreateBatch(ctx, apiKey, input.Model, uploaded.Name, displayName)
 	if err != nil {
-		return nil, mapGeminiClientError(err)
+		mappedErr := mapGeminiClientError(err)
+		statusCode := 0
+		var apiErr *GeminiAPIError
+		if errors.As(err, &apiErr) && apiErr != nil {
+			statusCode = apiErr.StatusCode
+		}
+		if batchImageCreateRequestOutcomeUnknown(err, statusCode) {
+			return nil, newBatchImageProviderSubmitUnknownError(mappedErr)
+		}
+		return nil, mappedErr
 	}
 	if batch == nil || strings.TrimSpace(batch.Name) == "" {
-		return nil, geminiProviderError("GEMINI_INVALID_RESPONSE", "Gemini batch response is missing job name", nil)
+		return nil, newBatchImageProviderSubmitUnknownError(
+			geminiProviderError("GEMINI_INVALID_RESPONSE", "Gemini batch response is missing job name", nil),
+		)
 	}
 
 	return &BatchProviderJob{
@@ -447,7 +458,7 @@ func mapGeminiClientError(err error) error {
 			return geminiProviderError("GEMINI_INVALID_RESPONSE", "Gemini API request failed", nil)
 		}
 	}
-	return geminiProviderError("GEMINI_INVALID_RESPONSE", "Gemini API request failed", nil)
+	return geminiProviderError("GEMINI_INVALID_RESPONSE", "Gemini API request failed", err)
 }
 
 type GeminiBatchHTTPClient struct {
