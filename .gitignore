@@ -138,6 +138,7 @@ docs/*
 docs-site/node_modules/
 docs-site/.vitepress/cache/
 docs-site/.vitepress/dist/
+!docs/ASYNC_IMAGE_TASKS.md
 !docs/legal/
 !docs/legal/*.md
 .serena/

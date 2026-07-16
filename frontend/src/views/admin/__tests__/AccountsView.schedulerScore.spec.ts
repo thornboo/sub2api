@@ -32,6 +32,7 @@ vi.mock('@/api/admin', () => ({
       listUpstreamSuppliers,
       listUpstreamCostPools,
       listUpstreamCostPoolAccounts,
+      getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 30 }),
       delete: vi.fn(),
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),

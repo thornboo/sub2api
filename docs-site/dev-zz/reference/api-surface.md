@@ -11,6 +11,38 @@
 
 账号复制只允许 `apikey`、`upstream`、`bedrock` 和 `service_account` 等静态凭据类型。OAuth、setup-token、未知旧凭据类型以及带 `parent_account_id` 的影子账号会被拒绝，避免复制共享 refresh token 或凭据池身份。复制不会继承错误、限流、过载、临时不可调度、会话窗口、用量投影、被动探测和 CRS 远端绑定等运行态。
 
+## Key 计费倍率自省与上游探测
+
+| 方法 | 路径 | 用途 | 关键语义 |
+| --- | --- | --- | --- |
+| `GET` | `/v1/sub2api/billing` | 当前 API Key 的倍率自省 | 只需 Key 鉴权，不消耗并发 / 计费配额；返回分组、用户、高峰和最终生效倍率，不暴露账号或供应商成本 |
+| `GET` | `/api/v1/admin/accounts/upstream-billing-probe/settings` | 读取周期探测设置 | 管理员接口；默认开启、30 分钟间隔 |
+| `PUT` | `/api/v1/admin/accounts/upstream-billing-probe/settings` | 更新周期探测设置 | 间隔限制 `5-1440` 分钟 |
+| `POST` | `/api/v1/admin/accounts/upstream-billing-probe/batch` | 手工批量探测 | 单批最多 20 个 OpenAI APIKey 账号 |
+| `PUT` | `/api/v1/admin/accounts/:id/upstream-billing-probe` | 开关单账号探测 | 写入账号 `extra`，关闭时清除旧探测快照 |
+| `POST` | `/api/v1/admin/accounts/:id/upstream-billing-probe` | 立即探测单账号 | 使用账号当前凭据、代理和 TLS 配置；身份变化时 CAS 拒绝旧结果覆盖 |
+
+## 异步图片任务
+
+| 方法 | 路径 | 用途 | 关键语义 |
+| --- | --- | --- | --- |
+| `POST` | `/v1/images/generations/async` | 异步提交图片生成 | 返回 `202`、task ID、`Location` 和轮询建议；沿用同步端点的鉴权、成员分组、预算、计费和 failover |
+| `POST` | `/v1/images/edits/async` | 异步提交图片编辑 | 支持同步编辑端点的 multipart / JSON 载荷；流式请求拒绝 |
+| `GET` | `/v1/images/tasks/:task_id` | 查询任务状态 / 结果 | 只能使用创建任务的 Key；对象存储未启用时端点返回 `404` |
+
+以上路径同时提供既有无 `/v1` 别名。任务只支持 OpenAI / Grok 分组，图片结果转存 S3 兼容对象存储后才写入紧凑 Redis 结果；完整响应合同见 `docs/ASYNC_IMAGE_TASKS.md`。
+
+## 操作审计与 step-up 2FA
+
+| 方法 | 路径 | 用途 | 关键语义 |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/admin/audit-logs` | 管理操作审计列表 | 仅管理员；支持按动作、操作者、目标和时间筛选 |
+| `GET` | `/api/v1/admin/audit-logs/:id` | 审计详情 | 敏感头、token、secret 和密码字段在持久化前脱敏 |
+| `POST` | `/api/v1/admin/audit-logs/clear` | 清空审计 | 必须现场 TOTP 验证，不复用已有 step-up 窗口 |
+| `POST` | `/api/v1/user/totp/step-up` | 为当前会话建立短时二次验证 | 会话绑定 IP / UA，敏感操作仍可要求更强的现场验证 |
+
+管理员角色提升、用户敏感变更和下载 / 清理类操作由路由或 handler 施加 step-up；普通登录态不能绕过该层。
+
 ## 用户侧 API Key
 
 所有 `/api/v1/keys/*` 接口都要求登录用户身份，并且只能操作当前用户自己的 Key。

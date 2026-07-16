@@ -1,5 +1,35 @@
 # 补丁记录
 
+## 2026-07-17 - 上游 main 同步：异步图片、倍率探测、图片计费与操作审计
+
+### 目标
+
+- 将 `origin/main@bc2244c83` 合入 `dev-zz-develop`，继续以 `docs-site/dev-zz` 的分支策略、接口边界和历史合并记录作为冲突裁决依据。
+- 接受上游安全、计费、图片、调度和 OpenAI / Grok 兼容修复，同时不回退企业成员预算 / 归因、供应商成本、调度策略、数据保留、视觉和 fork 版本线。
+
+### 主要变化
+
+- 新增异步图片提交 / 查询 API；任务结果必须落 S3 兼容对象存储，Redis 只保存紧凑结果，功能默认关闭。完整协议见 `docs/ASYNC_IMAGE_TASKS.md`。
+- 新增 `/v1/sub2api/billing` Key 倍率自省和管理端上游倍率探测；探测快照只保存在账号 `extra`，低倍率优先只扩展旧调度，不覆盖 dev-zz `cost_first` / `strict_priority` 策略。
+- 渠道价格和 usage log 新增图片输入 Token 单价、数量与费用；SQL insert / batch insert / query、DTO、管理端表格和定价卡保持同一字段顺序。
+- 新增操作审计、会话 IP/UA 绑定和敏感操作 step-up 2FA；管理员角色提升、审计清空等高风险操作保持更严格的现场验证边界。
+- 分组与渠道监控复制、管理员批量用户限额、Grok 上游端点快捷切换、OpenAI WebSocket / body-limit / Responses 字段重试等能力随上游合入。
+- 合并复审修正两处上游/分支语义碰撞：OpenAI APIKey 的参数 400 不进入通用持久化模型冷却，瞬时 5xx 采用 account+model 连续失败运行时冷却；DataTable / UseKeyModal 继续使用 dev-zz stone 视觉和可访问控件，同时恢复上游横向滚动与选择测试合同。
+
+### 数据与兼容性
+
+- `178_channel_image_input_price.sql` 与 `178_enterprise_member_import_jobs.sql` 并存。
+- `179_usage_log_image_input_tokens.sql` 与 `179_enterprise_member_rate_limits.sql` 并存。
+- `180_audit_logs.sql` 与 `180_ops_error_logs_enterprise_member_attribution.sql` 并存。
+- `181_group_duplicate_operation_id.sql` 与 `181_ops_error_logs_member_time_index_notx.sql` 并存。
+- `VERSION` 保持 dev-zz `1.7.4`，不采用上游 `0.1.158`；没有改写任何既有迁移。
+
+### 验证
+
+- 后端全包编译、带 `unit` build tag 的完整测试、golangci-lint 和 repository integration 编译。
+- 前端 typecheck、ESLint、204 个测试文件 / 1371 个测试、生产构建。
+- docs-site 构建、Wire 重新生成、冲突标记 / 未合并索引 / whitespace 检查与双父祖先校验。
+
 ## 2026-07-16 - 企业成员导入小数 Token 精确保留
 
 实现：

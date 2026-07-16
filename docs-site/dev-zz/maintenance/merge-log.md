@@ -1,5 +1,88 @@
 # 上游合并记录
 
+## 2026-07-17 - 将上游 `main` 合并到 `dev-zz-develop`：异步图片、倍率探测、图片计费与操作审计合流
+
+分支：
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`eb2b8632d`
+- 合并前目标：`991fcc829`
+- 上游 head：`bc2244c83`
+- 结果提交：本次合并提交
+
+上游要点：
+- 异步图片生成 / 编辑任务、S3 兼容结果转存、任务轮询接口，以及图片输入 Token 的独立定价、用量和费用字段。
+- API Key 计费倍率自省、上游 Sub2API 倍率探测、低上游倍率优先和调度快照批量刷新优化。
+- 操作审计日志、会话 IP/UA 绑定、敏感操作 step-up 2FA、管理员角色提升加固和管理员批量用户限额。
+- 分组 / 渠道监控幂等复制、Grok 上游端点快捷切换、Codex Responses WebSocket v2、图片模型路由、body-limit failover、Responses rejected-field retry 与 WebSocket ingress 修复。
+
+合并策略：
+- 合并前完整读取 `docs-site/dev-zz/branch-policy.md`、`maintenance/merge-main.md`、`maintenance/merge-log.md`、`patches.md`、`changelog.md`、`reference/change-map.md`、`reference/api-surface.md`、`reference/configuration-and-migrations.md` 和 `testing/verification-matrix.md`。
+- 先把目标分支从 `414287721` 快进到正式 `origin/dev-zz@991fcc829`，使 `VERSION` 与已发布 `1.7.4` 一致；随后刷新 `origin/main`，使用 `git merge-tree --write-tree --messages --name-only --merge-base "$(git merge-base HEAD origin/main)" HEAD origin/main` 只读预演，再执行 `git merge --no-commit origin/main`。预演和真实合并均得到同一组 33 个内容冲突。
+- 接受上游安全、图片、计费和协议正确性修复；继续保留 dev-zz 企业成员路由 / 预算 / 归因、owner / admin 数据隔离、供应商成本池、`schedule_strategy`、隐藏认证入口、数据保留、stone / emerald 视觉和 `1.7.4` 版本线。
+- `178`、`179`、`180`、`181` 同号迁移按完整文件名并存；没有修改任何已应用迁移。
+
+冲突文件：
+- `.gitignore`
+- `backend/cmd/server/VERSION`
+- `backend/cmd/server/wire_gen.go`
+- `backend/internal/handler/admin/channel_handler.go`
+- `backend/internal/handler/gateway_handler.go`
+- `backend/internal/handler/grok_media.go`
+- `backend/internal/handler/openai_gateway_handler.go`
+- `backend/internal/repository/usage_log_repo_insert.go`
+- `backend/internal/repository/usage_log_repo_query.go`
+- `backend/internal/repository/usage_log_repo_request_type_test.go`
+- `backend/internal/server/http.go`
+- `backend/internal/server/router.go`
+- `backend/internal/server/routes/admin.go`
+- `backend/internal/server/routes/gateway.go`
+- `backend/internal/service/domain_constants.go`
+- `backend/internal/service/openai_account_runtime_block_fastpath.go`
+- `backend/internal/service/openai_gateway_scheduling.go`
+- `backend/internal/service/openai_images_test.go`
+- `backend/internal/service/openai_ws_forwarder_ingress.go`
+- `backend/internal/service/setting_parse.go`
+- `backend/internal/service/setting_service_update_test.go`
+- `frontend/src/components/account/CreateAccountModal.vue`
+- `frontend/src/components/account/EditAccountModal.vue`
+- `frontend/src/components/admin/channel/PricingEntryCard.vue`
+- `frontend/src/components/admin/user/UserCreateModal.vue`
+- `frontend/src/components/common/DataTable.vue`
+- `frontend/src/components/keys/UseKeyModal.vue`
+- `frontend/src/i18n/locales/en/common.ts`
+- `frontend/src/i18n/locales/zh/common.ts`
+- `frontend/src/views/admin/AccountsView.vue`
+- `frontend/src/views/admin/SettingsView.vue`
+- `frontend/src/views/admin/__tests__/AccountsView.bulkEdit.spec.ts`
+- `frontend/src/views/admin/__tests__/AccountsView.schedulerScore.spec.ts`
+
+解决说明：
+- `wire_gen.go` 从合并后的 `wire.go` 重新生成，同时注入上游审计 / step-up / 异步图片 / 倍率探测和 dev-zz 企业成员预算、模型自检、成本池服务。
+- 网关入口为同步图片、异步图片、batch image、Responses / Chat / Embeddings 和无前缀别名统一保留成员分组解析、预算保护与组内编排；`/v1/sub2api/billing` 只走 Key 鉴权，不误占计费并发。
+- usage log SQL 同时保留 `enterprise_member_id`、`schedule_meta`、真实 `upstream_endpoint` 和上游新增的 `image_input_tokens` / `image_input_cost`；单条、批量和 best-effort insert 的列、类型、参数与查询顺序保持一致。
+- 账号调度同时保留 dev-zz `strict_priority` / `cost_first`、供应商成本和上游新增的低倍率优先；账号列表、编辑弹窗与设置页同时展示供应商成本和倍率探测，不向普通用户 DTO 暴露上游成本。
+- OpenAI APIKey 参数 400 不写持久化模型冷却，502/503/504 等瞬时错误采用上游 account+model 连续失败运行时冷却；404、明确模型限流和其它平台模型错误继续走 dev-zz 持久化模型级冷却。
+- `DataTable` 保留 stone / emerald 与 BaseCheckbox 可访问控件，合入上游选择列、选中 Key 和横向滚动修复；`UseKeyModal` 保留 dev-zz 视觉，同时恢复窄屏 client tabs 的滚动合同。
+- `VERSION` 保持 `1.7.4`；`.gitignore` 继续忽略 docs-site 构建产物，但显式跟踪上游 `docs/ASYNC_IMAGE_TASKS.md`。
+
+验证：
+- `mise x -C backend -- go run github.com/google/wire/cmd/wire ./cmd/server`
+- `mise x -C backend -- go test ./... -run '^$' -count=1`
+- `make -C backend test-unit`
+- `mise x -C backend -- golangci-lint run --timeout=30m`
+- `mise x -C backend -- go test -tags=integration -c -o /tmp/sub2api-repository-integration.test ./internal/repository`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run`（204 个测试文件、1371 个测试通过）
+- `pnpm --dir frontend build`
+- `pnpm --dir docs-site docs:build`
+- `git diff --check`、`git diff --cached --check`、未合并索引与冲突标记扫描。
+
+未验证：
+- 浏览器人工 smoke。
+- Docker / testcontainers 运行时集成测试。
+
 ## 2026-07-16 - 增量合并上游 `main`：Grok 自定义上游、Agent Identity、订阅币种与管理员充值返佣
 
 分支：

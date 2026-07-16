@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-07-17
+
+- 同步上游 `main`（`bc2244c83`）到 `dev-zz-develop`：吸收异步图片任务与 S3 兼容对象存储、API Key 计费倍率自省、上游 Sub2API 倍率探测、图片输入 Token 独立计费、操作审计 / 会话绑定 / step-up 2FA、分组与渠道监控复制、管理员批量用户限额，以及 OpenAI / Grok / WebSocket 正确性修复。
+- 冲突合并继续保留 dev-zz 企业成员路由、预算预留与用量归因、供应商成本池、`schedule_strategy`、stone / emerald 视觉、隐藏认证入口、长期数据保留和 `1.7.4` 版本线；同步接入上游低倍率账号优先、图片输入价格与用量字段、审计中间件和新管理端入口。
+- OpenAI APIKey 的参数 400 不写持久化模型冷却；502/503/504 等瞬时上游错误采用上游新的 account+model 连续失败运行时冷却，404、明确模型限流及其它平台的模型级错误仍沿用 dev-zz 持久化冷却边界。
+- 新增同号迁移 `178_channel_image_input_price.sql`、`179_usage_log_image_input_tokens.sql`、`180_audit_logs.sql`、`181_group_duplicate_operation_id.sql`，均与既有企业成员迁移按完整文件名并存，不改写已应用迁移。
+
 ## 2026-07-16
 
 - 企业成员 CSV/XLSX 导入的六个外部聚合 Token 字段支持非负且最多两位小数；`421.63` 会在预览、不可变迁移基线、导入结果、成员预算汇总和页面展示中保持为 `421.63`，超过两位有效小数时明确拒绝而不静默取整。新增 migration 191 将对应基线列升级为 `NUMERIC(21,2)`；迁移 Token API 改用精确十进制字符串，页面不再把百万级值 compact 缩写或经 JavaScript `number` 改写，真实请求日志 Token 仍保持整数语义。
