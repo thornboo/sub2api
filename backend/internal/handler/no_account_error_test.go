@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -176,6 +179,116 @@ func TestClassifyNoAccountError_DisplayModelOverridesRoutingForMessage(t *testin
 	require.Contains(t, cls.Message, "claude-3-fancy", "user-facing message must reference the model the user asked for, not the post-mapping routing model")
 	require.Len(t, fd.calls, 1)
 	require.Equal(t, "gpt-5", fd.calls[0].Model, "diagnosis must run against the routing model (post group dispatch mapping)")
+}
+
+func TestClassifyNoAccountError_EnterpriseMemberModelMissMarksGroupCapabilityMismatch(t *testing.T) {
+	c := newTestGinContextWithRequest()
+	fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: false}}
+	memberID := int64(9)
+	apiKey := &service.APIKey{GroupID: ptrInt64(7), MemberID: &memberID}
+
+	cls := classifyNoAccountErrorFromGin(c, fd, apiKey, "gpt-5.4", "claude-opus-4-8", service.PlatformOpenAI)
+
+	require.True(t, cls.ModelNotFound)
+	reason, ok := service.OpsGroupRetryReasonFromContext(c)
+	require.True(t, ok)
+	require.Equal(t, service.OpsGroupRetryReasonCapabilityMismatch, reason)
+}
+
+func TestClassifyNoAccountError_EnterpriseMemberModelMissDrivesNextGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	memberID := int64(9)
+	apiKey := &service.APIKey{
+		ID: 17, UserID: 3, MemberID: &memberID,
+		User: &service.User{
+			ID: 3, Role: service.RoleUser, AccountType: service.UserAccountTypeEnterprise,
+			Status: service.StatusActive, Balance: 10,
+		},
+		Member: &service.EnterpriseMember{
+			ID: memberID, EnterpriseUserID: 3, Status: service.EnterpriseMemberStatusActive, Version: 4,
+			Groups: []service.Group{
+				{
+					ID: 11, Platform: service.PlatformOpenAI, Status: service.StatusActive,
+					Hydrated: true, AllowMessagesDispatch: true, RateMultiplier: 1,
+				},
+				{
+					ID: 22, Platform: service.PlatformAnthropic, Status: service.StatusActive,
+					Hydrated: true, RateMultiplier: 1,
+				},
+			},
+		},
+	}
+	diagnoser := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{
+		HasAccountsInPool: true,
+		HasModelSupport:   false,
+	}}
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware2.ContextKeyAPIKey), apiKey)
+		c.Next()
+	})
+	router.Use(middleware2.ResolveEnterpriseMemberGroup(
+		nil,
+		&config.Config{RunMode: config.RunModeSimple},
+		middleware2.AnthropicErrorWriter,
+	))
+
+	var groupIDs []int64
+	router.POST("/v1/messages", middleware2.OrchestrateEnterpriseMemberGroups(func(c *gin.Context) {
+		requestKey, ok := middleware2.GetAPIKeyFromContext(c)
+		require.True(t, ok)
+		require.NotNil(t, requestKey.GroupID)
+		groupIDs = append(groupIDs, *requestKey.GroupID)
+		if *requestKey.GroupID == 11 {
+			classification := classifyNoAccountErrorFromGin(
+				c,
+				diagnoser,
+				requestKey,
+				"gpt-5.4",
+				"claude-opus-4-8",
+				service.PlatformOpenAI,
+			)
+			require.True(t, classification.ModelNotFound)
+			c.JSON(classification.Status, gin.H{
+				"type": "error",
+				"error": gin.H{
+					"type":    classification.ErrType,
+					"message": classification.Message,
+				},
+			})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"group_id": *requestKey.GroupID})
+	}))
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/messages",
+		strings.NewReader(`{"model":"claude-opus-4-8","messages":[]}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	require.JSONEq(t, `{"group_id":22}`, response.Body.String(), "the first group's buffered 404 must not escape")
+	require.Equal(t, []int64{11, 22}, groupIDs)
+	require.Len(t, diagnoser.calls, 1)
+	require.Equal(t, int64(11), *diagnoser.calls[0].GroupID)
+	require.Equal(t, "gpt-5.4", diagnoser.calls[0].Model)
+}
+
+func TestClassifyNoAccountError_OrdinaryKeyModelMissDoesNotMarkGroupRetry(t *testing.T) {
+	c := newTestGinContextWithRequest()
+	fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: false}}
+	apiKey := &service.APIKey{GroupID: ptrInt64(7)}
+
+	cls := classifyNoAccountErrorFromGin(c, fd, apiKey, "gpt-5.4", "claude-opus-4-8", service.PlatformOpenAI)
+
+	require.True(t, cls.ModelNotFound)
+	_, ok := service.OpsGroupRetryReasonFromContext(c)
+	require.False(t, ok)
 }
 
 func TestClassifyNoAccountError_FromGin_NilContextStillSafe(t *testing.T) {

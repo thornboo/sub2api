@@ -165,7 +165,7 @@ func GetEnterpriseMemberCandidateGroups(c *gin.Context) []service.Group {
 	return groups
 }
 
-func enterpriseMemberGroupEligible(c *gin.Context, user *service.User, group *service.Group, requestedModel string) bool {
+func enterpriseMemberGroupEligible(c *gin.Context, user *service.User, group *service.Group, _ string) bool {
 	if user == nil || group == nil || !group.IsActive() || !service.IsGroupContextValid(group) {
 		return false
 	}
@@ -217,76 +217,43 @@ func enterpriseMemberGroupEligible(c *gin.Context, user *service.User, group *se
 			return false
 		}
 	}
-	if requestedModel != "" && group.CustomModelsListEnabled() {
-		for _, model := range group.ModelsListConfig.Models {
-			if model == requestedModel {
-				return true
-			}
-		}
-		return false
-	}
 	return true
 }
 
 // ActivateEnterpriseMemberGroupForModel selects the first already-authorized
-// candidate that admits model. WebSocket ingress calls this after reading the
-// first response.create frame but before any upstream connection is opened.
+// candidate. WebSocket ingress calls this after reading the first
+// response.create frame but before any upstream connection is opened. Actual
+// model schedulability is decided by the account scheduler; models_list_config
+// only controls the optional /v1/models response and is not a routing policy.
 func ActivateEnterpriseMemberGroupForModel(c *gin.Context, model string) bool {
 	plan, ok := enterpriseMemberGroupPlanFromContext(c)
 	if !ok {
 		return true
 	}
 	model = strings.TrimSpace(model)
-	for i := range plan.candidates {
-		group := &plan.candidates[i].group
-		if model != "" && group.CustomModelsListEnabled() {
-			allowed := false
-			for _, candidateModel := range group.ModelsListConfig.Models {
-				if candidateModel == model {
-					allowed = true
-					break
-				}
-			}
-			if !allowed {
-				continue
-			}
-		}
-		activateEnterpriseMemberGroupCandidate(c, plan, i, model)
-		ctx := context.WithValue(c.Request.Context(), ctxkey.Model, model)
-		c.Request = c.Request.WithContext(ctx)
-		return true
-	}
-	return false
+	activateEnterpriseMemberGroupCandidate(c, plan, 0, model)
+	ctx := context.WithValue(c.Request.Context(), ctxkey.Model, model)
+	c.Request = c.Request.WithContext(ctx)
+	return true
 }
 
 // ActivateNextEnterpriseMemberGroupForModel advances a WebSocket request to
-// the next model-authorized snapshot before an upstream connection is opened.
+// the next authorized snapshot before an upstream connection is opened. The
+// scheduler, not the display-only models list, decides model support.
 func ActivateNextEnterpriseMemberGroupForModel(c *gin.Context, model string) bool {
 	plan, ok := enterpriseMemberGroupPlanFromContext(c)
 	if !ok {
 		return false
 	}
 	model = strings.TrimSpace(model)
-	for i := plan.current + 1; i < len(plan.candidates); i++ {
-		group := &plan.candidates[i].group
-		if model != "" && group.CustomModelsListEnabled() {
-			allowed := false
-			for _, candidateModel := range group.ModelsListConfig.Models {
-				if candidateModel == model {
-					allowed = true
-					break
-				}
-			}
-			if !allowed {
-				continue
-			}
-		}
-		activateEnterpriseMemberGroupCandidate(c, plan, i, model)
-		ctx := context.WithValue(c.Request.Context(), ctxkey.Model, model)
-		c.Request = c.Request.WithContext(ctx)
-		return true
+	next := plan.current + 1
+	if next >= len(plan.candidates) {
+		return false
 	}
-	return false
+	activateEnterpriseMemberGroupCandidate(c, plan, next, model)
+	ctx := context.WithValue(c.Request.Context(), ctxkey.Model, model)
+	c.Request = c.Request.WithContext(ctx)
+	return true
 }
 
 // ActivateEnterpriseMemberGroupByID restores a previously persisted async-task

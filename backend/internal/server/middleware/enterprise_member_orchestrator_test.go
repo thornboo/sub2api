@@ -56,6 +56,71 @@ func TestOrchestrateEnterpriseMemberGroupsRetriesUncommittedGroupFailure(t *test
 	require.Equal(t, []string{`{"model":"claude-test"}`, `{"model":"claude-test"}`}, bodies)
 }
 
+func TestOrchestrateEnterpriseMemberGroupsRetriesTypedModelCapabilityMismatch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude-opus-4-8"}`))
+	ctx := context.WithValue(c.Request.Context(), ctxkey.ClientRequestID, "req-opus-48")
+	c.Request = c.Request.WithContext(ctx)
+
+	plan := testEnterpriseMemberGroupPlan()
+	c.Set(enterpriseMemberGroupPlanKey, plan)
+	activateEnterpriseMemberGroupCandidate(c, plan, 0, "claude-opus-4-8")
+
+	var groupIDs []int64
+	handler := OrchestrateEnterpriseMemberGroups(func(c *gin.Context) {
+		apiKey, ok := GetAPIKeyFromContext(c)
+		require.True(t, ok)
+		require.NotNil(t, apiKey.GroupID)
+		groupIDs = append(groupIDs, *apiKey.GroupID)
+		if len(groupIDs) == 1 {
+			service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
+			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "model_not_found"}})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"group_id": *apiKey.GroupID})
+	})
+
+	handler(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.JSONEq(t, `{"group_id":22}`, recorder.Body.String())
+	require.Equal(t, []int64{11, 22}, groupIDs)
+}
+
+func TestOrchestrateEnterpriseMemberGroupsReturnsFinalModelNotFoundAfterAllGroupsMiss(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude-typo"}`))
+
+	plan := testEnterpriseMemberGroupPlan()
+	c.Set(enterpriseMemberGroupPlanKey, plan)
+	activateEnterpriseMemberGroupCandidate(c, plan, 0, "claude-typo")
+
+	var groupIDs []int64
+	handler := OrchestrateEnterpriseMemberGroups(func(c *gin.Context) {
+		apiKey, ok := GetAPIKeyFromContext(c)
+		require.True(t, ok)
+		require.NotNil(t, apiKey.GroupID)
+		groupIDs = append(groupIDs, *apiKey.GroupID)
+		service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": gin.H{
+				"type":    "model_not_found",
+				"message": "model is not supported by this group",
+			},
+		})
+	})
+
+	handler(c)
+
+	require.Equal(t, http.StatusNotFound, recorder.Code)
+	require.JSONEq(t, `{"error":{"type":"model_not_found","message":"model is not supported by this group"}}`, recorder.Body.String())
+	require.Equal(t, []int64{11, 22}, groupIDs)
+}
+
 func TestOrchestrateEnterpriseMemberGroupsDoesNotRetryCommittedResponse(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
@@ -109,8 +174,8 @@ func testEnterpriseMemberGroupPlan() *enterpriseMemberGroupPlan {
 		apiKey:  apiKey,
 		current: -1,
 		candidates: []enterpriseMemberGroupCandidate{
-			{group: service.Group{ID: 11, Platform: service.PlatformAnthropic, RateMultiplier: 1, Hydrated: true}, memberIndex: 0},
-			{group: service.Group{ID: 22, Platform: service.PlatformOpenAI, RateMultiplier: 1.2, Hydrated: true}, memberIndex: 1},
+			{group: service.Group{ID: 11, Platform: service.PlatformOpenAI, RateMultiplier: 1, Hydrated: true}, memberIndex: 0},
+			{group: service.Group{ID: 22, Platform: service.PlatformAnthropic, RateMultiplier: 1.2, Hydrated: true}, memberIndex: 1},
 		},
 	}
 }

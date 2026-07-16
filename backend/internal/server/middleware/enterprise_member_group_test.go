@@ -228,7 +228,28 @@ func TestEnterpriseMemberGroupEligibleEnforcesEndpointCapabilities(t *testing.T)
 	require.False(t, enterpriseMemberGroupEligible(gemini, user, activeGroup(service.PlatformOpenAI), "gemini-2.5-pro"))
 }
 
-func TestActivateEnterpriseMemberGroupForModelUsesFirstMatchingSnapshot(t *testing.T) {
+func TestEnterpriseMemberGroupEligibleIgnoresDisplayOnlyModelsList(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	user := &service.User{ID: 3, Balance: 10}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude-opus-4-8"}`))
+	group := &service.Group{
+		ID:                    11,
+		Platform:              service.PlatformOpenAI,
+		Status:                service.StatusActive,
+		Hydrated:              true,
+		AllowMessagesDispatch: true,
+		ModelsListConfig: service.GroupModelsListConfig{
+			Enabled: true,
+			Models:  []string{"gpt-4o"},
+		},
+	}
+
+	require.True(t, enterpriseMemberGroupEligible(c, user, group, "claude-opus-4-8"),
+		"the custom /v1/models response list must not become a runtime scheduling authority")
+}
+
+func TestActivateEnterpriseMemberGroupForModelUsesFirstAuthorizedSnapshot(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	memberID := int64(8)
 	key := &service.APIKey{ID: 17, UserID: 3, MemberID: &memberID, Member: &service.EnterpriseMember{ID: memberID, Version: 2}}
@@ -242,7 +263,7 @@ func TestActivateEnterpriseMemberGroupForModelUsesFirstMatchingSnapshot(t *testi
 	require.True(t, ActivateEnterpriseMemberGroupForModel(c, "gpt-5"))
 	requestKey, ok := GetAPIKeyFromContext(c)
 	require.True(t, ok)
-	require.Equal(t, int64(12), *requestKey.GroupID)
+	require.Equal(t, int64(11), *requestKey.GroupID, "the display-only models list must not reorder runtime candidates")
 	active, ok := service.ActiveGroupFromContext(c.Request.Context())
 	require.True(t, ok)
 	require.Equal(t, "gpt-5", active.RequestedModel)

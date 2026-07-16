@@ -90,9 +90,12 @@ func classifyNoAccountError(
 	return fallback
 }
 
-// classifyNoAccountErrorFromGin is a thin wrapper that forwards the gin
-// context's underlying request context. Most call sites already have a
-// *gin.Context handy, so this keeps the call sites uncluttered.
+// classifyNoAccountErrorFromGin forwards the gin context's underlying request
+// context and preserves the distinction between a globally invalid request and
+// a model that is unsupported only by the active enterprise-member group.
+// The latter is a typed capability mismatch so the outer member orchestrator
+// may try the next authorized group; ordinary and single-group keys still
+// return the same final 404 response.
 func classifyNoAccountErrorFromGin(
 	c *gin.Context,
 	diag service.ModelAvailabilityDiagnoser,
@@ -105,7 +108,11 @@ func classifyNoAccountErrorFromGin(
 	if c != nil && c.Request != nil {
 		ctx = c.Request.Context()
 	}
-	return classifyNoAccountError(ctx, diag, apiKey, routingModel, displayModel, platform)
+	classification := classifyNoAccountError(ctx, diag, apiKey, routingModel, displayModel, platform)
+	if classification.ModelNotFound && apiKey != nil && apiKey.MemberID != nil {
+		service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
+	}
+	return classification
 }
 
 func classifyOpenAICompatibleNoAccountErrorFromGin(
