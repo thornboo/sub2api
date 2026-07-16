@@ -43,7 +43,7 @@ func TestEnterpriseMemberBudgetSummaryIncludesArchivedMembers(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestEnterpriseMemberOwnerSummaryKeepsRemovedFactsOutOfManagedMemberItems(t *testing.T) {
+func TestEnterpriseMemberOwnerSummaryExcludesRemovedFactsFromCurrentTotalsAndItems(t *testing.T) {
 	t.Parallel()
 
 	db, mock, err := sqlmock.New()
@@ -68,7 +68,10 @@ func TestEnterpriseMemberOwnerSummaryKeepsRemovedFactsOutOfManagedMemberItems(t 
 	repo := &enterpriseMemberBudgetRepository{db: db}
 	summary, err := repo.GetOwnerUsageSummary(t.Context(), 7, periodStart, periodEnd)
 	require.NoError(t, err)
-	require.Equal(t, 50.0, summary.UsedUSD, "owner totals retain historical facts from removed members")
+	require.Equal(t, 20.0, summary.UsedUSD, "owner totals exclude facts from removed members")
+	require.Equal(t, int64(1), summary.RequestCount)
+	require.Equal(t, int64(40), summary.InputTokens)
+	require.Equal(t, int64(10), summary.OutputTokens)
 	require.Len(t, summary.Members, 1, "removed tombstones are not returned as manageable members")
 	require.Equal(t, int64(12), summary.Members[0].MemberID)
 	require.NoError(t, mock.ExpectationsWereMet())

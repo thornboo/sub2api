@@ -769,6 +769,9 @@ func (r *enterpriseMemberBudgetRepository) GetOwnerUsageSummary(ctx context.Cont
 			&item.MigrationCacheReadTokens); err != nil {
 			return nil, err
 		}
+		if removedAt.Valid {
+			continue
+		}
 		if item.LimitUSD <= 0 {
 			item.RemainingUSD = -1
 		} else {
@@ -789,9 +792,7 @@ func (r *enterpriseMemberBudgetRepository) GetOwnerUsageSummary(ctx context.Cont
 		summary.MigrationCacheTokens = summary.MigrationCacheTokens.Add(item.MigrationCacheTokens)
 		summary.MigrationCacheWriteTokens = summary.MigrationCacheWriteTokens.Add(item.MigrationCacheWriteTokens)
 		summary.MigrationCacheReadTokens = summary.MigrationCacheReadTokens.Add(item.MigrationCacheReadTokens)
-		if !removedAt.Valid {
-			summary.Members = append(summary.Members, item)
-		}
+		summary.Members = append(summary.Members, item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
