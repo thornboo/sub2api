@@ -172,7 +172,7 @@ func (r *enterpriseMemberRepository) Create(ctx context.Context, member *service
 		return err
 	}
 	member.Version = 1
-	member.GroupIDs = append([]int64(nil), groupIDs...)
+	member.GroupIDs = append([]int64{}, groupIDs...)
 	member.Usage5h = opening.Usage5h
 	member.Usage1d = opening.Usage1d
 	member.Usage7d = opening.Usage7d
@@ -1105,6 +1105,7 @@ func enterpriseMemberEntityToService(row *dbent.EnterpriseMember) *service.Enter
 		RateLimit1d:      row.RateLimit1d,
 		RateLimit7d:      row.RateLimit7d,
 		Version:          row.Version,
+		GroupIDs:         make([]int64, 0),
 		CreatedAt:        row.CreatedAt,
 		UpdatedAt:        row.UpdatedAt,
 		DeletedAt:        row.DeletedAt,

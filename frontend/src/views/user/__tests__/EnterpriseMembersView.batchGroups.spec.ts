@@ -1,4 +1,4 @@
-import { shallowMount } from '@vue/test-utils'
+import { flushPromises, shallowMount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -162,6 +162,17 @@ describe('EnterpriseMembersView destructive batch group confirmation', () => {
     batchUpdate.mockResolvedValue({ updated_count: 1 })
     restore.mockResolvedValue({ ...member, status: 'disabled', version: 4 })
     setStatus.mockResolvedValue({ ...member, status: 'disabled', version: 4 })
+  })
+
+  it('renders a normalized pending member with no groups instead of crashing the page', async () => {
+    listMembers.mockResolvedValue([{ ...member, status: 'disabled', group_ids: [] }])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(showError).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('enterpriseMembers.copy.pendingConfiguration')
+    expect(wrapper.text()).toContain('enterpriseMembers.copy.noGroupsBoundKeysCannotCall')
   })
 
   it('does not change a member status until the explicit confirmation is accepted', async () => {

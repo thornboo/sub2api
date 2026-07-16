@@ -32,6 +32,10 @@ export interface EnterpriseMember {
   deleted_at?: string | null
 }
 
+type EnterpriseMemberWire = Omit<EnterpriseMember, 'group_ids'> & {
+  group_ids?: number[] | null
+}
+
 export interface EnterpriseMemberDeletionResult {
   archived: false
   permanently_deleted: true
@@ -54,6 +58,10 @@ export interface EnterpriseMemberGroupBatchUpdate {
   group_ids: number[]
   status: EnterpriseMemberStatus
   updated_at: string
+}
+
+type EnterpriseMemberGroupBatchUpdateWire = Omit<EnterpriseMemberGroupBatchUpdate, 'group_ids'> & {
+  group_ids?: number[] | null
 }
 
 export type EnterpriseMemberBatchGroupMode = 'keep' | 'replace' | 'append'
@@ -355,27 +363,38 @@ export function createEnterpriseMemberOperationIdempotencyKey(prefix: 'member-ba
   return idempotencyKey(prefix)
 }
 
+function normalizeEnterpriseMemberGroupIDs(groupIds: number[] | null | undefined): number[] {
+  return Array.isArray(groupIds) ? groupIds : []
+}
+
+function normalizeEnterpriseMember(member: EnterpriseMemberWire): EnterpriseMember {
+  return {
+    ...member,
+    group_ids: normalizeEnterpriseMemberGroupIDs(member.group_ids),
+  }
+}
+
 export async function list(includeArchived = false): Promise<EnterpriseMember[]> {
-  const { data } = await apiClient.get<EnterpriseMember[]>('/enterprise/members', { params: { include_archived: includeArchived } })
-  return data
+  const { data } = await apiClient.get<EnterpriseMemberWire[]>('/enterprise/members', { params: { include_archived: includeArchived } })
+  return data.map(normalizeEnterpriseMember)
 }
 
 export async function create(input: CreateEnterpriseMemberInput): Promise<EnterpriseMember> {
-  const { data } = await apiClient.post<EnterpriseMember>('/enterprise/members', input, { headers: { 'Idempotency-Key': idempotencyKey('member') } })
-  return data
+  const { data } = await apiClient.post<EnterpriseMemberWire>('/enterprise/members', input, { headers: { 'Idempotency-Key': idempotencyKey('member') } })
+  return normalizeEnterpriseMember(data)
 }
 
 export async function update(member: EnterpriseMember, input: Partial<EnterpriseMemberDraft>): Promise<EnterpriseMember> {
-  const { data } = await apiClient.patch<EnterpriseMember>(`/enterprise/members/${member.id}`, { expected_version: member.version, ...input })
-  return data
+  const { data } = await apiClient.patch<EnterpriseMemberWire>(`/enterprise/members/${member.id}`, { expected_version: member.version, ...input })
+  return normalizeEnterpriseMember(data)
 }
 
 export async function replaceGroups(member: EnterpriseMember, groupIds: number[]): Promise<{ group_ids: number[]; version: number }> {
-  const { data } = await apiClient.put<{ group_ids: number[]; version: number }>(`/enterprise/members/${member.id}/groups`, {
+  const { data } = await apiClient.put<{ group_ids?: number[] | null; version: number }>(`/enterprise/members/${member.id}/groups`, {
     expected_version: member.version,
     group_ids: groupIds
   })
-  return data
+  return { ...data, group_ids: normalizeEnterpriseMemberGroupIDs(data.group_ids) }
 }
 
 export async function batchReplaceGroups(
@@ -383,12 +402,12 @@ export async function batchReplaceGroups(
   groupIds: number[],
   mode: 'replace' | 'append'
 ): Promise<EnterpriseMemberGroupBatchUpdate[]> {
-  const { data } = await apiClient.put<EnterpriseMemberGroupBatchUpdate[]>('/enterprise/members/batch/groups', {
+  const { data } = await apiClient.put<EnterpriseMemberGroupBatchUpdateWire[]>('/enterprise/members/batch/groups', {
     members: members.map(member => ({ id: member.id, expected_version: member.version })),
     group_ids: groupIds,
     mode
   })
-  return data
+  return data.map(update => ({ ...update, group_ids: normalizeEnterpriseMemberGroupIDs(update.group_ids) }))
 }
 
 export async function batchUpdate(
@@ -416,10 +435,10 @@ export async function batchAdjustUsage(
 }
 
 export async function setStatus(member: EnterpriseMember, status: EnterpriseMemberStatus): Promise<EnterpriseMember> {
-  const { data } = await apiClient.post<EnterpriseMember>(`/enterprise/members/${member.id}/${status === 'active' ? 'enable' : 'disable'}`, {
+  const { data } = await apiClient.post<EnterpriseMemberWire>(`/enterprise/members/${member.id}/${status === 'active' ? 'enable' : 'disable'}`, {
     expected_version: member.version
   })
-  return data
+  return normalizeEnterpriseMember(data)
 }
 
 export async function archive(member: EnterpriseMember): Promise<void> {
@@ -427,10 +446,10 @@ export async function archive(member: EnterpriseMember): Promise<void> {
 }
 
 export async function restore(member: EnterpriseMember): Promise<EnterpriseMember> {
-  const { data } = await apiClient.post<EnterpriseMember>(`/enterprise/members/${member.id}/restore`, {
+  const { data } = await apiClient.post<EnterpriseMemberWire>(`/enterprise/members/${member.id}/restore`, {
     expected_version: member.version,
   })
-  return data
+  return normalizeEnterpriseMember(data)
 }
 
 export async function permanentlyDelete(member: EnterpriseMember): Promise<EnterpriseMemberDeletionResult> {
