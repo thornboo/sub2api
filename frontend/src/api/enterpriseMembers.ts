@@ -119,12 +119,12 @@ export interface EnterpriseMemberBudgetSummary {
   input_tokens: number
   output_tokens: number
   migration_billed_usd: number
-  migration_total_tokens: number
-  migration_input_tokens: number
-  migration_output_tokens: number
-  migration_cache_tokens: number
-  migration_cache_write_tokens: number
-  migration_cache_read_tokens: number
+  migration_total_tokens: string
+  migration_input_tokens: string
+  migration_output_tokens: string
+  migration_cache_tokens: string
+  migration_cache_write_tokens: string
+  migration_cache_read_tokens: string
   rate_limit_5h: number
   rate_limit_1d: number
   rate_limit_7d: number
@@ -149,12 +149,12 @@ export interface EnterpriseMemberOwnerUsageItem {
   input_tokens: number
   output_tokens: number
   migration_billed_usd: number
-  migration_total_tokens: number
-  migration_input_tokens: number
-  migration_output_tokens: number
-  migration_cache_tokens: number
-  migration_cache_write_tokens: number
-  migration_cache_read_tokens: number
+  migration_total_tokens: string
+  migration_input_tokens: string
+  migration_output_tokens: string
+  migration_cache_tokens: string
+  migration_cache_write_tokens: string
+  migration_cache_read_tokens: string
 }
 
 export interface EnterpriseMemberOwnerUsageSummary {
@@ -167,12 +167,12 @@ export interface EnterpriseMemberOwnerUsageSummary {
   input_tokens: number
   output_tokens: number
   migration_billed_usd: number
-  migration_total_tokens: number
-  migration_input_tokens: number
-  migration_output_tokens: number
-  migration_cache_tokens: number
-  migration_cache_write_tokens: number
-  migration_cache_read_tokens: number
+  migration_total_tokens: string
+  migration_input_tokens: string
+  migration_output_tokens: string
+  migration_cache_tokens: string
+  migration_cache_write_tokens: string
+  migration_cache_read_tokens: string
   members: EnterpriseMemberOwnerUsageItem[]
 }
 
@@ -258,12 +258,12 @@ export interface EnterpriseMemberImportRow {
   rate_limit_1d: number
   rate_limit_7d: number
   opening_used_usd: number
-  total_tokens: number
-  input_tokens: number
-  output_tokens: number
-  cache_tokens: number
-  cache_creation_tokens: number
-  cache_read_tokens: number
+  total_tokens: string
+  input_tokens: string
+  output_tokens: string
+  cache_tokens: string
+  cache_creation_tokens: string
+  cache_read_tokens: string
   key_name?: string
   key_present: boolean
   key_quota_usd: number
@@ -297,7 +297,7 @@ export interface EnterpriseMemberImportResult {
   member_ids: number[]
   pending_members: number
   migration_billed_usd: number
-  migration_total_tokens: number
+  migration_total_tokens: string
   rows: number[]
   keys: Array<{ member_code: string; key_name: string; key?: string; key_masked: string }>
   completed_at: string

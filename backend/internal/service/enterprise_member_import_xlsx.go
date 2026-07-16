@@ -307,7 +307,7 @@ func enterpriseMemberRowsFromXLSXSheets(sheets map[string]importXLSXSheet) ([]En
 	type keyData struct {
 		memberCode, memberName, name, key                     string
 		quota, opening                                        float64
-		total, input, output, cache, cacheCreation, cacheRead int64
+		total, input, output, cache, cacheCreation, cacheRead EnterpriseMemberTokenCount
 		totalProvided                                         bool
 		errors                                                []string
 	}

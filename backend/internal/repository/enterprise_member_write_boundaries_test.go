@@ -181,15 +181,18 @@ func TestEnterpriseMemberBatchUpdateRejectsActiveMemberWithUnauthorizedExistingG
 }
 
 func TestEnterpriseMemberImportEffectiveTokenTotalMatchesPersistedSummary(t *testing.T) {
-	row := service.EnterpriseMemberImportRow{InputTokens: 50, OutputTokens: 30, CacheTokens: 20}
-	require.Equal(t, int64(80), enterpriseMemberImportSummaryTokens(row))
+	row := service.EnterpriseMemberImportRow{
+		InputTokens: mustEnterpriseMemberTokenCount(t, "50"), OutputTokens: mustEnterpriseMemberTokenCount(t, "30"),
+		CacheTokens: mustEnterpriseMemberTokenCount(t, "20"),
+	}
+	require.Equal(t, "80.00", enterpriseMemberImportSummaryTokens(row).String())
 
-	row.TotalTokens = 100
-	require.Equal(t, int64(100), enterpriseMemberImportSummaryTokens(row))
+	row.TotalTokens = mustEnterpriseMemberTokenCount(t, "100")
+	require.Equal(t, "100.00", enterpriseMemberImportSummaryTokens(row).String())
 
-	row.TotalTokens = 0
+	row.TotalTokens = service.EnterpriseMemberTokenCount{}
 	row.TotalTokensProvided = true
-	require.Zero(t, enterpriseMemberImportSummaryTokens(row), "an explicit source zero must remain distinct from an omitted total")
+	require.True(t, enterpriseMemberImportSummaryTokens(row).IsZero(), "an explicit source zero must remain distinct from an omitted total")
 }
 
 func TestEnterpriseMemberImportPolicyPreservesLegacyActivationOnly(t *testing.T) {

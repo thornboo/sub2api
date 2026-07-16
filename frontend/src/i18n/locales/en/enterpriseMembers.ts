@@ -340,7 +340,7 @@ export default {
     "memberIdentityAmbiguous": "Multiple members share this name without member codes, so the server cannot safely distinguish multiple keys for one member from different members. Add member codes and retry.",
     "keyNameGenerated": "No key name was supplied, so one was generated from the source row number",
     "tokenTotalMismatch": "Total tokens do not match the component sum; each original field will be preserved separately",
-    "tokenCountMustBeNonnegativeInteger": "Token counts must be non-negative integers",
+    "tokenCountMustBeNonnegativeDecimal": "Token counts must be non-negative with at most two decimal places",
     "duplicateMemberInMembersSheet": "The Members sheet contains a duplicate member; keep one member definition",
     "memberNotFoundInMembersSheet": "A Keys row cannot be matched uniquely to a member in the Members sheet",
     "replaceAccessibleGroups": "Replace accessible groups",

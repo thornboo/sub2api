@@ -1388,12 +1388,12 @@ function configureImportedMembers() {
 
 function hasMigrationBaseline(summary: EnterpriseMemberBudgetSummary): boolean {
   return summary.migration_billed_usd > 0
-    || summary.migration_total_tokens > 0
-    || summary.migration_input_tokens > 0
-    || summary.migration_output_tokens > 0
-    || summary.migration_cache_tokens > 0
-    || summary.migration_cache_write_tokens > 0
-    || summary.migration_cache_read_tokens > 0
+    || exactTokenCountIsPositive(summary.migration_total_tokens)
+    || exactTokenCountIsPositive(summary.migration_input_tokens)
+    || exactTokenCountIsPositive(summary.migration_output_tokens)
+    || exactTokenCountIsPositive(summary.migration_cache_tokens)
+    || exactTokenCountIsPositive(summary.migration_cache_write_tokens)
+    || exactTokenCountIsPositive(summary.migration_cache_read_tokens)
 }
 
 async function downloadImportErrors(jobId: number) {
@@ -1850,7 +1850,20 @@ const memberKeyStatusBadgeClasses = (status: ApiKey['status']) => ({
   expired: 'bg-rose-100 text-rose-700 dark:bg-rose-400/10 dark:text-rose-300'
 }[status])
 const formatMoney = (value: number) => new Intl.NumberFormat(locale.value, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value)
-const formatNumber = (value: number) => new Intl.NumberFormat(locale.value, { notation: value >= 1_000_000 ? 'compact' : 'standard', maximumFractionDigits: 1 }).format(value)
+const exactTokenCountPattern = /^(\d+)(?:\.(\d{1,2}))?$/
+const exactTokenCountIsPositive = (value: string) => !/^0+(?:\.0+)?$/.test(value)
+const formatExactTokenCount = (value: string) => {
+  const match = value.match(exactTokenCountPattern)
+  if (!match) return value
+  const integer = new Intl.NumberFormat(locale.value, { maximumFractionDigits: 0 }).format(BigInt(match[1]))
+  const fraction = (match[2] || '').replace(/0+$/, '')
+  if (!fraction) return integer
+  const decimalSeparator = new Intl.NumberFormat(locale.value).formatToParts(1.1).find(part => part.type === 'decimal')?.value || '.'
+  return `${integer}${decimalSeparator}${fraction}`
+}
+const formatNumber = (value: number | string) => typeof value === 'string'
+  ? formatExactTokenCount(value)
+  : new Intl.NumberFormat(locale.value, { notation: value >= 1_000_000 ? 'compact' : 'standard', maximumFractionDigits: 2 }).format(value)
 const formatDate = (value: string) => new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium' }).format(new Date(value))
 const formatDateTime = (value: string) => new Intl.DateTimeFormat(locale.value, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
 const trendHeight = (value: number) => value > 0 && maxTrendCost.value > 0 ? Math.max(4, (value / maxTrendCost.value) * 100) : 0
@@ -1910,7 +1923,7 @@ const importIssueLabel = (issue: string) => {
   if (tooShort) return t('enterpriseMembers.dynamic.apiKeyTooShort', { minimum: tooShort[1], actual: tooShort[2] })
   const tooLong = issue.match(/^api_key_too_long_(\d+)_(\d+)$/)
   if (tooLong) return t('enterpriseMembers.dynamic.apiKeyTooLong', { maximum: tooLong[1], actual: tooLong[2] })
-  return ({ invalid_member_code: t('enterpriseMembers.copy.invalidMemberCode'), invalid_member_name: t('enterpriseMembers.copy.invalidMemberName'), invalid_monthly_limit: t('enterpriseMembers.copy.invalidMonthlyLimit'), invalid_rate_limit_5h: t('enterpriseMembers.copy.invalidRateLimit5h'), invalid_rate_limit_1d: t('enterpriseMembers.copy.invalidRateLimit1d'), invalid_rate_limit_7d: t('enterpriseMembers.copy.invalidRateLimit7d'), invalid_opening_used: t('enterpriseMembers.copy.invalidOpeningAmount'), invalid_key_quota: t('enterpriseMembers.copy.invalidKeyQuota'), api_key_invalid_characters: t('enterpriseMembers.copy.apiKeyInvalidCharacters'), invalid_api_key: t('enterpriseMembers.copy.invalidApiKey'), invalid_total_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_input_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_output_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_cache_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_cache_creation_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), invalid_cache_read_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeInteger'), key_name_required: t('enterpriseMembers.copy.keyNameIsRequired'), groups_required: t('enterpriseMembers.copy.atLeastOneGroupIsRequired'), member_fields_conflict: t('enterpriseMembers.copy.memberFieldsConflict'), member_identity_ambiguous: t('enterpriseMembers.copy.memberIdentityAmbiguous'), duplicate_member: t('enterpriseMembers.copy.duplicateMemberInMembersSheet'), member_not_found_in_members_sheet: t('enterpriseMembers.copy.memberNotFoundInMembersSheet'), opening_used_only_first_row: t('enterpriseMembers.copy.openingAmountIsAllowedOnlyOnTheFirstMemberRow'), member_code_exists: t('enterpriseMembers.copy.memberCodeAlreadyExists'), api_key_exists: t('enterpriseMembers.copy.apiKeyAlreadyExistsIncludingDeletedRecords'), budget_exhausted_at_import: t('enterpriseMembers.copy.budgetWillBeExhaustedOnImport'), member_code_generated: t('enterpriseMembers.copy.memberCodeGenerated'), key_name_generated: t('enterpriseMembers.copy.keyNameGenerated'), token_total_mismatch: t('enterpriseMembers.copy.tokenTotalMismatch') }[issue] || issue.split('_').join(' '))
+  return ({ invalid_member_code: t('enterpriseMembers.copy.invalidMemberCode'), invalid_member_name: t('enterpriseMembers.copy.invalidMemberName'), invalid_monthly_limit: t('enterpriseMembers.copy.invalidMonthlyLimit'), invalid_rate_limit_5h: t('enterpriseMembers.copy.invalidRateLimit5h'), invalid_rate_limit_1d: t('enterpriseMembers.copy.invalidRateLimit1d'), invalid_rate_limit_7d: t('enterpriseMembers.copy.invalidRateLimit7d'), invalid_opening_used: t('enterpriseMembers.copy.invalidOpeningAmount'), invalid_key_quota: t('enterpriseMembers.copy.invalidKeyQuota'), api_key_invalid_characters: t('enterpriseMembers.copy.apiKeyInvalidCharacters'), invalid_api_key: t('enterpriseMembers.copy.invalidApiKey'), invalid_total_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeDecimal'), invalid_input_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeDecimal'), invalid_output_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeDecimal'), invalid_cache_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeDecimal'), invalid_cache_creation_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeDecimal'), invalid_cache_read_tokens: t('enterpriseMembers.copy.tokenCountMustBeNonnegativeDecimal'), key_name_required: t('enterpriseMembers.copy.keyNameIsRequired'), groups_required: t('enterpriseMembers.copy.atLeastOneGroupIsRequired'), member_fields_conflict: t('enterpriseMembers.copy.memberFieldsConflict'), member_identity_ambiguous: t('enterpriseMembers.copy.memberIdentityAmbiguous'), duplicate_member: t('enterpriseMembers.copy.duplicateMemberInMembersSheet'), member_not_found_in_members_sheet: t('enterpriseMembers.copy.memberNotFoundInMembersSheet'), opening_used_only_first_row: t('enterpriseMembers.copy.openingAmountIsAllowedOnlyOnTheFirstMemberRow'), member_code_exists: t('enterpriseMembers.copy.memberCodeAlreadyExists'), api_key_exists: t('enterpriseMembers.copy.apiKeyAlreadyExistsIncludingDeletedRecords'), budget_exhausted_at_import: t('enterpriseMembers.copy.budgetWillBeExhaustedOnImport'), member_code_generated: t('enterpriseMembers.copy.memberCodeGenerated'), key_name_generated: t('enterpriseMembers.copy.keyNameGenerated'), token_total_mismatch: t('enterpriseMembers.copy.tokenTotalMismatch') }[issue] || issue.split('_').join(' '))
 }
 const maskKey = (value: string) => value.length > 12 ? `${value.slice(0, 6)}…${value.slice(-4)}` : '***'
 const splitIPRules = (value: string) => [...new Set(value.split(/[\n,]/).map(item => item.trim()).filter(Boolean))]

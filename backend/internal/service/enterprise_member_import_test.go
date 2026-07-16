@@ -123,7 +123,7 @@ func TestEnterpriseMemberImportCSVTemplateUsesChineseHeadersAndRoundTrips(t *tes
 	require.Equal(t, "示例成员", rows[0].MemberName)
 	require.Equal(t, "迁移密钥", rows[0].KeyName)
 	require.Empty(t, rows[0].GroupIDs)
-	require.Equal(t, int64(100000), rows[0].TotalTokens)
+	require.Equal(t, "100000.00", rows[0].TotalTokens.String())
 }
 
 func TestEnterpriseMemberImportCSVTemplatePreviewsWithoutSystemGroupIDs(t *testing.T) {
@@ -218,13 +218,106 @@ func TestEnterpriseMemberImportPreviewAcceptsCustomerUsageExportWithoutSystemFie
 	require.Equal(t, "imported-key-2", row.KeyName)
 	require.Equal(t, 30.0, row.OpeningUsedUSD)
 	require.Equal(t, 100.0, row.MonthlyLimitUSD)
-	require.Equal(t, int64(100000), row.TotalTokens)
-	require.Equal(t, int64(50000), row.InputTokens)
-	require.Equal(t, int64(30000), row.OutputTokens)
-	require.Equal(t, int64(20000), row.CacheTokens)
+	require.Equal(t, "100000.00", row.TotalTokens.String())
+	require.Equal(t, "50000.00", row.InputTokens.String())
+	require.Equal(t, "30000.00", row.OutputTokens.String())
+	require.Equal(t, "20000.00", row.CacheTokens.String())
 	require.Empty(t, row.GroupIDs)
 	require.Contains(t, row.Warnings, "member_code_generated")
 	require.Contains(t, row.Warnings, "key_name_generated")
+	require.NotContains(t, row.Warnings, "token_total_mismatch")
+}
+
+func TestParseImportTokenCountAcceptsNonnegativeValuesWithUpToTwoDecimalPlaces(t *testing.T) {
+	tests := map[string]string{
+		"":                            "0.00",
+		"0":                           "0.00",
+		"421.63":                      "421.63",
+		"421.6300":                    "421.63",
+		"100000":                      "100000.00",
+		"100,000":                     "100000.00",
+		"1,000.0":                     "1000.00",
+		"100000.0":                    "100000.00",
+		"100000.000":                  "100000.00",
+		"1e5":                         "100000.00",
+		"1E+05":                       "100000.00",
+		"1.23e5":                      "123000.00",
+		"4.2163e2":                    "421.63",
+		"1e-2":                        "0.01",
+		"0.001e1":                     "0.01",
+		"000.001e3":                   "1.00",
+		"-0.0":                        "0.00",
+		"9223372036854775807.99":      "9223372036854775807.99",
+		"92233720368547758070e-1":     "9223372036854775807.00",
+		"9223372036854775807.0000000": "9223372036854775807.00",
+	}
+
+	for input, expected := range tests {
+		t.Run(input, func(t *testing.T) {
+			actual, err := parseImportTokenCount(input)
+			require.NoError(t, err)
+			require.Equal(t, expected, actual.String())
+		})
+	}
+}
+
+func TestParseImportTokenCountRejectsNegativeOverPrecisionAndOutOfRangeValues(t *testing.T) {
+	for _, input := range []string{
+		"-1",
+		"421.631",
+		"1e-3",
+		"NaN",
+		"Infinity",
+		"1/2",
+		"0x10",
+		"9223372036854775808",
+		"9223372036854775808.0",
+		"1.0000000000000000001",
+		"1e1000000",
+		"1e-1000000",
+		"1e,5",
+		"1,,000",
+		"12,34",
+		",1000",
+		"1000,000",
+	} {
+		t.Run(input, func(t *testing.T) {
+			_, err := parseImportTokenCount(input)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestEnterpriseMemberImportRejectsDerivedTotalOutsidePersistedRangeDuringPreviewValidation(t *testing.T) {
+	rows := []EnterpriseMemberImportRow{{
+		MemberCode:      "member-overflow",
+		MemberName:      "Overflow member",
+		MonthlyLimitUSD: 100,
+		InputTokens:     mustEnterpriseMemberTokenCount(t, "9223372036854775807.99"),
+		OutputTokens:    mustEnterpriseMemberTokenCount(t, "0.01"),
+	}}
+
+	validateEnterpriseMemberImportRows(rows)
+	require.Contains(t, rows[0].Errors, "invalid_total_tokens")
+}
+
+func TestEnterpriseMemberImportPreviewPreservesDecimalTokenFormats(t *testing.T) {
+	repo := &importPreviewRepoCapture{}
+	svc := NewEnterpriseMemberImportService(repo, importTestEncryptor{}, &APIKeyService{})
+	data := []byte("用户名称,api_key,消费金额,月限制金额,总消耗token数,总输入token数,总输出token数,总缓存token数,总缓存token写入数,总缓存token读取数\n张三,abcdefghijklmnop,30,100,100000.63,50000.25,30000.38,20000.00,12000.12,8000.08\n")
+
+	preview, err := svc.Preview(context.Background(), 7, "csv", data)
+	require.NoError(t, err)
+	require.Equal(t, 1, preview.ValidRows)
+	require.Zero(t, preview.InvalidRows)
+	require.Len(t, preview.Rows, 1)
+	row := preview.Rows[0]
+	require.Equal(t, "100000.63", row.TotalTokens.String())
+	require.Equal(t, "50000.25", row.InputTokens.String())
+	require.Equal(t, "30000.38", row.OutputTokens.String())
+	require.Equal(t, "20000.00", row.CacheTokens.String())
+	require.Equal(t, "12000.12", row.CacheCreationTokens.String())
+	require.Equal(t, "8000.08", row.CacheReadTokens.String())
 	require.NotContains(t, row.Warnings, "token_total_mismatch")
 }
 
@@ -261,10 +354,10 @@ func TestEnterpriseMemberImportPreviewRejectsAmbiguousSameNameRowsWithoutMemberC
 
 func TestValidateEnterpriseMemberImportRowsWarnsOnlyWhenKnownTokenTotalDiffers(t *testing.T) {
 	rows := []EnterpriseMemberImportRow{
-		{MemberCode: "member-1", MemberName: "Alice", TotalTokens: 80, InputTokens: 50, OutputTokens: 30},
-		{MemberCode: "member-2", MemberName: "Bob", TotalTokens: 100, InputTokens: 50, OutputTokens: 30, CacheTokens: 20},
-		{MemberCode: "member-3", MemberName: "Carol", TotalTokens: 100},
-		{MemberCode: "member-4", MemberName: "Dave", TotalTokens: 90, InputTokens: 50, OutputTokens: 30},
+		{MemberCode: "member-1", MemberName: "Alice", TotalTokens: mustEnterpriseMemberTokenCount(t, "80"), InputTokens: mustEnterpriseMemberTokenCount(t, "50"), OutputTokens: mustEnterpriseMemberTokenCount(t, "30")},
+		{MemberCode: "member-2", MemberName: "Bob", TotalTokens: mustEnterpriseMemberTokenCount(t, "100"), InputTokens: mustEnterpriseMemberTokenCount(t, "50"), OutputTokens: mustEnterpriseMemberTokenCount(t, "30"), CacheTokens: mustEnterpriseMemberTokenCount(t, "20")},
+		{MemberCode: "member-3", MemberName: "Carol", TotalTokens: mustEnterpriseMemberTokenCount(t, "100")},
+		{MemberCode: "member-4", MemberName: "Dave", TotalTokens: mustEnterpriseMemberTokenCount(t, "90"), InputTokens: mustEnterpriseMemberTokenCount(t, "50"), OutputTokens: mustEnterpriseMemberTokenCount(t, "30")},
 	}
 
 	validateEnterpriseMemberImportRows(rows)
@@ -353,7 +446,7 @@ func TestEnterpriseMemberImportXLSXTemplateRoundTrip(t *testing.T) {
 	require.Empty(t, rows[0].GroupIDs)
 	require.Equal(t, "迁移密钥", rows[0].KeyName)
 	require.Equal(t, 30.0, rows[0].OpeningUsedUSD)
-	require.Equal(t, int64(100000), rows[0].TotalTokens)
+	require.Equal(t, "100000.00", rows[0].TotalTokens.String())
 }
 
 func TestEnterpriseMemberImportXLSXAcceptsLegacyEnglishHeaders(t *testing.T) {
@@ -383,7 +476,39 @@ func TestEnterpriseMemberImportXLSXAcceptsLegacyEnglishHeaders(t *testing.T) {
 	require.Len(t, rows, 1)
 	require.Empty(t, rows[0].MemberCode)
 	require.Empty(t, rows[0].GroupIDs)
-	require.Equal(t, int64(100000), rows[0].TotalTokens)
+	require.Equal(t, "100000.00", rows[0].TotalTokens.String())
+}
+
+func TestEnterpriseMemberImportXLSXPreservesDecimalNumericCells(t *testing.T) {
+	template, err := EnterpriseMemberImportXLSXTemplate()
+	require.NoError(t, err)
+
+	numericCells := rewriteImportXLSXForTest(t, template, func(name, content string) string {
+		if name != "xl/worksheets/sheet2.xml" {
+			return content
+		}
+		rewritten := strings.NewReplacer(
+			`<c r="F2" t="inlineStr"><is><t>100000</t></is></c>`, `<c r="F2"><v>421.63</v></c>`,
+			`<c r="G2" t="inlineStr"><is><t>50000</t></is></c>`, `<c r="G2"><v>50001.25</v></c>`,
+			`<c r="H2" t="inlineStr"><is><t>30000</t></is></c>`, `<c r="H2"><v>3.000238e4</v></c>`,
+			`<c r="I2" t="inlineStr"><is><t>20000</t></is></c>`, `<c r="I2"><v>20003.10</v></c>`,
+			`<c r="J2" t="inlineStr"><is><t>12000</t></is></c>`, `<c r="J2"><v>1.200412e4</v></c>`,
+			`<c r="K2" t="inlineStr"><is><t>8000</t></is></c>`, `<c r="K2"><v>8.00508E+3</v></c>`,
+		).Replace(content)
+		require.NotEqual(t, content, rewritten)
+		require.Contains(t, rewritten, `<c r="F2"><v>421.63</v></c>`)
+		return rewritten
+	}, "", "")
+
+	rows, err := parseEnterpriseMemberImportXLSX(numericCells)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, "421.63", rows[0].TotalTokens.String())
+	require.Equal(t, "50001.25", rows[0].InputTokens.String())
+	require.Equal(t, "30002.38", rows[0].OutputTokens.String())
+	require.Equal(t, "20003.10", rows[0].CacheTokens.String())
+	require.Equal(t, "12004.12", rows[0].CacheCreationTokens.String())
+	require.Equal(t, "8005.08", rows[0].CacheReadTokens.String())
 }
 
 func TestEnterpriseMemberImportXLSXResolvesKeysByNameAndDoesNotDropUnknownMembers(t *testing.T) {
@@ -402,7 +527,7 @@ func TestEnterpriseMemberImportXLSXResolvesKeysByNameAndDoesNotDropUnknownMember
 	require.Len(t, rows, 2)
 	require.Equal(t, "employee-001", rows[0].MemberCode)
 	require.Equal(t, "abcdefghijklmnop", rows[0].APIKeyCiphertext)
-	require.Equal(t, int64(80), rows[0].TotalTokens)
+	require.Equal(t, "80.00", rows[0].TotalTokens.String())
 	require.Equal(t, "Missing", rows[1].MemberName)
 	require.Contains(t, rows[1].Errors, "member_not_found_in_members_sheet")
 }

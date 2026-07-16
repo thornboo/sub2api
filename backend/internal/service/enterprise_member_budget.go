@@ -77,33 +77,33 @@ const (
 )
 
 type EnterpriseMemberBudgetSummary struct {
-	MemberID                  int64      `json:"member_id"`
-	PeriodStart               time.Time  `json:"period_start"`
-	PeriodEnd                 time.Time  `json:"period_end"`
-	Timezone                  string     `json:"timezone"`
-	LimitUSD                  float64    `json:"limit_usd"`
-	UsedUSD                   float64    `json:"used_usd"`
-	ReservedUSD               float64    `json:"reserved_usd"`
-	RemainingUSD              float64    `json:"remaining_usd"`
-	RequestCount              int64      `json:"request_count"`
-	InputTokens               int64      `json:"input_tokens"`
-	OutputTokens              int64      `json:"output_tokens"`
-	MigrationBilledUSD        float64    `json:"migration_billed_usd"`
-	MigrationTotalTokens      int64      `json:"migration_total_tokens"`
-	MigrationInputTokens      int64      `json:"migration_input_tokens"`
-	MigrationOutputTokens     int64      `json:"migration_output_tokens"`
-	MigrationCacheTokens      int64      `json:"migration_cache_tokens"`
-	MigrationCacheWriteTokens int64      `json:"migration_cache_write_tokens"`
-	MigrationCacheReadTokens  int64      `json:"migration_cache_read_tokens"`
-	RateLimit5h               float64    `json:"rate_limit_5h"`
-	RateLimit1d               float64    `json:"rate_limit_1d"`
-	RateLimit7d               float64    `json:"rate_limit_7d"`
-	Usage5h                   float64    `json:"usage_5h"`
-	Usage1d                   float64    `json:"usage_1d"`
-	Usage7d                   float64    `json:"usage_7d"`
-	Reset5hAt                 *time.Time `json:"reset_5h_at,omitempty"`
-	Reset1dAt                 *time.Time `json:"reset_1d_at,omitempty"`
-	Reset7dAt                 *time.Time `json:"reset_7d_at,omitempty"`
+	MemberID                  int64                      `json:"member_id"`
+	PeriodStart               time.Time                  `json:"period_start"`
+	PeriodEnd                 time.Time                  `json:"period_end"`
+	Timezone                  string                     `json:"timezone"`
+	LimitUSD                  float64                    `json:"limit_usd"`
+	UsedUSD                   float64                    `json:"used_usd"`
+	ReservedUSD               float64                    `json:"reserved_usd"`
+	RemainingUSD              float64                    `json:"remaining_usd"`
+	RequestCount              int64                      `json:"request_count"`
+	InputTokens               int64                      `json:"input_tokens"`
+	OutputTokens              int64                      `json:"output_tokens"`
+	MigrationBilledUSD        float64                    `json:"migration_billed_usd"`
+	MigrationTotalTokens      EnterpriseMemberTokenCount `json:"migration_total_tokens"`
+	MigrationInputTokens      EnterpriseMemberTokenCount `json:"migration_input_tokens"`
+	MigrationOutputTokens     EnterpriseMemberTokenCount `json:"migration_output_tokens"`
+	MigrationCacheTokens      EnterpriseMemberTokenCount `json:"migration_cache_tokens"`
+	MigrationCacheWriteTokens EnterpriseMemberTokenCount `json:"migration_cache_write_tokens"`
+	MigrationCacheReadTokens  EnterpriseMemberTokenCount `json:"migration_cache_read_tokens"`
+	RateLimit5h               float64                    `json:"rate_limit_5h"`
+	RateLimit1d               float64                    `json:"rate_limit_1d"`
+	RateLimit7d               float64                    `json:"rate_limit_7d"`
+	Usage5h                   float64                    `json:"usage_5h"`
+	Usage1d                   float64                    `json:"usage_1d"`
+	Usage7d                   float64                    `json:"usage_7d"`
+	Reset5hAt                 *time.Time                 `json:"reset_5h_at,omitempty"`
+	Reset1dAt                 *time.Time                 `json:"reset_1d_at,omitempty"`
+	Reset7dAt                 *time.Time                 `json:"reset_7d_at,omitempty"`
 }
 
 type EnterpriseMemberBudgetEntry struct {
@@ -143,24 +143,24 @@ type EnterpriseMemberUsageAnalytics struct {
 }
 
 type EnterpriseMemberOwnerUsageItem struct {
-	MemberID                  int64   `json:"member_id"`
-	MemberCode                string  `json:"member_code"`
-	MemberName                string  `json:"member_name"`
-	Status                    string  `json:"status"`
-	LimitUSD                  float64 `json:"limit_usd"`
-	UsedUSD                   float64 `json:"used_usd"`
-	ReservedUSD               float64 `json:"reserved_usd"`
-	RemainingUSD              float64 `json:"remaining_usd"`
-	RequestCount              int64   `json:"request_count"`
-	InputTokens               int64   `json:"input_tokens"`
-	OutputTokens              int64   `json:"output_tokens"`
-	MigrationBilledUSD        float64 `json:"migration_billed_usd"`
-	MigrationTotalTokens      int64   `json:"migration_total_tokens"`
-	MigrationInputTokens      int64   `json:"migration_input_tokens"`
-	MigrationOutputTokens     int64   `json:"migration_output_tokens"`
-	MigrationCacheTokens      int64   `json:"migration_cache_tokens"`
-	MigrationCacheWriteTokens int64   `json:"migration_cache_write_tokens"`
-	MigrationCacheReadTokens  int64   `json:"migration_cache_read_tokens"`
+	MemberID                  int64                      `json:"member_id"`
+	MemberCode                string                     `json:"member_code"`
+	MemberName                string                     `json:"member_name"`
+	Status                    string                     `json:"status"`
+	LimitUSD                  float64                    `json:"limit_usd"`
+	UsedUSD                   float64                    `json:"used_usd"`
+	ReservedUSD               float64                    `json:"reserved_usd"`
+	RemainingUSD              float64                    `json:"remaining_usd"`
+	RequestCount              int64                      `json:"request_count"`
+	InputTokens               int64                      `json:"input_tokens"`
+	OutputTokens              int64                      `json:"output_tokens"`
+	MigrationBilledUSD        float64                    `json:"migration_billed_usd"`
+	MigrationTotalTokens      EnterpriseMemberTokenCount `json:"migration_total_tokens"`
+	MigrationInputTokens      EnterpriseMemberTokenCount `json:"migration_input_tokens"`
+	MigrationOutputTokens     EnterpriseMemberTokenCount `json:"migration_output_tokens"`
+	MigrationCacheTokens      EnterpriseMemberTokenCount `json:"migration_cache_tokens"`
+	MigrationCacheWriteTokens EnterpriseMemberTokenCount `json:"migration_cache_write_tokens"`
+	MigrationCacheReadTokens  EnterpriseMemberTokenCount `json:"migration_cache_read_tokens"`
 }
 
 type EnterpriseMemberOwnerUsageSummary struct {
@@ -173,12 +173,12 @@ type EnterpriseMemberOwnerUsageSummary struct {
 	InputTokens               int64                            `json:"input_tokens"`
 	OutputTokens              int64                            `json:"output_tokens"`
 	MigrationBilledUSD        float64                          `json:"migration_billed_usd"`
-	MigrationTotalTokens      int64                            `json:"migration_total_tokens"`
-	MigrationInputTokens      int64                            `json:"migration_input_tokens"`
-	MigrationOutputTokens     int64                            `json:"migration_output_tokens"`
-	MigrationCacheTokens      int64                            `json:"migration_cache_tokens"`
-	MigrationCacheWriteTokens int64                            `json:"migration_cache_write_tokens"`
-	MigrationCacheReadTokens  int64                            `json:"migration_cache_read_tokens"`
+	MigrationTotalTokens      EnterpriseMemberTokenCount       `json:"migration_total_tokens"`
+	MigrationInputTokens      EnterpriseMemberTokenCount       `json:"migration_input_tokens"`
+	MigrationOutputTokens     EnterpriseMemberTokenCount       `json:"migration_output_tokens"`
+	MigrationCacheTokens      EnterpriseMemberTokenCount       `json:"migration_cache_tokens"`
+	MigrationCacheWriteTokens EnterpriseMemberTokenCount       `json:"migration_cache_write_tokens"`
+	MigrationCacheReadTokens  EnterpriseMemberTokenCount       `json:"migration_cache_read_tokens"`
 	Members                   []EnterpriseMemberOwnerUsageItem `json:"members"`
 }
 

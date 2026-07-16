@@ -45,29 +45,29 @@ const (
 )
 
 type EnterpriseMemberImportRow struct {
-	RowNumber           int      `json:"row_number"`
-	MemberCode          string   `json:"member_code"`
-	MemberName          string   `json:"member_name"`
-	MonthlyLimitUSD     float64  `json:"monthly_limit_usd"`
-	RateLimit5h         float64  `json:"rate_limit_5h"`
-	RateLimit1d         float64  `json:"rate_limit_1d"`
-	RateLimit7d         float64  `json:"rate_limit_7d"`
-	OpeningUsedUSD      float64  `json:"opening_used_usd"`
-	TotalTokens         int64    `json:"total_tokens"`
-	TotalTokensProvided bool     `json:"total_tokens_provided,omitempty"`
-	InputTokens         int64    `json:"input_tokens"`
-	OutputTokens        int64    `json:"output_tokens"`
-	CacheTokens         int64    `json:"cache_tokens"`
-	CacheCreationTokens int64    `json:"cache_creation_tokens"`
-	CacheReadTokens     int64    `json:"cache_read_tokens"`
-	KeyName             string   `json:"key_name,omitempty"`
-	APIKeyCiphertext    string   `json:"api_key_ciphertext,omitempty"`
-	KeyPresent          bool     `json:"key_present"`
-	KeyQuotaUSD         float64  `json:"key_quota_usd"`
-	GroupIDs            []int64  `json:"group_ids"`
-	Valid               bool     `json:"valid"`
-	Errors              []string `json:"errors"`
-	Warnings            []string `json:"warnings"`
+	RowNumber           int                        `json:"row_number"`
+	MemberCode          string                     `json:"member_code"`
+	MemberName          string                     `json:"member_name"`
+	MonthlyLimitUSD     float64                    `json:"monthly_limit_usd"`
+	RateLimit5h         float64                    `json:"rate_limit_5h"`
+	RateLimit1d         float64                    `json:"rate_limit_1d"`
+	RateLimit7d         float64                    `json:"rate_limit_7d"`
+	OpeningUsedUSD      float64                    `json:"opening_used_usd"`
+	TotalTokens         EnterpriseMemberTokenCount `json:"total_tokens"`
+	TotalTokensProvided bool                       `json:"total_tokens_provided,omitempty"`
+	InputTokens         EnterpriseMemberTokenCount `json:"input_tokens"`
+	OutputTokens        EnterpriseMemberTokenCount `json:"output_tokens"`
+	CacheTokens         EnterpriseMemberTokenCount `json:"cache_tokens"`
+	CacheCreationTokens EnterpriseMemberTokenCount `json:"cache_creation_tokens"`
+	CacheReadTokens     EnterpriseMemberTokenCount `json:"cache_read_tokens"`
+	KeyName             string                     `json:"key_name,omitempty"`
+	APIKeyCiphertext    string                     `json:"api_key_ciphertext,omitempty"`
+	KeyPresent          bool                       `json:"key_present"`
+	KeyQuotaUSD         float64                    `json:"key_quota_usd"`
+	GroupIDs            []int64                    `json:"group_ids"`
+	Valid               bool                       `json:"valid"`
+	Errors              []string                   `json:"errors"`
+	Warnings            []string                   `json:"warnings"`
 }
 
 type EnterpriseMemberImportPreview struct {
@@ -133,7 +133,7 @@ type EnterpriseMemberImportResult struct {
 	MemberIDs            []int64                            `json:"member_ids"`
 	PendingMembers       int                                `json:"pending_members"`
 	MigrationBilledUSD   float64                            `json:"migration_billed_usd"`
-	MigrationTotalTokens int64                              `json:"migration_total_tokens"`
+	MigrationTotalTokens EnterpriseMemberTokenCount         `json:"migration_total_tokens"`
 	PeriodStart          time.Time                          `json:"period_start"`
 	Timezone             string                             `json:"timezone"`
 	Rows                 []int                              `json:"rows"`
@@ -606,14 +606,23 @@ func parseEnterpriseMemberImportCSV(data []byte) ([]EnterpriseMemberImportRow, e
 		row.RateLimit1d, _ = parseImportAmount(importCell(record, index, "rate_limit_1d"))
 		row.RateLimit7d, _ = parseImportAmount(importCell(record, index, "rate_limit_7d"))
 		row.OpeningUsedUSD, _ = parseImportAmount(importCell(record, index, "opening_used_usd"))
-		totalTokensValue := importCell(record, index, "total_tokens")
-		row.TotalTokens, _ = parseImportTokenCount(totalTokensValue)
-		row.TotalTokensProvided = totalTokensValue != ""
-		row.InputTokens, _ = parseImportTokenCount(importCell(record, index, "input_tokens"))
-		row.OutputTokens, _ = parseImportTokenCount(importCell(record, index, "output_tokens"))
-		row.CacheTokens, _ = parseImportTokenCount(importCell(record, index, "cache_tokens"))
-		row.CacheCreationTokens, _ = parseImportTokenCount(importCell(record, index, "cache_creation_tokens"))
-		row.CacheReadTokens, _ = parseImportTokenCount(importCell(record, index, "cache_read_tokens"))
+		tokenFields := []struct {
+			errorCode string
+			value     string
+			target    *EnterpriseMemberTokenCount
+			parseErr  error
+		}{
+			{errorCode: "invalid_total_tokens", value: importCell(record, index, "total_tokens"), target: &row.TotalTokens},
+			{errorCode: "invalid_input_tokens", value: importCell(record, index, "input_tokens"), target: &row.InputTokens},
+			{errorCode: "invalid_output_tokens", value: importCell(record, index, "output_tokens"), target: &row.OutputTokens},
+			{errorCode: "invalid_cache_tokens", value: importCell(record, index, "cache_tokens"), target: &row.CacheTokens},
+			{errorCode: "invalid_cache_creation_tokens", value: importCell(record, index, "cache_creation_tokens"), target: &row.CacheCreationTokens},
+			{errorCode: "invalid_cache_read_tokens", value: importCell(record, index, "cache_read_tokens"), target: &row.CacheReadTokens},
+		}
+		row.TotalTokensProvided = tokenFields[0].value != ""
+		for i := range tokenFields {
+			*tokenFields[i].target, tokenFields[i].parseErr = parseImportTokenCount(tokenFields[i].value)
+		}
 		row.KeyName = importCell(record, index, "key_name")
 		row.APIKeyCiphertext = importCell(record, index, "api_key")
 		row.KeyPresent = row.APIKeyCiphertext != "" || row.KeyName != ""
@@ -637,16 +646,9 @@ func parseEnterpriseMemberImportCSV(data []byte) ([]EnterpriseMemberImportRow, e
 		if _, err := parseImportAmount(importCell(record, index, "key_quota_usd")); err != nil {
 			row.Errors = append(row.Errors, "invalid_key_quota")
 		}
-		for field, value := range map[string]string{
-			"invalid_total_tokens":          importCell(record, index, "total_tokens"),
-			"invalid_input_tokens":          importCell(record, index, "input_tokens"),
-			"invalid_output_tokens":         importCell(record, index, "output_tokens"),
-			"invalid_cache_tokens":          importCell(record, index, "cache_tokens"),
-			"invalid_cache_creation_tokens": importCell(record, index, "cache_creation_tokens"),
-			"invalid_cache_read_tokens":     importCell(record, index, "cache_read_tokens"),
-		} {
-			if _, err := parseImportTokenCount(value); err != nil {
-				row.Errors = append(row.Errors, field)
+		for _, field := range tokenFields {
+			if field.parseErr != nil {
+				row.Errors = append(row.Errors, field.errorCode)
 			}
 		}
 		rows = append(rows, row)
@@ -693,6 +695,9 @@ func validateEnterpriseMemberImportRows(rows []EnterpriseMemberImportRow) {
 		if !validImportAmount(row.KeyQuotaUSD) {
 			row.Errors = append(row.Errors, "invalid_key_quota")
 		}
+		if !row.TotalTokensProvided && !row.InputTokens.Add(row.OutputTokens).IsPersistable() {
+			row.Errors = append(row.Errors, "invalid_total_tokens")
+		}
 		if enterpriseMemberImportTokenTotalMismatch(*row) {
 			row.Warnings = append(row.Warnings, "token_total_mismatch")
 		}
@@ -736,22 +741,22 @@ func validateEnterpriseMemberImportRows(rows []EnterpriseMemberImportRow) {
 }
 
 func enterpriseMemberImportTokenTotalMismatch(row EnterpriseMemberImportRow) bool {
-	if !row.TotalTokensProvided && row.TotalTokens <= 0 {
+	if !row.TotalTokensProvided && row.TotalTokens.IsZero() {
 		return false
 	}
-	base := row.InputTokens + row.OutputTokens
-	if base == 0 && row.CacheTokens == 0 && row.CacheCreationTokens == 0 && row.CacheReadTokens == 0 {
+	base := row.InputTokens.Add(row.OutputTokens)
+	if base.IsZero() && row.CacheTokens.IsZero() && row.CacheCreationTokens.IsZero() && row.CacheReadTokens.IsZero() {
 		return false
 	}
-	knownTotals := []int64{base}
-	if row.CacheTokens > 0 {
-		knownTotals = append(knownTotals, base+row.CacheTokens)
+	knownTotals := []EnterpriseMemberTokenCount{base}
+	if row.CacheTokens.IsPositive() {
+		knownTotals = append(knownTotals, base.Add(row.CacheTokens))
 	}
-	if row.CacheCreationTokens > 0 || row.CacheReadTokens > 0 {
-		knownTotals = append(knownTotals, base+row.CacheCreationTokens+row.CacheReadTokens)
+	if row.CacheCreationTokens.IsPositive() || row.CacheReadTokens.IsPositive() {
+		knownTotals = append(knownTotals, base.Add(row.CacheCreationTokens).Add(row.CacheReadTokens))
 	}
 	for _, known := range knownTotals {
-		if row.TotalTokens == known {
+		if row.TotalTokens.Equal(known) {
 			return false
 		}
 	}
@@ -936,17 +941,155 @@ func parseImportAmount(value string) (float64, error) {
 	}
 	return amount, nil
 }
-func parseImportTokenCount(value string) (int64, error) {
-	value = strings.TrimSpace(strings.ReplaceAll(value, ",", ""))
+
+// parseImportTokenCount accepts decimal and scientific-notation inputs whose
+// exact mathematical value is non-negative and has at most two decimal places.
+// It normalizes the decimal point in linear time without constructing
+// arbitrary-precision numbers from an untrusted exponent.
+func parseImportTokenCount(value string) (EnterpriseMemberTokenCount, error) {
+	value = strings.TrimSpace(value)
 	if value == "" {
-		return 0, nil
+		return EnterpriseMemberTokenCount{}, nil
 	}
-	count, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || count < 0 {
-		return 0, errors.New("invalid token count")
+
+	mantissa, exponent, ok := splitImportTokenExponent(value)
+	if !ok {
+		return EnterpriseMemberTokenCount{}, errors.New("invalid token count")
 	}
-	return count, nil
+	digits, fractionalDigits, negative, ok := normalizeImportTokenMantissa(mantissa)
+	if !ok {
+		return EnterpriseMemberTokenCount{}, errors.New("invalid token count")
+	}
+	digits = strings.TrimLeft(digits, "0")
+	if digits == "" {
+		return EnterpriseMemberTokenCount{}, nil
+	}
+	if negative {
+		return EnterpriseMemberTokenCount{}, errors.New("invalid token count")
+	}
+
+	normalized, ok := normalizeImportTokenDecimal(digits, fractionalDigits, exponent)
+	if !ok {
+		return EnterpriseMemberTokenCount{}, errors.New("invalid token count")
+	}
+	return ParseEnterpriseMemberTokenCount(normalized)
 }
+
+func splitImportTokenExponent(value string) (string, int64, bool) {
+	exponentIndex := strings.IndexAny(value, "eE")
+	if exponentIndex < 0 {
+		return value, 0, true
+	}
+	if strings.ContainsAny(value[exponentIndex+1:], "eE") {
+		return "", 0, false
+	}
+	exponent, err := strconv.ParseInt(value[exponentIndex+1:], 10, 32)
+	if err != nil {
+		return "", 0, false
+	}
+	return value[:exponentIndex], exponent, true
+}
+
+func normalizeImportTokenMantissa(value string) (string, int64, bool, bool) {
+	negative := false
+	if strings.HasPrefix(value, "+") || strings.HasPrefix(value, "-") {
+		negative = value[0] == '-'
+		value = value[1:]
+	}
+	if value == "" {
+		return "", 0, false, false
+	}
+
+	integerPart, fractionalPart := value, ""
+	if decimalIndex := strings.IndexByte(value, '.'); decimalIndex >= 0 {
+		if strings.IndexByte(value[decimalIndex+1:], '.') >= 0 {
+			return "", 0, false, false
+		}
+		integerPart, fractionalPart = value[:decimalIndex], value[decimalIndex+1:]
+	}
+
+	integerDigits, ok := normalizeImportTokenIntegerPart(integerPart)
+	if !ok || (fractionalPart != "" && !allImportTokenDigits(fractionalPart)) {
+		return "", 0, false, false
+	}
+	if integerDigits == "" && fractionalPart == "" {
+		return "", 0, false, false
+	}
+	return integerDigits + fractionalPart, int64(len(fractionalPart)), negative, true
+}
+
+func normalizeImportTokenIntegerPart(value string) (string, bool) {
+	if value == "" {
+		return "", true
+	}
+	if !strings.Contains(value, ",") {
+		return value, allImportTokenDigits(value)
+	}
+
+	groups := strings.Split(value, ",")
+	if len(groups[0]) < 1 || len(groups[0]) > 3 || !allImportTokenDigits(groups[0]) {
+		return "", false
+	}
+	for _, group := range groups[1:] {
+		if len(group) != 3 || !allImportTokenDigits(group) {
+			return "", false
+		}
+	}
+	return strings.Join(groups, ""), true
+}
+
+func normalizeImportTokenDecimal(digits string, fractionalDigits, exponent int64) (string, bool) {
+	// Store two decimal places exactly. Moving the decimal point by another two
+	// positions produces the unscaled NUMERIC(21,2) coefficient.
+	shift := exponent - fractionalDigits + 2
+	var scaledDigits string
+	if shift >= 0 {
+		if int64(len(digits))+shift > 21 {
+			return "", false
+		}
+		scaledDigits = digits + strings.Repeat("0", int(shift))
+	} else {
+		droppedDigits := -shift
+		if droppedDigits > int64(len(digits)) {
+			return "", false
+		}
+		integerEnd := len(digits) - int(droppedDigits)
+		if !allImportTokenZeroes(digits[integerEnd:]) {
+			return "", false
+		}
+		scaledDigits = digits[:integerEnd]
+	}
+	if scaledDigits == "" || len(scaledDigits) > 21 {
+		return "", false
+	}
+	if len(scaledDigits) < 3 {
+		scaledDigits = strings.Repeat("0", 3-len(scaledDigits)) + scaledDigits
+	}
+	decimalIndex := len(scaledDigits) - 2
+	return scaledDigits[:decimalIndex] + "." + scaledDigits[decimalIndex:], true
+}
+
+func allImportTokenDigits(value string) bool {
+	if value == "" {
+		return false
+	}
+	for i := range value {
+		if value[i] < '0' || value[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func allImportTokenZeroes(value string) bool {
+	for i := range value {
+		if value[i] != '0' {
+			return false
+		}
+	}
+	return true
+}
+
 func validImportAmount(value float64) bool {
 	return value >= 0 && value <= 99_999_999_999 && !math.IsNaN(value) && !math.IsInf(value, 0) && math.Abs(value*1e8-math.Round(value*1e8)) < 1e-5
 }

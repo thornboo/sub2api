@@ -340,7 +340,7 @@ export default {
     "memberIdentityAmbiguous": "存在多个同名成员且未填写成员编号，无法安全判断是同一成员的多把 Key 还是不同成员；请填写成员编号后重试",
     "keyNameGenerated": "未提供密钥名称，系统已根据源行号生成名称",
     "tokenTotalMismatch": "总 Token 与各分项之和不一致，将按原始字段分别保存",
-    "tokenCountMustBeNonnegativeInteger": "Token 数必须是非负整数",
+    "tokenCountMustBeNonnegativeDecimal": "Token 数必须是非负数，且最多保留两位小数",
     "duplicateMemberInMembersSheet": "Members 表中存在重复成员，请保留一条成员定义",
     "memberNotFoundInMembersSheet": "Keys 表中的成员无法在 Members 表中唯一匹配",
     "replaceAccessibleGroups": "覆盖现有可访问分组",

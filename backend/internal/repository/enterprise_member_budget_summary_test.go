@@ -34,7 +34,7 @@ func TestEnterpriseMemberBudgetSummaryUsesLedgerPeriodForRequestFacts(t *testing
 		WillReturnRows(sqlmock.NewRows([]string{
 			"billed_usd", "total_tokens", "input_tokens", "output_tokens",
 			"cache_tokens", "cache_creation_tokens", "cache_read_tokens",
-		}).AddRow(0, 0, 0, 0, 0, 0, 0))
+		}).AddRow(12.34, "9223372036854775808.00", "200.11", "100.22", "50.33", "40.44", "30.55"))
 
 	repo := &enterpriseMemberBudgetRepository{db: db}
 	summary, err := repo.GetSummary(context.Background(), 44, periodStart, periodEnd)
@@ -42,6 +42,9 @@ func TestEnterpriseMemberBudgetSummaryUsesLedgerPeriodForRequestFacts(t *testing
 	require.Equal(t, int64(1), summary.RequestCount)
 	require.Equal(t, int64(10), summary.InputTokens)
 	require.Equal(t, int64(20), summary.OutputTokens)
+	require.Equal(t, "9223372036854775808.00", summary.MigrationTotalTokens.String())
+	require.Equal(t, "200.11", summary.MigrationInputTokens.String())
+	require.Equal(t, "100.22", summary.MigrationOutputTokens.String())
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -59,7 +62,7 @@ func TestEnterpriseMemberOwnerBudgetSummaryUsesLedgerPeriodForRequestFacts(t *te
 			"used_usd", "reserved_usd", "request_count", "input_tokens", "output_tokens",
 			"billed_usd", "total_tokens", "migration_input_tokens", "migration_output_tokens",
 			"cache_tokens", "cache_creation_tokens", "cache_read_tokens",
-		}).AddRow(44, "member-44", "Member 44", "active", 100, nil, 20, 0, 1, 10, 20, 0, 0, 0, 0, 0, 0, 0))
+		}).AddRow(44, "member-44", "Member 44", "active", 100, nil, 20, 0, 1, 10, 20, 12.34, "421.63", "200.11", "100.22", "50.33", "40.44", "30.55"))
 
 	repo := &enterpriseMemberBudgetRepository{db: db}
 	summary, err := repo.GetOwnerUsageSummary(context.Background(), 7, periodStart, periodEnd)
@@ -67,5 +70,8 @@ func TestEnterpriseMemberOwnerBudgetSummaryUsesLedgerPeriodForRequestFacts(t *te
 	require.Equal(t, int64(1), summary.RequestCount)
 	require.Equal(t, int64(10), summary.InputTokens)
 	require.Equal(t, int64(20), summary.OutputTokens)
+	require.Equal(t, "421.63", summary.MigrationTotalTokens.String())
+	require.Len(t, summary.Members, 1)
+	require.Equal(t, "421.63", summary.Members[0].MigrationTotalTokens.String())
 	require.NoError(t, mock.ExpectationsWereMet())
 }

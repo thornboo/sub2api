@@ -477,7 +477,7 @@ func (r *enterpriseMemberImportRepository) Commit(ctx context.Context, job *serv
 	memberGroups := make(map[string][]int64)
 	openingByMember := make(map[string]float64)
 	migrationBilledUSD := 0.0
-	var migrationTotalTokens int64
+	var migrationTotalTokens service.EnterpriseMemberTokenCount
 	for _, row := range rows {
 		code := strings.ToLower(row.MemberCode)
 		selectedCodes[code] = true
@@ -488,7 +488,7 @@ func (r *enterpriseMemberImportRepository) Commit(ctx context.Context, job *serv
 		}
 		openingByMember[code] += row.OpeningUsedUSD
 		migrationBilledUSD += row.OpeningUsedUSD
-		migrationTotalTokens += enterpriseMemberImportSummaryTokens(row)
+		migrationTotalTokens = migrationTotalTokens.Add(enterpriseMemberImportSummaryTokens(row))
 		selectedRowNumbers = append(selectedRowNumbers, row.RowNumber)
 		if key := plaintextKeys[row.RowNumber]; key != "" {
 			keys = append(keys, key)
@@ -611,14 +611,14 @@ func (r *enterpriseMemberImportRepository) Commit(ctx context.Context, job *serv
 }
 
 func enterpriseMemberImportRowHasBaseline(row service.EnterpriseMemberImportRow) bool {
-	return row.OpeningUsedUSD > 0 || row.TotalTokens > 0 || row.InputTokens > 0 || row.OutputTokens > 0 || row.CacheTokens > 0 || row.CacheCreationTokens > 0 || row.CacheReadTokens > 0
+	return row.OpeningUsedUSD > 0 || row.TotalTokens.IsPositive() || row.InputTokens.IsPositive() || row.OutputTokens.IsPositive() || row.CacheTokens.IsPositive() || row.CacheCreationTokens.IsPositive() || row.CacheReadTokens.IsPositive()
 }
 
-func enterpriseMemberImportSummaryTokens(row service.EnterpriseMemberImportRow) int64 {
-	if row.TotalTokensProvided || row.TotalTokens > 0 {
+func enterpriseMemberImportSummaryTokens(row service.EnterpriseMemberImportRow) service.EnterpriseMemberTokenCount {
+	if row.TotalTokensProvided || row.TotalTokens.IsPositive() {
 		return row.TotalTokens
 	}
-	return row.InputTokens + row.OutputTokens
+	return row.InputTokens.Add(row.OutputTokens)
 }
 
 func enterpriseMemberImportShouldActivate(job *service.EnterpriseMemberImportJob, groupIDs []int64) bool {

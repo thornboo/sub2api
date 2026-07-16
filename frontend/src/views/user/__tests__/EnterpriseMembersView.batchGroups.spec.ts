@@ -119,12 +119,12 @@ const budgetSummaryFixture = (memberID: number, marker: string) => ({
   input_tokens: 10,
   output_tokens: 5,
   migration_billed_usd: 0,
-  migration_total_tokens: 0,
-  migration_input_tokens: 0,
-  migration_output_tokens: 0,
-  migration_cache_tokens: 0,
-  migration_cache_write_tokens: 0,
-  migration_cache_read_tokens: 0,
+  migration_total_tokens: '0.00',
+  migration_input_tokens: '0.00',
+  migration_output_tokens: '0.00',
+  migration_cache_tokens: '0.00',
+  migration_cache_write_tokens: '0.00',
+  migration_cache_read_tokens: '0.00',
   rate_limit_5h: 0,
   rate_limit_1d: 0,
   rate_limit_7d: 0,
@@ -359,6 +359,7 @@ describe('EnterpriseMembersView destructive batch group confirmation', () => {
     const vm = wrapper.vm as unknown as {
       importOpen: boolean
       importResult: Record<string, unknown> | null
+      formatNumber: (value: number | string) => string
     }
     const baseResult = {
       job_id: 9,
@@ -368,16 +369,19 @@ describe('EnterpriseMembersView destructive batch group confirmation', () => {
       member_ids: [member.id],
       pending_members: 1,
       migration_billed_usd: 30,
-      migration_total_tokens: 100,
+      migration_total_tokens: '100.00',
       rows: [2],
       keys: [],
       completed_at: '2026-07-14T00:00:00Z',
     }
 
     vm.importOpen = true
-    vm.importResult = baseResult
+    vm.importResult = { ...baseResult, migration_total_tokens: '421.63' }
     await nextTick()
     expect(wrapper.text()).not.toContain('enterpriseMembers.dynamic.importPeriod')
+    expect(vm.formatNumber('421.63')).toBe('421.63')
+    expect(vm.formatNumber('1000000.63')).toBe('1,000,000.63')
+    expect(vm.formatNumber('9223372036854775807.99')).toBe('9,223,372,036,854,775,807.99')
 
     vm.importResult = { ...baseResult, period_start: '2026-07-01T00:00:00+08:00', timezone: 'Asia/Shanghai' }
     await nextTick()

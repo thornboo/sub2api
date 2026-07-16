@@ -281,8 +281,9 @@ func TestMigrationsRunner_EnterpriseMemberSchemaStaysAligned(t *testing.T) {
 
 	requireTable(t, tx, "enterprise_member_import_usage_baselines")
 	requireColumn(t, tx, "enterprise_member_import_usage_baselines", "billed_usd", "numeric", 0, false)
-	requireColumn(t, tx, "enterprise_member_import_usage_baselines", "total_tokens", "bigint", 0, false)
-	requireColumn(t, tx, "enterprise_member_import_usage_baselines", "cache_read_tokens", "bigint", 0, false)
+	for _, column := range []string{"total_tokens", "input_tokens", "output_tokens", "cache_tokens", "cache_creation_tokens", "cache_read_tokens"} {
+		requireNumericColumn(t, tx, "enterprise_member_import_usage_baselines", column, 21, 2, false)
+	}
 	requireConstraintDefinitionContains(t, tx, "enterprise_member_import_usage_baselines", "enterprise_member_import_usage_baselines_source_unique", "import_job_id", "source_row_number")
 	requireConstraintDefinitionContains(t, tx, "enterprise_member_import_usage_baselines", "enterprise_member_import_usage_baselines_values_check", "billed_usd", "total_tokens", "cache_read_tokens")
 	requireConstraintDefinitionContains(t, tx, "enterprise_member_import_usage_baselines", "enterprise_member_import_usage_baselines_key_member_owner_fk", "api_key_id", "member_id", "enterprise_user_id", "api_keys", "user_id", "ON DELETE RESTRICT")
@@ -538,6 +539,33 @@ WHERE table_schema = 'public'
 		require.Equal(t, int64(maxLen), row.MaxLen.Int64, "maxLen mismatch for %s.%s", table, column)
 	}
 
+	if nullable {
+		require.Equal(t, "YES", row.Nullable, "nullable mismatch for %s.%s", table, column)
+	} else {
+		require.Equal(t, "NO", row.Nullable, "nullable mismatch for %s.%s", table, column)
+	}
+}
+
+func requireNumericColumn(t *testing.T, tx *sql.Tx, table, column string, precision, scale int, nullable bool) {
+	t.Helper()
+
+	var row struct {
+		DataType  string
+		Precision int
+		Scale     int
+		Nullable  string
+	}
+	err := tx.QueryRowContext(context.Background(), `
+SELECT data_type, numeric_precision, numeric_scale, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = $1
+  AND column_name = $2
+`, table, column).Scan(&row.DataType, &row.Precision, &row.Scale, &row.Nullable)
+	require.NoError(t, err, "query numeric column for %s.%s", table, column)
+	require.Equal(t, "numeric", row.DataType, "data_type mismatch for %s.%s", table, column)
+	require.Equal(t, precision, row.Precision, "numeric_precision mismatch for %s.%s", table, column)
+	require.Equal(t, scale, row.Scale, "numeric_scale mismatch for %s.%s", table, column)
 	if nullable {
 		require.Equal(t, "YES", row.Nullable, "nullable mismatch for %s.%s", table, column)
 	} else {

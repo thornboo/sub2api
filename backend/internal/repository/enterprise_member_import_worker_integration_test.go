@@ -282,10 +282,10 @@ func TestEnterpriseMemberImportCommitPersistsPendingMemberAndMigrationBaseline(t
 	job.Preview.PeriodStart = periodStart
 	job.Preview.Timezone = "Asia/Shanghai"
 	job.Preview.Rows[0].OpeningUsedUSD = 30
-	job.Preview.Rows[0].TotalTokens = 0
-	job.Preview.Rows[0].InputTokens = 60_000
-	job.Preview.Rows[0].OutputTokens = 40_000
-	job.Preview.Rows[0].CacheReadTokens = 8_000
+	job.Preview.Rows[0].TotalTokens = service.EnterpriseMemberTokenCount{}
+	job.Preview.Rows[0].InputTokens = mustEnterpriseMemberTokenCount(t, "60000.25")
+	job.Preview.Rows[0].OutputTokens = mustEnterpriseMemberTokenCount(t, "40000.38")
+	job.Preview.Rows[0].CacheReadTokens = mustEnterpriseMemberTokenCount(t, "8000.08")
 	previewJSON, err := json.Marshal(job.Preview)
 	require.NoError(t, err)
 	_, err = integrationDB.ExecContext(ctx, `UPDATE enterprise_member_import_jobs SET preview = $1 WHERE id = $2`, previewJSON, job.ID)
@@ -297,7 +297,7 @@ func TestEnterpriseMemberImportCommitPersistsPendingMemberAndMigrationBaseline(t
 	require.NoError(t, err)
 	require.Equal(t, 1, result.PendingMembers)
 	require.Equal(t, 30.0, result.MigrationBilledUSD)
-	require.Equal(t, int64(100_000), result.MigrationTotalTokens, "missing source total must use the same input + output rule as the persisted baseline")
+	require.Equal(t, "100000.63", result.MigrationTotalTokens.String(), "missing source total must preserve the same decimal input + output rule as the persisted baseline")
 	require.Equal(t, periodStart.Format("2006-01-02"), result.PeriodStart.Format("2006-01-02"))
 	require.Equal(t, "Asia/Shanghai", result.Timezone, "the completed result must preserve the frozen import billing timezone")
 
@@ -316,16 +316,16 @@ func TestEnterpriseMemberImportCommitPersistsPendingMemberAndMigrationBaseline(t
 	require.Equal(t, 30.0, usedUSD)
 
 	var billedUSD float64
-	var totalTokens, inputTokens, outputTokens, cacheReadTokens int64
+	var totalTokens, inputTokens, outputTokens, cacheReadTokens service.EnterpriseMemberTokenCount
 	require.NoError(t, integrationDB.QueryRowContext(ctx, `
 		SELECT billed_usd, total_tokens, input_tokens, output_tokens, cache_read_tokens
 		FROM enterprise_member_import_usage_baselines WHERE member_id = $1`, memberID).
 		Scan(&billedUSD, &totalTokens, &inputTokens, &outputTokens, &cacheReadTokens))
 	require.Equal(t, 30.0, billedUSD)
-	require.Equal(t, int64(100_000), totalTokens, "persisted baseline total must match the import result")
-	require.Equal(t, int64(60_000), inputTokens)
-	require.Equal(t, int64(40_000), outputTokens)
-	require.Equal(t, int64(8_000), cacheReadTokens)
+	require.Equal(t, "100000.63", totalTokens.String(), "persisted baseline total must match the import result exactly")
+	require.Equal(t, "60000.25", inputTokens.String())
+	require.Equal(t, "40000.38", outputTokens.String())
+	require.Equal(t, "8000.08", cacheReadTokens.String())
 
 	var syntheticLogs int
 	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM usage_logs WHERE member_id = $1`, memberID).Scan(&syntheticLogs))

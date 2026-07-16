@@ -783,12 +783,12 @@ func (r *enterpriseMemberBudgetRepository) GetOwnerUsageSummary(ctx context.Cont
 		summary.InputTokens += item.InputTokens
 		summary.OutputTokens += item.OutputTokens
 		summary.MigrationBilledUSD += item.MigrationBilledUSD
-		summary.MigrationTotalTokens += item.MigrationTotalTokens
-		summary.MigrationInputTokens += item.MigrationInputTokens
-		summary.MigrationOutputTokens += item.MigrationOutputTokens
-		summary.MigrationCacheTokens += item.MigrationCacheTokens
-		summary.MigrationCacheWriteTokens += item.MigrationCacheWriteTokens
-		summary.MigrationCacheReadTokens += item.MigrationCacheReadTokens
+		summary.MigrationTotalTokens = summary.MigrationTotalTokens.Add(item.MigrationTotalTokens)
+		summary.MigrationInputTokens = summary.MigrationInputTokens.Add(item.MigrationInputTokens)
+		summary.MigrationOutputTokens = summary.MigrationOutputTokens.Add(item.MigrationOutputTokens)
+		summary.MigrationCacheTokens = summary.MigrationCacheTokens.Add(item.MigrationCacheTokens)
+		summary.MigrationCacheWriteTokens = summary.MigrationCacheWriteTokens.Add(item.MigrationCacheWriteTokens)
+		summary.MigrationCacheReadTokens = summary.MigrationCacheReadTokens.Add(item.MigrationCacheReadTokens)
 		if !removedAt.Valid {
 			summary.Members = append(summary.Members, item)
 		}

@@ -1,5 +1,21 @@
 # 补丁记录
 
+## 2026-07-16 - 企业成员导入小数 Token 精确保留
+
+实现：
+- 企业成员 CSV/XLSX 导入的总量、输入、输出、缓存、缓存写入和缓存读取 Token 改为精确十进制定点值，接受非负且最多两位有效小数；`421.63` 在预览、完成结果和成员预算汇总中保持 `421.63`，第三位有效小数直接拒绝，不进行静默四舍五入。
+- 单行持久化上限与多行聚合范围分离：缺省总量的输入 + 输出若无法写入基线，会在预览阶段直接拒绝；合法单行的更大聚合仍可被结果 JSON 和预算摘要读取。迁移 Token API 使用规范化十进制字符串，页面通过 `BigInt` 分组整数部分并保留小数，不经过 JavaScript `number`，百万级值也不再 compact 缩写。
+- migration `191_enterprise_member_fractional_token_baselines.sql` 将六个外部迁移基线列从 `BIGINT` 升级为 `NUMERIC(21,2)`；真实请求 `usage_logs` 的 Token 计数继续保持整数，不用迁移聚合值伪造请求明细。
+- 企业成员页面 Token 格式化和中英文校验提示同步支持两位小数；升级文档明确 migration 191 需要排空旧导入 worker 并停止旧实例，不能放入新旧二进制并存的滚动窗口。
+
+验证：
+- `go test -tags=unit ./... -count=1`
+- `golangci-lint run ./...`
+- `pnpm --dir frontend test:run`、`typecheck`、`lint:check`、`build`
+- `pnpm --dir docs-site docs:build`
+- `git diff --check`
+- 本机未启动 Docker，真实 PostgreSQL Testcontainers schema/持久化集成测试未执行；对应 migration、精确 JSON/SQL 往返和 repository 汇总合同测试已通过。
+
 ## 2026-07-16 - v1.7.3 企业成员可靠性与上游同步发布
 
 发布范围：
