@@ -1049,21 +1049,7 @@ func (h *UsageHandler) DashboardSnapshotV2(c *gin.Context) {
 }
 
 func (h *UsageHandler) getUserDashboardModelStats(c *gin.Context, parsed *userUsageFilters) ([]usagestats.ModelStat, error) {
-	if !hasUserDashboardModelFilters(parsed.Filters) {
-		return h.usageService.GetUserModelStats(c.Request.Context(), parsed.Filters.UserID, parsed.StartTime, parsed.EndTime)
-	}
 	return h.usageService.GetModelStatsWithFiltersBySource(c.Request.Context(), parsed.StartTime, parsed.EndTime, parsed.Filters, usagestats.ModelSourceRequested)
-}
-
-func hasUserDashboardModelFilters(filters usagestats.UsageLogFilters) bool {
-	return filters.APIKeyID > 0 ||
-		filters.AccountID > 0 ||
-		filters.GroupID > 0 ||
-		strings.TrimSpace(filters.Model) != "" ||
-		filters.RequestType != nil ||
-		filters.Stream != nil ||
-		filters.BillingType != nil ||
-		strings.TrimSpace(filters.BillingMode) != ""
 }
 
 func userGroupStatsFromUsageStats(stats []usagestats.GroupStat) []userGroupStat {

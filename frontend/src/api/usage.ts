@@ -309,6 +309,13 @@ export interface UsageDashboardSnapshotV2Response {
   groups?: GroupStat[]
 }
 
+export type DashboardModelParams = Omit<
+  UsageQueryParams,
+  'page' | 'page_size' | 'user_id' | 'account_id' | 'sort_by' | 'sort_order'
+> & {
+  model_source?: 'requested'
+}
+
 /**
  * List usage logs with optional filters
  * @param page - Page number (default: 1)
@@ -475,21 +482,7 @@ export async function getDashboardTrend(params?: TrendParams): Promise<TrendResp
  * @param params - Query parameters for filtering
  * @returns Model usage statistics for current user
  */
-export async function getDashboardModels(params?: {
-  start_date?: string
-  end_date?: string
-  start_time?: string
-  end_time?: string
-  api_key_id?: number
-  model?: string
-  model_source?: 'requested'
-  group_id?: number
-  request_type?: UsageRequestType
-  stream?: boolean
-  billing_type?: number | null
-  billing_mode?: string | null
-  timezone?: string
-}): Promise<ModelStatsResponse> {
+export async function getDashboardModels(params?: DashboardModelParams): Promise<ModelStatsResponse> {
   const { data } = await apiClient.get<ModelStatsResponse>('/usage/dashboard/models', { params })
   return data
 }

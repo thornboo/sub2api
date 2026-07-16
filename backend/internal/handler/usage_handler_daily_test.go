@@ -35,15 +35,14 @@ type dailyUsageRepoStub struct {
 	trendUserID      int64
 	trendAPIKeyID    int64
 
-	modelCalled     bool
-	modelStartTime  time.Time
-	modelEndTime    time.Time
-	modelUserID     int64
-	modelAPIKeyID   int64
-	userModelCalled bool
-	userModelUserID int64
-	userModelStart  time.Time
-	userModelEnd    time.Time
+	modelCalled           bool
+	modelStartTime        time.Time
+	modelEndTime          time.Time
+	modelUserID           int64
+	modelAPIKeyID         int64
+	dashboardModelCalled  bool
+	dashboardModelFilters usagestats.UsageLogFilters
+	dashboardModelSource  string
 
 	ownerFilters     service.OwnerAPIKeyAnalyticsFilters
 	ownerSummary     *service.OwnerAPIKeyAnalyticsSummary
@@ -110,10 +109,18 @@ func (s *dailyUsageRepoStub) GetUserModelStats(
 	userID int64,
 	startTime, endTime time.Time,
 ) ([]usagestats.ModelStat, error) {
-	s.userModelCalled = true
-	s.userModelUserID = userID
-	s.userModelStart = startTime
-	s.userModelEnd = endTime
+	return s.modelStats, nil
+}
+
+func (s *dailyUsageRepoStub) GetModelStatsWithUsageFiltersBySource(
+	_ context.Context,
+	_, _ time.Time,
+	filters usagestats.UsageLogFilters,
+	source string,
+) ([]usagestats.ModelStat, error) {
+	s.dashboardModelCalled = true
+	s.dashboardModelFilters = filters
+	s.dashboardModelSource = source
 	return s.modelStats, nil
 }
 
@@ -527,8 +534,9 @@ func TestDashboardModelsReturnsUserSafeFields(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.True(t, usageRepo.userModelCalled)
-	require.Equal(t, int64(42), usageRepo.userModelUserID)
+	require.True(t, usageRepo.dashboardModelCalled)
+	require.Equal(t, int64(42), usageRepo.dashboardModelFilters.UserID)
+	require.Equal(t, usagestats.ModelSourceRequested, usageRepo.dashboardModelSource)
 
 	var got struct {
 		Data struct {

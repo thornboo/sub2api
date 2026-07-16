@@ -17,15 +17,33 @@ import (
 
 type userUsageRepoCapture struct {
 	service.UsageLogRepository
-	listParams   pagination.PaginationParams
-	listFilters  usagestats.UsageLogFilters
-	statsFilters usagestats.UsageLogFilters
-	trendFilters usagestats.UsageLogFilters
-	groupFilters usagestats.UsageLogFilters
-	listRows     []service.UsageLog
-	stats        *usagestats.UsageStats
-	modelStats   []usagestats.ModelStat
-	groupStats   []usagestats.GroupStat
+	listParams          pagination.PaginationParams
+	listFilters         usagestats.UsageLogFilters
+	statsFilters        usagestats.UsageLogFilters
+	trendFilters        usagestats.UsageLogFilters
+	modelFilters        usagestats.UsageLogFilters
+	groupFilters        usagestats.UsageLogFilters
+	listRows            []service.UsageLog
+	stats               *usagestats.UsageStats
+	modelStats          []usagestats.ModelStat
+	groupStats          []usagestats.GroupStat
+	modelSource         string
+	modelStatsCalls     int
+	memberValidated     [2]int64
+	memberValidationErr error
+}
+
+type userUsageUserRepoStub struct {
+	service.UserRepository
+}
+
+func (s *userUsageUserRepoStub) GetByID(_ context.Context, id int64) (*service.User, error) {
+	return &service.User{
+		ID:          id,
+		Role:        service.RoleUser,
+		AccountType: service.UserAccountTypeEnterprise,
+		Status:      service.StatusActive,
+	}, nil
 }
 
 func (s *userUsageRepoCapture) ListWithFilters(ctx context.Context, params pagination.PaginationParams, filters usagestats.UsageLogFilters) ([]service.UsageLog, *pagination.PaginationResult, error) {
@@ -69,6 +87,13 @@ func (s *userUsageRepoCapture) GetUserModelStats(ctx context.Context, userID int
 	return s.modelStats, nil
 }
 
+func (s *userUsageRepoCapture) GetModelStatsWithUsageFiltersBySource(_ context.Context, _, _ time.Time, filters usagestats.UsageLogFilters, source string) ([]usagestats.ModelStat, error) {
+	s.modelStatsCalls++
+	s.modelFilters = filters
+	s.modelSource = source
+	return s.modelStats, nil
+}
+
 func (s *userUsageRepoCapture) GetGroupStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8) ([]usagestats.GroupStat, error) {
 	s.groupFilters = usagestats.UsageLogFilters{
 		UserID:      userID,
@@ -82,9 +107,26 @@ func (s *userUsageRepoCapture) GetGroupStatsWithFilters(ctx context.Context, sta
 	return s.groupStats, nil
 }
 
+func (s *userUsageRepoCapture) ListOwnerUsageMembers(context.Context, int64) ([]service.OwnerUsageMember, error) {
+	return nil, nil
+}
+
+func (s *userUsageRepoCapture) ValidateOwnerUsageMember(_ context.Context, ownerID, memberID int64) error {
+	s.memberValidated = [2]int64{ownerID, memberID}
+	return s.memberValidationErr
+}
+
+func (s *userUsageRepoCapture) GetOwnerMemberAnalyticsLeaderboard(context.Context, service.OwnerAPIKeyAnalyticsFilters) (*service.OwnerMemberLeaderboardResponse, error) {
+	return &service.OwnerMemberLeaderboardResponse{}, nil
+}
+
 func newUserUsageRequestTypeTestRouter(repo *userUsageRepoCapture) *gin.Engine {
+	return newUserUsageRequestTypeTestRouterWithUserRepo(repo, nil)
+}
+
+func newUserUsageRequestTypeTestRouterWithUserRepo(repo *userUsageRepoCapture, userRepo service.UserRepository) *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	usageSvc := service.NewUsageService(repo, nil, nil, nil)
+	usageSvc := service.NewUsageService(repo, userRepo, nil, nil)
 	handler := NewUsageHandler(usageSvc, nil, nil, nil)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -290,6 +332,62 @@ func TestUserUsageDashboardModelsOmitsAccountCost(t *testing.T) {
 	require.Contains(t, body, `"actual_cost":0.08`)
 	require.NotContains(t, body, `"cost"`)
 	require.NotContains(t, body, "account_cost")
+	require.Equal(t, 1, repo.modelStatsCalls)
+	require.Equal(t, int64(42), repo.modelFilters.UserID)
+	require.Equal(t, usagestats.ModelSourceRequested, repo.modelSource)
+}
+
+func TestUserUsageDashboardModelsAlwaysUsesCompleteFilters(t *testing.T) {
+	memberID := int64(77)
+	tests := []struct {
+		name            string
+		query           string
+		wantMemberID    *int64
+		wantMemberScope string
+		wantValidated   [2]int64
+	}{
+		{name: "no member filter"},
+		{name: "all usage", query: "member_scope=all", wantMemberScope: usagestats.MemberScopeAll},
+		{name: "assigned usage", query: "member_scope=assigned", wantMemberScope: usagestats.MemberScopeAssigned},
+		{name: "unassigned usage", query: "member_scope=unassigned", wantMemberScope: usagestats.MemberScopeUnassigned},
+		{name: "specific member", query: "member_id=77", wantMemberID: &memberID, wantMemberScope: usagestats.MemberScopeAll, wantValidated: [2]int64{42, 77}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &userUsageRepoCapture{}
+			router := newUserUsageRequestTypeTestRouterWithUserRepo(repo, &userUsageUserRepoStub{})
+			url := "/usage/dashboard/models?start_date=2026-03-01&end_date=2026-03-02"
+			if tt.query != "" {
+				url += "&" + tt.query
+			}
+
+			req := httptest.NewRequest(http.MethodGet, url, nil)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.Equal(t, 1, repo.modelStatsCalls)
+			require.Equal(t, int64(42), repo.modelFilters.UserID)
+			require.Equal(t, tt.wantMemberID, repo.modelFilters.MemberID)
+			require.Equal(t, tt.wantMemberScope, repo.modelFilters.MemberScope)
+			require.Equal(t, tt.wantValidated, repo.memberValidated)
+			require.Equal(t, usagestats.ModelSourceRequested, repo.modelSource)
+		})
+	}
+}
+
+func TestUserUsageDashboardModelsRejectsForeignMember(t *testing.T) {
+	repo := &userUsageRepoCapture{memberValidationErr: service.ErrEnterpriseMemberNotFound}
+	router := newUserUsageRequestTypeTestRouterWithUserRepo(repo, &userUsageUserRepoStub{})
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/dashboard/models?start_date=2026-03-01&end_date=2026-03-02&member_id=77", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	require.Zero(t, repo.modelStatsCalls)
+	require.Equal(t, [2]int64{42, 77}, repo.memberValidated)
 }
 
 func TestUserUsageDashboardModelsRejectsAdminModelSources(t *testing.T) {

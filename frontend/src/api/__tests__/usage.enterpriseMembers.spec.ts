@@ -9,6 +9,7 @@ vi.mock('@/api/client', () => ({
 }))
 
 import {
+  getDashboardModels,
   getOwnerMemberAnalyticsLeaderboard,
   listMyErrorRequests,
   listOwnerUsageMembers,
@@ -68,6 +69,26 @@ describe('enterprise member usage API', () => {
       params: {
         member_id: 42,
         api_key_id: 7,
+        start_date: '2026-07-01',
+        end_date: '2026-07-14',
+      },
+    })
+  })
+
+  it('forwards member filters to the model distribution endpoint', async () => {
+    get.mockResolvedValue({ data: { models: [] } })
+
+    await getDashboardModels({
+      member_id: 42,
+      member_scope: 'all',
+      start_date: '2026-07-01',
+      end_date: '2026-07-14',
+    })
+
+    expect(get).toHaveBeenCalledWith('/usage/dashboard/models', {
+      params: {
+        member_id: 42,
+        member_scope: 'all',
         start_date: '2026-07-01',
         end_date: '2026-07-14',
       },
