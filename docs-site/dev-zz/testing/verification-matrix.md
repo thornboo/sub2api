@@ -194,10 +194,26 @@ HAVING COUNT(*) FILTER (
 
 | 场景 | 推荐命令 |
 | --- | --- |
+| 失败分类器、生产 fixture 与当前状态阈值 | `cd backend && go test ./internal/handler ./internal/service -run 'OpsFailure|ClassifyOpsCurrentFailureState|ClassificationUnknown' -count=1` |
+| 分类迁移与共享 SQL 合同 | `cd backend && go test ./migrations ./internal/opssql -run 'FailureClassification|OpsFailure' -count=1` |
+| 分类 v2 真实 PostgreSQL 回填、滚动兼容与索引计划 | `cd backend && go test -tags=integration ./internal/repository -run '^TestOpsFailureClassificationV2' -count=1` |
+| Ops Repository、API 和聚合兼容 | `cd backend && go test ./internal/repository ./internal/handler/admin ./internal/service -count=1` |
 | 通用弹窗栈 | `pnpm --dir frontend test:run src/components/common/__tests__/BaseDialog.spec.ts` |
 | 通用 Select 外部点击 | `pnpm --dir frontend test:run src/components/common/__tests__/Select.spec.ts` |
 | 运维请求/错误详情弹窗 | `pnpm --dir frontend test:run src/views/admin/ops/components/__tests__/OpsErrorDetailModal.spec.ts src/views/admin/ops/components/__tests__/OpsErrorDetailsModal.spec.ts src/views/admin/ops/components/__tests__/OpsRequestDetailsModal.spec.ts` |
 | 运维弹窗 composable | `pnpm --dir frontend test:run src/views/admin/ops/composables/__tests__/useOpsModalStack.spec.ts` |
+| 前端类型、完整回归和生产构建 | `pnpm --dir frontend typecheck`、`pnpm --dir frontend test:run`、`pnpm --dir frontend build` |
+
+发布前需要在同一绝对时间窗口人工对账：
+
+- 全 v2 窗口满足 `customer_visible_failure_count = platform_sla_failure_count + sla_excluded_failure_count + classification_unknown_count`；混入 v1 时，unknown 作为数据质量覆盖层可与旧 SLA headline 重叠，此时改为核对终态 `failure_breakdown`（排除 `recovered_attempt`）之和等于客户可见失败；
+- `error_count_total / business_limited_count / error_count_sla` 分别等于新的客户可见、SLA 排除和平台 SLA 兼容别名；
+- `query_mode=raw` 与 `query_mode=preagg` 的 headline 计数一致，跨小时 head/preagg/tail 不重复；
+- 每个归因数字打开的明细使用 overview 响应的 `start_time/end_time` 和相同结构化过滤条件；
+- 最近 15 分钟当前状态按 `request_error_rate_percent_max` 判断，自定义历史窗口不显示“当前已恢复”；
+- recovered upstream attempt 只进入 provider-health 明细，不进入客户可见失败或平台 SLA 终态计数。
+- 模拟旧实例在迁移后晚写普通 v1 错误、非 recovered HTTP 200 流式终态和严格 recovered 尝试：前两者进入客户可见与未分类，recovered 不进入；hourly/daily 桶保持 v1，强制 preagg 返回未就绪而不是伪装成完整 v2。
+- migration 192 对两种 cyber-policy、provider 403 余额、provider 4xx/5xx 的真实回填结果与 writer 分类一致；migration 193 的 customer-visible、SLA、v1 探针和 reason 查询在 PostgreSQL `EXPLAIN` 中命中目标索引。
 
 ## 分支级验证
 

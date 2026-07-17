@@ -20,6 +20,16 @@ export interface OpsErrorDetailsPreset {
   phase?: string
   owner?: string
   statusCode?: OpsErrorDetailsStatusCode
+  startTime?: string
+  endTime?: string
+  eventScope?: string
+  customerVisible?: boolean
+  failureDomain?: string
+  failureCategory?: string
+  failureReason?: string
+  resolutionOwner?: string
+  poolOwnership?: string
+  slaImpact?: boolean | 'unknown'
 }
 
 interface OpsErrorDetailLayer {

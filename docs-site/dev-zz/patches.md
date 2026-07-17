@@ -1,5 +1,26 @@
 # 补丁记录
 
+## 2026-07-18 - 运维失败分类与平台 SLA 口径重构
+
+问题：
+- 原 `is_business_limited` 同时承担客户可见性、责任归因、SLA 排除和明细分流，导致平台无可用路由可能被排除出 SLA、recovered 上游尝试可能与最终客户失败混在一起。
+- 总览、趋势、预聚合、健康评分和明细筛选各自拼接 SQL，字段含义容易漂移；相对时间钻取还可能在刷新边界得到与卡片不同的结果。
+- 最近 6 小时的大量请求失败只能逐条查看，缺少稳定归因、处理责任和未分类数据质量入口。
+
+修复：
+- 新增分类 v2 及稳定 reason code，独立保存 `event_scope`、`customer_visible`、`failure_domain/category`、`resolution_owner`、`pool_ownership` 和可空 `sla_impact`；正常请求、流式终态、recovered attempt 和 Cyber Policy 直写路径统一双写。
+- 以共享 SQL 合同驱动 raw、preagg、趋势、状态码分布和 metrics collector；旧 `error_count_total`、`business_limited_count`、`error_count_sla` 保留为新口径兼容别名，v2 unknown 不回退成主观责任判断。
+- 总览新增归因分布、未分类入口和固定 15 分钟当前状态；当前状态使用管理员已有的平台 SLA 失败率阈值，所有钻取冻结 overview 的绝对起止时间并携带结构化筛选。
+- 健康评分、告警和定时报表切换到平台 SLA 失败率；未分类记录会限制健康评分上限。迁移只回填最近 31 天可确定证据，索引以 `_notx` 并发创建。
+
+验证：
+- 分类矩阵和 9,907 条生产 fixture 守恒测试通过，其中 4,878 条计入平台 SLA；Repository 参数、迁移合同、raw/preagg 共享 SQL、当前状态阈值和健康评分回归测试通过。
+- 后端目标包普通与 `unit` tag 测试、前端类型检查及完整 Vitest 套件通过；完整构建、全量 Go 测试和 docs build 结果见本轮最终验证记录。
+
+剩余边界：
+- 主要故障事件聚合和 HTTP 200 后流式终态去重尚未实现；本轮继续按逻辑失败请求计数，并明确包含客户端重试。
+- 当前没有独立 v2 运行时功能开关；如上线后对账异常，回退上一应用版本继续读取兼容字段，不删除已经写入的 v2 分类证据。
+
 ## 2026-07-17 - v1.7.8 企业成员预算信息与调账交互收敛
 
 问题：

@@ -28,14 +28,25 @@ func computeDashboardHealthScore(now time.Time, overview *OpsDashboardOverview) 
 
 	// Weighted combination: 70% business + 30% infrastructure
 	score := businessHealth*0.7 + infraHealth*0.3
+	// Unknown v2 classifications are a data-quality failure. They must never
+	// silently produce a green 100-point dashboard while SLA attribution is
+	// unresolved.
+	if overview.ClassificationUnknownCount > 0 {
+		cap := 85.0
+		if overview.CustomerVisibleFailureCount > 0 && overview.ClassificationUnknownCount >= overview.CustomerVisibleFailureCount {
+			cap = 60
+		}
+		score = math.Min(score, cap)
+	}
 	return int(math.Round(clampFloat64(score, 0, 100)))
 }
 
 // computeBusinessHealth calculates business health score (0-100)
-// Components: Error Rate (50%) + TTFT (50%)
+// Components: platform SLA failure rate (50%) + TTFT (50%)
 func computeBusinessHealth(overview *OpsDashboardOverview) float64 {
 	// Error rate score: 1% → 100, 10% → 0 (linear)
-	// Combines request errors and upstream errors
+	// ErrorRate already represents final customer-visible failures that count
+	// against platform SLA; recovered attempts and SLA exclusions are omitted.
 	errorScore := 100.0
 	errorPct := clampFloat64(overview.ErrorRate*100, 0, 100)
 	upstreamPct := clampFloat64(overview.UpstreamErrorRate*100, 0, 100)

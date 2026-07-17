@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/opssql"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -36,6 +37,7 @@ func (r *opsRepository) GetRealtimeTrafficSummary(ctx context.Context, filter *s
 
 	usageJoin, usageWhere, usageArgs, next := buildUsageWhere(filter, start, end, 1)
 	errorWhere, errorArgs, _ := buildErrorWhere(filter, start, end, next)
+	customerVisible := opssql.CustomerVisible("")
 
 	q := `
 WITH usage_buckets AS (
@@ -54,7 +56,7 @@ error_buckets AS (
     COALESCE(COUNT(*), 0) AS error_count
   FROM ops_error_logs
   ` + errorWhere + `
-    AND COALESCE(status_code, 0) >= 400
+    AND ` + customerVisible + `
   GROUP BY 1
 ),
 combined AS (

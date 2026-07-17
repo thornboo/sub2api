@@ -41,6 +41,7 @@
 | 部分落地 | [上游供应商资金池与成本账本](./features/upstream-cost-pools-and-ledger.md) | 阶段 1 后端兼容层、供应商生命周期、严格创建 / 审计保留、默认结算 Modal、真实快照隔离、简化充值录入和账号供应商归属已落地；本期仍仅支持正向账本子集，资金池高级管理、合池、余额迁移和 usage 成本证据仍是后续阶段。 |
 | 部分落地 | [上游供应商成本感知与模型级调度](./features/upstream-provider-cost-aware-scheduling.md) | 模型级错误转移、真实快照综合折扣和 `strict_priority` / `cost_first` 已落地；余额查询及 balanced / canary 仍是后续设计。 |
 | 部分落地 | [运维监控客户可见错误排障](./features/ops-customer-visible-error-triage.md) | 第一版已拆分客户可见失败、SLA 错误、客户侧限制和上游 429/529 明细入口；流式 200 后失败仍是后续阶段。 |
+| 核心已落地 | [运维失败分类与 SLA 重构](./features/ops-failure-classification-redesign.md) | v2 分类双写、31 天回填、raw/preagg 统一统计、结构化钻取、15 分钟当前状态及健康/告警/报表口径已实现；主要故障事件聚合和 HTTP 200 后流式终态去重仍待后续阶段。 |
 | 已落地 | [定价驱动的站点自检模型监控](./features/pricing-driven-self-check-monitoring-design.md) | 用户侧 `/monitor` 按分组/模型展示健康状态，由渠道定价的「自检」开关驱动站点自检探针（走真实网关链路但不计费、不影响生产调度），并撤下旧用户侧探针接口；上游渠道监控保持现状、仅管理员排障。 |
 | 部分落地 | [模型状态时间线与无可用账号证据保留](./features/model-status-timeline-evidence-retention.md) | 阶段 1 已实现：为 (分组, 模型) 持久化脱敏状态快照，详情时间线和详情指标优先读快照；列表状态切快照和时间桶化仍是后续阶段。 |
 
@@ -49,6 +50,7 @@
 - [设计取舍 0001：docs-site 作为 dev-zz 文档中心](./decisions/adr-0001-docs-site-as-dev-zz-doc-hub.md)
 - [设计取舍 0002：用 Key 承载企业成员管理，不引入子账号实体（已被 0003 取代）](./decisions/adr-0002-key-as-enterprise-member.md)
 - [设计取舍 0003：不可登录成员实体、聚合 Key 与成员预算](./decisions/adr-0003-enterprise-member-entity.md)
+- [设计取舍 0004：运维失败分类、责任归属与 SLA 口径](./decisions/adr-0004-ops-failure-taxonomy-and-sla.md)
 
 ## 记录规则
 

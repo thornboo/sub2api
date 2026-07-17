@@ -51,6 +51,11 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 				h.errorResponse(c, infraerrors.Code(lastUpstreamErr), "upstream_error", infraerrors.Message(lastUpstreamErr))
 				return
 			}
+			// No upstream attempt happened: this is platform-managed routing
+			// capacity exhaustion, not a provider terminal failure. Keep this
+			// marker out of the lastUpstreamErr branch so a real upstream cause
+			// is not overwritten after failover exhausts all candidates.
+			markOpsRoutingCapacityLimited(c)
 			h.errorResponse(c, http.StatusServiceUnavailable, "upstream_error", "No available OpenAI accounts")
 			return
 		}

@@ -12,6 +12,41 @@
     </div>
 
     <div v-else class="space-y-6 p-6">
+      <div v-if="(detail.classification_version ?? 0) >= 2" class="rounded-xl border border-stone-200/80 bg-stone-50/70 p-4 dark:border-white/10 dark:bg-white/[0.04]">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 class="text-xs font-black uppercase tracking-wider text-stone-700 dark:text-stone-200">{{ t('admin.ops.errorDetail.classification.title') }}</h3>
+          <span class="inline-flex rounded-full px-2 py-1 text-[10px] font-bold ring-1 ring-inset" :class="slaImpactClass">
+            {{ slaImpactLabel }}
+          </span>
+        </div>
+        <div class="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2 lg:grid-cols-6">
+          <div>
+            <div class="text-stone-400">{{ t('admin.ops.errorDetail.classification.customerVisible') }}</div>
+            <div class="mt-1 font-bold text-stone-900 dark:text-white">{{ detail.customer_visible ? t('common.yes') : t('common.no') }}</div>
+          </div>
+          <div>
+            <div class="text-stone-400">{{ t('admin.ops.errorDetail.classification.domain') }}</div>
+            <div class="mt-1 font-bold text-stone-900 dark:text-white">{{ classificationLabel('domain', detail.failure_domain) }}</div>
+          </div>
+          <div>
+            <div class="text-stone-400">{{ t('admin.ops.errorDetail.classification.category') }}</div>
+            <div class="mt-1 font-bold text-stone-900 dark:text-white">{{ classificationLabel('category', detail.failure_category) }}</div>
+          </div>
+          <div>
+            <div class="text-stone-400">{{ t('admin.ops.errorDetail.classification.reason') }}</div>
+            <div class="mt-1 break-all font-mono font-bold text-stone-900 dark:text-white">{{ detail.failure_reason || '—' }}</div>
+          </div>
+          <div>
+            <div class="text-stone-400">{{ t('admin.ops.errorDetail.classification.resolutionOwner') }}</div>
+            <div class="mt-1 font-bold text-stone-900 dark:text-white">{{ classificationLabel('resolutionOwner', detail.resolution_owner) }}</div>
+          </div>
+          <div>
+            <div class="text-stone-400">{{ t('admin.ops.errorDetail.classification.poolOwnership') }}</div>
+            <div class="mt-1 font-bold text-stone-900 dark:text-white">{{ classificationLabel('poolOwnership', detail.pool_ownership) }}</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Summary -->
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div class="rounded-xl bg-stone-50/80 p-4 dark:bg-white/[0.04]">
@@ -247,6 +282,23 @@ const requestId = computed(() => detail.value?.request_id || detail.value?.clien
 
 const primaryResponseBody = computed(() => {
   return resolvePrimaryResponseBody(detail.value, props.errorType)
+})
+
+function classificationLabel(group: 'domain' | 'category' | 'resolutionOwner' | 'poolOwnership', value?: string): string {
+  const normalized = String(value || 'unknown').trim() || 'unknown'
+  return t(`admin.ops.errorDetails.${group}.${normalized}`)
+}
+
+const slaImpactLabel = computed(() => {
+  if (detail.value?.sla_impact === true) return t('admin.ops.errorDetails.slaImpact.included')
+  if (detail.value?.sla_impact === false) return t('admin.ops.errorDetails.slaImpact.excluded')
+  return t('admin.ops.errorDetails.slaImpact.unknown')
+})
+
+const slaImpactClass = computed(() => {
+  if (detail.value?.sla_impact === true) return 'bg-red-500/10 text-red-700 ring-red-500/20 dark:text-red-300'
+  if (detail.value?.sla_impact === false) return 'bg-stone-500/10 text-stone-700 ring-stone-500/20 dark:text-stone-300'
+  return 'bg-amber-500/10 text-amber-700 ring-amber-500/20 dark:text-amber-300'
 })
 
 

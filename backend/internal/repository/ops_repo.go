@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/opssql"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 )
@@ -45,6 +46,15 @@ INSERT INTO ops_error_logs (
   status_code,
   is_business_limited,
   is_count_tokens,
+  event_scope,
+  customer_visible,
+  failure_domain,
+  failure_category,
+  failure_reason,
+  resolution_owner,
+  pool_ownership,
+  sla_impact,
+  classification_version,
   error_message,
   error_body,
   error_source,
@@ -64,7 +74,7 @@ INSERT INTO ops_error_logs (
   deleted_key_name,
   api_key_prefix
 ) VALUES (
-  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44
+  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53
 )`
 
 func NewOpsRepository(db *sql.DB) service.OpsRepository {
@@ -162,6 +172,15 @@ func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {
 		opsNullInt(input.StatusCode),
 		input.IsBusinessLimited,
 		input.IsCountTokens,
+		opsNullString(input.EventScope),
+		opsClassificationBool(input.ClassificationVersion, input.CustomerVisible),
+		opsNullString(input.FailureDomain),
+		opsNullString(input.FailureCategory),
+		opsNullString(input.FailureReason),
+		opsNullString(input.ResolutionOwner),
+		opsNullString(input.PoolOwnership),
+		opsNullBool(input.SLAImpact),
+		opsNullInt(int(input.ClassificationVersion)),
 		opsNullString(input.ErrorMessage),
 		opsNullString(input.ErrorBody),
 		opsNullString(input.ErrorSource),
@@ -181,6 +200,13 @@ func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {
 		opsNullString(input.DeletedKeyName),
 		opsNullString(input.APIKeyPrefix),
 	}
+}
+
+func opsClassificationBool(version int16, value bool) any {
+	if version <= 0 {
+		return sql.NullBool{}
+	}
+	return sql.NullBool{Bool: value, Valid: true}
 }
 
 // opsErrorLogsOrderBy builds the ORDER BY clause from a whitelist, mirroring
@@ -252,6 +278,15 @@ SELECT
   e.error_type,
   COALESCE(e.error_owner, ''),
   COALESCE(e.error_source, ''),
+  COALESCE(e.event_scope, ''),
+  e.customer_visible,
+  COALESCE(e.failure_domain, ''),
+  COALESCE(e.failure_category, ''),
+  COALESCE(e.failure_reason, ''),
+  COALESCE(e.resolution_owner, ''),
+  COALESCE(e.pool_ownership, ''),
+  e.sla_impact,
+  COALESCE(e.classification_version, 0),
   e.severity,
   COALESCE(e.upstream_status_code, e.status_code, 0),
   COALESCE(e.platform, ''),
@@ -308,6 +343,8 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 	for rows.Next() {
 		var item service.OpsErrorLog
 		var statusCode sql.NullInt64
+		var customerVisible sql.NullBool
+		var slaImpact sql.NullBool
 		var clientIP sql.NullString
 		var userID sql.NullInt64
 		var apiKeyID sql.NullInt64
@@ -333,6 +370,15 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 			&item.Type,
 			&item.Owner,
 			&item.Source,
+			&item.EventScope,
+			&customerVisible,
+			&item.FailureDomain,
+			&item.FailureCategory,
+			&item.FailureReason,
+			&item.ResolutionOwner,
+			&item.PoolOwnership,
+			&slaImpact,
+			&item.ClassificationVersion,
 			&item.Severity,
 			&statusCode,
 			&item.Platform,
@@ -381,6 +427,14 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 		}
 		item.ResolvedByUserName = resolvedByName
 		item.StatusCode = int(statusCode.Int64)
+		if customerVisible.Valid {
+			value := customerVisible.Bool
+			item.CustomerVisible = &value
+		}
+		if slaImpact.Valid {
+			value := slaImpact.Bool
+			item.SLAImpact = &value
+		}
 		if clientIP.Valid {
 			s := clientIP.String
 			item.ClientIP = &s
@@ -457,6 +511,15 @@ SELECT
   e.error_type,
   COALESCE(e.error_owner, ''),
   COALESCE(e.error_source, ''),
+  COALESCE(e.event_scope, ''),
+  e.customer_visible,
+  COALESCE(e.failure_domain, ''),
+  COALESCE(e.failure_category, ''),
+  COALESCE(e.failure_reason, ''),
+  COALESCE(e.resolution_owner, ''),
+  COALESCE(e.pool_ownership, ''),
+  e.sla_impact,
+  COALESCE(e.classification_version, 0),
   e.severity,
   COALESCE(e.upstream_status_code, e.status_code, 0),
   COALESCE(e.platform, ''),
@@ -515,6 +578,8 @@ LIMIT 1`
 
 	var out service.OpsErrorLogDetail
 	var statusCode sql.NullInt64
+	var customerVisible sql.NullBool
+	var slaImpact sql.NullBool
 	var upstreamStatusCode sql.NullInt64
 	var resolvedAt sql.NullTime
 	var resolvedBy sql.NullInt64
@@ -541,6 +606,15 @@ LIMIT 1`
 		&out.Type,
 		&out.Owner,
 		&out.Source,
+		&out.EventScope,
+		&customerVisible,
+		&out.FailureDomain,
+		&out.FailureCategory,
+		&out.FailureReason,
+		&out.ResolutionOwner,
+		&out.PoolOwnership,
+		&slaImpact,
+		&out.ClassificationVersion,
 		&out.Severity,
 		&statusCode,
 		&out.Platform,
@@ -594,6 +668,14 @@ LIMIT 1`
 	}
 
 	out.StatusCode = int(statusCode.Int64)
+	if customerVisible.Valid {
+		value := customerVisible.Bool
+		out.CustomerVisible = &value
+	}
+	if slaImpact.Valid {
+		value := slaImpact.Bool
+		out.SLAImpact = &value
+	}
 	if resolvedAt.Valid {
 		t := resolvedAt.Time
 		out.ResolvedAt = &t
@@ -1008,12 +1090,10 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 	// Keep list endpoints scoped to client errors unless the caller explicitly opts
 	// into recovered provider-health rows (upstream/account_auth). Request-error
 	// endpoints never set the opt-in and retain this guard.
-	// cyber_policy is exempt from the status >= 400 guard: streaming cyber hits arrive with
-	// status 200 (the SSE stream opened successfully before upstream returned response.failed),
-	// but they are always client-visible blocked requests that belong in admin + user error
-	// lists.  Without the exemption the entire streaming-path cyber sink would be invisible.
+	// The shared customer-visible contract includes streaming cyber_policy failures that
+	// arrive after an HTTP 200 response has already opened.
 	if !opsFilterIncludesRecoveredProviderRows(filter, phaseFilter) {
-		clauses = append(clauses, "(COALESCE(e.status_code, 0) >= 400 OR e.error_type = 'cyber_policy')")
+		clauses = append(clauses, opssql.CustomerVisible("e")+" = true")
 	}
 
 	if filter.StartTime != nil && !filter.StartTime.IsZero() {
@@ -1051,28 +1131,82 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 			clauses = append(clauses, "LOWER(COALESCE(e.error_source,'')) = $"+itoa(len(args)))
 		}
 	}
+	if filter != nil {
+		if eventScope := strings.TrimSpace(strings.ToLower(filter.EventScope)); eventScope != "" {
+			args = append(args, eventScope)
+			clauses = append(clauses, "e.event_scope = $"+itoa(len(args)))
+		}
+		if filter.CustomerVisible != nil {
+			args = append(args, *filter.CustomerVisible)
+			clauses = append(clauses, opssql.CustomerVisible("e")+" = $"+itoa(len(args)))
+		}
+		if domain := strings.TrimSpace(strings.ToLower(filter.FailureDomain)); domain != "" {
+			args = append(args, domain)
+			clauses = append(clauses, "e.failure_domain = $"+itoa(len(args)))
+		}
+		if category := strings.TrimSpace(strings.ToLower(filter.FailureCategory)); category != "" {
+			if category == service.OpsFailureBreakdownCategoryNonRouting {
+				clauses = append(clauses, "e.failure_domain = 'platform'")
+				clauses = append(clauses, "e.failure_category <> '"+service.OpsFailureCategoryRouting+"'")
+			} else {
+				args = append(args, category)
+				clauses = append(clauses, "e.failure_category = $"+itoa(len(args)))
+			}
+		}
+		if reason := strings.TrimSpace(strings.ToLower(filter.FailureReason)); reason != "" {
+			args = append(args, reason)
+			clauses = append(clauses, "e.failure_reason = $"+itoa(len(args)))
+		}
+		if owner := strings.TrimSpace(strings.ToLower(filter.ResolutionOwner)); owner != "" {
+			args = append(args, owner)
+			clauses = append(clauses, "e.resolution_owner = $"+itoa(len(args)))
+		}
+		if ownership := strings.TrimSpace(strings.ToLower(filter.PoolOwnership)); ownership != "" {
+			args = append(args, ownership)
+			clauses = append(clauses, "e.pool_ownership = $"+itoa(len(args)))
+		}
+		if filter.ClassificationVersion != nil {
+			args = append(args, *filter.ClassificationVersion)
+			clauses = append(clauses, "COALESCE(e.classification_version, 1) = $"+itoa(len(args)))
+		}
+	}
 	if resolvedFilter != nil {
 		args = append(args, *resolvedFilter)
 		clauses = append(clauses, "COALESCE(e.resolved,false) = $"+itoa(len(args)))
 	}
 
-	// View filter: errors vs excluded vs all.
-	// Excluded = business-limited errors (quota/concurrency/billing).
-	// Upstream 429/529 are included in errors view to match SLA calculation.
+	// Compatibility view filter: errors = platform SLA impact, excluded =
+	// customer-visible but SLA-excluded. For v2 rows a NULL SLA is deliberately
+	// preserved as unknown instead of falling back to the legacy boolean.
 	view := ""
 	if filter != nil {
 		view = strings.ToLower(strings.TrimSpace(filter.View))
 	}
-	switch view {
-	case "", "errors":
-		clauses = append(clauses, "COALESCE(e.is_business_limited,false) = false")
-	case "excluded":
-		clauses = append(clauses, "COALESCE(e.is_business_limited,false) = true")
-	case "all":
-		// no-op
-	default:
-		// treat unknown as default 'errors'
-		clauses = append(clauses, "COALESCE(e.is_business_limited,false) = false")
+	slaImpactExpr := opssql.SLAImpact("e")
+	if filter != nil && filter.SLAImpactUnknown {
+		clauses = append(clauses, opssql.ClassificationUnknown("e"))
+	} else if filter != nil && filter.SLAImpact != nil {
+		args = append(args, *filter.SLAImpact)
+		clauses = append(clauses, "("+slaImpactExpr+") = $"+itoa(len(args)))
+	} else {
+		switch view {
+		case "":
+			// Provider-health callers that explicitly opt into recovered attempts
+			// historically receive both terminal and recovered rows when they do
+			// not select a view. An explicit view=errors still means platform SLA.
+			if !opsFilterIncludesRecoveredProviderRows(filter, phaseFilter) {
+				clauses = append(clauses, "("+slaImpactExpr+") IS TRUE")
+			}
+		case "errors":
+			clauses = append(clauses, "("+slaImpactExpr+") IS TRUE")
+		case "excluded":
+			clauses = append(clauses, "("+slaImpactExpr+") IS FALSE")
+		case "all":
+			// no-op
+		default:
+			// treat unknown as default 'errors'
+			clauses = append(clauses, "("+slaImpactExpr+") IS TRUE")
+		}
 	}
 	if len(filter.StatusCodes) > 0 {
 		args = append(args, pq.Array(filter.StatusCodes))

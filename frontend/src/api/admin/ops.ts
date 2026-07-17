@@ -43,6 +43,15 @@ export interface OpsDashboardOverview {
   request_count_total: number
   request_count_sla: number
 
+  classification_version?: number
+  customer_visible_failure_count?: number
+  customer_visible_failure_rate?: number
+  platform_sla_failure_count?: number
+  sla_excluded_failure_count?: number
+  classification_unknown_count?: number
+  failure_breakdown?: OpsFailureBreakdownItem[]
+  current_window?: OpsCurrentFailureWindow | null
+
   token_consumed: number
 
   sla: number
@@ -65,6 +74,23 @@ export interface OpsDashboardOverview {
 
   duration: OpsPercentiles
   ttft: OpsPercentiles
+}
+
+export interface OpsFailureBreakdownItem {
+  domain: string
+  category?: string
+  count: number
+}
+
+export interface OpsCurrentFailureWindow {
+  seconds: number
+  start_time: string
+  end_time: string
+  state: 'active' | 'recovered' | 'quiet' | 'unknown' | string
+  success_count: number
+  customer_visible_failure_count: number
+  platform_sla_failure_count: number
+  classification_unknown_count: number
 }
 
 export interface OpsPercentiles {
@@ -899,6 +925,16 @@ export interface OpsErrorLog {
   error_owner: 'client' | 'provider' | 'platform' | string
   error_source: 'client_request' | 'upstream_http' | 'gateway' | string
 
+  event_scope?: string
+  customer_visible?: boolean | null
+  failure_domain?: string
+  failure_category?: string
+  failure_reason?: string
+  resolution_owner?: string
+  pool_ownership?: string
+  sla_impact?: boolean | null
+  classification_version?: number
+
   severity: OpsSeverity
   status_code: number
   platform: string
@@ -1111,6 +1147,16 @@ export type OpsErrorListQueryParams = {
   error_source?: string
   resolved?: string
   view?: OpsErrorListView
+
+  event_scope?: string
+  customer_visible?: boolean
+  failure_domain?: string
+  failure_category?: string
+  failure_reason?: string
+  resolution_owner?: string
+  pool_ownership?: string
+  sla_impact?: boolean | 'unknown'
+  classification_version?: number
 
   q?: string
   status_codes?: string

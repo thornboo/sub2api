@@ -2843,6 +2843,10 @@ type cyberPolicyOpsErrorMeta struct {
 // (400 non-stream / 200 stream), per F6.
 func buildCyberPolicyOpsErrorEntry(meta cyberPolicyOpsErrorMeta, mark *service.CyberPolicyMark) *service.OpsInsertErrorLogInput {
 	rt := int16(service.RequestTypeCyberBlocked)
+	eventScope := service.OpsEventScopeRequestTerminal
+	if meta.Stream && mark.UpstreamStatus < http.StatusBadRequest {
+		eventScope = service.OpsEventScopeStreamTerminal
+	}
 	entry := &service.OpsInsertErrorLogInput{
 		RequestID:         meta.RequestID,
 		ClientRequestID:   meta.ClientRequestID,
@@ -2861,10 +2865,19 @@ func buildCyberPolicyOpsErrorEntry(meta cyberPolicyOpsErrorMeta, mark *service.C
 		IsBusinessLimited: true,
 		ErrorMessage:      "cyber_policy: " + mark.Message,
 		// 原始 body 直接入队；ops service 落库前统一走 sanitizeErrorBodyForStorage 脱敏与截断。
-		ErrorBody:   mark.Body,
-		ErrorSource: "upstream_http",
-		ErrorOwner:  "provider",
-		CreatedAt:   meta.CreatedAt,
+		ErrorBody:             mark.Body,
+		ErrorSource:           "upstream_http",
+		ErrorOwner:            "provider",
+		CreatedAt:             meta.CreatedAt,
+		EventScope:            eventScope,
+		CustomerVisible:       true,
+		FailureDomain:         service.OpsFailureDomainCustomer,
+		FailureCategory:       service.OpsFailureCategoryPermission,
+		FailureReason:         service.OpsFailureReasonEndpointNotAllowed,
+		ResolutionOwner:       service.OpsResolutionOwnerCustomer,
+		PoolOwnership:         service.OpsPoolOwnershipUnknown,
+		SLAImpact:             service.OpsBool(false),
+		ClassificationVersion: service.OpsFailureClassificationVersion,
 	}
 	if meta.UserID > 0 {
 		entry.UserID = &meta.UserID
@@ -2892,25 +2905,34 @@ const cyberSessionBlockedClientMsg = "该会话已被网络安全策略屏蔽，
 func buildCyberSessionBlockedOpsEntry(meta cyberPolicyOpsErrorMeta) *service.OpsInsertErrorLogInput {
 	rt := int16(service.RequestTypeCyberBlocked)
 	entry := &service.OpsInsertErrorLogInput{
-		RequestID:         meta.RequestID,
-		ClientRequestID:   meta.ClientRequestID,
-		Platform:          meta.Platform,
-		Model:             meta.Model,
-		RequestPath:       meta.RequestPath,
-		Stream:            meta.Stream,
-		InboundEndpoint:   meta.InboundEndpoint,
-		RequestType:       &rt,
-		UserAgent:         meta.UserAgent,
-		APIKeyPrefix:      meta.APIKeyPrefix,
-		ErrorPhase:        "request",
-		ErrorType:         "cyber_policy_session_blocked",
-		Severity:          "P3",
-		StatusCode:        http.StatusForbidden,
-		IsBusinessLimited: true,
-		ErrorMessage:      "cyber_policy_session_blocked: request rejected locally by session block",
-		ErrorSource:       "gateway_local",
-		ErrorOwner:        "platform",
-		CreatedAt:         meta.CreatedAt,
+		RequestID:             meta.RequestID,
+		ClientRequestID:       meta.ClientRequestID,
+		Platform:              meta.Platform,
+		Model:                 meta.Model,
+		RequestPath:           meta.RequestPath,
+		Stream:                meta.Stream,
+		InboundEndpoint:       meta.InboundEndpoint,
+		RequestType:           &rt,
+		UserAgent:             meta.UserAgent,
+		APIKeyPrefix:          meta.APIKeyPrefix,
+		ErrorPhase:            "request",
+		ErrorType:             "cyber_policy_session_blocked",
+		Severity:              "P3",
+		StatusCode:            http.StatusForbidden,
+		IsBusinessLimited:     true,
+		ErrorMessage:          "cyber_policy_session_blocked: request rejected locally by session block",
+		ErrorSource:           "gateway_local",
+		ErrorOwner:            "platform",
+		CreatedAt:             meta.CreatedAt,
+		EventScope:            service.OpsEventScopeRequestTerminal,
+		CustomerVisible:       true,
+		FailureDomain:         service.OpsFailureDomainCustomer,
+		FailureCategory:       service.OpsFailureCategoryPermission,
+		FailureReason:         service.OpsFailureReasonEndpointNotAllowed,
+		ResolutionOwner:       service.OpsResolutionOwnerCustomer,
+		PoolOwnership:         service.OpsPoolOwnershipUnknown,
+		SLAImpact:             service.OpsBool(false),
+		ClassificationVersion: service.OpsFailureClassificationVersion,
 		// AccountID 有意不设：请求在账号选择前即被拒绝。
 	}
 	if meta.SessionBlockKey != "" {

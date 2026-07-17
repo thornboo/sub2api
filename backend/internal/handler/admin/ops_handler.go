@@ -173,6 +173,64 @@ func applyOpsStatusCodeFilters(c *gin.Context, filter *service.OpsErrorLogFilter
 	return true
 }
 
+func parseOptionalOpsBool(c *gin.Context, name string) (*bool, bool) {
+	raw := strings.TrimSpace(c.Query(name))
+	if raw == "" {
+		return nil, true
+	}
+	switch strings.ToLower(raw) {
+	case "1", "true", "yes":
+		value := true
+		return &value, true
+	case "0", "false", "no":
+		value := false
+		return &value, true
+	default:
+		response.BadRequest(c, "Invalid "+name)
+		return nil, false
+	}
+}
+
+func applyOpsFailureClassificationFilters(c *gin.Context, filter *service.OpsErrorLogFilter) bool {
+	if c == nil || filter == nil {
+		return true
+	}
+	filter.EventScope = strings.TrimSpace(c.Query("event_scope"))
+	filter.FailureDomain = strings.TrimSpace(c.Query("failure_domain"))
+	filter.FailureCategory = strings.TrimSpace(c.Query("failure_category"))
+	filter.FailureReason = strings.TrimSpace(c.Query("failure_reason"))
+	filter.ResolutionOwner = strings.TrimSpace(c.Query("resolution_owner"))
+	filter.PoolOwnership = strings.TrimSpace(c.Query("pool_ownership"))
+
+	visible, ok := parseOptionalOpsBool(c, "customer_visible")
+	if !ok {
+		return false
+	}
+	filter.CustomerVisible = visible
+
+	if raw := strings.ToLower(strings.TrimSpace(c.Query("sla_impact"))); raw != "" {
+		if raw == "unknown" || raw == "null" {
+			filter.SLAImpactUnknown = true
+		} else {
+			value, ok := parseOptionalOpsBool(c, "sla_impact")
+			if !ok {
+				return false
+			}
+			filter.SLAImpact = value
+		}
+	}
+	if raw := strings.TrimSpace(c.Query("classification_version")); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 16)
+		if err != nil || value <= 0 {
+			response.BadRequest(c, "Invalid classification_version")
+			return false
+		}
+		version := int16(value)
+		filter.ClassificationVersion = &version
+	}
+	return true
+}
+
 func NewOpsHandler(opsService *service.OpsService, memberBudgetService ...*service.EnterpriseMemberBudgetService) *OpsHandler {
 	handler := &OpsHandler{opsService: opsService}
 	if len(memberBudgetService) > 0 {
@@ -298,8 +356,11 @@ func (h *OpsHandler) GetErrorLogs(c *gin.Context) {
 	// Model 过滤：admin 走精确匹配（ModelFuzzy 默认 false，保持管理端语义）。
 	// buildOpsErrorLogsWhere 以 COALESCE(requested_model, model) 比对。
 	filter.Model = strings.TrimSpace(c.Query("model"))
+	if !applyOpsFailureClassificationFilters(c, filter) {
+		return
+	}
 
-	// 请求错误语义:client-visible status>=400 守卫恒生效（未设
+	// 请求错误语义：customer_visible 守卫恒生效（未设
 	// IncludeRecoveredUpstream 时 phase=upstream 不再绕过守卫），故
 	// phase=upstream 作为普通过滤条件保留——此前这里清空该值，导致
 	// 错误类型下拉选「上游」等于不过滤。
@@ -413,8 +474,11 @@ func (h *OpsHandler) ListRequestErrors(c *gin.Context) {
 	// Model 过滤：admin 走精确匹配（ModelFuzzy 默认 false，保持管理端语义）。
 	// buildOpsErrorLogsWhere 以 COALESCE(requested_model, model) 比对。
 	filter.Model = strings.TrimSpace(c.Query("model"))
+	if !applyOpsFailureClassificationFilters(c, filter) {
+		return
+	}
 
-	// 请求错误语义:client-visible status>=400 守卫恒生效（未设
+	// 请求错误语义：customer_visible 守卫恒生效（未设
 	// IncludeRecoveredUpstream 时 phase=upstream 不再绕过守卫），故
 	// phase=upstream 作为普通过滤条件保留——此前这里清空该值，导致
 	// 错误类型下拉选「上游」等于不过滤。
@@ -542,6 +606,9 @@ func (h *OpsHandler) ListRequestErrorUpstreamErrors(c *gin.Context) {
 	filter.Owner = "provider"
 	filter.Source = strings.TrimSpace(c.Query("error_source"))
 	filter.Query = strings.TrimSpace(c.Query("q"))
+	if !applyOpsFailureClassificationFilters(c, filter) {
+		return
+	}
 
 	if platform := strings.TrimSpace(c.Query("platform")); platform != "" {
 		filter.Platform = platform
@@ -620,6 +687,9 @@ func (h *OpsHandler) ListUpstreamErrors(c *gin.Context) {
 	}
 
 	filter.View = parseOpsViewParam(c)
+	if strings.TrimSpace(c.Query("view")) == "" {
+		filter.View = "all"
+	}
 	filter.Phase = strings.TrimSpace(c.Query("phase"))
 	if filter.Phase == "" {
 		filter.ErrorPhasesAny = []string{"upstream", "account_auth"}
@@ -629,6 +699,9 @@ func (h *OpsHandler) ListUpstreamErrors(c *gin.Context) {
 	filter.Owner = "provider"
 	filter.Source = strings.TrimSpace(c.Query("error_source"))
 	filter.Query = strings.TrimSpace(c.Query("q"))
+	if !applyOpsFailureClassificationFilters(c, filter) {
+		return
+	}
 
 	if platform := strings.TrimSpace(c.Query("platform")); platform != "" {
 		filter.Platform = platform

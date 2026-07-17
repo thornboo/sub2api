@@ -65,9 +65,66 @@ func (s *OpsService) GetDashboardOverview(ctx context.Context, filter *OpsDashbo
 		log.Printf("[Ops] ListJobHeartbeats failed: %v", err)
 	}
 
+	// The repository owns the fixed-window counts, while the service owns the
+	// administrator-configured threshold. Keep the state decision here so a
+	// single platform failure does not incorrectly imply an ongoing incident.
+	thresholds, thresholdErr := s.GetMetricThresholds(ctx)
+	if thresholdErr != nil {
+		log.Printf("[Ops] GetMetricThresholds for current failure state failed: %v", thresholdErr)
+		thresholds = defaultOpsMetricThresholds()
+	}
+	if overview.CurrentWindow != nil {
+		overview.CurrentWindow.State = classifyOpsCurrentFailureState(
+			overview.CurrentWindow,
+			overview.PlatformSLAFailureCount,
+			filter.StartTime,
+			filter.EndTime,
+			thresholds,
+		)
+	}
+
 	overview.HealthScore = computeDashboardHealthScore(time.Now().UTC(), overview)
 
 	return overview, nil
+}
+
+func classifyOpsCurrentFailureState(
+	current *OpsCurrentFailureWindow,
+	selectedPlatformFailures int64,
+	selectedStart time.Time,
+	selectedEnd time.Time,
+	thresholds *OpsMetricThresholds,
+) string {
+	if current == nil {
+		return "unknown"
+	}
+	if current.SuccessCount+current.CustomerVisibleFailureCount == 0 {
+		return "unknown"
+	}
+
+	thresholdPercent := 5.0
+	if thresholds != nil && thresholds.RequestErrorRatePercentMax != nil {
+		thresholdPercent = *thresholds.RequestErrorRatePercentMax
+	}
+	requestCountSLA := current.SuccessCount + current.PlatformSLAFailureCount
+	platformFailureRatePercent := 0.0
+	if requestCountSLA > 0 {
+		platformFailureRatePercent = float64(current.PlatformSLAFailureCount) / float64(requestCountSLA) * 100
+	}
+	if current.PlatformSLAFailureCount > 0 && platformFailureRatePercent >= thresholdPercent {
+		return "active"
+	}
+	// Unknown evidence must prevent a quiet/recovered conclusion, but it must
+	// never hide a platform incident that is already proven active above.
+	if current.ClassificationUnknownCount > 0 {
+		return "unknown"
+	}
+
+	selectedOverlapsCurrent := selectedEnd.After(current.StartTime) && selectedStart.Before(current.EndTime)
+	if selectedPlatformFailures > 0 && selectedOverlapsCurrent {
+		return "recovered"
+	}
+	return "quiet"
 }
 
 func (s *OpsService) resolveOpsQueryMode(ctx context.Context, requested OpsQueryMode) OpsQueryMode {

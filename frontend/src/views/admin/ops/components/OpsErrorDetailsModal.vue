@@ -38,6 +38,10 @@ const statusCode = ref<OpsErrorDetailsStatusCode>(null)
 const phase = ref<string>('')
 const errorOwner = ref<string>('')
 const viewMode = ref<OpsErrorDetailsView>('errors')
+const failureDomain = ref<string>('')
+const failureCategory = ref<string>('')
+const resolutionOwner = ref<string>('')
+const slaImpact = ref<'' | 'true' | 'false' | 'unknown'>('')
 let searchTimeout: number | null = null
 let resettingFilters = false
 let fetchErrorLogsRequestId = 0
@@ -85,6 +89,37 @@ const ownerSelectOptions = computed(() => {
     { value: 'platform', label: t('admin.ops.errorDetails.owner.platform') || 'platform' }
   ]
 })
+
+const failureDomainSelectOptions = computed(() => [
+  { value: '', label: t('common.all') },
+  ...['customer', 'enterprise', 'client', 'platform', 'upstream', 'unknown'].map((value) => ({
+    value,
+    label: t(`admin.ops.errorDetails.domain.${value}`) || value
+  }))
+])
+
+const failureCategorySelectOptions = computed(() => [
+  { value: '', label: t('common.all') },
+  ...['authentication', 'balance', 'budget', 'quota', 'rate_limit', 'concurrency', 'permission', 'capability', 'protocol', 'routing_capacity', 'non_routing', 'credential', 'overload', 'timeout', 'network', 'dependency', 'internal', 'cancellation', 'unknown'].map((value) => ({
+    value,
+    label: t(`admin.ops.errorDetails.category.${value}`) || value
+  }))
+])
+
+const resolutionOwnerSelectOptions = computed(() => [
+  { value: '', label: t('common.all') },
+  ...['customer', 'enterprise_admin', 'platform_ops', 'client', 'unknown'].map((value) => ({
+    value,
+    label: t(`admin.ops.errorDetails.resolutionOwner.${value}`) || value
+  }))
+])
+
+const slaImpactSelectOptions = computed(() => [
+  { value: '', label: t('common.all') },
+  { value: 'true', label: t('admin.ops.errorDetails.slaImpact.included') },
+  { value: 'false', label: t('admin.ops.errorDetails.slaImpact.excluded') },
+  { value: 'unknown', label: t('admin.ops.errorDetails.slaImpact.unknown') }
+])
 
 
 const viewModeSelectOptions = computed(() => {
@@ -137,7 +172,10 @@ async function fetchErrorLogs() {
       sort_order: sortOrder.value
     }
 
-    if (props.timeRange === 'custom') {
+    if (props.preset?.startTime && props.preset?.endTime) {
+      params.start_time = props.preset.startTime
+      params.end_time = props.preset.endTime
+    } else if (props.timeRange === 'custom') {
       if (props.customStartTime && props.customEndTime) {
         params.start_time = props.customStartTime
         params.end_time = props.customEndTime
@@ -163,6 +201,18 @@ async function fetchErrorLogs() {
 
     const ownerVal = String(errorOwner.value || '').trim()
     if (ownerVal) params.error_owner = ownerVal
+
+    const domainVal = String(failureDomain.value || '').trim()
+    if (domainVal) params.failure_domain = domainVal
+    const categoryVal = String(failureCategory.value || '').trim()
+    if (categoryVal) params.failure_category = categoryVal
+    const resolutionOwnerVal = String(resolutionOwner.value || '').trim()
+    if (resolutionOwnerVal) params.resolution_owner = resolutionOwnerVal
+    if (slaImpact.value) params.sla_impact = slaImpact.value
+    if (props.preset?.eventScope) params.event_scope = props.preset.eventScope
+    if (typeof props.preset?.customerVisible === 'boolean') params.customer_visible = props.preset.customerVisible
+    if (props.preset?.failureReason) params.failure_reason = props.preset.failureReason
+    if (props.preset?.poolOwnership) params.pool_ownership = props.preset.poolOwnership
 
 
     const res = props.errorType === 'upstream'
@@ -196,6 +246,10 @@ async function resetFilters(options: { resetPageSize?: boolean } = {}) {
   phase.value = preset?.phase ?? ''
   errorOwner.value = preset?.owner ?? ''
   viewMode.value = preset?.view ?? 'errors'
+  failureDomain.value = preset?.failureDomain ?? ''
+  failureCategory.value = preset?.failureCategory ?? ''
+  resolutionOwner.value = preset?.resolutionOwner ?? ''
+  slaImpact.value = preset?.slaImpact === true ? 'true' : preset?.slaImpact === false ? 'false' : preset?.slaImpact ?? ''
   page.value = 1
   if (options.resetPageSize) pageSize.value = 10
   fetchErrorLogs()
@@ -257,7 +311,7 @@ watch(
 )
 
 watch(
-  () => [statusCode.value, phase.value, errorOwner.value, viewMode.value] as const,
+  () => [statusCode.value, phase.value, errorOwner.value, viewMode.value, failureDomain.value, failureCategory.value, resolutionOwner.value, slaImpact.value] as const,
   () => {
     if (!props.show || resettingFilters) return
     fetchFirstPage()
@@ -295,7 +349,7 @@ watch(
             </div>
           </div>
 
-          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
             <div class="ops-filter-field compact-select">
               <div class="ops-filter-label">{{ t('admin.ops.errorDetails.filters.statusCode') }}</div>
               <Select :model-value="statusCode" :options="statusCodeSelectOptions" @update:model-value="statusCode = $event as any" />
@@ -314,6 +368,26 @@ watch(
             <div class="ops-filter-field compact-select">
               <div class="ops-filter-label">{{ t('admin.ops.errorDetails.filters.scope') }}</div>
               <Select :model-value="viewMode" :options="viewModeSelectOptions" @update:model-value="viewMode = $event as any" />
+            </div>
+
+            <div class="ops-filter-field compact-select">
+              <div class="ops-filter-label">{{ t('admin.ops.errorDetails.filters.domain') }}</div>
+              <Select :model-value="failureDomain" :options="failureDomainSelectOptions" @update:model-value="failureDomain = String($event ?? '')" />
+            </div>
+
+            <div class="ops-filter-field compact-select">
+              <div class="ops-filter-label">{{ t('admin.ops.errorDetails.filters.category') }}</div>
+              <Select :model-value="failureCategory" :options="failureCategorySelectOptions" @update:model-value="failureCategory = String($event ?? '')" />
+            </div>
+
+            <div class="ops-filter-field compact-select">
+              <div class="ops-filter-label">{{ t('admin.ops.errorDetails.filters.resolutionOwner') }}</div>
+              <Select :model-value="resolutionOwner" :options="resolutionOwnerSelectOptions" @update:model-value="resolutionOwner = String($event ?? '')" />
+            </div>
+
+            <div class="ops-filter-field compact-select">
+              <div class="ops-filter-label">{{ t('admin.ops.errorDetails.filters.slaImpact') }}</div>
+              <Select :model-value="slaImpact" :options="slaImpactSelectOptions" @update:model-value="slaImpact = $event as any" />
             </div>
 
             <div class="flex items-end">

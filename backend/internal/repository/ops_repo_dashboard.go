@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/opssql"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -70,7 +71,7 @@ func (r *opsRepository) getDashboardOverviewRaw(ctx context.Context, filter *ser
 		}
 	}
 
-	errorTotal, businessLimited, errorCountSLA, upstreamExcl, upstream429, upstream529, err := r.queryErrorCounts(ctx, filter, start, end)
+	failures, err := r.queryFailureCounts(ctx, filter, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -80,12 +81,12 @@ func (r *opsRepository) getDashboardOverviewRaw(ctx context.Context, filter *ser
 		windowSeconds = 1
 	}
 
-	requestCountTotal := successCount + errorTotal
-	requestCountSLA := successCount + errorCountSLA
+	requestCountTotal := successCount + failures.customerVisible
+	requestCountSLA := successCount + failures.platformSLA
 
 	sla := safeDivideFloat64(float64(successCount), float64(requestCountSLA))
-	errorRate := safeDivideFloat64(float64(errorCountSLA), float64(requestCountSLA))
-	upstreamErrorRate := safeDivideFloat64(float64(upstreamExcl), float64(requestCountSLA))
+	errorRate := safeDivideFloat64(float64(failures.platformSLA), float64(requestCountSLA))
+	upstreamErrorRate := safeDivideFloat64(float64(failures.upstreamExcl429529), float64(requestCountSLA))
 
 	qpsCurrent, tpsCurrent, err := r.queryCurrentRates(ctx, filter, end)
 	if err != nil {
@@ -124,26 +125,34 @@ func (r *opsRepository) getDashboardOverviewRaw(ctx context.Context, filter *ser
 		}
 	}
 
-	return &service.OpsDashboardOverview{
+	out := &service.OpsDashboardOverview{
 		StartTime: start,
 		EndTime:   end,
 		Platform:  strings.TrimSpace(filter.Platform),
 		GroupID:   filter.GroupID,
 
 		SuccessCount:         successCount,
-		ErrorCountTotal:      errorTotal,
-		BusinessLimitedCount: businessLimited,
-		ErrorCountSLA:        errorCountSLA,
+		ErrorCountTotal:      failures.customerVisible,
+		BusinessLimitedCount: failures.slaExcluded,
+		ErrorCountSLA:        failures.platformSLA,
 		RequestCountTotal:    requestCountTotal,
 		RequestCountSLA:      requestCountSLA,
 		TokenConsumed:        tokenConsumed,
 
+		ClassificationVersion:       service.OpsFailureClassificationVersion,
+		CustomerVisibleFailureCount: failures.customerVisible,
+		CustomerVisibleFailureRate:  roundTo4DP(safeDivideFloat64(float64(failures.customerVisible), float64(requestCountTotal))),
+		PlatformSLAFailureCount:     failures.platformSLA,
+		SLAExcludedFailureCount:     failures.slaExcluded,
+		ClassificationUnknownCount:  failures.unknown,
+		FailureBreakdown:            failures.breakdown(),
+
 		SLA:                          roundTo4DP(sla),
 		ErrorRate:                    roundTo4DP(errorRate),
 		UpstreamErrorRate:            roundTo4DP(upstreamErrorRate),
-		UpstreamErrorCountExcl429529: upstreamExcl,
-		Upstream429Count:             upstream429,
-		Upstream529Count:             upstream529,
+		UpstreamErrorCountExcl429529: failures.upstreamExcl429529,
+		Upstream429Count:             failures.upstream429,
+		Upstream529Count:             failures.upstream529,
 
 		QPS: service.OpsRateSummary{
 			Current: qpsCurrent,
@@ -158,19 +167,68 @@ func (r *opsRepository) getDashboardOverviewRaw(ctx context.Context, filter *ser
 
 		Duration: duration,
 		TTFT:     ttft,
-	}, nil
+	}
+	out.CurrentWindow = r.queryCurrentFailureWindowBestEffort(ctx, filter)
+	return out, nil
+}
+
+type opsFailureCounts struct {
+	customerVisible int64
+	platformSLA     int64
+	slaExcluded     int64
+	unknown         int64
+
+	customer          int64
+	enterprise        int64
+	clientRequest     int64
+	clientTransport   int64
+	platformRouting   int64
+	platformInternal  int64
+	upstreamTerminal  int64
+	upstreamRecovered int64
+
+	upstreamExcl429529 int64
+	upstream429        int64
+	upstream529        int64
+}
+
+func (c opsFailureCounts) add(other opsFailureCounts) opsFailureCounts {
+	c.customerVisible += other.customerVisible
+	c.platformSLA += other.platformSLA
+	c.slaExcluded += other.slaExcluded
+	c.unknown += other.unknown
+	c.customer += other.customer
+	c.enterprise += other.enterprise
+	c.clientRequest += other.clientRequest
+	c.clientTransport += other.clientTransport
+	c.platformRouting += other.platformRouting
+	c.platformInternal += other.platformInternal
+	c.upstreamTerminal += other.upstreamTerminal
+	c.upstreamRecovered += other.upstreamRecovered
+	c.upstreamExcl429529 += other.upstreamExcl429529
+	c.upstream429 += other.upstream429
+	c.upstream529 += other.upstream529
+	return c
+}
+
+func (c opsFailureCounts) breakdown() []*service.OpsFailureBreakdownItem {
+	return []*service.OpsFailureBreakdownItem{
+		{Domain: service.OpsFailureDomainCustomer, Count: c.customer},
+		{Domain: service.OpsFailureDomainEnterprise, Count: c.enterprise},
+		{Domain: service.OpsFailureDomainClient, Category: "request", Count: c.clientRequest},
+		{Domain: service.OpsFailureDomainClient, Category: "transport", Count: c.clientTransport},
+		{Domain: service.OpsFailureDomainPlatform, Category: service.OpsFailureCategoryRouting, Count: c.platformRouting},
+		{Domain: service.OpsFailureDomainPlatform, Category: service.OpsFailureBreakdownCategoryNonRouting, Count: c.platformInternal},
+		{Domain: service.OpsFailureDomainUpstream, Category: "terminal", Count: c.upstreamTerminal},
+		{Domain: service.OpsFailureDomainUpstream, Category: "recovered_attempt", Count: c.upstreamRecovered},
+		{Domain: service.OpsFailureDomainUnknown, Count: c.unknown},
+	}
 }
 
 type opsDashboardPartial struct {
-	successCount         int64
-	ttftSampleCount      int64
-	errorCountTotal      int64
-	businessLimitedCount int64
-	errorCountSLA        int64
-
-	upstreamErrorCountExcl429529 int64
-	upstream429Count             int64
-	upstream529Count             int64
+	successCount    int64
+	ttftSampleCount int64
+	failures        opsFailureCounts
 
 	tokenConsumed int64
 
@@ -201,9 +259,21 @@ func (r *opsRepository) getDashboardOverviewPreaggregated(ctx context.Context, f
 	if err != nil {
 		return nil, err
 	}
+	legacyRowsExist, err := r.rawLegacyClassificationExists(ctx, filter, aggFullStart, aggFullEnd)
+	if err != nil {
+		return nil, err
+	}
+	if legacyRowsExist {
+		return nil, service.ErrOpsPreaggregatedNotPopulated
+	}
 	if len(preaggRows) == 0 {
 		// Distinguish "no data" vs "preagg not populated yet".
 		if exists, err := r.rawOpsDataExists(ctx, filter, aggFullStart, aggFullEnd); err == nil && exists {
+			return nil, service.ErrOpsPreaggregatedNotPopulated
+		}
+	}
+	for _, row := range preaggRows {
+		if row.classificationVersion < service.OpsFailureClassificationVersion {
 			return nil, service.ErrOpsPreaggregatedNotPopulated
 		}
 	}
@@ -230,13 +300,7 @@ func (r *opsRepository) getDashboardOverviewPreaggregated(ctx context.Context, f
 
 	// Merge counts.
 	successCount := preagg.successCount + head.successCount + tail.successCount
-	errorTotal := preagg.errorCountTotal + head.errorCountTotal + tail.errorCountTotal
-	businessLimited := preagg.businessLimitedCount + head.businessLimitedCount + tail.businessLimitedCount
-	errorCountSLA := preagg.errorCountSLA + head.errorCountSLA + tail.errorCountSLA
-
-	upstreamExcl := preagg.upstreamErrorCountExcl429529 + head.upstreamErrorCountExcl429529 + tail.upstreamErrorCountExcl429529
-	upstream429 := preagg.upstream429Count + head.upstream429Count + tail.upstream429Count
-	upstream529 := preagg.upstream529Count + head.upstream529Count + tail.upstream529Count
+	failures := preagg.failures.add(head.failures).add(tail.failures)
 
 	tokenConsumed := preagg.tokenConsumed + head.tokenConsumed + tail.tokenConsumed
 
@@ -261,12 +325,12 @@ func (r *opsRepository) getDashboardOverviewPreaggregated(ctx context.Context, f
 		windowSeconds = 1
 	}
 
-	requestCountTotal := successCount + errorTotal
-	requestCountSLA := successCount + errorCountSLA
+	requestCountTotal := successCount + failures.customerVisible
+	requestCountSLA := successCount + failures.platformSLA
 
 	sla := safeDivideFloat64(float64(successCount), float64(requestCountSLA))
-	errorRate := safeDivideFloat64(float64(errorCountSLA), float64(requestCountSLA))
-	upstreamErrorRate := safeDivideFloat64(float64(upstreamExcl), float64(requestCountSLA))
+	errorRate := safeDivideFloat64(float64(failures.platformSLA), float64(requestCountSLA))
+	upstreamErrorRate := safeDivideFloat64(float64(failures.upstreamExcl429529), float64(requestCountSLA))
 	degraded := false
 
 	// Keep "current" rates as raw, to preserve realtime semantics.
@@ -307,26 +371,34 @@ func (r *opsRepository) getDashboardOverviewPreaggregated(ctx context.Context, f
 		}
 	}
 
-	return &service.OpsDashboardOverview{
+	out := &service.OpsDashboardOverview{
 		StartTime: start,
 		EndTime:   end,
 		Platform:  strings.TrimSpace(filter.Platform),
 		GroupID:   filter.GroupID,
 
 		SuccessCount:         successCount,
-		ErrorCountTotal:      errorTotal,
-		BusinessLimitedCount: businessLimited,
-		ErrorCountSLA:        errorCountSLA,
+		ErrorCountTotal:      failures.customerVisible,
+		BusinessLimitedCount: failures.slaExcluded,
+		ErrorCountSLA:        failures.platformSLA,
 		RequestCountTotal:    requestCountTotal,
 		RequestCountSLA:      requestCountSLA,
 		TokenConsumed:        tokenConsumed,
 
+		ClassificationVersion:       service.OpsFailureClassificationVersion,
+		CustomerVisibleFailureCount: failures.customerVisible,
+		CustomerVisibleFailureRate:  roundTo4DP(safeDivideFloat64(float64(failures.customerVisible), float64(requestCountTotal))),
+		PlatformSLAFailureCount:     failures.platformSLA,
+		SLAExcludedFailureCount:     failures.slaExcluded,
+		ClassificationUnknownCount:  failures.unknown,
+		FailureBreakdown:            failures.breakdown(),
+
 		SLA:                          roundTo4DP(sla),
 		ErrorRate:                    roundTo4DP(errorRate),
 		UpstreamErrorRate:            roundTo4DP(upstreamErrorRate),
-		UpstreamErrorCountExcl429529: upstreamExcl,
-		Upstream429Count:             upstream429,
-		Upstream529Count:             upstream529,
+		UpstreamErrorCountExcl429529: failures.upstreamExcl429529,
+		Upstream429Count:             failures.upstream429,
+		Upstream529Count:             failures.upstream529,
 
 		QPS: service.OpsRateSummary{
 			Current: qpsCurrent,
@@ -341,21 +413,18 @@ func (r *opsRepository) getDashboardOverviewPreaggregated(ctx context.Context, f
 
 		Duration: duration,
 		TTFT:     ttft,
-	}, nil
+	}
+	out.CurrentWindow = r.queryCurrentFailureWindowBestEffort(ctx, filter)
+	return out, nil
 }
 
 type opsHourlyMetricsRow struct {
-	bucketStart time.Time
+	bucketStart           time.Time
+	classificationVersion int16
 
-	successCount         int64
-	ttftSampleCount      int64
-	errorCountTotal      int64
-	businessLimitedCount int64
-	errorCountSLA        int64
-
-	upstreamErrorCountExcl429529 int64
-	upstream429Count             int64
-	upstream529Count             int64
+	successCount    int64
+	ttftSampleCount int64
+	failures        opsFailureCounts
 
 	tokenConsumed int64
 
@@ -414,10 +483,23 @@ func (r *opsRepository) listHourlyMetricsRows(ctx context.Context, filter *servi
 	q := `
 SELECT
   bucket_start,
+  classification_version,
   success_count,
   error_count_total,
   business_limited_count,
   error_count_sla,
+  customer_visible_failure_count,
+  platform_sla_failure_count,
+  sla_excluded_failure_count,
+  classification_unknown_count,
+  customer_failure_count,
+  enterprise_failure_count,
+  client_request_failure_count,
+  client_transport_failure_count,
+  platform_routing_failure_count,
+  platform_internal_failure_count,
+  upstream_terminal_failure_count,
+  upstream_recovered_attempt_count,
   upstream_error_count_excl_429_529,
   upstream_429_count,
   upstream_529_count,
@@ -450,13 +532,26 @@ ORDER BY bucket_start ASC`
 		var row opsHourlyMetricsRow
 		if err := rows.Scan(
 			&row.bucketStart,
+			&row.classificationVersion,
 			&row.successCount,
-			&row.errorCountTotal,
-			&row.businessLimitedCount,
-			&row.errorCountSLA,
-			&row.upstreamErrorCountExcl429529,
-			&row.upstream429Count,
-			&row.upstream529Count,
+			new(int64),
+			new(int64),
+			new(int64),
+			&row.failures.customerVisible,
+			&row.failures.platformSLA,
+			&row.failures.slaExcluded,
+			&row.failures.unknown,
+			&row.failures.customer,
+			&row.failures.enterprise,
+			&row.failures.clientRequest,
+			&row.failures.clientTransport,
+			&row.failures.platformRouting,
+			&row.failures.platformInternal,
+			&row.failures.upstreamTerminal,
+			&row.failures.upstreamRecovered,
+			&row.failures.upstreamExcl429529,
+			&row.failures.upstream429,
+			&row.failures.upstream529,
 			&row.tokenConsumed,
 			&row.durationP50,
 			&row.durationP90,
@@ -518,13 +613,7 @@ func aggregateHourlyRows(rows []opsHourlyMetricsRow) opsDashboardPartial {
 	for _, row := range rows {
 		out.successCount += row.successCount
 		out.ttftSampleCount += row.ttftSampleCount
-		out.errorCountTotal += row.errorCountTotal
-		out.businessLimitedCount += row.businessLimitedCount
-		out.errorCountSLA += row.errorCountSLA
-
-		out.upstreamErrorCountExcl429529 += row.upstreamErrorCountExcl429529
-		out.upstream429Count += row.upstream429Count
-		out.upstream529Count += row.upstream529Count
+		out.failures = out.failures.add(row.failures)
 
 		out.tokenConsumed += row.tokenConsumed
 
@@ -656,23 +745,18 @@ func (r *opsRepository) queryRawPartial(ctx context.Context, filter *service.Ops
 		}
 	}
 
-	errorTotal, businessLimited, errorCountSLA, upstreamExcl, upstream429, upstream529, err := r.queryErrorCounts(ctx, filter, start, end)
+	failures, err := r.queryFailureCounts(ctx, filter, start, end)
 	if err != nil {
 		return nil, err
 	}
 
 	return &opsDashboardPartial{
-		successCount:                 successCount,
-		ttftSampleCount:              ttftSampleCount,
-		errorCountTotal:              errorTotal,
-		businessLimitedCount:         businessLimited,
-		errorCountSLA:                errorCountSLA,
-		upstreamErrorCountExcl429529: upstreamExcl,
-		upstream429Count:             upstream429,
-		upstream529Count:             upstream529,
-		tokenConsumed:                tokenConsumed,
-		duration:                     duration,
-		ttft:                         ttft,
+		successCount:    successCount,
+		ttftSampleCount: ttftSampleCount,
+		failures:        failures,
+		tokenConsumed:   tokenConsumed,
+		duration:        duration,
+		ttft:            ttft,
 	}, nil
 }
 
@@ -698,6 +782,22 @@ func (r *opsRepository) rawOpsDataExists(ctx context.Context, filter *service.Op
 		}
 		return exists, nil
 	}
+}
+
+func (r *opsRepository) rawLegacyClassificationExists(ctx context.Context, filter *service.OpsDashboardFilter, start, end time.Time) (bool, error) {
+	where, args, _ := buildErrorWhere(filter, start, end, 1)
+	q := `SELECT EXISTS(
+		SELECT 1
+		FROM ops_error_logs
+		` + where + `
+		  AND ` + opssql.LegacyClassification("") + `
+		LIMIT 1
+	)`
+	var exists bool
+	if err := r.db.QueryRowContext(ctx, q, args...).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 type opsPercentileSegment struct {
@@ -867,6 +967,66 @@ FROM usage_logs ul
 	return duration, ttft, tCount, nil
 }
 
+func (r *opsRepository) queryFailureCounts(ctx context.Context, filter *service.OpsDashboardFilter, start, end time.Time) (opsFailureCounts, error) {
+	where, args, _ := buildErrorWhere(filter, start, end, 1)
+	customerVisible := opssql.CustomerVisible("")
+	slaImpact := opssql.SLAImpact("")
+	classificationUnknown := opssql.ClassificationUnknown("")
+	upstreamOwned := opssql.UpstreamOwned("")
+	effectiveStatus := opssql.EffectiveStatus("")
+
+	q := `
+SELECT
+  COALESCE(COUNT(*) FILTER (WHERE ` + customerVisible + `), 0),
+  COALESCE(COUNT(*) FILTER (WHERE ` + customerVisible + ` AND (` + slaImpact + `) IS TRUE), 0),
+  COALESCE(COUNT(*) FILTER (WHERE ` + customerVisible + ` AND (` + slaImpact + `) IS FALSE), 0),
+  COALESCE(COUNT(*) FILTER (WHERE ` + classificationUnknown + `), 0),
+  COALESCE(COUNT(*) FILTER (WHERE customer_visible IS TRUE AND failure_domain = 'customer'), 0),
+  COALESCE(COUNT(*) FILTER (WHERE customer_visible IS TRUE AND failure_domain = 'enterprise'), 0),
+  COALESCE(COUNT(*) FILTER (WHERE customer_visible IS TRUE AND failure_domain = 'client'
+    AND COALESCE(failure_category, '') NOT IN ('cancellation', 'network')), 0),
+  COALESCE(COUNT(*) FILTER (WHERE customer_visible IS TRUE AND failure_domain = 'client'
+    AND failure_category IN ('cancellation', 'network')), 0),
+  COALESCE(COUNT(*) FILTER (WHERE customer_visible IS TRUE AND failure_domain = 'platform'
+    AND failure_category = 'routing_capacity'), 0),
+  COALESCE(COUNT(*) FILTER (WHERE customer_visible IS TRUE AND failure_domain = 'platform'
+    AND COALESCE(failure_category, '') <> 'routing_capacity'), 0),
+  COALESCE(COUNT(*) FILTER (WHERE customer_visible IS TRUE AND failure_domain = 'upstream'), 0),
+  COALESCE(COUNT(*) FILTER (WHERE event_scope = 'upstream_attempt_recovered'), 0),
+  COALESCE(COUNT(*) FILTER (WHERE ` + customerVisible + ` AND (` + slaImpact + `) IS TRUE
+    AND ` + upstreamOwned + ` AND ` + effectiveStatus + ` NOT IN (429, 529)), 0),
+  COALESCE(COUNT(*) FILTER (WHERE ` + customerVisible + ` AND (` + slaImpact + `) IS TRUE
+    AND ` + upstreamOwned + ` AND ` + effectiveStatus + ` = 429), 0),
+  COALESCE(COUNT(*) FILTER (WHERE ` + customerVisible + ` AND (` + slaImpact + `) IS TRUE
+    AND ` + upstreamOwned + ` AND ` + effectiveStatus + ` = 529), 0)
+FROM ops_error_logs
+` + where
+
+	var out opsFailureCounts
+	if err := r.db.QueryRowContext(ctx, q, args...).Scan(
+		&out.customerVisible,
+		&out.platformSLA,
+		&out.slaExcluded,
+		&out.unknown,
+		&out.customer,
+		&out.enterprise,
+		&out.clientRequest,
+		&out.clientTransport,
+		&out.platformRouting,
+		&out.platformInternal,
+		&out.upstreamTerminal,
+		&out.upstreamRecovered,
+		&out.upstreamExcl429529,
+		&out.upstream429,
+		&out.upstream529,
+	); err != nil {
+		return opsFailureCounts{}, err
+	}
+	return out, nil
+}
+
+// queryErrorCounts preserves the old internal signature while every value is
+// now derived from the v2 classification contract.
 func (r *opsRepository) queryErrorCounts(ctx context.Context, filter *service.OpsDashboardFilter, start, end time.Time) (
 	errorTotal int64,
 	businessLimited int64,
@@ -876,30 +1036,39 @@ func (r *opsRepository) queryErrorCounts(ctx context.Context, filter *service.Op
 	upstream529 int64,
 	err error,
 ) {
-	where, args, _ := buildErrorWhere(filter, start, end, 1)
-
-	q := `
-SELECT
-  COALESCE(COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400), 0) AS error_total,
-  COALESCE(COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400 AND is_business_limited), 0) AS business_limited,
-  COALESCE(COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400 AND NOT is_business_limited), 0) AS error_sla,
-  COALESCE(COUNT(*) FILTER (WHERE error_owner = 'provider' AND NOT is_business_limited AND COALESCE(upstream_status_code, status_code, 0) NOT IN (429, 529)), 0) AS upstream_excl,
-  COALESCE(COUNT(*) FILTER (WHERE error_owner = 'provider' AND NOT is_business_limited AND COALESCE(upstream_status_code, status_code, 0) = 429), 0) AS upstream_429,
-  COALESCE(COUNT(*) FILTER (WHERE error_owner = 'provider' AND NOT is_business_limited AND COALESCE(upstream_status_code, status_code, 0) = 529), 0) AS upstream_529
-FROM ops_error_logs
-` + where
-
-	if err := r.db.QueryRowContext(ctx, q, args...).Scan(
-		&errorTotal,
-		&businessLimited,
-		&errorCountSLA,
-		&upstreamExcl429529,
-		&upstream429,
-		&upstream529,
-	); err != nil {
+	counts, err := r.queryFailureCounts(ctx, filter, start, end)
+	if err != nil {
 		return 0, 0, 0, 0, 0, 0, err
 	}
-	return errorTotal, businessLimited, errorCountSLA, upstreamExcl429529, upstream429, upstream529, nil
+	return counts.customerVisible, counts.slaExcluded, counts.platformSLA,
+		counts.upstreamExcl429529, counts.upstream429, counts.upstream529, nil
+}
+
+func (r *opsRepository) queryCurrentFailureWindowBestEffort(
+	ctx context.Context,
+	filter *service.OpsDashboardFilter,
+) *service.OpsCurrentFailureWindow {
+	end := time.Now().UTC()
+	start := end.Add(-15 * time.Minute)
+	successCount, _, err := r.queryUsageCounts(ctx, filter, start, end)
+	if err != nil {
+		return nil
+	}
+	counts, err := r.queryFailureCounts(ctx, filter, start, end)
+	if err != nil {
+		return nil
+	}
+
+	return &service.OpsCurrentFailureWindow{
+		Seconds:                     900,
+		StartTime:                   start,
+		EndTime:                     end,
+		State:                       "unknown",
+		SuccessCount:                successCount,
+		CustomerVisibleFailureCount: counts.customerVisible,
+		PlatformSLAFailureCount:     counts.platformSLA,
+		ClassificationUnknownCount:  counts.unknown,
+	}
 }
 
 func (r *opsRepository) queryCurrentRates(ctx context.Context, filter *service.OpsDashboardFilter, end time.Time) (qpsCurrent float64, tpsCurrent float64, err error) {
@@ -938,7 +1107,7 @@ error_buckets AS (
   SELECT date_trunc('minute', created_at) AS bucket, COUNT(*) AS err_cnt
   FROM ops_error_logs
   ` + errorWhere + `
-    AND COALESCE(status_code, 0) >= 400
+    AND ` + opssql.CustomerVisible("") + `
   GROUP BY 1
 ),
 combined AS (

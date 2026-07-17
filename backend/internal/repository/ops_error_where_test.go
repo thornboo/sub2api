@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -70,19 +71,29 @@ func TestBuildOpsErrorLogsWhere_ModelFuzzy(t *testing.T) {
 	}
 }
 
-// TestBuildOpsErrorLogsWhere_CyberPolicyStatusExemption verifies that streaming
-// cyber_policy hits (status_code=200) remain visible in admin + user error-request
-// lists.  The repository filter must emit an OR exemption for error_type='cyber_policy'
-// so that stream-path cyber rows (upstream delivers 200 with a failed SSE event) are
-// not silently excluded by the COALESCE(status_code,0) >= 400 guard.
+// TestBuildOpsErrorLogsWhere_CyberPolicyStatusExemption verifies that legacy
+// HTTP 200 terminal stream failures remain visible while recovered upstream
+// attempts do not leak into customer-failure lists.
 func TestBuildOpsErrorLogsWhere_CyberPolicyStatusExemption(t *testing.T) {
-	// Default filter (no phase) must include the cyber_policy exemption.
+	cyberFallback := "LOWER(COALESCE(e.error_type, '')) IN ('cyber_policy', 'cyber_policy_session_blocked')"
+	recoveredMarker := "LOWER(COALESCE(e.error_message, '')) LIKE 'recovered %'"
+
+	// Default filter (no phase) must include both cyber-policy variants and the
+	// strict stream-terminal compatibility predicate.
 	where, _ := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{})
-	if !strings.Contains(where, "e.error_type = 'cyber_policy'") {
-		t.Fatalf("default filter must exempt cyber_policy from status >= 400 guard\nfull: %s", where)
+	if !strings.Contains(where, cyberFallback) {
+		t.Fatalf("default filter must exempt both cyber-policy outcomes from status >= 400 guard\nfull: %s", where)
 	}
 	if !strings.Contains(where, "COALESCE(e.status_code, 0) >= 400") {
 		t.Fatalf("default filter must still include the status >= 400 guard for non-cyber rows\nfull: %s", where)
+	}
+	if !strings.Contains(where, "COALESCE(e.stream, FALSE)") || !strings.Contains(where, recoveredMarker) {
+		t.Fatalf("default filter must include non-recovered HTTP 200 stream-terminal failures\nfull: %s", where)
+	}
+	visible := true
+	whereVisible, _ := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{CustomerVisible: &visible})
+	if strings.Count(whereVisible, "COALESCE(e.customer_visible") != 2 || strings.Count(whereVisible, cyberFallback) < 2 {
+		t.Fatalf("default and explicit customer-visible filters must share the cyber-policy fallback\nfull: %s", whereVisible)
 	}
 
 	// phase=upstream WITHOUT the recovered-upstream opt-in keeps the status guard:
@@ -197,5 +208,54 @@ func TestBuildOpsErrorLogsWhere_MatchDeletedKeyOwner(t *testing.T) {
 	}
 	if strings.Contains(whereOff, "deleted_key_owner_user_id") {
 		t.Fatalf("default must NOT include deleted_key_owner_user_id, got: %s", whereOff)
+	}
+}
+
+func TestBuildOpsErrorLogsWhere_NonRoutingBreakdownMatchesItsAggregate(t *testing.T) {
+	where, args := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{
+		FailureCategory: service.OpsFailureBreakdownCategoryNonRouting,
+		View:            "all",
+	})
+
+	if !strings.Contains(where, "e.failure_domain = 'platform'") {
+		t.Fatalf("virtual non-routing category must enforce the platform domain: %s", where)
+	}
+	if !strings.Contains(where, "e.failure_category <> 'routing_capacity'") {
+		t.Fatalf("non-routing filter must include dependency/internal/etc. without routing rows: %s", where)
+	}
+	if len(args) != 0 {
+		t.Fatalf("virtual category must not consume a placeholder, got %v", args)
+	}
+}
+
+func TestBuildOpsErrorLogsWhere_StructuredFiltersUseIndexableClosedSetEquality(t *testing.T) {
+	where, args := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{
+		EventScope:      "REQUEST_TERMINAL",
+		FailureDomain:   "PLATFORM",
+		FailureCategory: "DEPENDENCY",
+		FailureReason:   "DATABASE_UNAVAILABLE",
+		ResolutionOwner: "PLATFORM_OPS",
+		PoolOwnership:   "PLATFORM",
+		View:            "all",
+	})
+
+	for _, clause := range []string{
+		"e.event_scope = $1",
+		"e.failure_domain = $2",
+		"e.failure_category = $3",
+		"e.failure_reason = $4",
+		"e.resolution_owner = $5",
+		"e.pool_ownership = $6",
+	} {
+		if !strings.Contains(where, clause) {
+			t.Fatalf("missing indexable structured filter %q: %s", clause, where)
+		}
+	}
+	if strings.Contains(where, "LOWER(COALESCE(e.failure_") {
+		t.Fatalf("structured closed-set filters must not wrap indexed columns: %s", where)
+	}
+	wantArgs := []any{"request_terminal", "platform", "dependency", "database_unavailable", "platform_ops", "platform"}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("structured filters must normalize closed-set values, want %v got %v", wantArgs, args)
 	}
 }

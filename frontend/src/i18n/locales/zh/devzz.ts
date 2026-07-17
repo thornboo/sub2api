@@ -822,19 +822,37 @@ export default {
         ops: {
             customerVisibleFailures: '客户可见失败',
             totalFailures: '全部失败',
-            customerSideLimits: '客户侧限制',
-            slaErrors: 'SLA 错误',
+            customerSideLimits: 'SLA 排除项',
+            slaErrors: '平台 SLA 失败',
+            platformAvailability: '平台可用性',
+            platformSlaFailures: '平台 SLA 失败',
+            slaExcludedFailures: 'SLA 排除项',
+            unclassifiedFailures: '未分类',
+            currentState: {
+                active: '当前仍在故障',
+                recovered: '当前已恢复',
+                quiet: '当前无平台故障',
+                unknown: '当前状态待确认'
+            },
+            failureDomain: {
+                customer: '账户与密钥策略',
+                enterprise: '企业成员策略',
+                client: '客户端请求与中断',
+                platformRouting: '平台路由容量',
+                platformInternal: '平台内部故障',
+                upstream: '最终上游失败'
+            },
             upstreamNonRateErrors: '非限流上游错误',
             upstreamRateOverload: '上游限流/过载',
             errorCountExcl429529: '非限流上游错误',
-            sla: 'SLA（排除客户侧限制）',
-            businessLimited: '客户侧限制：',
-            errorsSla: 'SLA 错误',
+            sla: '平台可用性',
+            businessLimited: 'SLA 排除项：',
+            errorsSla: '平台 SLA 失败',
             upstreamExcl429529: '非限流上游错误',
             // Error Details Modal
             errorDetails: {
-                viewErrors: 'SLA 错误',
-                viewExcluded: '客户侧限制',
+                viewErrors: '平台 SLA 失败',
+                viewExcluded: 'SLA 排除项',
                 viewAllFailures: '全部失败',
                 statusRateOverload: '429/529 限流/过载',
                 statusNonRateOverload: '非 429/529',
@@ -843,21 +861,96 @@ export default {
                     statusCode: '状态码',
                     phase: '错误阶段',
                     owner: '归属方',
-                    scope: '显示范围'
+                    scope: '显示范围',
+                    domain: '失败域',
+                    category: '失败类别',
+                    resolutionOwner: '处置责任方',
+                    slaImpact: 'SLA 归属'
+                },
+                domain: {
+                    customer: '客户账户',
+                    enterprise: '企业成员',
+                    client: '客户端',
+                    platform: '平台',
+                    upstream: '上游服务',
+                    unknown: '未知'
+                },
+                category: {
+                    authentication: '认证',
+                    balance: '余额',
+                    budget: '预算',
+                    quota: '配额',
+                    rate_limit: '速率限制',
+                    concurrency: '并发限制',
+                    permission: '权限',
+                    capability: '能力/模型',
+                    protocol: '请求协议',
+                    routing_capacity: '路由容量',
+                    non_routing: '平台非路由故障',
+                    credential: '上游凭据',
+                    overload: '上游过载',
+                    timeout: '超时',
+                    network: '网络',
+                    dependency: '依赖服务',
+                    internal: '内部错误',
+                    cancellation: '客户端取消',
+                    unknown: '未知'
+                },
+                resolutionOwner: {
+                    customer: '客户',
+                    enterprise_admin: '企业管理员',
+                    platform_ops: '平台运维',
+                    client: '客户端',
+                    unknown: '待确认'
+                },
+                poolOwnership: {
+                    platform: '平台托管',
+                    enterprise: '企业自管',
+                    unknown: '不适用/未知'
+                },
+                slaImpact: {
+                    included: '计入平台 SLA',
+                    excluded: '不计入平台 SLA',
+                    unknown: 'SLA 归属待确认'
                 },
                 searchPlaceholder: '搜索请求 ID、客户端请求 ID、错误信息'
             },
             // Error Detail Modal
             errorDetail: {
-                businessLimited: '客户侧限制'
+                businessLimited: 'SLA 排除项',
+                classification: {
+                    title: '结构化失败归因',
+                    customerVisible: '客户可见',
+                    domain: '失败域',
+                    category: '失败类别',
+                    reason: '原因代码',
+                    resolutionOwner: '处置责任方',
+                    poolOwnership: '账号池归属'
+                }
+            },
+            alertRules: {
+                metrics: {
+                    errorRate: '平台 SLA 失败率 (%)'
+                },
+                metricDescriptions: {
+                    errorRate: '统计窗口内计入平台 SLA 的最终失败占比；客户与企业限制、客户端中断和已恢复尝试不计入。'
+                }
+            },
+            settings: {
+                requestErrorRateMaxPercent: '平台 SLA 失败率最大值（%）',
+                requestErrorRateMaxPercentHint: '平台 SLA 失败率高于此值时显示为红色（默认：5%）'
+            },
+            runtime: {
+                requestErrorRateMaxPercent: '平台 SLA 失败率最大值（%）',
+                requestErrorRateMaxPercentHint: '平台 SLA 失败率高于此值时显示为红色（默认：5%）'
             },
             tooltips: {
-                errorTrend: '错误趋势（SLA 口径排除客户侧限制；上游错误率排除 429/529）。',
-                errorDistribution: '按状态码统计的错误分布（SLA 口径，排除客户侧限制）。',
+                errorTrend: '失败趋势按客户可见、平台 SLA 和 SLA 排除项使用同一结构化分类口径。',
+                errorDistribution: '按状态码统计客户最终可见失败，并区分平台 SLA 与排除项。',
                 upstreamErrors: '上游服务返回的错误，拆分为非限流错误和 429/529 限流/过载。',
-                sla: '服务等级协议达成率，排除客户侧限制（如余额不足、配额超限）的成功请求占比。',
-                customerVisibleFailures: '客户实际收到的失败响应，包含平台错误、上游错误和客户侧限制。用于排查客户反馈。',
-                errors: 'SLA 错误统计，不包含客户侧余额、配额、速率等限制类失败。'
+                sla: '平台可用性只统计平台负责的最终失败；客户余额、企业预算、客户端取消和已恢复的上游尝试不计入。',
+                customerVisibleFailures: '客户最终实际收到的失败响应，按客户、企业、客户端、平台和上游归因拆分。',
+                errors: '平台 SLA 失败统计，未知归因会单独提示，不会静默计为健康。'
             }
         },
         // Settings

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/opssql"
 )
 
 func (r *opsRepository) UpsertHourlyMetrics(ctx context.Context, startTime, endTime time.Time) error {
@@ -76,10 +78,16 @@ error_base AS (
     -- value so platform-level GROUPING SETS don't collide with the overall (platform=NULL) row.
     COALESCE(platform, 'unknown') AS platform,
     group_id AS group_id,
-    is_business_limited AS is_business_limited,
+    ` + opssql.CustomerVisible("") + ` AS customer_visible,
+    ` + opssql.SLAImpact("") + ` AS sla_impact_effective,
+    ` + opssql.ClassificationUnknown("") + ` AS classification_unknown,
+    COALESCE(failure_domain, 'unknown') AS failure_domain,
+    COALESCE(failure_category, 'unknown') AS failure_category,
+    COALESCE(event_scope, 'request_terminal') AS event_scope,
+    COALESCE(classification_version, 0) AS classification_version,
     error_owner AS error_owner,
     status_code AS client_status_code,
-    COALESCE(upstream_status_code, status_code, 0) AS effective_status_code
+    ` + opssql.EffectiveStatus("") + ` AS effective_status_code
   FROM ops_error_logs
   -- Exclude count_tokens requests from error metrics as they are informational probes
   WHERE created_at >= $1 AND created_at < $2
@@ -90,12 +98,25 @@ error_agg AS (
     bucket_start,
     CASE WHEN GROUPING(platform) = 1 THEN NULL ELSE platform END AS platform,
     CASE WHEN GROUPING(group_id) = 1 THEN NULL ELSE group_id END AS group_id,
-    COUNT(*) FILTER (WHERE COALESCE(client_status_code, 0) >= 400) AS error_count_total,
-    COUNT(*) FILTER (WHERE COALESCE(client_status_code, 0) >= 400 AND is_business_limited) AS business_limited_count,
-    COUNT(*) FILTER (WHERE COALESCE(client_status_code, 0) >= 400 AND NOT is_business_limited) AS error_count_sla,
-    COUNT(*) FILTER (WHERE error_owner = 'provider' AND NOT is_business_limited AND COALESCE(effective_status_code, 0) NOT IN (429, 529)) AS upstream_error_count_excl_429_529,
-    COUNT(*) FILTER (WHERE error_owner = 'provider' AND NOT is_business_limited AND COALESCE(effective_status_code, 0) = 429) AS upstream_429_count,
-    COUNT(*) FILTER (WHERE error_owner = 'provider' AND NOT is_business_limited AND COALESCE(effective_status_code, 0) = 529) AS upstream_529_count
+	MIN(classification_version) AS classification_version,
+    COUNT(*) FILTER (WHERE customer_visible) AS error_count_total,
+    COUNT(*) FILTER (WHERE customer_visible AND sla_impact_effective IS FALSE) AS business_limited_count,
+    COUNT(*) FILTER (WHERE customer_visible AND sla_impact_effective IS TRUE) AS error_count_sla,
+    COUNT(*) FILTER (WHERE customer_visible) AS customer_visible_failure_count,
+    COUNT(*) FILTER (WHERE customer_visible AND sla_impact_effective IS TRUE) AS platform_sla_failure_count,
+    COUNT(*) FILTER (WHERE customer_visible AND sla_impact_effective IS FALSE) AS sla_excluded_failure_count,
+    COUNT(*) FILTER (WHERE classification_unknown) AS classification_unknown_count,
+    COUNT(*) FILTER (WHERE customer_visible AND failure_domain = 'customer') AS customer_failure_count,
+    COUNT(*) FILTER (WHERE customer_visible AND failure_domain = 'enterprise') AS enterprise_failure_count,
+    COUNT(*) FILTER (WHERE customer_visible AND failure_domain = 'client' AND failure_category NOT IN ('cancellation', 'network')) AS client_request_failure_count,
+    COUNT(*) FILTER (WHERE customer_visible AND failure_domain = 'client' AND failure_category IN ('cancellation', 'network')) AS client_transport_failure_count,
+    COUNT(*) FILTER (WHERE customer_visible AND failure_domain = 'platform' AND failure_category = 'routing_capacity') AS platform_routing_failure_count,
+    COUNT(*) FILTER (WHERE customer_visible AND failure_domain = 'platform' AND failure_category <> 'routing_capacity') AS platform_internal_failure_count,
+    COUNT(*) FILTER (WHERE customer_visible AND failure_domain = 'upstream') AS upstream_terminal_failure_count,
+    COUNT(*) FILTER (WHERE event_scope = 'upstream_attempt_recovered') AS upstream_recovered_attempt_count,
+    COUNT(*) FILTER (WHERE customer_visible AND sla_impact_effective IS TRUE AND COALESCE(failure_domain = 'upstream', error_owner = 'provider') AND COALESCE(effective_status_code, 0) NOT IN (429, 529)) AS upstream_error_count_excl_429_529,
+    COUNT(*) FILTER (WHERE customer_visible AND sla_impact_effective IS TRUE AND COALESCE(failure_domain = 'upstream', error_owner = 'provider') AND COALESCE(effective_status_code, 0) = 429) AS upstream_429_count,
+    COUNT(*) FILTER (WHERE customer_visible AND sla_impact_effective IS TRUE AND COALESCE(failure_domain = 'upstream', error_owner = 'provider') AND COALESCE(effective_status_code, 0) = 529) AS upstream_529_count
   FROM error_base
   GROUP BY GROUPING SETS (
     (bucket_start),
@@ -109,12 +130,25 @@ combined AS (
     COALESCE(u.bucket_start, e.bucket_start) AS bucket_start,
     COALESCE(u.platform, e.platform) AS platform,
     COALESCE(u.group_id, e.group_id) AS group_id,
+	CASE WHEN e.bucket_start IS NULL THEN 2 ELSE COALESCE(e.classification_version, 0) END AS classification_version,
 
     COALESCE(u.success_count, 0) AS success_count,
     COALESCE(u.ttft_sample_count, 0) AS ttft_sample_count,
     COALESCE(e.error_count_total, 0) AS error_count_total,
     COALESCE(e.business_limited_count, 0) AS business_limited_count,
     COALESCE(e.error_count_sla, 0) AS error_count_sla,
+    COALESCE(e.customer_visible_failure_count, 0) AS customer_visible_failure_count,
+    COALESCE(e.platform_sla_failure_count, 0) AS platform_sla_failure_count,
+    COALESCE(e.sla_excluded_failure_count, 0) AS sla_excluded_failure_count,
+    COALESCE(e.classification_unknown_count, 0) AS classification_unknown_count,
+    COALESCE(e.customer_failure_count, 0) AS customer_failure_count,
+    COALESCE(e.enterprise_failure_count, 0) AS enterprise_failure_count,
+    COALESCE(e.client_request_failure_count, 0) AS client_request_failure_count,
+    COALESCE(e.client_transport_failure_count, 0) AS client_transport_failure_count,
+    COALESCE(e.platform_routing_failure_count, 0) AS platform_routing_failure_count,
+    COALESCE(e.platform_internal_failure_count, 0) AS platform_internal_failure_count,
+    COALESCE(e.upstream_terminal_failure_count, 0) AS upstream_terminal_failure_count,
+    COALESCE(e.upstream_recovered_attempt_count, 0) AS upstream_recovered_attempt_count,
     COALESCE(e.upstream_error_count_excl_429_529, 0) AS upstream_error_count_excl_429_529,
     COALESCE(e.upstream_429_count, 0) AS upstream_429_count,
     COALESCE(e.upstream_529_count, 0) AS upstream_529_count,
@@ -144,11 +178,24 @@ INSERT INTO ops_metrics_hourly (
   bucket_start,
   platform,
   group_id,
+  classification_version,
   success_count,
   ttft_sample_count,
   error_count_total,
   business_limited_count,
   error_count_sla,
+  customer_visible_failure_count,
+  platform_sla_failure_count,
+  sla_excluded_failure_count,
+  classification_unknown_count,
+  customer_failure_count,
+  enterprise_failure_count,
+  client_request_failure_count,
+  client_transport_failure_count,
+  platform_routing_failure_count,
+  platform_internal_failure_count,
+  upstream_terminal_failure_count,
+  upstream_recovered_attempt_count,
   upstream_error_count_excl_429_529,
   upstream_429_count,
   upstream_529_count,
@@ -171,11 +218,24 @@ SELECT
   bucket_start,
   NULLIF(platform, '') AS platform,
   group_id,
+	classification_version,
   success_count,
   ttft_sample_count,
   error_count_total,
   business_limited_count,
   error_count_sla,
+  customer_visible_failure_count,
+  platform_sla_failure_count,
+  sla_excluded_failure_count,
+  classification_unknown_count,
+  customer_failure_count,
+  enterprise_failure_count,
+  client_request_failure_count,
+  client_transport_failure_count,
+  platform_routing_failure_count,
+  platform_internal_failure_count,
+  upstream_terminal_failure_count,
+  upstream_recovered_attempt_count,
   upstream_error_count_excl_429_529,
   upstream_429_count,
   upstream_529_count,
@@ -197,11 +257,24 @@ FROM combined
 WHERE bucket_start IS NOT NULL
   AND (platform IS NULL OR platform <> '')
 ON CONFLICT (bucket_start, COALESCE(platform, ''), COALESCE(group_id, 0)) DO UPDATE SET
+  classification_version = EXCLUDED.classification_version,
   success_count = EXCLUDED.success_count,
   ttft_sample_count = EXCLUDED.ttft_sample_count,
   error_count_total = EXCLUDED.error_count_total,
   business_limited_count = EXCLUDED.business_limited_count,
   error_count_sla = EXCLUDED.error_count_sla,
+  customer_visible_failure_count = EXCLUDED.customer_visible_failure_count,
+  platform_sla_failure_count = EXCLUDED.platform_sla_failure_count,
+  sla_excluded_failure_count = EXCLUDED.sla_excluded_failure_count,
+  classification_unknown_count = EXCLUDED.classification_unknown_count,
+  customer_failure_count = EXCLUDED.customer_failure_count,
+  enterprise_failure_count = EXCLUDED.enterprise_failure_count,
+  client_request_failure_count = EXCLUDED.client_request_failure_count,
+  client_transport_failure_count = EXCLUDED.client_transport_failure_count,
+  platform_routing_failure_count = EXCLUDED.platform_routing_failure_count,
+  platform_internal_failure_count = EXCLUDED.platform_internal_failure_count,
+  upstream_terminal_failure_count = EXCLUDED.upstream_terminal_failure_count,
+  upstream_recovered_attempt_count = EXCLUDED.upstream_recovered_attempt_count,
   upstream_error_count_excl_429_529 = EXCLUDED.upstream_error_count_excl_429_529,
   upstream_429_count = EXCLUDED.upstream_429_count,
   upstream_529_count = EXCLUDED.upstream_529_count,
@@ -244,11 +317,24 @@ INSERT INTO ops_metrics_daily (
   bucket_date,
   platform,
   group_id,
+  classification_version,
   success_count,
   ttft_sample_count,
   error_count_total,
   business_limited_count,
   error_count_sla,
+  customer_visible_failure_count,
+  platform_sla_failure_count,
+  sla_excluded_failure_count,
+  classification_unknown_count,
+  customer_failure_count,
+  enterprise_failure_count,
+  client_request_failure_count,
+  client_transport_failure_count,
+  platform_routing_failure_count,
+  platform_internal_failure_count,
+  upstream_terminal_failure_count,
+  upstream_recovered_attempt_count,
   upstream_error_count_excl_429_529,
   upstream_429_count,
   upstream_529_count,
@@ -271,12 +357,25 @@ SELECT
   (bucket_start AT TIME ZONE 'UTC')::date AS bucket_date,
   platform,
   group_id,
+  MIN(classification_version) AS classification_version,
 
   COALESCE(SUM(success_count), 0) AS success_count,
   COALESCE(SUM(ttft_sample_count), 0) AS ttft_sample_count,
   COALESCE(SUM(error_count_total), 0) AS error_count_total,
   COALESCE(SUM(business_limited_count), 0) AS business_limited_count,
   COALESCE(SUM(error_count_sla), 0) AS error_count_sla,
+  COALESCE(SUM(customer_visible_failure_count), 0) AS customer_visible_failure_count,
+  COALESCE(SUM(platform_sla_failure_count), 0) AS platform_sla_failure_count,
+  COALESCE(SUM(sla_excluded_failure_count), 0) AS sla_excluded_failure_count,
+  COALESCE(SUM(classification_unknown_count), 0) AS classification_unknown_count,
+  COALESCE(SUM(customer_failure_count), 0) AS customer_failure_count,
+  COALESCE(SUM(enterprise_failure_count), 0) AS enterprise_failure_count,
+  COALESCE(SUM(client_request_failure_count), 0) AS client_request_failure_count,
+  COALESCE(SUM(client_transport_failure_count), 0) AS client_transport_failure_count,
+  COALESCE(SUM(platform_routing_failure_count), 0) AS platform_routing_failure_count,
+  COALESCE(SUM(platform_internal_failure_count), 0) AS platform_internal_failure_count,
+  COALESCE(SUM(upstream_terminal_failure_count), 0) AS upstream_terminal_failure_count,
+  COALESCE(SUM(upstream_recovered_attempt_count), 0) AS upstream_recovered_attempt_count,
   COALESCE(SUM(upstream_error_count_excl_429_529), 0) AS upstream_error_count_excl_429_529,
   COALESCE(SUM(upstream_429_count), 0) AS upstream_429_count,
   COALESCE(SUM(upstream_529_count), 0) AS upstream_529_count,
@@ -310,11 +409,24 @@ FROM ops_metrics_hourly
 WHERE bucket_start >= $1 AND bucket_start < $2
 GROUP BY 1, 2, 3
 ON CONFLICT (bucket_date, COALESCE(platform, ''), COALESCE(group_id, 0)) DO UPDATE SET
+  classification_version = EXCLUDED.classification_version,
   success_count = EXCLUDED.success_count,
   ttft_sample_count = EXCLUDED.ttft_sample_count,
   error_count_total = EXCLUDED.error_count_total,
   business_limited_count = EXCLUDED.business_limited_count,
   error_count_sla = EXCLUDED.error_count_sla,
+  customer_visible_failure_count = EXCLUDED.customer_visible_failure_count,
+  platform_sla_failure_count = EXCLUDED.platform_sla_failure_count,
+  sla_excluded_failure_count = EXCLUDED.sla_excluded_failure_count,
+  classification_unknown_count = EXCLUDED.classification_unknown_count,
+  customer_failure_count = EXCLUDED.customer_failure_count,
+  enterprise_failure_count = EXCLUDED.enterprise_failure_count,
+  client_request_failure_count = EXCLUDED.client_request_failure_count,
+  client_transport_failure_count = EXCLUDED.client_transport_failure_count,
+  platform_routing_failure_count = EXCLUDED.platform_routing_failure_count,
+  platform_internal_failure_count = EXCLUDED.platform_internal_failure_count,
+  upstream_terminal_failure_count = EXCLUDED.upstream_terminal_failure_count,
+  upstream_recovered_attempt_count = EXCLUDED.upstream_recovered_attempt_count,
   upstream_error_count_excl_429_529 = EXCLUDED.upstream_error_count_excl_429_529,
   upstream_429_count = EXCLUDED.upstream_429_count,
   upstream_529_count = EXCLUDED.upstream_529_count,
@@ -347,7 +459,7 @@ func (r *opsRepository) GetLatestHourlyBucketStart(ctx context.Context) (time.Ti
 	}
 
 	var value sql.NullTime
-	if err := r.db.QueryRowContext(ctx, `SELECT MAX(bucket_start) FROM ops_metrics_hourly`).Scan(&value); err != nil {
+	if err := r.db.QueryRowContext(ctx, `SELECT MAX(bucket_start) FROM ops_metrics_hourly WHERE classification_version >= 2`).Scan(&value); err != nil {
 		return time.Time{}, false, err
 	}
 	if !value.Valid {
@@ -362,7 +474,7 @@ func (r *opsRepository) GetLatestDailyBucketDate(ctx context.Context) (time.Time
 	}
 
 	var value sql.NullTime
-	if err := r.db.QueryRowContext(ctx, `SELECT MAX(bucket_date) FROM ops_metrics_daily`).Scan(&value); err != nil {
+	if err := r.db.QueryRowContext(ctx, `SELECT MAX(bucket_date) FROM ops_metrics_daily WHERE classification_version >= 2`).Scan(&value); err != nil {
 		return time.Time{}, false, err
 	}
 	if !value.Valid {

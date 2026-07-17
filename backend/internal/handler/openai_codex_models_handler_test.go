@@ -217,7 +217,7 @@ func TestCodexModelsReturnsLastUpstreamErrorWhenAccountsAreExhausted(t *testing.
 		1: http.StatusServiceUnavailable,
 		2: http.StatusGatewayTimeout,
 	}
-	recorder := performCodexModelsRequest(t, handler, groupID)
+	recorder, c := performCodexModelsRequestWithContext(t, handler, groupID)
 
 	if got, want := upstream.calls(), []int64{1, 2}; !equalInt64Slices(got, want) {
 		t.Fatalf("upstream account calls: got %v, want %v", got, want)
@@ -227,6 +227,37 @@ func TestCodexModelsReturnsLastUpstreamErrorWhenAccountsAreExhausted(t *testing.
 	}
 	if body := recorder.Body.String(); !strings.Contains(body, "upstream error 504") {
 		t.Fatalf("body does not preserve the last upstream error: %s", body)
+	}
+	if isOpsRoutingCapacityLimited(c) {
+		t.Fatal("real upstream exhaustion must not be overwritten as routing capacity")
+	}
+}
+
+func TestCodexModelsMarksInitialAccountExhaustionAsRoutingCapacityLimited(t *testing.T) {
+	handler, upstream, groupID := newCodexModelsFailoverTestHandlerWithAccountCount(http.StatusServiceUnavailable, 0, 3)
+	recorder, c := performCodexModelsRequestWithContext(t, handler, groupID)
+
+	if got := upstream.calls(); len(got) != 0 {
+		t.Fatalf("unexpected upstream calls: %v", got)
+	}
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status: got %d, want %d; body=%s", recorder.Code, http.StatusServiceUnavailable, recorder.Body.String())
+	}
+	if !isOpsRoutingCapacityLimited(c) {
+		t.Fatal("initial account exhaustion must be marked as routing capacity")
+	}
+	classification := classifyOpsFailureV2(
+		c,
+		"upstream_error",
+		"No available OpenAI accounts",
+		"",
+		http.StatusServiceUnavailable,
+		service.OpsEventScopeRequestTerminal,
+	)
+	if classification.FailureDomain != service.OpsFailureDomainPlatform ||
+		classification.FailureCategory != service.OpsFailureCategoryRouting ||
+		classification.FailureReason != service.OpsFailureReasonNoAvailableAccounts {
+		t.Fatalf("unexpected classification: %+v", classification)
 	}
 }
 
@@ -288,6 +319,12 @@ func newCodexModelsFailoverTestHandlerWithAccountCount(firstStatus, accountCount
 
 func performCodexModelsRequest(t *testing.T, handler *OpenAIGatewayHandler, groupID int64) *httptest.ResponseRecorder {
 	t.Helper()
+	recorder, _ := performCodexModelsRequestWithContext(t, handler, groupID)
+	return recorder
+}
+
+func performCodexModelsRequestWithContext(t *testing.T, handler *OpenAIGatewayHandler, groupID int64) (*httptest.ResponseRecorder, *gin.Context) {
+	t.Helper()
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models?client_version=0.144.0", nil)
@@ -297,7 +334,7 @@ func performCodexModelsRequest(t *testing.T, handler *OpenAIGatewayHandler, grou
 	})
 
 	handler.CodexModels(c)
-	return recorder
+	return recorder, c
 }
 
 func equalInt64Slices(got, want []int64) bool {

@@ -159,10 +159,12 @@ func TestBuildCyberPolicyOpsErrorEntry_StatusCode(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
 		upstreamStatus int
+		stream         bool
+		eventScope     string
 	}{
-		{"non_stream_400", 400},
-		{"stream_200", 200},
-		{"zero_value", 0},
+		{"non_stream_400", 400, false, service.OpsEventScopeRequestTerminal},
+		{"stream_200", 200, true, service.OpsEventScopeStreamTerminal},
+		{"zero_value", 0, false, service.OpsEventScopeRequestTerminal},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mark := &service.CyberPolicyMark{
@@ -171,11 +173,14 @@ func TestBuildCyberPolicyOpsErrorEntry_StatusCode(t *testing.T) {
 				UpstreamStatus: tc.upstreamStatus,
 			}
 			entry := buildCyberPolicyOpsErrorEntry(cyberPolicyOpsErrorMeta{
-				RequestID: "req-1", Model: "gpt-5", RequestPath: "/openai/v1/responses",
+				RequestID: "req-1", Model: "gpt-5", RequestPath: "/openai/v1/responses", Stream: tc.stream,
 			}, mark)
 			require.Equal(t, tc.upstreamStatus, entry.StatusCode)
 			require.Equal(t, "cyber_policy", entry.ErrorType)
 			require.Equal(t, "request", entry.ErrorPhase)
+			require.Equal(t, tc.eventScope, entry.EventScope)
+			require.True(t, entry.CustomerVisible)
+			require.Equal(t, service.OpsFailureClassificationVersion, entry.ClassificationVersion)
 		})
 	}
 }

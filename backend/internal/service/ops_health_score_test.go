@@ -55,6 +55,26 @@ func TestComputeDashboardHealthScore_DegradesOnBadSignals(t *testing.T) {
 	require.GreaterOrEqual(t, score, 0)
 }
 
+func TestComputeDashboardHealthScore_UnknownClassificationCapsGreenScore(t *testing.T) {
+	t.Parallel()
+
+	overview := &OpsDashboardOverview{
+		RequestCountTotal:           100,
+		RequestCountSLA:             99,
+		SuccessCount:                99,
+		CustomerVisibleFailureCount: 1,
+		ClassificationUnknownCount:  1,
+		SLA:                         1,
+		ErrorRate:                   0,
+		UpstreamErrorRate:           0,
+		TTFT:                        OpsPercentiles{P99: intPtr(100)},
+		SystemMetrics:               &OpsSystemMetricsSnapshot{DBOK: boolPtr(true), RedisOK: boolPtr(true)},
+	}
+
+	score := computeDashboardHealthScore(time.Now().UTC(), overview)
+	require.Equal(t, 60, score)
+}
+
 func TestComputeDashboardHealthScore_Comprehensive(t *testing.T) {
 	t.Parallel()
 

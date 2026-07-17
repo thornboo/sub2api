@@ -22,8 +22,10 @@ const (
 	opsAggHourlyInterval = 10 * time.Minute
 	opsAggDailyInterval  = 1 * time.Hour
 
-	// Keep in sync with ops retention target (vNext default 30d).
-	opsAggBackfillWindow = 1 * time.Hour
+	// Keep in sync with the operational retention target. A full window is
+	// required when a classification version invalidates existing aggregates;
+	// normal runs still resume from the latest v2 bucket with overlap.
+	opsAggBackfillWindow = 31 * 24 * time.Hour
 
 	// Recompute overlap to absorb late-arriving rows near boundaries.
 	opsAggHourlyOverlap = 2 * time.Hour

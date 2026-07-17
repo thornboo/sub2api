@@ -217,43 +217,79 @@ function openErrorDetails(kind: 'request' | 'upstream', preset?: OpsErrorDetails
   emit('openErrorDetails', kind, preset)
 }
 
+function withFailureSnapshot(preset: OpsErrorDetailsPreset): OpsErrorDetailsPreset {
+  const ov = overview.value
+  if (!ov?.start_time || !ov?.end_time) return preset
+  return {
+    ...preset,
+    startTime: ov.start_time,
+    endTime: ov.end_time
+  }
+}
+
 function openCustomerVisibleFailures() {
-  openErrorDetails('request', {
+  openErrorDetails('request', withFailureSnapshot({
     title: t('admin.ops.customerVisibleFailures'),
-    view: 'all'
-  })
+    view: 'all',
+    customerVisible: true
+  }))
 }
 
 function openCustomerSideLimits() {
-  openErrorDetails('request', {
-    title: t('admin.ops.customerSideLimits'),
-    view: 'excluded'
-  })
+  openErrorDetails('request', withFailureSnapshot({
+    title: t('admin.ops.slaExcludedFailures'),
+    view: 'all',
+    customerVisible: true,
+    slaImpact: false
+  }))
 }
 
 function openSlaErrors() {
-  openErrorDetails('request', {
-    title: t('admin.ops.slaErrors'),
-    view: 'errors'
-  })
+  openErrorDetails('request', withFailureSnapshot({
+    title: t('admin.ops.platformSlaFailures'),
+    view: 'all',
+    customerVisible: true,
+    slaImpact: true
+  }))
+}
+
+function openUnknownFailures() {
+  openErrorDetails('request', withFailureSnapshot({
+    title: t('admin.ops.unclassifiedFailures'),
+    view: 'all',
+    customerVisible: true,
+    slaImpact: 'unknown'
+  }))
 }
 
 function openUpstreamNonRateErrors() {
-  openErrorDetails('upstream', {
+  openErrorDetails('upstream', withFailureSnapshot({
     title: t('admin.ops.upstreamNonRateErrors'),
-    view: 'errors',
-    owner: 'provider',
+    view: 'all',
+    failureDomain: 'upstream',
+    slaImpact: true,
     statusCode: 'non_rate_overload'
-  })
+  }))
 }
 
 function openUpstreamRateOverloadErrors() {
-  openErrorDetails('upstream', {
+  openErrorDetails('upstream', withFailureSnapshot({
     title: t('admin.ops.upstreamRateOverload'),
-    view: 'errors',
-    owner: 'provider',
+    view: 'all',
+    failureDomain: 'upstream',
+    slaImpact: true,
     statusCode: 'rate_overload'
-  })
+  }))
+}
+
+function openFailureBreakdown(domain: string, title: string, category?: string) {
+  openErrorDetails(domain === 'upstream' ? 'upstream' : 'request', withFailureSnapshot({
+    title,
+    view: 'all',
+    customerVisible: true,
+    failureDomain: domain,
+    failureCategory: category
+  }))
 }
 
 // --- Threshold checking helpers ---
@@ -280,15 +316,6 @@ function getTTFTThresholdLevel(ttftMs: number | null): ThresholdLevel {
   if (threshold == null) return 'normal'
   if (ttftMs >= threshold) return 'critical'
   if (ttftMs >= threshold * 0.8) return 'warning'
-  return 'normal'
-}
-
-function getRequestErrorRateThresholdLevel(errorRatePercent: number | null): ThresholdLevel {
-  if (errorRatePercent == null) return 'normal'
-  const threshold = props.thresholds?.request_error_rate_percent_max
-  if (threshold == null) return 'normal'
-  if (errorRatePercent >= threshold) return 'critical'
-  if (errorRatePercent >= threshold * 0.8) return 'warning'
   return 'normal'
 }
 
@@ -438,9 +465,41 @@ const slaPercent = computed(() => {
 const customerVisibleErrorRatePercent = computed(() => {
   const ov = overview.value
   if (!ov) return null
+  if (typeof ov.customer_visible_failure_rate === 'number') return ov.customer_visible_failure_rate * 100
   const total = ov.request_count_total ?? 0
   if (total <= 0) return null
-  return ((ov.error_count_total ?? 0) / total) * 100
+  return ((ov.customer_visible_failure_count ?? ov.error_count_total ?? 0) / total) * 100
+})
+
+const customerVisibleFailureRateClass = computed(() => {
+  if (customerVisibleErrorRatePercent.value == null) return 'text-stone-400'
+  if (customerVisibleErrorRatePercent.value > 0) return 'text-rose-600 dark:text-rose-400'
+  return 'text-emerald-600 dark:text-emerald-300'
+})
+
+function failureBreakdownCount(domain: string, category?: string): number {
+  const items = overview.value?.failure_breakdown ?? []
+  return items
+    .filter((item) => item.domain === domain && (category == null || item.category === category))
+    .reduce((sum, item) => sum + (item.count ?? 0), 0)
+}
+
+const customerFailureCount = computed(() => failureBreakdownCount('customer'))
+const enterpriseFailureCount = computed(() => failureBreakdownCount('enterprise'))
+const clientFailureCount = computed(() => failureBreakdownCount('client'))
+const platformRoutingFailureCount = computed(() => failureBreakdownCount('platform', 'routing_capacity'))
+const platformInternalFailureCount = computed(() => failureBreakdownCount('platform', 'non_routing'))
+const upstreamTerminalFailureCount = computed(() => failureBreakdownCount('upstream', 'terminal'))
+
+const currentFailureState = computed(() => overview.value?.current_window?.state ?? 'unknown')
+const currentFailureStateLabel = computed(() => t(`admin.ops.currentState.${currentFailureState.value}`))
+const currentFailureStateClass = computed(() => {
+  switch (currentFailureState.value) {
+    case 'active': return 'bg-red-500/10 text-red-600 ring-red-500/20 dark:text-red-300'
+    case 'recovered': return 'bg-emerald-500/10 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300'
+    case 'quiet': return 'bg-stone-500/10 text-stone-600 ring-stone-500/20 dark:text-stone-300'
+    default: return 'bg-amber-500/10 text-amber-700 ring-amber-500/20 dark:text-amber-300'
+  }
 })
 
 const upstreamErrorRatePercent = computed(() => {
@@ -1288,11 +1347,11 @@ function handleToolbarRefresh() {
           </div>
         </div>
 
-        <!-- Card 2: SLA -->
+        <!-- Card 2: Platform availability -->
         <div class="rounded-xl border border-stone-200/70 bg-white/65 p-4 dark:border-white/10 dark:bg-black/25" style="order: 2;">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
-              <span class="text-[10px] font-bold uppercase text-gray-400">{{ t('admin.ops.sla') }}</span>
+              <span class="text-[10px] font-bold uppercase text-gray-400">{{ t('admin.ops.platformAvailability') }}</span>
               <HelpTooltip v-if="!props.fullscreen" :content="t('admin.ops.tooltips.sla')" />
               <span class="h-1.5 w-1.5 rounded-full" :class="getSLAThresholdLevel(slaPercent) === 'critical' ? 'bg-red-500' : getSLAThresholdLevel(slaPercent) === 'warning' ? 'bg-yellow-500' : 'bg-green-500'"></span>
             </div>
@@ -1308,14 +1367,25 @@ function handleToolbarRefresh() {
           <div class="mt-2 text-3xl font-black" :class="getThresholdColorClass(getSLAThresholdLevel(slaPercent))">
             {{ slaPercent == null ? '-' : `${slaPercent.toFixed(3)}%` }}
           </div>
+          <div class="mt-2">
+            <span class="inline-flex rounded-full px-2 py-1 text-[10px] font-bold ring-1 ring-inset" :class="currentFailureStateClass">
+              {{ currentFailureStateLabel }} · 15m
+            </span>
+          </div>
           <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-stone-200/80 dark:bg-white/10">
             <div class="h-full transition-all" :class="getSLAThresholdLevel(slaPercent) === 'critical' ? 'bg-red-500' : getSLAThresholdLevel(slaPercent) === 'warning' ? 'bg-yellow-500' : 'bg-green-500'" :style="{ width: `${Math.max((slaPercent ?? 0) - 90, 0) * 10}%` }"></div>
           </div>
           <div class="mt-3 text-xs">
             <div class="flex justify-between">
-              <span class="text-gray-500">{{ t('admin.ops.slaErrors') }}:</span>
+              <span class="text-gray-500">{{ t('admin.ops.platformSlaFailures') }}:</span>
               <button type="button" class="font-bold text-red-600 hover:underline dark:text-red-400" @click="openSlaErrors">
-                {{ formatNumber(overview.error_count_sla ?? 0) }}
+                {{ formatNumber(overview.platform_sla_failure_count ?? overview.error_count_sla ?? 0) }}
+              </button>
+            </div>
+            <div v-if="(overview.classification_unknown_count ?? 0) > 0" class="mt-1 flex justify-between text-amber-700 dark:text-amber-300">
+              <span>{{ t('admin.ops.unclassifiedFailures') }}:</span>
+              <button type="button" class="font-bold hover:underline" @click="openUnknownFailures">
+                {{ formatNumber(overview.classification_unknown_count ?? 0) }}
               </button>
             </div>
           </div>
@@ -1434,26 +1504,56 @@ function handleToolbarRefresh() {
               {{ t('admin.ops.requestDetails.details') }}
             </button>
           </div>
-          <div class="mt-2 text-3xl font-black" :class="getThresholdColorClass(getRequestErrorRateThresholdLevel(customerVisibleErrorRatePercent))">
+          <div class="mt-2 text-3xl font-black" :class="customerVisibleFailureRateClass">
             {{ customerVisibleErrorRatePercent == null ? '-' : `${customerVisibleErrorRatePercent.toFixed(2)}%` }}
           </div>
           <div class="mt-3 space-y-1 text-xs">
             <div class="flex justify-between">
               <span class="text-gray-500">{{ t('admin.ops.totalFailures') }}:</span>
               <button type="button" class="font-bold text-gray-900 hover:underline dark:text-white" @click="openCustomerVisibleFailures">
-                {{ formatNumber(overview.error_count_total ?? 0) }}
+                {{ formatNumber(overview.customer_visible_failure_count ?? overview.error_count_total ?? 0) }}
               </button>
             </div>
             <div class="flex justify-between">
-              <span class="text-gray-500">{{ t('admin.ops.customerSideLimits') }}:</span>
+              <span class="text-gray-500">{{ t('admin.ops.failureDomain.customer') }}:</span>
+              <button type="button" class="font-bold text-stone-700 hover:underline dark:text-stone-200" @click="openFailureBreakdown('customer', t('admin.ops.failureDomain.customer'))">
+                {{ formatNumber(customerFailureCount) }}
+              </button>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-500">{{ t('admin.ops.failureDomain.enterprise') }}:</span>
+              <button type="button" class="font-bold text-stone-700 hover:underline dark:text-stone-200" @click="openFailureBreakdown('enterprise', t('admin.ops.failureDomain.enterprise'))">
+                {{ formatNumber(enterpriseFailureCount) }}
+              </button>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-500">{{ t('admin.ops.failureDomain.platformRouting') }}:</span>
+              <button type="button" class="font-bold text-red-600 hover:underline dark:text-red-400" @click="openFailureBreakdown('platform', t('admin.ops.failureDomain.platformRouting'), 'routing_capacity')">
+                {{ formatNumber(platformRoutingFailureCount) }}
+              </button>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-500">{{ t('admin.ops.failureDomain.platformInternal') }}:</span>
+              <button type="button" class="font-bold text-red-600 hover:underline dark:text-red-400" @click="openFailureBreakdown('platform', t('admin.ops.failureDomain.platformInternal'), 'non_routing')">
+                {{ formatNumber(platformInternalFailureCount) }}
+              </button>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-500">{{ t('admin.ops.failureDomain.upstream') }}:</span>
+              <button type="button" class="font-bold text-red-600 hover:underline dark:text-red-400" @click="openFailureBreakdown('upstream', t('admin.ops.failureDomain.upstream'))">
+                {{ formatNumber(upstreamTerminalFailureCount) }}
+              </button>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-500">{{ t('admin.ops.failureDomain.client') }}:</span>
+              <button type="button" class="font-bold text-stone-700 hover:underline dark:text-stone-200" @click="openFailureBreakdown('client', t('admin.ops.failureDomain.client'))">
+                {{ formatNumber(clientFailureCount) }}
+              </button>
+            </div>
+            <div class="mt-2 flex justify-between border-t border-stone-200/70 pt-2 dark:border-white/10">
+              <span class="text-gray-500">{{ t('admin.ops.slaExcludedFailures') }}:</span>
               <button type="button" class="font-bold text-yellow-600 hover:underline dark:text-yellow-300" @click="openCustomerSideLimits">
-                {{ formatNumber(overview.business_limited_count ?? 0) }}
-              </button>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-gray-500">{{ t('admin.ops.slaErrors') }}:</span>
-              <button type="button" class="font-bold text-red-600 hover:underline dark:text-red-400" @click="openSlaErrors">
-                {{ formatNumber(overview.error_count_sla ?? 0) }}
+                {{ formatNumber(overview.sla_excluded_failure_count ?? overview.business_limited_count ?? 0) }}
               </button>
             </div>
           </div>

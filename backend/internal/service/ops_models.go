@@ -36,6 +36,16 @@ type OpsErrorLog struct {
 	Owner  string `json:"error_owner"`
 	Source string `json:"error_source"`
 
+	EventScope            string `json:"event_scope"`
+	CustomerVisible       *bool  `json:"customer_visible"`
+	FailureDomain         string `json:"failure_domain"`
+	FailureCategory       string `json:"failure_category"`
+	FailureReason         string `json:"failure_reason"`
+	ResolutionOwner       string `json:"resolution_owner"`
+	PoolOwnership         string `json:"pool_ownership"`
+	SLAImpact             *bool  `json:"sla_impact"`
+	ClassificationVersion int16  `json:"classification_version"`
+
 	Severity string `json:"severity"`
 
 	StatusCode int    `json:"status_code"`
@@ -169,10 +179,21 @@ type OpsErrorLogFilter struct {
 	ErrorPhasesAny []string
 	ErrorTypesAny  []string
 
-	// View controls error categorization for list endpoints.
-	// - errors: show actionable errors (exclude business-limited / 429 / 529)
-	// - excluded: only show excluded errors
-	// - all: show everything
+	EventScope            string
+	CustomerVisible       *bool
+	FailureDomain         string
+	FailureCategory       string
+	FailureReason         string
+	ResolutionOwner       string
+	PoolOwnership         string
+	SLAImpact             *bool
+	SLAImpactUnknown      bool
+	ClassificationVersion *int16
+
+	// View preserves the legacy query parameter while using the v2 SLA contract.
+	// - errors: customer-visible failures that count against platform SLA
+	// - excluded: customer-visible failures explicitly excluded from platform SLA
+	// - all: no SLA-impact filter (the normal customer-visible guard still applies)
 	View string
 
 	Page     int

@@ -106,6 +106,18 @@ type OpsInsertErrorLogInput struct {
 	IsBusinessLimited bool
 	IsCountTokens     bool // 是否为 count_tokens 请求
 
+	// Structured failure classification v2. These fields are orthogonal to the
+	// legacy is_business_limited compatibility flag.
+	EventScope            string
+	CustomerVisible       bool
+	FailureDomain         string
+	FailureCategory       string
+	FailureReason         string
+	ResolutionOwner       string
+	PoolOwnership         string
+	SLAImpact             *bool
+	ClassificationVersion int16
+
 	ErrorMessage string
 	ErrorBody    string
 

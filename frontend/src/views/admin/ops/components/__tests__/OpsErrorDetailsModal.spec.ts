@@ -189,6 +189,10 @@ describe('OpsErrorDetailsModal', () => {
     expect(text).toContain('admin.ops.errorDetails.filters.phase')
     expect(text).toContain('admin.ops.errorDetails.filters.owner')
     expect(text).toContain('admin.ops.errorDetails.filters.scope')
+    expect(text).toContain('admin.ops.errorDetails.filters.domain')
+    expect(text).toContain('admin.ops.errorDetails.filters.category')
+    expect(text).toContain('admin.ops.errorDetails.filters.resolutionOwner')
+    expect(text).toContain('admin.ops.errorDetails.filters.slaImpact')
     expect(wrapper.find('input').attributes('placeholder')).toBe('admin.ops.errorDetails.searchPlaceholder')
   })
 
@@ -267,6 +271,55 @@ describe('OpsErrorDetailsModal', () => {
         view: 'errors'
       })
     )
+    expect(params).not.toHaveProperty('time_range')
+  })
+
+  it('locks dashboard drill-downs to the snapshot and applies v2 classification filters', async () => {
+    vi.mocked(opsAPI.listRequestErrors).mockResolvedValue({ items: [], total: 0 })
+
+    mount(OpsErrorDetailsModal, {
+      props: {
+        show: true,
+        timeRange: '6h',
+        platform: 'openai',
+        groupId: 7,
+        errorType: 'request',
+        preset: {
+          title: 'Platform routing',
+          view: 'all',
+          startTime: '2026-07-18T00:00:00.000Z',
+          endTime: '2026-07-18T06:00:00.000Z',
+          customerVisible: true,
+          failureDomain: 'platform',
+          failureCategory: 'routing_capacity',
+          resolutionOwner: 'platform_ops',
+          slaImpact: true
+        }
+      },
+      global: {
+        stubs: {
+          BaseDialog: BaseDialogStub,
+          Select: SelectStub,
+          OpsErrorLogTable: OpsErrorLogTableStub
+        }
+      }
+    })
+
+    await flushPromises()
+
+    const params = vi.mocked(opsAPI.listRequestErrors).mock.calls[0]?.[0]
+    expect(params).toEqual(expect.objectContaining({
+      start_time: '2026-07-18T00:00:00.000Z',
+      end_time: '2026-07-18T06:00:00.000Z',
+      platform: 'openai',
+      group_id: 7,
+      view: 'all',
+      customer_visible: true,
+      failure_domain: 'platform',
+      failure_category: 'routing_capacity',
+      resolution_owner: 'platform_ops',
+      sla_impact: 'true'
+    }))
     expect(params).not.toHaveProperty('time_range')
   })
 })

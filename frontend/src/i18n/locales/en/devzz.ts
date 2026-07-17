@@ -821,19 +821,37 @@ export default {
         ops: {
             customerVisibleFailures: 'Customer-visible Failures',
             totalFailures: 'All Failures',
-            customerSideLimits: 'Customer-side Limits',
-            slaErrors: 'SLA Errors',
+            customerSideLimits: 'SLA-excluded Failures',
+            slaErrors: 'Platform SLA Failures',
+            platformAvailability: 'Platform Availability',
+            platformSlaFailures: 'Platform SLA Failures',
+            slaExcludedFailures: 'SLA-excluded Failures',
+            unclassifiedFailures: 'Unclassified',
+            currentState: {
+                active: 'Incident still active',
+                recovered: 'Currently recovered',
+                quiet: 'No current platform incident',
+                unknown: 'Current state needs review'
+            },
+            failureDomain: {
+                customer: 'Account and key policy',
+                enterprise: 'Enterprise member policy',
+                client: 'Client request and transport',
+                platformRouting: 'Platform routing capacity',
+                platformInternal: 'Platform internal failure',
+                upstream: 'Terminal upstream failure'
+            },
             upstreamNonRateErrors: 'Non-rate Upstream Errors',
             upstreamRateOverload: 'Upstream Rate/Overload',
             errorCountExcl429529: 'Non-rate Upstream Errors',
-            sla: 'SLA (excl customer-side limits)',
-            businessLimited: 'customer_side_limits:',
-            errorsSla: 'SLA Errors',
+            sla: 'Platform Availability',
+            businessLimited: 'SLA-excluded:',
+            errorsSla: 'Platform SLA Failures',
             upstreamExcl429529: 'Non-rate Upstream Errors',
             // Error Details Modal
             errorDetails: {
-                viewErrors: 'SLA Errors',
-                viewExcluded: 'Customer-side Limits',
+                viewErrors: 'Platform SLA Failures',
+                viewExcluded: 'SLA-excluded Failures',
                 viewAllFailures: 'All Failures',
                 statusRateOverload: '429/529 Rate/Overload',
                 statusNonRateOverload: 'Not 429/529',
@@ -842,18 +860,93 @@ export default {
                     statusCode: 'Status Code',
                     phase: 'Error Phase',
                     owner: 'Owner',
-                    scope: 'Display Scope'
+                    scope: 'Display Scope',
+                    domain: 'Failure Domain',
+                    category: 'Failure Category',
+                    resolutionOwner: 'Resolution Owner',
+                    slaImpact: 'SLA Impact'
+                },
+                domain: {
+                    customer: 'Customer account',
+                    enterprise: 'Enterprise member',
+                    client: 'Client',
+                    platform: 'Platform',
+                    upstream: 'Upstream provider',
+                    unknown: 'Unknown'
+                },
+                category: {
+                    authentication: 'Authentication',
+                    balance: 'Balance',
+                    budget: 'Budget',
+                    quota: 'Quota',
+                    rate_limit: 'Rate limit',
+                    concurrency: 'Concurrency',
+                    permission: 'Permission',
+                    capability: 'Capability/model',
+                    protocol: 'Request protocol',
+                    routing_capacity: 'Routing capacity',
+                    non_routing: 'Platform non-routing failure',
+                    credential: 'Upstream credential',
+                    overload: 'Upstream overload',
+                    timeout: 'Timeout',
+                    network: 'Network',
+                    dependency: 'Dependency',
+                    internal: 'Internal error',
+                    cancellation: 'Client cancellation',
+                    unknown: 'Unknown'
+                },
+                resolutionOwner: {
+                    customer: 'Customer',
+                    enterprise_admin: 'Enterprise admin',
+                    platform_ops: 'Platform operations',
+                    client: 'Client',
+                    unknown: 'Needs review'
+                },
+                poolOwnership: {
+                    platform: 'Platform managed',
+                    enterprise: 'Enterprise managed',
+                    unknown: 'Not applicable/unknown'
+                },
+                slaImpact: {
+                    included: 'Included in platform SLA',
+                    excluded: 'Excluded from platform SLA',
+                    unknown: 'SLA attribution unknown'
                 },
                 searchPlaceholder: 'Search request ID, client request ID, or error message'
             },
             // Error Detail Modal
             errorDetail: {
-                businessLimited: 'Customer-side Limit'
+                businessLimited: 'SLA-excluded Failure',
+                classification: {
+                    title: 'Structured failure attribution',
+                    customerVisible: 'Customer visible',
+                    domain: 'Failure domain',
+                    category: 'Failure category',
+                    reason: 'Reason code',
+                    resolutionOwner: 'Resolution owner',
+                    poolOwnership: 'Account-pool ownership'
+                }
+            },
+            alertRules: {
+                metrics: {
+                    errorRate: 'Platform SLA Failure Rate (%)'
+                },
+                metricDescriptions: {
+                    errorRate: 'Terminal failures included in platform SLA. Customer and enterprise limits, client interruption, and recovered attempts are excluded.'
+                }
+            },
+            settings: {
+                requestErrorRateMaxPercent: 'Platform SLA Failure Rate Maximum (%)',
+                requestErrorRateMaxPercentHint: 'Displayed in red when the platform SLA failure rate exceeds this value (default: 5%).'
+            },
+            runtime: {
+                requestErrorRateMaxPercent: 'Platform SLA Failure Rate Maximum (%)',
+                requestErrorRateMaxPercentHint: 'Displayed in red when the platform SLA failure rate exceeds this value (default: 5%).'
             },
             tooltips: {
-                sla: 'Service Level Agreement success rate, excluding customer-side limits such as insufficient balance, quota exceeded, or rate limit.',
-                customerVisibleFailures: 'Failures actually returned to customers, including platform errors, upstream errors, and customer-side limits.',
-                errors: 'SLA error statistics, excluding customer-side balance, quota, and rate-limit failures.',
+                sla: 'Platform availability counts only terminal failures owned by the platform. Customer balance, enterprise budgets, client cancellations, and recovered upstream attempts are excluded.',
+                customerVisibleFailures: 'Terminal failures actually returned to customers, attributed across customer, enterprise, client, platform, and upstream domains.',
+                errors: 'Platform SLA failures. Unknown attribution is surfaced separately and never silently treated as healthy.',
                 upstreamErrors: 'Upstream error statistics split into non-rate errors and 429/529 rate or overload errors.'
             }
         },

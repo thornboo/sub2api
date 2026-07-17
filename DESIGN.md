@@ -3,13 +3,14 @@
 ## Source of truth
 
 - Status: Active
-- Last refreshed: 2026-07-15
+- Last refreshed: 2026-07-18
 - Primary product surfaces:
   - User console: `frontend/src/views/user/**`
   - User API Key management: `frontend/src/views/user/KeysView.vue`, `frontend/src/components/keys/**`
   - Enterprise member control plane: `frontend/src/views/user/EnterpriseMembersView.vue`
   - User usage records: `frontend/src/views/user/UsageView.vue`
   - Admin usage and dashboard: `frontend/src/views/admin/UsageView.vue`, `frontend/src/api/admin/dashboard.ts`
+  - Admin operations monitoring: `frontend/src/views/admin/ops/**`, `frontend/src/components/admin/ops/**`
   - dev-zz product records: `docs-site/dev-zz/**`
 - Evidence reviewed:
   - `docs-site/dev-zz/decisions/adr-0002-key-as-enterprise-member.md`
@@ -17,12 +18,18 @@
   - `docs-site/dev-zz/features/enterprise-member-management.md`
   - `docs-site/dev-zz/features/enterprise-key-member-management.md`
   - `docs-site/dev-zz/features/api-key-usage-drilldown.md`
+  - `docs-site/dev-zz/features/ops-customer-visible-error-triage.md`
+  - `docs-site/dev-zz/features/ops-failure-classification-redesign.md`
+  - `docs-site/dev-zz/decisions/adr-0004-ops-failure-taxonomy-and-sla.md`
   - `backend/ent/schema/api_key.go`
   - `backend/ent/schema/group.go`
   - `backend/ent/schema/usage_log.go`
   - `backend/internal/service/user.go`
   - `backend/internal/service/api_key_auth_cache.go`
+  - `backend/internal/handler/ops_error_logger.go`
+  - `backend/internal/repository/ops_repo_dashboard.go`
   - `frontend/src/views/admin/UsageView.vue`
+  - `frontend/src/components/admin/ops/OpsDashboardHeader.vue`
   - `frontend/src/types/index.ts`
 
 ## Brand
@@ -43,6 +50,7 @@
   - Give each member one shared set of 5h, 1d, 7d, and calendar-month spending limits across all assigned Keys.
   - Let enterprise owners apply shared member policy changes in one atomic batch without overwriting fields they did not explicitly select.
   - Preserve platform administrator-only visibility into upstream account cost, routing, and operational internals.
+  - Separate customer-visible failures, failure ownership, and platform SLA impact so operators can distinguish customer configuration, enterprise policy, client interruption, platform capacity, and final upstream failures.
   - Keep future feature work grounded in small, reviewable slices that fit the dev-zz branch discipline.
 - Non-goals:
   - Do not convert the app into a broad BI product.
@@ -52,6 +60,7 @@
 - Success signals:
   - An owner can answer "which employee Key spent the most, on which models, in which period?"
   - A platform admin can answer "which user, group, account, and route is driving operational cost?"
+  - A platform admin can answer "what is failing now, whether it affects SLA, who should act, and whether retries recovered the request?"
   - Reviewers can tell from DTO names and routes whether a field is user-safe or admin-only.
 
 ## Personas and jobs
@@ -80,6 +89,7 @@
   - Enterprise Members is the owner workspace for member identity, shared spending limits, group delegation/order, Keys, usage, and audit.
   - Admin Usage remains the platform-wide request-log and analytics surface.
   - Admin Dashboard remains the platform-wide aggregate surface.
+  - Admin Ops remains the platform health, customer-visible failure, SLA, attribution, alert, and error-evidence surface.
 - Content hierarchy:
   - Summary cards first, then filters, then charts/rankings, then table drilldown.
   - Rank and anomaly panels must always link to the underlying Key/user/group/request details.
@@ -110,6 +120,10 @@
   - Bulk policy editing may change selected limits, status, and ordered group delegation; every field is opt-in and omitted fields remain unchanged.
   - Bulk usage adjustment changes accounting projections and therefore lives in a separate destructive flow with immutable ledger/audit evidence.
   - Both flows are all-or-nothing, carry every selected member's expected version, and show the affected member count before submission.
+- Principle 8: Customer visibility, failure attribution, and SLA impact are separate facts.
+  - A request may be customer-visible while being excluded from platform SLA, and a final upstream failure may affect platform SLA while retaining upstream as the technical cause.
+  - Platform-managed routing capacity failures count against platform SLA; enterprise-managed pool exhaustion remains enterprise-owned and is excluded by default.
+  - Selected-range history and a fixed recent current-state window must be labeled separately; changing a historical range must not silently redefine what "current" means.
 - Tradeoffs:
   - First versions may use raw `usage_logs` with strict date limits.
   - Add pre-aggregation only when a measured query path needs it.
@@ -132,6 +146,8 @@
   - Admin-only analytics components should stay under `frontend/src/components/admin`.
 - Variants and states:
   - Every analytics panel needs loading, empty, error, and stale-data states.
+  - Ops overview separates fixed-window current state from selected-range totals, and shows whether the selected period is normal, actively failing, or recovered after a prior spike.
+  - Ops failure summaries expose customer-visible count, platform SLA failures, excluded failures, unknown classifications, and the responsible party without deriving meaning from localized message text in the browser.
   - Member limit editing shows limit and consumed amount together for 5h, 1d, 7d, and calendar month; consumed changes write system-attributed before/after audit evidence without requiring extra operator input.
   - Enterprise member import is a guided flow: upload and authoritative preview, system-side access policy, confirmation, then one-click follow-up for any members left pending.
   - Bulk member actions include ordered group replacement in addition to enable/disable. Group replacement must state that it overwrites the selected members' current routing policy and must never enable members implicitly.
@@ -197,6 +213,9 @@
   - "成员编号" for the immutable import/audit identifier.
   - "成员可访问的分组" for owner-delegated access; "调用优先级" for the selected order.
   - "分组" for routing/billing group.
+  - "失败请求次数（包含客户端重试）" for raw customer-visible terminal failures; never label this as a unique incident count.
+  - "平台路由容量" for platform-managed account/routing exhaustion; never hide it under "客户侧限制".
+  - "平台 SLA 失败" only for failures whose structured `sla_impact` is true; use "未归类" when historical or ambiguous evidence cannot support a deterministic decision.
 - Microcopy rules:
   - Avoid explaining the UI in visible product copy.
   - Do use short permission copy where a field is intentionally hidden.
@@ -229,10 +248,13 @@
   - Admin DTOs must not be reused for user-facing analytics if they include admin-only fields.
   - Owner tag analytics must not present repeated multi-tag attribution as a 100% cost split unless the API contract defines an explicit denominator.
   - Owner summary cards must distinguish selected-range historical aggregates from current realtime governance snapshots such as quota and rate-limit proximity.
+  - Ops failure classification must be produced by one backend classifier and reused by raw queries, pre-aggregation, detail APIs, health scores, alerts, and scheduled reports. Frontend code must not infer attribution or SLA impact from error-message substrings.
+  - Existing `is_business_limited`, `business_limited_count`, and `error_count_sla` fields are compatibility outputs during migration, not the long-term source of truth.
 - Test/screenshot expectations:
   - Backend permission tests must cover cross-user denial and admin-only field absence.
   - Frontend typecheck and lint are required for new analytics components.
   - Visual QA should be done on the user-run dev server when the user asks for browser validation.
+  - Ops tests must prove raw-query and pre-aggregated parity, overview-to-detail filter parity, terminal request de-duplication for stream failures, and deterministic handling of the documented production classification fixture.
 
 ## Open questions
 

@@ -85,6 +85,7 @@ export default defineConfig({
         text: '方案稿（未实现）',
         items: [
           { text: '企业用户成员管理（完整目标设计）', link: '/dev-zz/features/enterprise-member-management' },
+          { text: '运维失败分类与 SLA 重构', link: '/dev-zz/features/ops-failure-classification-redesign' },
           { text: '上游成本感知调度', link: '/dev-zz/features/upstream-provider-cost-aware-scheduling' },
           { text: '模型自检 Token 消耗统计', link: '/dev-zz/features/self-check-token-usage-stats' },
           { text: '改倍率停用受影响 Key', link: '/dev-zz/features/disable-keys-on-group-rate-change' }
@@ -95,7 +96,8 @@ export default defineConfig({
         items: [
           { text: '0001：文档中心', link: '/dev-zz/decisions/adr-0001-docs-site-as-dev-zz-doc-hub' },
           { text: '0002：Key 作为成员（已取代）', link: '/dev-zz/decisions/adr-0002-key-as-enterprise-member' },
-          { text: '0003：不可登录成员实体', link: '/dev-zz/decisions/adr-0003-enterprise-member-entity' }
+          { text: '0003：不可登录成员实体', link: '/dev-zz/decisions/adr-0003-enterprise-member-entity' },
+          { text: '0004：运维失败分类与 SLA', link: '/dev-zz/decisions/adr-0004-ops-failure-taxonomy-and-sla' }
         ]
       }
     ],

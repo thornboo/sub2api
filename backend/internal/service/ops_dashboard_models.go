@@ -29,6 +29,23 @@ type OpsPercentiles struct {
 	Max *int `json:"max_ms"`
 }
 
+type OpsFailureBreakdownItem struct {
+	Domain   string `json:"domain"`
+	Category string `json:"category,omitempty"`
+	Count    int64  `json:"count"`
+}
+
+type OpsCurrentFailureWindow struct {
+	Seconds                     int64     `json:"seconds"`
+	StartTime                   time.Time `json:"start_time"`
+	EndTime                     time.Time `json:"end_time"`
+	State                       string    `json:"state"`
+	SuccessCount                int64     `json:"success_count"`
+	CustomerVisibleFailureCount int64     `json:"customer_visible_failure_count"`
+	PlatformSLAFailureCount     int64     `json:"platform_sla_failure_count"`
+	ClassificationUnknownCount  int64     `json:"classification_unknown_count"`
+}
+
 type OpsDashboardOverview struct {
 	StartTime time.Time `json:"start_time"`
 	EndTime   time.Time `json:"end_time"`
@@ -52,6 +69,15 @@ type OpsDashboardOverview struct {
 	ErrorCountSLA     int64 `json:"error_count_sla"`
 	RequestCountTotal int64 `json:"request_count_total"`
 	RequestCountSLA   int64 `json:"request_count_sla"`
+
+	ClassificationVersion       int16                      `json:"classification_version"`
+	CustomerVisibleFailureCount int64                      `json:"customer_visible_failure_count"`
+	CustomerVisibleFailureRate  float64                    `json:"customer_visible_failure_rate"`
+	PlatformSLAFailureCount     int64                      `json:"platform_sla_failure_count"`
+	SLAExcludedFailureCount     int64                      `json:"sla_excluded_failure_count"`
+	ClassificationUnknownCount  int64                      `json:"classification_unknown_count"`
+	FailureBreakdown            []*OpsFailureBreakdownItem `json:"failure_breakdown"`
+	CurrentWindow               *OpsCurrentFailureWindow   `json:"current_window,omitempty"`
 
 	TokenConsumed int64 `json:"token_consumed"`
 

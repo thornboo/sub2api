@@ -229,6 +229,38 @@ func (s *OpsService) prepareErrorLogInput(ctx context.Context, entry *OpsInsertE
 		entry.ErrorType = "api_error"
 	}
 
+	if entry.ClassificationVersion >= OpsFailureClassificationVersion {
+		entry.EventScope = strings.TrimSpace(entry.EventScope)
+		entry.FailureDomain = strings.TrimSpace(entry.FailureDomain)
+		entry.FailureCategory = strings.TrimSpace(entry.FailureCategory)
+		entry.FailureReason = strings.TrimSpace(entry.FailureReason)
+		entry.ResolutionOwner = strings.TrimSpace(entry.ResolutionOwner)
+		entry.PoolOwnership = strings.TrimSpace(entry.PoolOwnership)
+		if entry.EventScope == "" {
+			entry.EventScope = OpsEventScopeRequestTerminal
+		}
+		if entry.FailureDomain == "" {
+			entry.FailureDomain = OpsFailureDomainUnknown
+		}
+		if entry.FailureCategory == "" {
+			entry.FailureCategory = OpsFailureCategoryUnknown
+		}
+		if entry.FailureReason == "" {
+			entry.FailureReason = OpsFailureReasonLegacyUnknown
+		}
+		if entry.ResolutionOwner == "" {
+			entry.ResolutionOwner = OpsResolutionOwnerUnknown
+		}
+		if entry.PoolOwnership == "" {
+			entry.PoolOwnership = OpsPoolOwnershipUnknown
+		}
+		// Keep legacy clients and rollback readers coherent with v2 without
+		// allowing the compatibility flag to become the v2 source of truth.
+		if entry.SLAImpact != nil {
+			entry.IsBusinessLimited = entry.CustomerVisible && !*entry.SLAImpact
+		}
+	}
+
 	// Credential acquisition is a gateway/account-auth stage, not an inference
 	// HTTP attempt. Enforce that ownership at the persistence boundary so an
 	// earlier inference attempt cannot leak its status or text into top-level

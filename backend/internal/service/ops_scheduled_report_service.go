@@ -508,10 +508,12 @@ func buildOpsSummaryEmailHTML(title string, start, end time.Time, overview *OpsD
 <ul>
   <li><b>Total Requests</b>: %d</li>
   <li><b>Success</b>: %d</li>
-  <li><b>Errors (SLA)</b>: %d</li>
-  <li><b>Business Limited</b>: %d</li>
+  <li><b>Customer-visible Failures</b>: %d</li>
+  <li><b>Platform SLA Failures</b>: %d</li>
+  <li><b>SLA-excluded Failures</b>: %d</li>
+  <li><b>Unclassified Failures</b>: %d</li>
   <li><b>SLA</b>: %.2f%%</li>
-  <li><b>Error Rate</b>: %.2f%%</li>
+  <li><b>Platform SLA Failure Rate</b>: %.2f%%</li>
   <li><b>Upstream Error Rate (excl 429/529)</b>: %.2f%%</li>
   <li><b>Upstream Errors</b>: excl429/529=%d, 429=%d, 529=%d</li>
   <li><b>Latency</b>: p50=%s, p99=%s</li>
@@ -526,8 +528,10 @@ func buildOpsSummaryEmailHTML(title string, start, end time.Time, overview *OpsD
 		htmlEscape(end.UTC().Format(time.RFC3339)),
 		overview.RequestCountTotal,
 		overview.SuccessCount,
-		overview.ErrorCountSLA,
-		overview.BusinessLimitedCount,
+		overview.CustomerVisibleFailureCount,
+		overview.PlatformSLAFailureCount,
+		overview.SLAExcludedFailureCount,
+		overview.ClassificationUnknownCount,
 		overview.SLA*100,
 		overview.ErrorRate*100,
 		overview.UpstreamErrorRate*100,

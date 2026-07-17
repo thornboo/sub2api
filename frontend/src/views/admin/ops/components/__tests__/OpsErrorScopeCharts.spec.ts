@@ -82,7 +82,7 @@ const globalStubs = {
 }
 
 describe('Ops SLA-scoped error charts', () => {
-  it('错误分布图按 SLA 错误数统计，不把业务限制错误算进请求错误分布', () => {
+  it('错误分布图按平台 SLA 失败统计，不把 SLA 排除项算进平台失败分布', () => {
     const wrapper = mount(OpsErrorDistributionChart, {
       props: {
         loading: false,
@@ -105,7 +105,7 @@ describe('Ops SLA-scoped error charts', () => {
     })
   })
 
-  it('错误分布图在只有业务限制错误时显示为空态', () => {
+  it('错误分布图在只有 SLA 排除项时显示为空态', () => {
     const wrapper = mount(OpsErrorDistributionChart, {
       props: {
         loading: false,
@@ -121,7 +121,7 @@ describe('Ops SLA-scoped error charts', () => {
     expect(wrapper.find('.empty-state-stub').exists()).toBe(true)
   })
 
-  it('错误趋势图的请求错误详情按钮只按 SLA 错误启用', () => {
+  it('错误趋势图的平台失败详情按钮只按平台 SLA 失败启用', () => {
     const wrapper = mount(OpsErrorTrendChart, {
       props: {
         loading: false,

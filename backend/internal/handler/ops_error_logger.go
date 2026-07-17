@@ -825,6 +825,14 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			recoveredPhase, recoveredBusinessLimited, recoveredOwner, recoveredSource := classifyOpsErrorLog(
 				c, "upstream_error", recoveredMsg, "", effectiveUpstreamStatus,
 			)
+			recoveredClassification := classifyOpsFailureV2(
+				c,
+				"upstream_error",
+				recoveredMsg,
+				"",
+				effectiveUpstreamStatus,
+				service.OpsEventScopeUpstreamAttemptRecovered,
+			)
 
 			entry := &service.OpsInsertErrorLogInput{
 				RequestID:       requestID,
@@ -886,6 +894,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 
 				CreatedAt: time.Now(),
 			}
+			applyOpsFailureClassification(entry, recoveredClassification)
 			applyOpsLatencyFieldsFromContext(c, entry)
 			applyOpsUpstreamFieldsFromContext(c, entry)
 
@@ -969,6 +978,14 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		normalizedType := normalizeOpsErrorType(parsed.ErrorType, parsed.Code)
 
 		phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, normalizedType, parsed.Message, parsed.Code, status)
+		failureClassification := classifyOpsFailureV2(
+			c,
+			normalizedType,
+			parsed.Message,
+			parsed.Code,
+			status,
+			service.OpsEventScopeRequestTerminal,
+		)
 
 		entry := &service.OpsInsertErrorLogInput{
 			RequestID:       requestID,
@@ -1025,6 +1042,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 
 			CreatedAt: time.Now(),
 		}
+		applyOpsFailureClassification(entry, failureClassification)
 		applyOpsLatencyFieldsFromContext(c, entry)
 		applyOpsUpstreamFieldsFromContext(c, entry)
 
@@ -1103,6 +1121,14 @@ func logOpsStreamError(c *gin.Context, ops *service.OpsService, wireStatus int) 
 	}
 	normalizedType := normalizeOpsErrorType(streamErr.ErrType, "")
 	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, normalizedType, streamErr.Message, "", classifyStatus)
+	failureClassification := classifyOpsFailureV2(
+		c,
+		normalizedType,
+		streamErr.Message,
+		"",
+		classifyStatus,
+		service.OpsEventScopeStreamTerminal,
+	)
 
 	apiKey := getOpsAPIKey(c)
 	clientRequestID, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string)
@@ -1180,6 +1206,7 @@ func logOpsStreamError(c *gin.Context, ops *service.OpsService, wireStatus int) 
 
 		CreatedAt: time.Now(),
 	}
+	applyOpsFailureClassification(entry, failureClassification)
 	applyOpsLatencyFieldsFromContext(c, entry)
 
 	if apiKey != nil {
