@@ -570,61 +570,71 @@
                 <p class="mt-1 text-xs text-stone-500">{{ formatDate(budgetSummary.period_start) }} – {{ formatDate(budgetSummary.period_end) }} · {{ budgetSummary.timezone }}</p>
               </div>
             </div>
-            <div class="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-medium text-stone-600 dark:border-white/10 dark:bg-white/5 dark:text-stone-300">
-              <template v-if="budgetSummary.limit_usd > 0">{{ t('enterpriseMembers.copy.calendarMonthLimit') }} <b class="ml-1 tabular-nums text-stone-950 dark:text-white">{{ formatMoney(budgetSummary.limit_usd) }}</b></template>
-              <template v-else>{{ t('enterpriseMembers.copy.monthlyLimitNotSet') }}</template>
-            </div>
           </header>
 
           <div class="p-5">
-            <div class="grid gap-4 xl:grid-cols-[minmax(260px,0.95fr)_minmax(0,2.05fr)]">
-              <div class="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-800/50 dark:bg-emerald-400/[0.08]">
-                <p class="text-xs font-medium text-emerald-800 dark:text-emerald-200">{{ t('enterpriseMembers.copy.budgetCommitted') }}</p>
-                <strong class="mt-2 block text-3xl font-semibold tabular-nums tracking-tight text-stone-950 dark:text-white">{{ formatMoney(budgetCommittedUsd) }}</strong>
-                <p class="mt-2 text-xs leading-5 text-emerald-800/80 dark:text-emerald-200/70">{{ t('enterpriseMembers.copy.budgetCommittedHint') }}</p>
+            <dl class="grid gap-3 md:grid-cols-3">
+              <div class="rounded-2xl border border-stone-200 bg-stone-50 p-4 dark:border-white/10 dark:bg-white/[0.04]">
+                <dt class="text-xs font-medium text-stone-500">{{ t('enterpriseMembers.copy.monthlyBudget') }}</dt>
+                <dd class="mt-2 text-2xl font-semibold tabular-nums tracking-tight text-stone-950 dark:text-white">
+                  {{ budgetSummary.limit_usd > 0 ? formatMoney(budgetSummary.limit_usd) : t('enterpriseMembers.copy.monthlyLimitNotSet') }}
+                </dd>
               </div>
-
-              <dl class="grid gap-3" :class="budgetSummary.limit_usd > 0 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'">
-                <div class="rounded-2xl border border-stone-200 bg-stone-50 p-4 dark:border-white/10 dark:bg-white/[0.04]">
-                  <dt class="text-xs text-stone-500">{{ t('enterpriseMembers.copy.settled') }}</dt>
-                  <dd class="mt-2 text-xl font-semibold tabular-nums text-stone-950 dark:text-white">{{ formatMoney(budgetSummary.used_usd) }}</dd>
-                </div>
-                <div class="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-800/50 dark:bg-amber-400/[0.07]">
-                  <dt class="text-xs text-amber-800 dark:text-amber-200">{{ t('enterpriseMembers.copy.inFlightReserved') }}</dt>
-                  <dd class="mt-2 text-xl font-semibold tabular-nums text-amber-800 dark:text-amber-200">{{ formatMoney(budgetSummary.reserved_usd) }}</dd>
-                </div>
-                <div v-if="budgetSummary.limit_usd > 0" class="rounded-2xl border border-stone-200 bg-stone-50 p-4 dark:border-white/10 dark:bg-white/[0.04]">
-                  <dt class="text-xs text-stone-500">{{ t('enterpriseMembers.copy.available') }}</dt>
-                  <dd class="mt-2 text-xl font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">{{ formatMoney(Math.max(0, budgetSummary.remaining_usd)) }}</dd>
-                </div>
-              </dl>
-            </div>
+              <div class="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-800/50 dark:bg-emerald-400/[0.08]">
+                <dt class="text-xs font-medium text-emerald-800 dark:text-emerald-200">{{ t('enterpriseMembers.copy.usedThisMonth') }}</dt>
+                <dd class="mt-2 text-2xl font-semibold tabular-nums tracking-tight text-stone-950 dark:text-white">{{ formatMoney(budgetSummary.used_usd) }}</dd>
+                <p class="mt-2 text-xs leading-5 text-emerald-800/75 dark:text-emerald-200/70">{{ t('enterpriseMembers.copy.usedAmountHint') }}</p>
+              </div>
+              <div class="rounded-2xl border border-stone-200 bg-white p-4 dark:border-white/10 dark:bg-white/[0.025]">
+                <dt class="text-xs font-medium text-stone-500">{{ t('enterpriseMembers.copy.availableBudget') }}</dt>
+                <dd class="mt-2 text-2xl font-semibold tabular-nums tracking-tight text-emerald-700 dark:text-emerald-300">
+                  {{ budgetSummary.limit_usd > 0 ? formatMoney(Math.max(0, budgetSummary.remaining_usd)) : t('enterpriseMembers.copy.unlimited') }}
+                </dd>
+              </div>
+            </dl>
 
             <div v-if="budgetSummary.limit_usd > 0" class="mt-5">
               <div class="mb-2 flex items-center justify-between gap-3 text-xs">
-                <span class="font-medium text-stone-600 dark:text-stone-300">{{ t('enterpriseMembers.copy.budgetCommitted') }}</span>
-                <span class="tabular-nums text-stone-500">{{ Math.round(budgetUsagePercent) }}%</span>
+                <span class="font-medium text-stone-600 dark:text-stone-300">{{ t('enterpriseMembers.copy.budgetUsageProgress') }}</span>
+                <span class="tabular-nums text-stone-500">{{ budgetUsagePercentLabel }}</span>
               </div>
-              <div class="h-2 overflow-hidden rounded-full bg-stone-100 dark:bg-white/5" role="progressbar" :aria-valuenow="budgetUsagePercent" aria-valuemin="0" aria-valuemax="100">
-                <div class="h-full rounded-full transition-all" :class="budgetUsagePercent >= 100 ? 'bg-rose-500' : budgetUsagePercent >= 80 ? 'bg-amber-500' : 'bg-emerald-500'" :style="{ width: `${budgetUsagePercent}%` }"></div>
+              <div class="flex h-2 overflow-hidden rounded-full bg-stone-100 dark:bg-white/5" role="progressbar" :aria-valuenow="budgetUsagePercent" aria-valuemin="0" aria-valuemax="100">
+                <div class="h-full bg-emerald-500 transition-all" :style="{ width: `${budgetSettledPercent}%` }"></div>
+                <div v-if="budgetReservedPercent > 0" class="h-full bg-amber-400 transition-all" :style="{ width: `${budgetReservedPercent}%` }"></div>
               </div>
             </div>
 
-            <div class="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-stone-200 pt-4 dark:border-white/10">
-              <p class="text-xs font-medium text-stone-600 dark:text-stone-300">{{ t('enterpriseMembers.copy.periodActivity') }}</p>
-              <dl class="flex flex-wrap items-center gap-x-8 gap-y-3">
-                <div><dt class="text-[11px] text-stone-500">{{ t('enterpriseMembers.copy.requests') }}</dt><dd class="mt-0.5 text-base font-semibold tabular-nums text-stone-950 dark:text-white">{{ formatNumber(budgetSummary.request_count) }}</dd></div>
-                <div><dt class="text-[11px] text-stone-500">{{ t('enterpriseMembers.copy.tokens') }}</dt><dd class="mt-0.5 text-base font-semibold tabular-nums text-stone-950 dark:text-white">{{ formatNumber(budgetSummary.input_tokens + budgetSummary.output_tokens) }}</dd></div>
-              </dl>
+            <div v-if="budgetSummary.reserved_usd > 0" class="mt-5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-amber-100">
+              <Icon name="clock" size="sm" class="mt-0.5 shrink-0" />
+              <p class="text-xs leading-5"><b>{{ t('enterpriseMembers.copy.reservedAmount') }} {{ formatMoney(budgetSummary.reserved_usd) }}</b><span class="ml-1 opacity-75">{{ t('enterpriseMembers.copy.reservedAmountHint') }}</span></p>
             </div>
+
+            <details class="mt-5 overflow-hidden rounded-2xl border border-stone-200 bg-stone-50/70 dark:border-white/10 dark:bg-white/[0.025]">
+              <summary class="cursor-pointer px-4 py-3 text-sm font-medium text-stone-800 dark:text-stone-100">
+                {{ t('enterpriseMembers.copy.monthlyUsageDetails') }}
+                <span class="ml-2 text-xs font-normal text-stone-500">{{ formatNumber(budgetSummary.request_count) }} {{ t('enterpriseMembers.copy.requests') }} · {{ formatNumber(budgetSummary.input_tokens + budgetSummary.output_tokens) }} Token</span>
+              </summary>
+              <div class="border-t border-stone-200 p-4 dark:border-white/10">
+                <dl class="grid gap-3 sm:grid-cols-2">
+                  <div><dt class="text-xs text-stone-500">{{ t('enterpriseMembers.copy.monthlyRequestCount') }}</dt><dd class="mt-1 text-lg font-semibold tabular-nums text-stone-950 dark:text-white">{{ formatNumber(budgetSummary.request_count) }}</dd></div>
+                  <div><dt class="text-xs text-stone-500">{{ t('enterpriseMembers.copy.monthlyTokenUsage') }}</dt><dd class="mt-1 text-lg font-semibold tabular-nums text-stone-950 dark:text-white">{{ formatNumber(budgetSummary.input_tokens + budgetSummary.output_tokens) }}</dd></div>
+                </dl>
+                <div v-if="hasMigrationBaseline(budgetSummary)" class="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-3 text-sky-950 dark:border-sky-800/50 dark:bg-sky-950/20 dark:text-sky-100">
+                  <p class="text-xs font-semibold">{{ t('enterpriseMembers.copy.importedUsageRecord') }}</p>
+                  <p class="mt-1 text-xs leading-5 opacity-75">{{ t('enterpriseMembers.copy.importedUsageRecordHint') }}</p>
+                  <div class="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs">
+                    <span><b>{{ formatMoney(budgetSummary.migration_billed_usd) }}</b></span>
+                    <span>{{ t('enterpriseMembers.copy.inputTokens') }} {{ formatNumber(budgetSummary.migration_input_tokens) }}</span>
+                    <span>{{ t('enterpriseMembers.copy.outputTokens') }} {{ formatNumber(budgetSummary.migration_output_tokens) }}</span>
+                    <span>{{ t('enterpriseMembers.copy.cacheTokens') }} {{ formatNumber(budgetSummary.migration_cache_tokens) }}</span>
+                  </div>
+                </div>
+              </div>
+            </details>
           </div>
         </section>
 
-        <section v-if="hasMigrationBaseline(budgetSummary)" class="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sky-950 dark:border-sky-800/50 dark:bg-sky-950/20 dark:text-sky-100">
-          <div class="flex flex-wrap items-start justify-between gap-3"><h3 class="text-sm font-semibold">{{ t('enterpriseMembers.copy.migrationBaselineEvidence') }}</h3><div class="text-right"><b class="block text-sm">{{ formatMoney(budgetSummary.migration_billed_usd) }} · {{ formatNumber(budgetSummary.migration_total_tokens) }} Token</b><span class="text-xs opacity-70">↓ {{ formatNumber(budgetSummary.migration_input_tokens) }} · ↑ {{ formatNumber(budgetSummary.migration_output_tokens) }} · C {{ formatNumber(budgetSummary.migration_cache_tokens) }}</span></div></div>
-        </section>
-
-        <section>
+        <section v-if="hasMemberRateLimits">
           <div class="mb-3">
             <h3 class="font-semibold text-stone-950 dark:text-white">{{ t('enterpriseMembers.copy.shortWindowLimits') }}</h3>
             <p class="mt-1 text-xs leading-5 text-stone-500">{{ t('enterpriseMembers.copy.shortWindowLimitsHint') }}</p>
@@ -666,7 +676,7 @@
           </div>
           <div class="rounded-3xl border border-stone-200 p-5 dark:border-white/10">
             <h3 class="font-semibold text-stone-950 dark:text-white">{{ t('enterpriseMembers.copy.groupCostBreakdown') }}</h3>
-            <div class="mt-4 space-y-3"><div v-for="item in budgetAnalytics.groups.slice(0, 8)" :key="item.key" class="flex items-center gap-3"><div class="min-w-0 flex-1"><p class="truncate text-sm font-medium text-stone-800 dark:text-stone-100">{{ item.name }}</p><p class="text-xs text-stone-500">{{ item.request_count }} req · {{ formatNumber(item.input_tokens + item.output_tokens) }} tokens</p></div><b class="text-sm text-stone-950 dark:text-white">{{ formatMoney(item.actual_cost) }}</b></div><p v-if="!budgetAnalytics.groups.length" class="py-10 text-center text-sm text-stone-500">{{ t('enterpriseMembers.copy.noGroupData') }}</p></div>
+            <div class="mt-4 space-y-3"><div v-for="item in budgetAnalytics.groups.slice(0, 8)" :key="item.key" class="flex items-center gap-3"><div class="min-w-0 flex-1"><p class="truncate text-sm font-medium text-stone-800 dark:text-stone-100">{{ item.name }}</p><p class="text-xs text-stone-500">{{ formatNumber(item.request_count) }} {{ t('enterpriseMembers.copy.requests') }} · {{ formatNumber(item.input_tokens + item.output_tokens) }} Token</p></div><b class="text-sm text-stone-950 dark:text-white">{{ formatMoney(item.actual_cost) }}</b></div><p v-if="!budgetAnalytics.groups.length" class="py-10 text-center text-sm text-stone-500">{{ t('enterpriseMembers.copy.noGroupData') }}</p></div>
           </div>
         </section>
 
@@ -704,7 +714,7 @@
         <section class="grid gap-5 xl:grid-cols-[1fr_1.4fr]">
           <div class="rounded-3xl border border-stone-200 p-5 dark:border-white/10">
             <h3 class="font-semibold text-stone-950 dark:text-white">{{ t('enterpriseMembers.copy.modelCostRanking') }}</h3>
-            <div class="mt-4 space-y-3"><div v-for="item in budgetAnalytics.models.slice(0, 10)" :key="item.key" class="flex items-center justify-between gap-3"><div class="min-w-0"><p class="truncate font-mono text-xs text-stone-800 dark:text-stone-100">{{ item.name }}</p><p class="text-[11px] text-stone-500">{{ item.request_count }} req</p></div><b class="text-sm">{{ formatMoney(item.actual_cost) }}</b></div><p v-if="!budgetAnalytics.models.length" class="py-10 text-center text-sm text-stone-500">{{ t('enterpriseMembers.copy.noModelData') }}</p></div>
+            <div class="mt-4 space-y-3"><div v-for="item in budgetAnalytics.models.slice(0, 10)" :key="item.key" class="flex items-center justify-between gap-3"><div class="min-w-0"><p class="truncate font-mono text-xs text-stone-800 dark:text-stone-100">{{ item.name }}</p><p class="text-[11px] text-stone-500">{{ formatNumber(item.request_count) }} {{ t('enterpriseMembers.copy.requests') }}</p></div><b class="text-sm">{{ formatMoney(item.actual_cost) }}</b></div><p v-if="!budgetAnalytics.models.length" class="py-10 text-center text-sm text-stone-500">{{ t('enterpriseMembers.copy.noModelData') }}</p></div>
           </div>
           <div class="rounded-3xl border border-stone-200 p-5 dark:border-white/10">
             <div class="flex items-center justify-between"><div><h3 class="font-semibold text-stone-950 dark:text-white">{{ t('enterpriseMembers.copy.budgetLedger') }}</h3><p class="mt-1 text-xs text-stone-500">{{ t('enterpriseMembers.copy.usageAdjustmentsAndReconciliationAreImmutableEvidence') }}</p></div><span class="text-xs text-stone-500">{{ budgetEntryTotal }} {{ t('enterpriseMembers.copy.entries') }}</span></div>
@@ -736,12 +746,28 @@
           <p v-if="auditEventTotal > auditEvents.length" class="mt-3 text-center text-[11px] text-stone-400">{{ t('enterpriseMembers.dynamic.showingLatestAudit', { count: auditEvents.length }) }}</p>
         </section>
 
-        <form v-if="!budgetMember?.deleted_at" class="rounded-3xl border border-dashed border-stone-300 p-5 dark:border-white/15" @submit.prevent="submitAdjustment">
-          <div class="flex flex-wrap items-end gap-3"><div class="min-w-[180px] flex-1"><label class="input-label">{{ t('enterpriseMembers.copy.manualAdjustmentUsd') }}</label><input v-model.number="adjustment.amount" class="input" type="number" required step="0.00000001" min="-1000000" max="1000000" placeholder="-1.25" /></div><div class="min-w-[260px] flex-[2]"><label class="input-label">{{ t('enterpriseMembers.copy.auditNote') }}</label><input v-model.trim="adjustment.note" class="input" required maxlength="1000" :placeholder="t('enterpriseMembers.copy.stateTheReasonAndEvidence')" /></div><button class="btn btn-secondary" type="submit" :disabled="adjusting">{{ adjusting ? t('enterpriseMembers.copy.writing') : t('enterpriseMembers.copy.postAdjustment') }}</button></div>
-          <p class="mt-2 text-xs text-stone-500">{{ t('enterpriseMembers.copy.positiveValuesIncreaseUsedCostNegativeValuesCreditItEntriesCannotBeDeletedAndUsageCannotBeReduce') }}</p>
-        </form>
+        <details v-if="!budgetMember?.deleted_at" class="overflow-hidden rounded-3xl border border-dashed border-stone-300 dark:border-white/15">
+          <summary class="cursor-pointer px-5 py-4">
+            <span class="block text-sm font-semibold text-stone-900 dark:text-white">{{ t('enterpriseMembers.copy.adjustUsedAmount') }}</span>
+            <span class="mt-1 block text-xs leading-5 text-stone-500">{{ t('enterpriseMembers.copy.adjustUsedAmountHint') }}</span>
+          </summary>
+          <form class="border-t border-stone-200 p-5 dark:border-white/10" @submit.prevent="requestBudgetAdjustment">
+            <div class="flex flex-wrap items-end gap-3"><div class="min-w-[180px] flex-1"><label class="input-label">{{ t('enterpriseMembers.copy.adjustmentAmountUsd') }}</label><input v-model.number="adjustment.amount" class="input" type="number" required step="0.00000001" min="-1000000" max="1000000" placeholder="-1.25" /></div><div class="min-w-[260px] flex-[2]"><label class="input-label">{{ t('enterpriseMembers.copy.auditNote') }}</label><input v-model.trim="adjustment.note" class="input" required maxlength="1000" :placeholder="t('enterpriseMembers.copy.stateTheReasonAndEvidence')" /></div><button class="btn btn-secondary" type="submit" :disabled="adjusting">{{ adjusting ? t('enterpriseMembers.copy.writing') : t('enterpriseMembers.copy.confirmAdjustment') }}</button></div>
+            <p class="mt-2 text-xs text-stone-500">{{ t('enterpriseMembers.copy.positiveValuesIncreaseUsedCostNegativeValuesCreditItEntriesCannotBeDeletedAndUsageCannotBeReduce') }}</p>
+          </form>
+        </details>
       </div>
     </BaseDialog>
+
+    <ConfirmDialog
+      :show="Boolean(pendingBudgetAdjustment)"
+      :title="t('enterpriseMembers.copy.adjustUsedAmount')"
+      :message="budgetAdjustmentConfirmMessage"
+      :confirm-text="t('enterpriseMembers.copy.confirmAdjustment')"
+      :danger="true"
+      @confirm="confirmBudgetAdjustment"
+      @cancel="cancelBudgetAdjustment"
+    />
 
     <BaseDialog :show="Boolean(plaintextKey)" :title="t('enterpriseMembers.copy.saveTheNewKey')" width="normal" @close="plaintextKey = ''">
       <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/20"><p class="text-sm font-semibold text-amber-950 dark:text-amber-100">{{ t('enterpriseMembers.copy.plaintextIsShownOnlyOnce') }}</p><code class="mt-3 block break-all rounded-xl bg-stone-950 p-4 text-xs text-amber-200">{{ plaintextKey }}</code></div>
@@ -872,6 +898,7 @@ const auditEventTotal = ref(0)
 const analyticsDays = ref(30)
 const adjusting = ref(false)
 const adjustment = reactive({ amount: 0, note: '' })
+const pendingBudgetAdjustment = ref<{ memberId: number; memberName: string; amount: number; note: string } | null>(null)
 let budgetSessionSeq = 0
 let usageRecordsReqSeq = 0
 let budgetAnalyticsReqSeq = 0
@@ -1007,11 +1034,30 @@ const filteredMembers = computed(() => {
 })
 const allFilteredMembersSelected = computed(() => filteredMembers.value.length > 0 && filteredMembers.value.every(member => selectedIds.value.has(member.id)))
 const someFilteredMembersSelected = computed(() => filteredMembers.value.some(member => selectedIds.value.has(member.id)))
-const budgetUsagePercent = computed(() => {
+const budgetSettledPercent = computed(() => {
   if (!budgetSummary.value || budgetSummary.value.limit_usd <= 0) return 0
-  return Math.min(100, Math.max(0, ((budgetSummary.value.used_usd + budgetSummary.value.reserved_usd) / budgetSummary.value.limit_usd) * 100))
+  return Math.min(100, Math.max(0, (budgetSummary.value.used_usd / budgetSummary.value.limit_usd) * 100))
 })
-const budgetCommittedUsd = computed(() => (budgetSummary.value?.used_usd || 0) + (budgetSummary.value?.reserved_usd || 0))
+const budgetReservedPercent = computed(() => {
+  if (!budgetSummary.value || budgetSummary.value.limit_usd <= 0) return 0
+  const availableWidth = 100 - budgetSettledPercent.value
+  return Math.min(availableWidth, Math.max(0, (budgetSummary.value.reserved_usd / budgetSummary.value.limit_usd) * 100))
+})
+const budgetUsagePercent = computed(() => budgetSettledPercent.value + budgetReservedPercent.value)
+const budgetUsagePercentLabel = computed(() => {
+  const percent = budgetUsagePercent.value
+  if (percent <= 0) return '0%'
+  if (percent < 0.01) return '<0.01%'
+  if (percent < 1) return `${percent.toFixed(2)}%`
+  if (percent < 10) return `${percent.toFixed(1)}%`
+  return `${Math.round(percent)}%`
+})
+const budgetAdjustmentConfirmMessage = computed(() => pendingBudgetAdjustment.value
+  ? t('enterpriseMembers.dynamic.confirmBudgetAdjustment', {
+      name: pendingBudgetAdjustment.value.memberName,
+      amount: formatMoney(pendingBudgetAdjustment.value.amount)
+    })
+  : '')
 const memberRateLimitWindows = computed(() => {
   const summary = budgetSummary.value
   if (!summary) return []
@@ -1021,6 +1067,7 @@ const memberRateLimitWindows = computed(() => {
     { key: '7d', label: t('enterpriseMembers.copy.sevenDayWindow'), limit: summary.rate_limit_7d, used: summary.usage_7d, resetAt: summary.reset_7d_at || null }
   ]
 })
+const hasMemberRateLimits = computed(() => memberRateLimitWindows.value.some(window => window.limit > 0))
 const normalizedBudgetTrend = computed(() => {
   const analytics = budgetAnalytics.value
   if (!analytics) return []
@@ -1712,6 +1759,7 @@ async function openBudget(member: EnterpriseMember) {
 }
 function closeBudget() {
   budgetOpen.value = false
+  pendingBudgetAdjustment.value = null
   budgetSessionSeq += 1
   usageRecordsReqSeq += 1
   budgetAnalyticsReqSeq += 1
@@ -1777,15 +1825,28 @@ async function reloadAnalytics() {
     if (seq === budgetAnalyticsReqSeq) appStore.showError(extractI18nErrorMessage(error, t, 'enterpriseMembers.errors', t('enterpriseMembers.copy.failedToLoadTrend')))
   }
 }
-async function submitAdjustment() {
+function requestBudgetAdjustment() {
   if (!budgetMember.value || !adjustment.amount || !adjustment.note) return
-  if (!window.confirm(t('enterpriseMembers.copy.thisPostsAnImmutableAuditEntryContinue'))) return
+  pendingBudgetAdjustment.value = {
+    memberId: budgetMember.value.id,
+    memberName: budgetMember.value.name,
+    amount: adjustment.amount,
+    note: adjustment.note
+  }
+}
+function cancelBudgetAdjustment() {
+  pendingBudgetAdjustment.value = null
+}
+async function confirmBudgetAdjustment() {
+  const pending = pendingBudgetAdjustment.value
+  if (!pending || adjusting.value || budgetMember.value?.id !== pending.memberId) return
+  pendingBudgetAdjustment.value = null
   adjusting.value = true
   try {
-    budgetSummary.value = await enterpriseMembersAPI.createBudgetAdjustment(budgetMember.value.id, adjustment.amount, adjustment.note)
+    budgetSummary.value = await enterpriseMembersAPI.createBudgetAdjustment(pending.memberId, pending.amount, pending.note)
     const [ledger, audit] = await Promise.all([
-      enterpriseMembersAPI.listBudgetEntries(budgetMember.value.id),
-      enterpriseMembersAPI.listAuditEvents(budgetMember.value.id)
+      enterpriseMembersAPI.listBudgetEntries(pending.memberId),
+      enterpriseMembersAPI.listAuditEvents(pending.memberId)
     ])
     budgetEntries.value = ledger.items
     budgetEntryTotal.value = ledger.total

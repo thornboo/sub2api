@@ -164,7 +164,7 @@ describe('EnterpriseMembersView layout contract', () => {
     expect(source).toContain('v-if="!member.deleted_at" class="btn btn-secondary btn-sm shrink-0 whitespace-nowrap" type="button" @click="openEdit(member)"')
     expect(source).toContain('v-if="keyMember?.deleted_at"')
     expect(source).toContain('v-if="!keyMember?.deleted_at" class="grid gap-3')
-    expect(source).toContain('v-if="!budgetMember?.deleted_at" class="rounded-3xl border border-dashed')
+    expect(source).toContain('v-if="!budgetMember?.deleted_at" class="overflow-hidden rounded-3xl border border-dashed')
     expect(source).toContain('@click="restoreMember(member)"')
     expect(source).toContain("member.delete_strategy === 'hard_delete'")
     expect(source).toContain("t('enterpriseMembers.copy.deleteHistoricalMemberConfirm')")
@@ -208,10 +208,19 @@ describe('EnterpriseMembersView layout contract', () => {
 
   it('presents member budget usage as one monthly summary plus distinct rolling windows', () => {
     expect(source).toContain("t('enterpriseMembers.copy.monthlyBudgetOverview')")
-    expect(source).toContain('const budgetCommittedUsd = computed')
-    expect(source).toContain("t('enterpriseMembers.copy.budgetCommitted')")
+    expect(source).toContain("t('enterpriseMembers.copy.monthlyBudget')")
+    expect(source).toContain("t('enterpriseMembers.copy.usedThisMonth')")
+    expect(source).toContain("t('enterpriseMembers.copy.availableBudget')")
+    expect(source).toContain('const budgetUsagePercentLabel = computed')
+    expect(source).toContain('v-if="budgetSummary.reserved_usd > 0"')
+    expect(source).toContain("t('enterpriseMembers.copy.monthlyUsageDetails')")
+    expect(source).toContain("t('enterpriseMembers.copy.importedUsageRecord')")
+    expect(source).not.toContain('const budgetCommittedUsd = computed')
+    expect(source).not.toContain("t('enterpriseMembers.copy.budgetCommitted')")
+    expect(source).not.toContain("t('enterpriseMembers.copy.periodActivity')")
     expect(source).toContain('v-if="budgetSummary.limit_usd > 0"')
     expect(source).toContain("t('enterpriseMembers.copy.monthlyLimitNotSet')")
+    expect(source).toContain('v-if="hasMemberRateLimits"')
     expect(source).toContain("t('enterpriseMembers.copy.shortWindowLimits')")
     expect(source).toContain("t('enterpriseMembers.copy.limitNotSet')")
     expect(source).toContain("{ key: '5h', label: t('enterpriseMembers.copy.fiveHourWindow')")
@@ -219,6 +228,17 @@ describe('EnterpriseMembersView layout contract', () => {
     expect(source).toContain("{ key: '7d', label: t('enterpriseMembers.copy.sevenDayWindow')")
     expect(source).not.toContain('class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"')
     expect(source).not.toContain("t('enterpriseMembers.copy.currentPeriodStatus')")
+  })
+
+  it('keeps manual budget corrections behind an explicit advanced action', () => {
+    expect(source).toContain('<details v-if="!budgetMember?.deleted_at"')
+    expect(source).toContain("t('enterpriseMembers.copy.adjustUsedAmount')")
+    expect(source).toContain("t('enterpriseMembers.copy.adjustUsedAmountHint')")
+    expect(source).toContain("t('enterpriseMembers.copy.confirmAdjustment')")
+    expect(source).toContain(':show="Boolean(pendingBudgetAdjustment)"')
+    expect(source).toContain('@confirm="confirmBudgetAdjustment"')
+    expect(source).toContain('const pendingBudgetAdjustment = ref<')
+    expect(source).not.toContain("window.confirm(t('enterpriseMembers.copy.thisPostsAnImmutableAuditEntryContinue'))")
   })
 
   it('fills sparse member trend dates before rendering bounded daily bars', () => {

@@ -2,10 +2,11 @@ import { flushPromises, shallowMount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { archive, batchReplaceGroups, batchUpdate, createEnterpriseMemberOperationIdempotencyKey, getBudget, getOwnerUsageSummary, getUsageAnalytics, getAvailableGroups, listAuditEvents, listBudgetEntries, listMembers, permanentlyDelete, restore, setStatus, showError, showSuccess, usageQuery } = vi.hoisted(() => ({
+const { archive, batchReplaceGroups, batchUpdate, createBudgetAdjustment, createEnterpriseMemberOperationIdempotencyKey, getBudget, getOwnerUsageSummary, getUsageAnalytics, getAvailableGroups, listAuditEvents, listBudgetEntries, listMembers, permanentlyDelete, restore, setStatus, showError, showSuccess, usageQuery } = vi.hoisted(() => ({
   archive: vi.fn(),
   batchReplaceGroups: vi.fn(),
   batchUpdate: vi.fn(),
+  createBudgetAdjustment: vi.fn(),
   createEnterpriseMemberOperationIdempotencyKey: vi.fn(() => 'stable-operation-key'),
   getBudget: vi.fn(),
   getOwnerUsageSummary: vi.fn(),
@@ -65,6 +66,7 @@ vi.mock('@/api/enterpriseMembers', () => ({
     getOwnerUsageSummary,
     batchReplaceGroups,
     batchUpdate,
+    createBudgetAdjustment,
     createEnterpriseMemberOperationIdempotencyKey,
     getBudget,
     getUsageAnalytics,
@@ -160,6 +162,7 @@ describe('EnterpriseMembersView destructive batch group confirmation', () => {
     usageQuery.mockResolvedValue({ items: [], total: 0, page: 1, pages: 0 })
     batchReplaceGroups.mockResolvedValue([{ id: member.id, version: 4, group_ids: [], status: 'disabled', updated_at: '2026-07-02T00:00:00Z' }])
     batchUpdate.mockResolvedValue({ updated_count: 1 })
+    createBudgetAdjustment.mockResolvedValue(budgetSummaryFixture(member.id, 'adjusted'))
     restore.mockResolvedValue({ ...member, status: 'disabled', version: 4 })
     setStatus.mockResolvedValue({ ...member, status: 'disabled', version: 4 })
   })
@@ -277,6 +280,65 @@ describe('EnterpriseMembersView destructive batch group confirmation', () => {
     expect(vm.budgetMember?.id).toBe(secondMember.id)
     expect(vm.budgetSummary).toEqual(budgetSummaryFixture(secondMember.id, 'second'))
     expect(vm.budgetLoading).toBe(false)
+  })
+
+  it('shows small monthly budget usage without rounding it down to zero', async () => {
+    getBudget.mockResolvedValue({
+      ...budgetSummaryFixture(member.id, 'small-usage'),
+      used_usd: 0.09,
+      remaining_usd: 99.91,
+      request_count: 3,
+      input_tokens: 24_000,
+      output_tokens: 528,
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      openBudget: (target: typeof member) => Promise<void>
+    }
+
+    await vm.openBudget(member)
+    await nextTick()
+
+    expect(wrapper.text()).toContain('0.09%')
+    expect(wrapper.text()).toContain('enterpriseMembers.copy.monthlyBudget')
+    expect(wrapper.text()).toContain('enterpriseMembers.copy.usedThisMonth')
+    expect(wrapper.text()).toContain('enterpriseMembers.copy.availableBudget')
+    expect(wrapper.text()).not.toContain('enterpriseMembers.copy.periodActivity')
+  })
+
+  it('requires project confirmation and freezes the budget adjustment payload before writing', async () => {
+    getBudget.mockResolvedValue(budgetSummaryFixture(member.id, 'before-adjustment'))
+    const wrapper = mountView()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      adjustment: { amount: number; note: string }
+      pendingBudgetAdjustment: { memberId: number; memberName: string; amount: number; note: string } | null
+      openBudget: (target: typeof member) => Promise<void>
+      requestBudgetAdjustment: () => void
+      confirmBudgetAdjustment: () => Promise<void>
+    }
+
+    await vm.openBudget(member)
+    vm.adjustment.amount = -1.25
+    vm.adjustment.note = '对账修正'
+    vm.requestBudgetAdjustment()
+
+    expect(createBudgetAdjustment).not.toHaveBeenCalled()
+    expect(vm.pendingBudgetAdjustment).toEqual({
+      memberId: member.id,
+      memberName: member.name,
+      amount: -1.25,
+      note: '对账修正',
+    })
+
+    vm.adjustment.amount = -9
+    vm.adjustment.note = '不应被提交'
+    await vm.confirmBudgetAdjustment()
+
+    expect(createBudgetAdjustment).toHaveBeenCalledWith(member.id, -1.25, '对账修正')
+    expect(vm.pendingBudgetAdjustment).toBeNull()
   })
 
   it('uses the project confirmation dialog and permanently removes historical members through the server strategy', async () => {
