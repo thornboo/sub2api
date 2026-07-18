@@ -43,6 +43,25 @@
 
 管理员角色提升、用户敏感变更和下载 / 清理类操作由路由或 handler 施加 step-up；普通登录态不能绕过该层。
 
+## 管理端提示词输入审计
+
+全部路径都要求管理员身份。提示词审计与原内容审计通过协调器串联，但使用独立配置、任务、事件和管理页面；默认配置为关闭。
+
+| 方法 | 路径 | 用途 | 关键语义 |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/admin/prompt-audit/config` | 读取公开配置 | 返回 token 是否已配置，不回显 Guard token |
+| `PUT` | `/api/v1/admin/prompt-audit/config` | 更新配置 | 要求 `expected_config_version`，使用版本比较阻止并发覆盖 |
+| `POST` | `/api/v1/admin/prompt-audit/endpoints/probe` | 探测审计节点 | 使用本次提交的节点配置，返回状态、延迟和可重试信息 |
+| `GET` | `/api/v1/admin/prompt-audit/runtime` | 查看运行状态 | 返回进程、队列、Redis、节点和审计指标快照 |
+| `GET` | `/api/v1/admin/prompt-audit/events` | 筛选事件 | 支持用户、Key、分组、判定、风险、时间和文本条件 |
+| `GET` | `/api/v1/admin/prompt-audit/events/:id` | 查看事件详情 | 命中事件可包含管理员复核所需的 `snapshot.full_prompt` |
+| `DELETE` | `/api/v1/admin/prompt-audit/events/:id` | 删除单事件 | 同步清理关联任务和临时 payload |
+| `POST` | `/api/v1/admin/prompt-audit/events/batch-delete` | 按 ID 批量删除 | 单次 1-500 个正整数事件 ID |
+| `POST` | `/api/v1/admin/prompt-audit/events/delete-preview` | 预览筛选删除 | 固化 filter hash、最高事件 ID 和短时确认 token |
+| `POST` | `/api/v1/admin/prompt-audit/events/delete-by-filter` | 确认筛选删除 | `confirm=true` 且预览快照、管理员与确认 token 必须一致 |
+
+配置同时受 `risk_control_enabled` 总入口影响，支持全部分组或显式 `group_ids`、priority 节点策略、异步审计与可选 blocking。任务表只保留 hash、脱敏预览和身份快照；完整提示词只进入最终事件表，Guard 凭据不进入任务/事件表或普通日志。
+
 ## 用户侧 API Key
 
 所有 `/api/v1/keys/*` 接口都要求登录用户身份，并且只能操作当前用户自己的 Key。

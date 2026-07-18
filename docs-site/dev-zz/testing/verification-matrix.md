@@ -99,6 +99,25 @@
 - WebSocket 会话使用建连时的策略快照；设置变更只影响新连接，已有连接重连后生效。
 - 策略变更的审计只记录设置键，不记录完整用户 ID 列表或规则内容。
 
+## 提示词审计与安全开关
+
+| 场景 | 推荐命令 |
+| --- | --- |
+| 配置 CAS、脱敏、节点探测、队列/阻断和删除确认 | `cd backend && go test ./internal/securityaudit -count=1` |
+| 网关审计顺序、HTTP/WS 错误和媒体提交边界 | `cd backend && go test ./internal/handler -run 'SecurityAudit\|PromptAudit' -count=1` |
+| 管理路由、step-up/session-binding 开关 | `cd backend && go test ./internal/server/routes ./internal/server/middleware ./internal/handler/admin -run 'PromptAudit\|StepUp\|SessionBinding' -count=1` |
+| 迁移与真实 PostgreSQL 证据/删除合同 | `cd backend && go test -tags=integration ./internal/securityaudit -run '^TestPromptAudit' -count=1` |
+| 管理端提示词审计页面 | `pnpm --dir frontend test:run src/features/prompt-audit/__tests__` |
+| Stripe 按需加载与默认 chunk graph | `pnpm --dir frontend test:run src/views/user/__tests__/stripeLazyLoading.spec.ts src/views/user/__tests__/StripePaymentView.spec.ts` |
+
+必要人工核对：
+
+- `prompt_audit_config` 缺失时审计和阻断都关闭；`blocking_enabled` 不得在总审计关闭时独立生效。
+- Guard token 只允许写入/清除，公开配置和日志不得回显；任务表不得保存完整提示词，完整内容只允许进入最终事件证据。
+- 筛选删除必须先预览并冻结 filter hash、最高事件 ID、管理员和过期时间；确认不得删除预览后新增的事件。
+- WebSocket 首 turn 只审计一次，后续 turn 独立审计；企业成员预算仍按 turn 预留并在阻断/断连路径释放或标记结果不明。
+- 前端不得为 Stripe 恢复全局 `manualChunks`；三个支付入口必须继续通过 `@stripe/stripe-js/pure` 动态导入。
+
 ## OpenAI Responses → Chat fallback 工具桥
 
 | 场景 | 推荐命令 |

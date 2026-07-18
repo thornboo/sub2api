@@ -1,5 +1,59 @@
 # 上游合并记录
 
+## 2026-07-18 - 将上游 `main` 合并到 `dev-zz`：提示词审计、安全开关与 Grok 媒体路由合流
+
+分支：
+- 目标：`dev-zz`
+- 上游：`origin/main`
+- Base：`bc2244c83`
+- 合并前目标：`78da3e513`
+- 上游 head：`b1a6b8026`
+- 结果提交：本次合并提交
+
+上游要点：
+- 新增独立的 OpenAI 兼容提示词输入审计：管理端配置、节点探测、运行状态、事件筛选/详情/删除，异步审计和可选阻断模式，以及 PostgreSQL 任务/事件证据与 Redis 临时载荷。
+- 将 `step_up_enabled` 和 `session_binding_enabled` 明确为默认关闭的安全开关；备份 S3 保存、管理员角色提升等敏感操作继续在开关启用时执行 TOTP step-up，并统一审计日志与会话绑定的客户端 IP 信任口径。
+- Grok 媒体调度新增账号资格覆盖与探测隔离，被动 `image_gen` namespace 不再误触发显式图片权限；Grok 媒体缓存、alpha/search APIKey 调度、Stripe 懒加载和账号上游站点入口同步修正。
+
+合并策略：
+- 合并前完整读取 `docs-site/dev-zz` 的分支策略、上游同步流程、历史合并记录、补丁/变更记录、变更地图、API/迁移索引和验证矩阵；刷新 `origin/main` 后，使用 `git merge-tree --write-tree --messages --name-only --merge-base "$(git merge-base HEAD origin/main)" HEAD origin/main` 只读预演，再执行 `git merge --no-commit origin/main`。
+- 预演和真实合并均得到 7 个内容冲突。接受上游安全审计、Grok 媒体资格、协议正确性和支付懒加载修复；继续保留 dev-zz 企业成员路由/预算/归因、Ops 分类 v2、fork 镜像、数据保留、默认 Rollup chunk graph 和 `1.7.8` 版本线。
+- `181_prompt_audit.sql`、`182_prompt_audit_full_prompt.sql` 与既有同号迁移按完整文件名并存；没有修改任何已应用迁移。
+
+冲突文件：
+- `backend/cmd/server/VERSION`
+- `backend/cmd/server/wire_gen.go`
+- `backend/internal/handler/grok_media.go`
+- `backend/internal/handler/openai_gateway_handler.go`
+- `backend/internal/service/account.go`
+- `deploy/docker-compose.yml`
+- `frontend/vite.config.ts`
+
+解决说明：
+- `VERSION` 保持 `1.7.8`，Compose 默认镜像保持 `thornboo/sub2api:latest`；不采用上游 `0.1.160` 和仅本机构建可用的 `sub2api:latest`。
+- Grok 新任务按 `grok_media_generation` 资格筛选账号；已持久化的异步视频状态查询仍固定回到原 group/account，不因资格变化或普通 failover 切换到其它凭据租户。
+- Responses WebSocket 每个 turn 先按企业成员模型与请求体预留预算，首 turn 复用握手阶段审计，后续 turn 使用新的安全审计协调器；阻断不会绕过预算回收/结果不明保护。
+- `OpenAICacheTokenUsageMode` 与 `GrokMediaEligibleExtraKey` 同时保留；Wire 从合并后的 `wire.go` 重生成，并补齐 `PromptAdminService` 绑定以及安全审计、step-up、企业预算、Grok 任务仓储、模型自检和企业导入 worker 的联合注入/清理。
+- 前端继续使用默认 Rollup chunk graph，避免恢复曾导致生产循环 chunk 白屏的手工 vendor 分包；Stripe 三个消费入口仍通过 `@stripe/stripe-js/pure` 动态加载，回归测试改为验证动态加载和禁止 `manualChunks`，而不是锁定冲突的 `vendor-stripe` 实现。
+
+验证：
+- `mise x -C backend -- go run github.com/google/wire/cmd/wire ./cmd/server`
+- `mise x -C backend -- go test ./cmd/server ./internal/handler ./internal/service ./internal/server ./internal/server/middleware ./internal/securityaudit ./migrations -count=1`
+- `mise x -C backend -- go test ./... -run '^$' -count=1`
+- `make -C backend test-unit`
+- `mise x -C backend -- golangci-lint run --timeout=30m`（0 issues）
+- `mise x -C backend -- go test -tags=integration -c -o /tmp/sub2api-repository-integration.test ./internal/repository`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run`（211 个测试文件、1413 个测试通过）
+- `pnpm --dir frontend build`
+- `pnpm --dir docs-site docs:build`
+- 排除上游只读 source-freeze patch/tar 归档后的 whitespace 检查、未合并索引与冲突标记扫描。
+
+未验证：
+- 浏览器人工 smoke。
+- Docker / Testcontainers 运行时集成测试；本轮只完成 repository integration 测试二进制编译。
+
 ## 2026-07-17 - 将上游 `main` 合并到 `dev-zz-develop`：异步图片、倍率探测、图片计费与操作审计合流
 
 分支：

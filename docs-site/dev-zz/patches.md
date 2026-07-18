@@ -1,5 +1,31 @@
 # 补丁记录
 
+## 2026-07-18 - 上游 main 同步：提示词审计、安全开关与 Grok 媒体资格
+
+### 目标
+
+- 将 `origin/main@b1a6b8026` 合入正式 `dev-zz`，吸收上游安全审计、Grok 媒体、调度和支付加载修复，同时不回退企业成员、Ops 分类、fork 发布和生产分包边界。
+
+### 主要变化
+
+- 新增独立提示词审计服务和 `/admin/prompt-audit` 管理页面，支持 OpenAI 兼容审计节点、指定分组/全部分组、异步审计/可选阻断、运行状态、事件详情及带快照确认的批量筛选删除；配置默认关闭，Guard token 不从管理 API 回显。
+- 新增 `prompt_audit_jobs` / `prompt_audit_events` 证据表；任务只保存脱敏预览，命中事件可以保存管理员复核所需的完整提示词，审计节点凭据不写入这两张表。事件删除同时清理对应临时载荷。
+- `step_up_enabled` 和 `session_binding_enabled` 在缺失配置时默认关闭；开关写入保持旧客户端省略字段即保留现值，启用后的高风险操作继续执行现有 TOTP 与会话绑定合同。
+- Grok 新媒体请求使用资格探测/覆盖筛选；已创建异步视频的状态查询仍只回到原始账号。Responses WebSocket 同时保留每 turn 企业预算预留和新的安全审计阶段。
+- Stripe 支付入口改为 side-effect-free 动态加载；构建继续使用 dev-zz 默认 chunk graph，不恢复会导致循环 vendor chunk 白屏的手工分包。
+
+### 数据与兼容性
+
+- `181_prompt_audit.sql` 与 `181_group_duplicate_operation_id.sql`、`181_ops_error_logs_member_time_index_notx.sql` 并存。
+- `182_prompt_audit_full_prompt.sql` 与 `182_enterprise_member_import_baselines.sql` 并存。
+- `VERSION` 保持 `1.7.8`，Compose 继续默认 `thornboo/sub2api:latest`；没有修改既有迁移或线上数据。
+
+### 验证
+
+- Wire 重生成、后端全包编译、完整 unit-tag 测试、重点包普通测试、golangci-lint 和 repository integration 编译通过。
+- 前端 typecheck、完整 ESLint、211 个测试文件 / 1413 条测试和生产构建通过；docs-site 构建通过。
+- 真实浏览器 smoke 与 Docker/Testcontainers 运行时集成测试未执行。
+
 ## 2026-07-18 - 运维失败分类与平台 SLA 口径重构
 
 问题：
