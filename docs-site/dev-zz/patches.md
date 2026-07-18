@@ -1,6 +1,6 @@
 # 补丁记录
 
-## 2026-07-18 - 上游 main 同步：提示词审计、安全开关与 Grok 媒体资格
+## 2026-07-18 - v1.7.9 上游 main 同步：提示词审计、安全开关与 Grok 媒体资格
 
 ### 目标
 
@@ -18,7 +18,7 @@
 
 - `181_prompt_audit.sql` 与 `181_group_duplicate_operation_id.sql`、`181_ops_error_logs_member_time_index_notx.sql` 并存。
 - `182_prompt_audit_full_prompt.sql` 与 `182_enterprise_member_import_baselines.sql` 并存。
-- `VERSION` 保持 `1.7.8`，Compose 继续默认 `thornboo/sub2api:latest`；没有修改既有迁移或线上数据。
+- 正式发布版本提升为 `1.7.9`，Compose 继续默认 `thornboo/sub2api:latest`；没有修改既有迁移或线上数据。
 
 ### 验证
 
