@@ -105,12 +105,15 @@ func ownerMemberUsageConditions(filters service.OwnerAPIKeyAnalyticsFilters, sta
 	if filters.MemberID != nil {
 		conditions = append(conditions, fmt.Sprintf("ul.member_id = $%d", len(args)+1))
 		args = append(args, *filters.MemberID)
+		conditions = append(conditions, ownerVisibleEnterpriseMemberFactCondition("ul"))
 	} else {
 		switch strings.TrimSpace(filters.MemberScope) {
 		case usagestats.MemberScopeAssigned:
-			conditions = append(conditions, "ul.member_id IS NOT NULL")
+			conditions = append(conditions, ownerVisibleEnterpriseMemberFactCondition("ul"))
 		case usagestats.MemberScopeUnassigned:
 			conditions = append(conditions, "ul.member_id IS NULL")
+		default:
+			conditions = append(conditions, ownerVisibleEnterpriseMemberFactOrUnassignedCondition("ul.member_id", "ul.user_id"))
 		}
 	}
 	if filters.APIKeyID != nil {

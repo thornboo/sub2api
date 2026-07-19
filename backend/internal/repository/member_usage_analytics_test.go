@@ -54,12 +54,47 @@ func TestRebindOwnerMemberPreviousConditionsSupportsCombinedFilters(t *testing.T
 	rebound := rebindSQLConditions(previousConditions, len(currentArgs))
 	joined := strings.Join(rebound, " ")
 
-	require.Len(t, currentConditions, 6)
+	require.Len(t, currentConditions, 7)
 	require.Contains(t, joined, "ul.user_id = $7")
 	require.Contains(t, joined, "ul.member_id = $10")
+	require.Contains(t, joined, "visible_member.id = ul.member_id")
 	require.Contains(t, joined, "ul.api_key_id = $11")
 	require.Contains(t, joined, "ul.group_id = $12")
 	require.NotContains(t, joined, "$60")
+}
+
+func TestOwnerMemberAssignedUsageConditionsExcludeRemovedTombstones(t *testing.T) {
+	start := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	conditions, args, err := ownerMemberUsageConditions(service.OwnerAPIKeyAnalyticsFilters{
+		UserID:      7,
+		MemberScope: usagestats.MemberScopeAssigned,
+	}, start, start.Add(24*time.Hour))
+
+	require.NoError(t, err)
+	require.Len(t, args, 3)
+	joined := strings.Join(conditions, " ")
+	require.Contains(t, joined, "ul.member_id IS NOT NULL")
+	require.Contains(t, joined, "visible_member.id = ul.member_id")
+	require.Contains(t, joined, "visible_member.enterprise_user_id = ul.user_id")
+	require.Contains(t, joined, "visible_member.removed_at IS NULL")
+	require.NotContains(t, joined, "visible_member.deleted_at", "archived members remain part of owner-visible history")
+}
+
+func TestOwnerMemberAllUsageConditionsExcludeRemovedTombstones(t *testing.T) {
+	start := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	conditions, args, err := ownerMemberUsageConditions(service.OwnerAPIKeyAnalyticsFilters{
+		UserID:      7,
+		MemberScope: usagestats.MemberScopeAll,
+	}, start, start.Add(24*time.Hour))
+
+	require.NoError(t, err)
+	require.Len(t, args, 3)
+	joined := strings.Join(conditions, " ")
+	require.Contains(t, joined, "ul.member_id IS NULL OR")
+	require.Contains(t, joined, "visible_member.id = ul.member_id")
+	require.Contains(t, joined, "visible_member.enterprise_user_id = ul.user_id")
+	require.Contains(t, joined, "visible_member.removed_at IS NULL")
+	require.NotContains(t, joined, "visible_member.deleted_at")
 }
 
 func TestGetOwnerMemberAnalyticsLeaderboardReturnsOnlyRealMemberScope(t *testing.T) {

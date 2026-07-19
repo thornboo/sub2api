@@ -371,6 +371,7 @@ func TestUserUsageDashboardModelsAlwaysUsesCompleteFilters(t *testing.T) {
 			require.Equal(t, int64(42), repo.modelFilters.UserID)
 			require.Equal(t, tt.wantMemberID, repo.modelFilters.MemberID)
 			require.Equal(t, tt.wantMemberScope, repo.modelFilters.MemberScope)
+			require.True(t, repo.modelFilters.OwnerVisibleMembers)
 			require.Equal(t, tt.wantValidated, repo.memberValidated)
 			require.Equal(t, usagestats.ModelSourceRequested, repo.modelSource)
 		})

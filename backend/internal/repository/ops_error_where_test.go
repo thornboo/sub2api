@@ -39,6 +39,33 @@ func TestBuildOpsErrorLogsWhere_UserScopedFilters(t *testing.T) {
 	}
 }
 
+func TestBuildOpsErrorLogsWhere_AssignedMembersExcludeRemovedTombstones(t *testing.T) {
+	uid := int64(42)
+	where, args := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{
+		UserID:              &uid,
+		MemberScope:         "assigned",
+		OwnerVisibleMembers: true,
+		View:                "all",
+	})
+
+	for _, want := range []string{
+		"e.member_id IS NOT NULL",
+		"visible_member.id = e.member_id",
+		"visible_member.enterprise_user_id = e.user_id",
+		"visible_member.removed_at IS NULL",
+	} {
+		if !strings.Contains(where, want) {
+			t.Fatalf("assigned member error scope missing %q\nfull: %s", want, where)
+		}
+	}
+	if len(args) != 1 || args[0] != uid {
+		t.Fatalf("expected only user id arg %d, got %v", uid, args)
+	}
+	if strings.Contains(where, "visible_member.deleted_at") {
+		t.Fatalf("archived members must remain in owner-visible error history\nfull: %s", where)
+	}
+}
+
 func TestBuildOpsErrorLogsWhere_ModelFuzzy(t *testing.T) {
 	// 默认（ModelFuzzy=false）保持精确匹配
 	exact := &service.OpsErrorLogFilter{Model: "claude"}
@@ -208,6 +235,53 @@ func TestBuildOpsErrorLogsWhere_MatchDeletedKeyOwner(t *testing.T) {
 	}
 	if strings.Contains(whereOff, "deleted_key_owner_user_id") {
 		t.Fatalf("default must NOT include deleted_key_owner_user_id, got: %s", whereOff)
+	}
+}
+
+func TestBuildOpsErrorLogsWhere_OwnerAllAndEmptyScopesExcludeRemovedTombstones(t *testing.T) {
+	uid := int64(42)
+	for _, scope := range []string{"", "all"} {
+		where, _ := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{
+			UserID:              &uid,
+			MemberScope:         scope,
+			OwnerVisibleMembers: true,
+		})
+		if !strings.Contains(where, "e.member_id IS NULL OR") ||
+			!strings.Contains(where, "visible_member.id = e.member_id") ||
+			!strings.Contains(where, "visible_member.enterprise_user_id = e.user_id") ||
+			!strings.Contains(where, "visible_member.removed_at IS NULL") {
+			t.Fatalf("owner scope %q must hide removed member facts: %s", scope, where)
+		}
+	}
+}
+
+func TestBuildOpsErrorLogsWhere_AdminAllScopeRetainsAuditHistory(t *testing.T) {
+	where, _ := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{MemberScope: "all"})
+	if strings.Contains(where, "visible_member") {
+		t.Fatalf("admin/audit scope must retain removed member history: %s", where)
+	}
+}
+
+func TestBuildOpsErrorLogsWhere_AdminAssignedScopeRetainsRemovedHistory(t *testing.T) {
+	where, _ := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{MemberScope: "assigned"})
+	if !strings.Contains(where, "e.member_id IS NOT NULL") || strings.Contains(where, "visible_member") {
+		t.Fatalf("admin/audit assigned scope must retain removed member history: %s", where)
+	}
+}
+
+func TestBuildOpsErrorLogsWhere_OwnerSpecificMemberRequiresCurrentVisibility(t *testing.T) {
+	uid := int64(42)
+	memberID := int64(7)
+	where, args := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{
+		UserID:              &uid,
+		MemberID:            &memberID,
+		OwnerVisibleMembers: true,
+	})
+	if !strings.Contains(where, "e.member_id = $2") || !strings.Contains(where, "visible_member.removed_at IS NULL") {
+		t.Fatalf("owner member id must be equality- and visibility-scoped: %s", where)
+	}
+	if len(args) != 2 || args[0] != uid || args[1] != memberID {
+		t.Fatalf("unexpected owner member args: %v", args)
 	}
 }
 

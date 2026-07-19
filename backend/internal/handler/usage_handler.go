@@ -266,19 +266,20 @@ func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) 
 
 	return &userUsageFilters{
 		Filters: usagestats.UsageLogFilters{
-			UserID:            subject.UserID,
-			APIKeyID:          apiKeyID,
-			GroupID:           groupID,
-			MemberID:          memberID,
-			MemberScope:       memberScope,
-			Model:             strings.TrimSpace(c.Query("model")),
-			ModelFilterSource: usagestats.ModelSourceRequested,
-			RequestType:       requestType,
-			Stream:            stream,
-			BillingType:       billingType,
-			BillingMode:       billingMode,
-			StartTime:         startPtr,
-			EndTime:           endPtr,
+			UserID:              subject.UserID,
+			OwnerVisibleMembers: true,
+			APIKeyID:            apiKeyID,
+			GroupID:             groupID,
+			MemberID:            memberID,
+			MemberScope:         memberScope,
+			Model:               strings.TrimSpace(c.Query("model")),
+			ModelFilterSource:   usagestats.ModelSourceRequested,
+			RequestType:         requestType,
+			Stream:              stream,
+			BillingType:         billingType,
+			BillingMode:         billingMode,
+			StartTime:           startPtr,
+			EndTime:             endPtr,
 		},
 		StartTime: derefTime(startPtr),
 		EndTime:   derefTime(endPtr),
@@ -502,15 +503,15 @@ func (h *UsageHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	record, err := h.usageService.GetByID(c.Request.Context(), usageID)
+	record, err := h.usageService.GetByIDForOwner(c.Request.Context(), usageID, subject.UserID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	// 验证所有权
+	// Repository 已按 owner 和成员墓碑可见性过滤；保留二次校验防止错误实现泄露记录存在性。
 	if record.UserID != subject.UserID {
-		response.Forbidden(c, "Not authorized to access this record")
+		response.NotFound(c, "Usage record not found")
 		return
 	}
 

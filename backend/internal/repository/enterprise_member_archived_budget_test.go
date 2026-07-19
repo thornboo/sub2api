@@ -58,11 +58,9 @@ func TestEnterpriseMemberOwnerSummaryExcludesRemovedFactsFromCurrentTotalsAndIte
 		"billed_usd", "total_tokens", "migration_input_tokens", "migration_output_tokens",
 		"cache_tokens", "cache_creation_tokens", "cache_read_tokens",
 	}
-	removedAt := periodStart.Add(24 * time.Hour)
-	mock.ExpectQuery(`FROM enterprise_members m`).
+	mock.ExpectQuery(`(?s)FROM enterprise_members m.*WHERE m\.enterprise_user_id = \$1\s+AND m\.removed_at IS NULL`).
 		WithArgs(int64(7), "2026-07-01").
 		WillReturnRows(sqlmock.NewRows(columns).
-			AddRow(11, "~deleted~11", "Deleted member #11", "disabled", 100, removedAt, 30, 0, 2, 100, 50, 0, 0, 0, 0, 0, 0, 0).
 			AddRow(12, "member-12", "Member 12", "active", 200, nil, 20, 0, 1, 40, 10, 0, 0, 0, 0, 0, 0, 0))
 
 	repo := &enterpriseMemberBudgetRepository{db: db}
@@ -72,7 +70,30 @@ func TestEnterpriseMemberOwnerSummaryExcludesRemovedFactsFromCurrentTotalsAndIte
 	require.Equal(t, int64(1), summary.RequestCount)
 	require.Equal(t, int64(40), summary.InputTokens)
 	require.Equal(t, int64(10), summary.OutputTokens)
-	require.Len(t, summary.Members, 1, "removed tombstones are not returned as manageable members")
+	require.Len(t, summary.Members, 1, "removed tombstones are filtered before aggregation")
 	require.Equal(t, int64(12), summary.Members[0].MemberID)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestEnterpriseMemberOwnerUsageTrendExcludesRemovedMembers(t *testing.T) {
+	t.Parallel()
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	start := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+	mock.ExpectQuery(`(?s)FROM usage_logs ul.*visible_member\.id = ul\.member_id.*visible_member\.enterprise_user_id = ul\.user_id.*visible_member\.removed_at IS NULL`).
+		WithArgs(int64(7), start, end, "Asia/Shanghai").
+		WillReturnRows(sqlmock.NewRows([]string{"date", "request_count", "input_tokens", "output_tokens", "actual_cost"}).
+			AddRow("2026-07-01", 1, 40, 10, 20.0))
+
+	repo := &enterpriseMemberBudgetRepository{db: db}
+	trend, err := repo.GetOwnerUsageTrend(t.Context(), 7, start, end)
+	require.NoError(t, err)
+	require.Len(t, trend, 1)
+	require.Equal(t, int64(1), trend[0].RequestCount)
+	require.Equal(t, 20.0, trend[0].ActualCost)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

@@ -131,7 +131,7 @@ limit=20
 
 - 普通用户不传时，所有旧接口保持原语义。
 - 企业账号选择某个成员时，成功记录、统计、趋势、模型、实际分组和错误记录使用同一成员范围。
-- `member_scope=assigned` 表示所有已归属成员的事实；`member_scope=unassigned` 表示 `member_id IS NULL` 的企业自身或历史普通 Key 事实。
+- `member_scope=assigned` 表示仍属于 owner 可见成员范围的事实：`member_id IS NOT NULL`，成员与 owner 匹配且 `enterprise_members.removed_at IS NULL`。归档成员仍在该范围内；已永久删除的审计墓碑不再计入 owner 成员统计。`member_scope=unassigned` 表示 `member_id IS NULL` 的企业自身或历史普通 Key 事实。
 - 同时选择 `member_id` 与 `api_key_id` 时，后端必须验证 Key 当前归属与成员一致；不能只依赖前端联动。
 
 ### 5.2 Summary
@@ -186,7 +186,7 @@ limit=20
 - `total_reserved_usd`：完整筛选范围的当前预留总额。
 - `total_actual_cost`：所选请求时间范围的用户应付金额总额。
 
-“成员使用记录”选择“全部成员”时显式使用 `member_scope=assigned`，分组按 `usage_logs.group_id` 的请求事实统计，已删除 Key 不会让历史请求消失；原“使用记录”对企业账号使用 `member_scope=unassigned`，继续承载普通 Key 的兼容口径。
+“成员使用记录”选择“全部成员”时显式使用 `member_scope=assigned`，分组按 `usage_logs.group_id` 的请求事实统计。归档成员和已删除 Key 的历史请求仍保留；成员完成永久删除后，其审计墓碑及历史请求不再进入 owner 的成员统计。原“使用记录”对企业账号使用 `member_scope=unassigned`，继续承载普通 Key 的兼容口径。
 
 ### 6.2 预算与请求用量分离
 
@@ -207,7 +207,7 @@ limit=20
 成员管理页的单成员预算与快速用量入口仍以成员设计文档为准。前端提供两个清晰入口，但复用同一套 owner 用量接口与页面组件，避免形成两套统计实现：
 
 - `/usage`：普通用户查看全部 Key；企业账号只查看 `member_scope=unassigned` 的普通 Key 请求。
-- `/enterprise/member-usage`：仅企业账号可访问，固定查看 `member_scope=assigned` 或指定 `member_id` 的成员请求；管理员关闭企业写能力后仍可历史只读，成员管理与成员 Key 新流量继续保持禁用。
+- `/enterprise/member-usage`：仅企业账号可访问，固定查看 `member_scope=assigned` 或指定 `member_id` 的成员请求；已永久删除成员会从汇总、趋势、模型、分组、请求和错误记录中统一排除。管理员关闭企业写能力后仍可历史只读，成员管理与成员 Key 新流量继续保持禁用。
 
 ```text
 GET /api/v1/usage/members
@@ -266,6 +266,7 @@ Usage 页面继续提供：
 - 请求明细与错误记录的筛选栏同时提供可搜索的成员选择器，并与页面顶部成员范围保持双向同步；它们不是独立筛选状态。
 - 普通 Key 请求不进入成员使用记录页；它们只在原“使用记录”入口展示。
 - 已归档成员保留在历史筛选目录中并标注归档，不重新激活，也不丢失历史事实。
+- 已永久删除成员不再出现在 owner 的成员筛选目录，也不计入成员使用记录；底层请求、错误和快照证据仍按平台审计策略保留。
 - 成员管理页可携带 `member_id` 跳转到 `/enterprise/member-usage`，日期和成员范围在 URL 状态中表达。
 
 ### 7.3 平台管理员

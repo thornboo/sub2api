@@ -502,8 +502,27 @@ func (r *opsRepository) GetErrorLogByID(ctx context.Context, id int64) (*service
 	if id <= 0 {
 		return nil, fmt.Errorf("invalid id")
 	}
+	return r.getErrorLogByID(ctx, "e.id = $1", id)
+}
 
-	q := `
+// GetErrorLogByIDForOwner applies user ownership and enterprise-member
+// tombstone visibility before loading the error body. This keeps removed member
+// evidence available to GetErrorLogByID for admin/audit use only.
+func (r *opsRepository) GetErrorLogByIDForOwner(ctx context.Context, id, userID int64) (*service.OpsErrorLogDetail, error) {
+	if r == nil || r.db == nil {
+		return nil, fmt.Errorf("nil ops repository")
+	}
+	if id <= 0 || userID <= 0 {
+		return nil, sql.ErrNoRows
+	}
+	where := "e.id = $1" +
+		" AND (e.user_id = $2 OR e.deleted_key_owner_user_id = $2)" +
+		" AND " + ownerVisibleEnterpriseMemberFactOrUnassignedCondition("e.member_id", "$2")
+	return r.getErrorLogByID(ctx, where, id, userID)
+}
+
+func (r *opsRepository) getErrorLogByID(ctx context.Context, where string, args ...any) (*service.OpsErrorLogDetail, error) {
+	q := fmt.Sprintf(`
 SELECT
   e.id,
   e.created_at,
@@ -573,8 +592,8 @@ LEFT JOIN accounts a ON e.account_id = a.id
 LEFT JOIN groups g ON e.group_id = g.id
 LEFT JOIN users du ON e.deleted_key_owner_user_id = du.id
 LEFT JOIN api_keys ak ON ak.id = e.api_key_id
-WHERE e.id = $1
-LIMIT 1`
+WHERE %s
+LIMIT 1`, where)
 
 	var out service.OpsErrorLogDetail
 	var statusCode sql.NullInt64
@@ -599,7 +618,7 @@ LIMIT 1`
 	var detailAPIKeyName string
 	var detailAPIKeyDeletedAt sql.NullTime
 
-	err := r.db.QueryRowContext(ctx, q, id).Scan(
+	err := r.db.QueryRowContext(ctx, q, args...).Scan(
 		&out.ID,
 		&out.CreatedAt,
 		&out.Phase,
@@ -1262,12 +1281,23 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 	if filter.MemberID != nil && *filter.MemberID > 0 {
 		args = append(args, *filter.MemberID)
 		clauses = append(clauses, "e.member_id = $"+itoa(len(args)))
+		if filter.OwnerVisibleMembers {
+			clauses = append(clauses, ownerVisibleEnterpriseMemberFactCondition("e"))
+		}
 	} else {
 		switch strings.TrimSpace(filter.MemberScope) {
 		case "assigned":
-			clauses = append(clauses, "e.member_id IS NOT NULL")
+			if filter.OwnerVisibleMembers {
+				clauses = append(clauses, ownerVisibleEnterpriseMemberFactCondition("e"))
+			} else {
+				clauses = append(clauses, "e.member_id IS NOT NULL")
+			}
 		case "unassigned":
 			clauses = append(clauses, "e.member_id IS NULL")
+		default:
+			if filter.OwnerVisibleMembers {
+				clauses = append(clauses, ownerVisibleEnterpriseMemberFactOrUnassignedCondition("e.member_id", "e.user_id"))
+			}
 		}
 	}
 	if m := strings.TrimSpace(filter.Model); m != "" {

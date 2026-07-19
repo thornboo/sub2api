@@ -186,6 +186,16 @@ func (s *UsageService) GetByID(ctx context.Context, id int64) (*UsageLog, error)
 	return log, nil
 }
 
+// GetByIDForOwner returns an owner-visible usage detail. Permanently removed
+// member facts are deliberately indistinguishable from a missing record.
+func (s *UsageService) GetByIDForOwner(ctx context.Context, id, userID int64) (*UsageLog, error) {
+	log, err := s.usageRepo.GetByIDForOwner(ctx, id, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get owner usage log: %w", err)
+	}
+	return log, nil
+}
+
 // ListByUser 获取用户的使用日志列表
 func (s *UsageService) ListByUser(ctx context.Context, userID int64, params pagination.PaginationParams) ([]UsageLog, *pagination.PaginationResult, error) {
 	logs, pagination, err := s.usageRepo.ListByUser(ctx, userID, params)

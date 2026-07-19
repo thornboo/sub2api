@@ -414,6 +414,7 @@ func (s *OpsService) ListUserErrorRequests(ctx context.Context, userID int64, fi
 	filter = &f
 	uid := userID
 	filter.UserID = &uid
+	filter.OwnerVisibleMembers = true
 	// 用户侧放宽归属:纳入「删 key 后认证失败」(user_id=NULL,靠 deleted_key_owner 归因)的记录。
 	filter.MatchDeletedKeyOwner = true
 	// APIKeyID 透传：保留 handler 传入的值。安全由 buildOpsErrorLogsWhere 的
@@ -467,8 +468,8 @@ func (s *OpsService) GetErrorLogByID(ctx context.Context, id int64) (*OpsErrorLo
 	return detail, nil
 }
 
-// GetUserErrorRequestDetail 返回某用户自己某条错误请求的脱敏详情(含 error_body)。
-// 安全:强制按用户归属校验;非本人记录一律返回 NotFound(不泄露存在性)。
+// GetUserErrorRequestDetail 返回某用户自己某条 owner 可见错误请求的脱敏详情(含 error_body)。
+// 安全:查询层强制用户归属并排除永久删除成员;未命中一律返回 NotFound(不泄露存在性)。
 func (s *OpsService) GetUserErrorRequestDetail(ctx context.Context, userID, id int64) (*UserErrorRequestDetail, error) {
 	if s.opsRepo == nil {
 		return nil, infraerrors.NotFound("OPS_ERROR_NOT_FOUND", "ops error log not found")
@@ -476,7 +477,7 @@ func (s *OpsService) GetUserErrorRequestDetail(ctx context.Context, userID, id i
 	if id <= 0 {
 		return nil, infraerrors.BadRequest("OPS_ERROR_INVALID_ID", "invalid error id")
 	}
-	detail, err := s.opsRepo.GetErrorLogByID(ctx, id)
+	detail, err := s.opsRepo.GetErrorLogByIDForOwner(ctx, id, userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, infraerrors.NotFound("OPS_ERROR_NOT_FOUND", "ops error log not found")
