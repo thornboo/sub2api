@@ -14,6 +14,19 @@ func NewEnterpriseMemberAuditRepository(db *sql.DB) service.EnterpriseMemberAudi
 	return &enterpriseMemberAuditRepository{db: db}
 }
 
+func (r *enterpriseMemberAuditRepository) RecordKeyReveal(ctx context.Context, ownerID, memberID, actorUserID, keyID int64) error {
+	if r == nil || r.db == nil {
+		return errors.New("enterprise member audit repository db is nil")
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO enterprise_member_audit_logs
+			(enterprise_user_id, member_id, actor_user_id, action, entity_type, entity_id, metadata)
+		VALUES ($1, $2, $3, 'member_key.reveal_authorized', 'api_key', $4,
+			jsonb_build_object('source', 'enterprise_member_key_reveal'))`,
+		ownerID, memberID, actorUserID, keyID)
+	return err
+}
+
 func (r *enterpriseMemberAuditRepository) ListByOwner(ctx context.Context, ownerID int64, page, pageSize int) ([]service.EnterpriseMemberAuditEvent, int64, error) {
 	page, pageSize, err := normalizeEnterpriseMemberAuditPage(r, page, pageSize)
 	if err != nil {

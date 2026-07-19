@@ -21,7 +21,7 @@ func (r *enterpriseMemberBatchRepositorySpy) BatchUpdate(_ context.Context, _ in
 
 func TestEnterpriseMemberBatchUpdateOnlyChangesExplicitFields(t *testing.T) {
 	repo := &enterpriseMemberBatchRepositorySpy{}
-	memberService := NewEnterpriseMemberService(repo, &archivedMemberOwnerRepo{}, nil)
+	memberService := NewEnterpriseMemberService(repo, &archivedMemberOwnerRepo{}, nil, nil)
 	monthlyLimit := 125.0
 	status := EnterpriseMemberStatusDisabled
 
@@ -44,7 +44,7 @@ func TestEnterpriseMemberBatchUpdateOnlyChangesExplicitFields(t *testing.T) {
 }
 
 func TestEnterpriseMemberBatchUpdateRejectsNoopAppend(t *testing.T) {
-	memberService := NewEnterpriseMemberService(&enterpriseMemberBatchRepositorySpy{}, &archivedMemberOwnerRepo{}, nil)
+	memberService := NewEnterpriseMemberService(&enterpriseMemberBatchRepositorySpy{}, &archivedMemberOwnerRepo{}, nil, nil)
 
 	_, err := memberService.BatchUpdate(context.Background(), 7, BatchUpdateEnterpriseMembersInput{
 		Members:   []EnterpriseMemberBatchTarget{{ID: 11, ExpectedVersion: 3}},
@@ -55,7 +55,7 @@ func TestEnterpriseMemberBatchUpdateRejectsNoopAppend(t *testing.T) {
 }
 
 func TestEnterpriseMemberBatchUpdateRejectsIgnoredGroupsInKeepMode(t *testing.T) {
-	memberService := NewEnterpriseMemberService(&enterpriseMemberBatchRepositorySpy{}, &archivedMemberOwnerRepo{}, nil)
+	memberService := NewEnterpriseMemberService(&enterpriseMemberBatchRepositorySpy{}, &archivedMemberOwnerRepo{}, nil, nil)
 	limit := 25.0
 
 	_, err := memberService.BatchUpdate(context.Background(), 7, BatchUpdateEnterpriseMembersInput{
@@ -78,7 +78,7 @@ func TestEnterpriseMemberBatchTargetsRejectOversizedRequest(t *testing.T) {
 }
 
 func TestEnterpriseMemberBatchUpdateRejectsLimitOutsideDatabaseNumericRange(t *testing.T) {
-	memberService := NewEnterpriseMemberService(&enterpriseMemberBatchRepositorySpy{}, &archivedMemberOwnerRepo{}, nil)
+	memberService := NewEnterpriseMemberService(&enterpriseMemberBatchRepositorySpy{}, &archivedMemberOwnerRepo{}, nil, nil)
 	limit := EnterpriseMemberMaxMonetaryValue + 1
 
 	_, err := memberService.BatchUpdate(context.Background(), 7, BatchUpdateEnterpriseMembersInput{

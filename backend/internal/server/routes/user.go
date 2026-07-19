@@ -111,6 +111,7 @@ func RegisterUserRoutes(
 			enterpriseMembers.GET("/:id/adoptable-keys", h.EnterpriseMember.ListAdoptableKeys)
 			enterpriseMembers.GET("/:id/keys", h.EnterpriseMember.ListKeys)
 			enterpriseMembers.POST("/:id/keys", h.EnterpriseMember.CreateKey)
+			enterpriseMembers.POST("/:id/keys/:key_id/reveal", h.EnterpriseMember.RevealKey)
 			enterpriseMembers.POST("/:id/keys/:key_id/adopt", h.EnterpriseMember.AdoptKey)
 			enterpriseMembers.PATCH("/:id/keys/:key_id", h.EnterpriseMember.UpdateKey)
 			enterpriseMembers.DELETE("/:id/keys/:key_id", h.EnterpriseMember.DeleteKey)

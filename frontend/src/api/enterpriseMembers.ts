@@ -209,6 +209,12 @@ export interface EnterpriseMemberAuditEvent {
   created_at: string
 }
 
+export interface EnterpriseMemberKeyReveal {
+  id: number
+  member_id: number
+  key: string
+}
+
 export interface EnterpriseMemberUsagePoint {
   date: string
   request_count: number
@@ -462,6 +468,11 @@ export async function listKeys(memberId: number): Promise<ApiKey[]> {
   return data
 }
 
+export async function revealKey(memberId: number, keyId: number): Promise<EnterpriseMemberKeyReveal> {
+  const { data } = await apiClient.post<EnterpriseMemberKeyReveal>(`/enterprise/members/${memberId}/keys/${keyId}/reveal`)
+  return data
+}
+
 export async function listAdoptableKeys(memberId: number): Promise<ApiKey[]> {
   const { data } = await apiClient.get<ApiKey[]>(`/enterprise/members/${memberId}/adoptable-keys`)
   return data
@@ -613,6 +624,7 @@ export const enterpriseMembersAPI = {
   restore,
   permanentlyDelete,
   listKeys,
+  revealKey,
   listAdoptableKeys,
   adoptKey,
   createKey,

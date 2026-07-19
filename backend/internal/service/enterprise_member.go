@@ -19,6 +19,7 @@ var (
 	ErrEnterpriseMemberVersion         = infraerrors.Conflict("ENTERPRISE_MEMBER_VERSION_CONFLICT", "enterprise member was modified; reload and retry")
 	ErrEnterpriseMemberInvalid         = infraerrors.BadRequest("ENTERPRISE_MEMBER_INVALID", "enterprise member input is invalid")
 	ErrEnterpriseMemberKeyNotAdoptable = infraerrors.Conflict("ENTERPRISE_MEMBER_KEY_NOT_ADOPTABLE", "api key is not eligible for enterprise member adoption")
+	ErrEnterpriseMemberKeyRevealAudit  = infraerrors.InternalServer("ENTERPRISE_MEMBER_KEY_REVEAL_UNAVAILABLE", "unable to record member key access")
 )
 
 const (
@@ -233,6 +234,7 @@ type EnterpriseMemberRepository interface {
 	BatchReplaceGroups(ctx context.Context, ownerID int64, targets []BatchEnterpriseMemberGroupTarget) ([]BatchEnterpriseMemberGroupUpdate, error)
 	BatchUpdate(ctx context.Context, ownerID int64, targets []EnterpriseMemberBatchTarget, patch BatchEnterpriseMemberPolicyPatch) ([]BatchEnterpriseMemberUpdate, error)
 	ListKeys(ctx context.Context, ownerID, memberID int64) ([]APIKey, error)
+	GetKey(ctx context.Context, ownerID, memberID, keyID int64) (*APIKey, error)
 	ListAdoptableKeys(ctx context.Context, ownerID int64) ([]APIKey, error)
 	AdoptKey(ctx context.Context, ownerID, memberID, keyID, expectedVersion int64) (*EnterpriseMemberKeyAdoptionResult, error)
 	ListUsageRecords(ctx context.Context, ownerID, memberID int64, page, pageSize int) ([]EnterpriseMemberUsageRecord, int64, error)
@@ -242,17 +244,20 @@ type EnterpriseMemberService struct {
 	repo          EnterpriseMemberRepository
 	userRepo      UserRepository
 	apiKeyService *APIKeyService
+	auditRepo     EnterpriseMemberAuditRepository
 }
 
 func NewEnterpriseMemberService(
 	repo EnterpriseMemberRepository,
 	userRepo UserRepository,
 	apiKeyService *APIKeyService,
+	auditRepo EnterpriseMemberAuditRepository,
 ) *EnterpriseMemberService {
 	return &EnterpriseMemberService{
 		repo:          repo,
 		userRepo:      userRepo,
 		apiKeyService: apiKeyService,
+		auditRepo:     auditRepo,
 	}
 }
 
@@ -628,6 +633,29 @@ func (s *EnterpriseMemberService) ListKeys(ctx context.Context, ownerID, memberI
 		return nil, err
 	}
 	return s.repo.ListKeys(ctx, ownerID, memberID)
+}
+
+// RevealKey returns the plaintext of one non-deleted member key only after
+// verifying ownership and recording the authorization in the append-only audit
+// log. Audit failures are fail-closed so no caller can bypass this boundary.
+func (s *EnterpriseMemberService) RevealKey(ctx context.Context, ownerID, memberID, keyID int64) (*APIKey, error) {
+	if _, err := s.requireEnterpriseOwner(ctx, ownerID); err != nil {
+		return nil, err
+	}
+	if _, err := s.repo.GetByOwnerAndID(ctx, ownerID, memberID, false); err != nil {
+		return nil, err
+	}
+	key, err := s.repo.GetKey(ctx, ownerID, memberID, keyID)
+	if err != nil {
+		return nil, err
+	}
+	if s.auditRepo == nil {
+		return nil, ErrEnterpriseMemberKeyRevealAudit
+	}
+	if err := s.auditRepo.RecordKeyReveal(ctx, ownerID, memberID, ownerID, keyID); err != nil {
+		return nil, ErrEnterpriseMemberKeyRevealAudit.WithCause(err)
+	}
+	return key, nil
 }
 
 func (s *EnterpriseMemberService) ListAdoptableKeys(ctx context.Context, ownerID, memberID int64) ([]APIKey, error) {

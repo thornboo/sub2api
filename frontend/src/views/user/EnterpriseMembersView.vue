@@ -521,7 +521,7 @@
                     <span class="mt-0.5 block whitespace-nowrap text-[11px] text-stone-400">{{ key.expires_at ? `${t('enterpriseMembers.copy.expiresAt')} ${formatDate(key.expires_at)}` : t('enterpriseMembers.copy.neverExpires') }}</span>
                   </div>
                   <div class="flex flex-nowrap justify-end gap-1.5 pr-1">
-                    <button class="btn btn-secondary btn-sm w-[76px] shrink-0 whitespace-nowrap disabled:cursor-wait disabled:opacity-100" type="button" :disabled="copyingMemberKeyId === key.id" :aria-busy="copyingMemberKeyId === key.id" :aria-label="t('enterpriseMembers.copy.copyMemberKey')" @click="copyMemberKey(key)"><Icon :name="copyingMemberKeyId === key.id ? 'refresh' : copiedMemberKeyId === key.id ? 'check' : 'clipboard'" size="sm" :class="copyingMemberKeyId === key.id ? 'animate-spin' : copiedMemberKeyId === key.id ? 'text-emerald-500' : ''" />{{ t('enterpriseMembers.copy.copyMemberKey') }}</button>
+                    <button v-if="!keyMember?.deleted_at" class="btn btn-secondary btn-sm w-[76px] shrink-0 whitespace-nowrap disabled:cursor-wait disabled:opacity-100" type="button" :disabled="copyingMemberKeyId === key.id" :aria-busy="copyingMemberKeyId === key.id" :aria-label="t('enterpriseMembers.copy.copyMemberKey')" @click="copyMemberKey(key)"><Icon :name="copyingMemberKeyId === key.id ? 'refresh' : copiedMemberKeyId === key.id ? 'check' : 'clipboard'" size="sm" :class="copyingMemberKeyId === key.id ? 'animate-spin' : copiedMemberKeyId === key.id ? 'text-emerald-500' : ''" />{{ t('enterpriseMembers.copy.copyMemberKey') }}</button>
                     <button v-if="!keyMember?.deleted_at" class="btn btn-secondary btn-sm shrink-0 whitespace-nowrap" type="button" @click="openKeyEdit(key)"><Icon name="edit" size="sm" />{{ t('enterpriseMembers.copy.edit') }}</button>
                     <button v-if="!keyMember?.deleted_at" class="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium text-rose-600 transition-colors hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-400/10" type="button" @click="removeKey(key.id)"><Icon name="trash" size="sm" />{{ t('enterpriseMembers.copy.delete') }}</button>
                   </div>
@@ -796,7 +796,6 @@ import { extractI18nErrorMessage } from '@/utils/apiError'
 import { fillEnterpriseMemberUsageTrend } from '@/utils/enterpriseMemberUsageTrend'
 import { tableSelectionCheckboxClasses as selectionCheckboxClasses } from '@/utils/tableSelectionCheckbox'
 import { userGroupsAPI } from '@/api/groups'
-import { keysAPI } from '@/api/keys'
 import { usageAPI } from '@/api/usage'
 import { enterpriseMembersAPI, type EnterpriseMember, type EnterpriseMemberAuditEvent, type EnterpriseMemberBatchPolicyInput, type EnterpriseMemberBudgetEntry, type EnterpriseMemberBudgetSummary, type EnterpriseMemberDraft, type EnterpriseMemberImportJob, type EnterpriseMemberImportPreview, type EnterpriseMemberImportResult, type EnterpriseMemberKeyUpdate, type EnterpriseMemberOwnerUsageItem, type EnterpriseMemberOwnerUsageSummary, type EnterpriseMemberStatus, type EnterpriseMemberUsageAnalytics, type EnterpriseMemberUsageDeltaInput } from '@/api/enterpriseMembers'
 import type { ApiKey, Group, UsageLog } from '@/types'
@@ -1654,15 +1653,21 @@ function openRegularKeys() {
 
 async function copyMemberKey(key: ApiKey) {
   if (!keyMember.value || copyingMemberKeyId.value !== null) return
-  copyingMemberKeyId.value = key.id
+  const requestedMemberId = keyMember.value.id
+  const requestedKeyId = key.id
+  copyingMemberKeyId.value = requestedKeyId
   try {
-    const detail = await keysAPI.getById(key.id)
-    if (detail.member_id !== keyMember.value.id) throw new Error('member key ownership mismatch')
+    const detail = await enterpriseMembersAPI.revealKey(requestedMemberId, requestedKeyId)
+    if (keyMember.value?.id !== requestedMemberId) return
+    if (detail.id !== requestedKeyId || detail.member_id !== requestedMemberId) {
+      appStore.showError(t('enterpriseMembers.copy.failedToCopyKey'))
+      return
+    }
     const copied = await clipboardCopy(detail.key, t('enterpriseMembers.copy.keyCopied'))
     if (copied) {
-      copiedMemberKeyId.value = key.id
+      copiedMemberKeyId.value = requestedKeyId
       window.setTimeout(() => {
-        if (copiedMemberKeyId.value === key.id) copiedMemberKeyId.value = null
+        if (copiedMemberKeyId.value === requestedKeyId) copiedMemberKeyId.value = null
       }, 1600)
     }
   } catch (error: unknown) {
@@ -1949,6 +1954,7 @@ const auditActionLabel = (action: string) => ({
   'member_key.enabled': t('enterpriseMembers.copy.memberKeyEnabled'),
   'member_key.disabled': t('enterpriseMembers.copy.memberKeyDisabled'),
   'member_key.deleted': t('enterpriseMembers.copy.memberKeyDeleted'),
+  'member_key.reveal_authorized': t('enterpriseMembers.copy.memberKeyRevealAuthorized'),
   'budget.manual_adjustment': t('enterpriseMembers.copy.manualAdjustment'),
   'budget.migration_opening': t('enterpriseMembers.copy.openingBalancePosted'),
   'budget.reconciliation': t('enterpriseMembers.copy.budgetReconciled')

@@ -24,4 +24,5 @@ type EnterpriseMemberAuditEvent struct {
 type EnterpriseMemberAuditRepository interface {
 	ListByOwner(ctx context.Context, ownerID int64, page, pageSize int) ([]EnterpriseMemberAuditEvent, int64, error)
 	ListByMember(ctx context.Context, ownerID, memberID int64, page, pageSize int) ([]EnterpriseMemberAuditEvent, int64, error)
+	RecordKeyReveal(ctx context.Context, ownerID, memberID, actorUserID, keyID int64) error
 }

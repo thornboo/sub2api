@@ -43,6 +43,17 @@
 
 管理员角色提升、用户敏感变更和下载 / 清理类操作由路由或 handler 施加 step-up；普通登录态不能绕过该层。
 
+## 企业成员 Key 明文按需读取
+
+| 方法 | 路径 | 用途 | 关键语义 |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/enterprise/members/:id/keys` | 查看成员 Key 列表 | 只返回脱敏 Key；归档成员可查看历史列表但不能读取明文或修改 |
+| `POST` | `/api/v1/enterprise/members/:id/keys/:key_id/reveal` | owner 主动复制一把当前成员 Key | 同时限定企业 owner、当前成员、Key ID、成员归属和未删除状态；审计成功后才返回最小明文响应 |
+
+`reveal` 成功响应只包含 `id`、`member_id` 和 `key`，并设置 `Cache-Control: no-store` 与 `Pragma: no-cache`。应用服务在返回前写入 `member_key.reveal_authorized` append-only 审计，记录 owner/member/actor/Key ID 而不记录凭据；审计不可用时 fail closed。普通 `/api/v1/keys/:id` 继续拒绝成员 Key，不能作为旁路。
+
+当前认证基线与普通 Key 明文详情一致：要求有效 owner 登录态并写通用审计，不单独强制 TOTP step-up。未来如提升凭据揭示安全等级，普通 Key 和成员 Key 必须同步实施 step-up、专用限流与异常告警，避免形成单侧安全策略。
+
 ## 管理端提示词输入审计
 
 全部路径都要求管理员身份。提示词审计与原内容审计通过协调器串联，但使用独立配置、任务、事件和管理页面；默认配置为关闭。

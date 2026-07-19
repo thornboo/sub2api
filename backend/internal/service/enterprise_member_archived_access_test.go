@@ -47,7 +47,7 @@ func TestEnterpriseMemberArchivedLifecycleSupportsRestoreAndPermanentRemoval(t *
 	t.Parallel()
 
 	repo := &archivedMemberAccessRepo{}
-	memberService := NewEnterpriseMemberService(repo, &archivedMemberOwnerRepo{}, nil)
+	memberService := NewEnterpriseMemberService(repo, &archivedMemberOwnerRepo{}, nil, nil)
 
 	restored, err := memberService.Restore(context.Background(), 7, 11, 4)
 	require.NoError(t, err)
@@ -68,7 +68,7 @@ func TestEnterpriseMemberArchivedAccessIsReadOnly(t *testing.T) {
 	t.Parallel()
 
 	repo := &archivedMemberAccessRepo{keys: []APIKey{{ID: 31, Name: "historical-key"}}}
-	memberService := NewEnterpriseMemberService(repo, &archivedMemberOwnerRepo{}, nil)
+	memberService := NewEnterpriseMemberService(repo, &archivedMemberOwnerRepo{}, nil, nil)
 
 	keys, err := memberService.ListKeys(context.Background(), 7, 11)
 	require.NoError(t, err)

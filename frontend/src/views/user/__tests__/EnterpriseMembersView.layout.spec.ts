@@ -133,8 +133,9 @@ describe('EnterpriseMembersView layout contract', () => {
   })
 
   it('provides compact, localized member-key management with on-demand copy', () => {
-    expect(source).toContain("import { keysAPI } from '@/api/keys'")
-    expect(source).toContain('const detail = await keysAPI.getById(key.id)')
+    expect(source).not.toContain("import { keysAPI } from '@/api/keys'")
+    expect(source).toContain('const detail = await enterpriseMembersAPI.revealKey(requestedMemberId, requestedKeyId)')
+    expect(source).toContain('detail.id !== requestedKeyId || detail.member_id !== requestedMemberId')
     expect(source).toContain("clipboardCopy(detail.key, t('enterpriseMembers.copy.keyCopied'))")
     expect(source).toContain("t('enterpriseMembers.copy.copyMemberKey')")
     expect(source).toContain('memberKeyStatusBadgeClasses(key.status)')
@@ -148,6 +149,7 @@ describe('EnterpriseMembersView layout contract', () => {
     expect(source).toContain('class="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg')
     expect(source).toContain('disabled:opacity-100')
     expect(source).toContain(':aria-busy="copyingMemberKeyId === key.id"')
+    expect(source).toContain('<button v-if="!keyMember?.deleted_at" class="btn btn-secondary btn-sm w-[76px]')
     expect(source).toContain("copyingMemberKeyId === key.id ? 'refresh' : copiedMemberKeyId === key.id ? 'check' : 'clipboard'")
     expect(source).toContain("{{ t('enterpriseMembers.copy.copyMemberKey') }}")
     expect(source).not.toContain('{{ copyingMemberKeyId === key.id ?')

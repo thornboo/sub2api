@@ -683,6 +683,24 @@ func (r *enterpriseMemberRepository) ListKeys(ctx context.Context, ownerID, memb
 	return out, nil
 }
 
+func (r *enterpriseMemberRepository) GetKey(ctx context.Context, ownerID, memberID, keyID int64) (*service.APIKey, error) {
+	row, err := r.client.APIKey.Query().
+		Where(
+			apikey.IDEQ(keyID),
+			apikey.UserIDEQ(ownerID),
+			apikey.MemberIDEQ(memberID),
+			apikey.DeletedAtIsNil(),
+		).
+		Only(ctx)
+	if err != nil {
+		if dbent.IsNotFound(err) {
+			return nil, service.ErrAPIKeyNotFound
+		}
+		return nil, err
+	}
+	return apiKeyEntityToService(row), nil
+}
+
 func (r *enterpriseMemberRepository) ListAdoptableKeys(ctx context.Context, ownerID int64) ([]service.APIKey, error) {
 	rows, err := r.client.APIKey.Query().
 		Where(

@@ -51,6 +51,12 @@ type enterpriseMemberImportResultSecretsRequest struct {
 	ResultToken string `json:"result_token" binding:"required"`
 }
 
+type enterpriseMemberKeyRevealResponse struct {
+	ID       int64  `json:"id"`
+	MemberID int64  `json:"member_id"`
+	Key      string `json:"key"`
+}
+
 func (h *EnterpriseMemberHandler) List(c *gin.Context) {
 	ownerID, ok := enterpriseOwnerID(c)
 	if !ok {
@@ -331,6 +337,21 @@ func (h *EnterpriseMemberHandler) ListKeys(c *gin.Context) {
 		out = append(out, *item)
 	}
 	response.Success(c, out)
+}
+
+func (h *EnterpriseMemberHandler) RevealKey(c *gin.Context) {
+	ownerID, memberID, keyID, ok := enterpriseMemberKeyIDs(c)
+	if !ok {
+		return
+	}
+	key, err := h.service.RevealKey(c.Request.Context(), ownerID, memberID, keyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+	response.Success(c, enterpriseMemberKeyRevealResponse{ID: key.ID, MemberID: memberID, Key: key.Key})
 }
 
 func (h *EnterpriseMemberHandler) ListAdoptableKeys(c *gin.Context) {

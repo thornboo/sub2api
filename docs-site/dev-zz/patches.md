@@ -1,5 +1,27 @@
 # 补丁记录
 
+## 2026-07-20 - v1.7.11 企业成员 Key 按需复制修复
+
+### 问题
+
+- 企业成员 Key 列表按安全合同只返回脱敏值，但复制按钮错误复用了普通 `GET /api/v1/keys/:id` 详情接口。
+- 普通 Key 详情接口会按设计拒绝所有 `member_id != NULL` 的成员 Key，因此企业 owner 点击复制稳定得到 `API key not found`；Key 本身、成员绑定和网关调用不受影响。
+
+### 修复
+
+- 新增 `POST /api/v1/enterprise/members/:id/keys/:key_id/reveal`，只允许启用状态的企业 owner 按当前成员读取一把未删除成员 Key；Repository 查询同时限定 owner ID、member ID、Key ID 和 `deleted_at IS NULL`。
+- 普通 `/api/v1/keys/:id` 继续拒绝成员 Key，避免把成员身份和明文暴露到普通 Key 管理边界。
+- “鉴权、读取、append-only 审计、返回明文”统一收敛到 `EnterpriseMemberService`；审计写入动作使用 `member_key.reveal_authorized`，只记录 owner/member/actor/Key ID 和固定来源，不记录 Key 值。审计 repository 缺失或写入失败时不返回明文。
+- 成功响应仅返回 `id`、`member_id`、`key`，并禁止 HTTP 缓存；已归档成员不显示复制入口，服务端独立拒绝归档成员和已删除 Key。
+- 前端在请求前冻结 member ID 与 Key ID，迟到响应遇到成员切换时直接丢弃；正常响应必须同时匹配请求的 member ID 和 Key ID 才能进入剪贴板。
+- 当前与普通 Key 明文详情保持一致，要求有效 owner 登录态并写通用审计与企业成员授权审计，不单独强制 TOTP step-up。未来若提升明文凭据读取基线，必须同时覆盖普通 Key 和成员 Key。
+
+### 兼容性与验证
+
+- 不修改数据库结构、已有 Key、成员绑定、网关鉴权、计费或普通 Key 接口响应。
+- 后端 handler/repository/service 定向测试覆盖成功最小响应、禁止缓存、跨 owner/成员拒绝、归档成员/已删除 Key 拒绝和审计失败关闭；前端覆盖真实复制调用、错误响应 ID 和成员切换迟到响应。
+- 前端定向 Vitest、typecheck、ESLint，后端相关包测试、Wire 生成和 `git diff --check` 通过；远端 CI、Security Scan 和正式分支镜像以发布候选提交为准。
+
 ## 2026-07-19 - v1.7.10 Key 自助查询
 
 ### 目标

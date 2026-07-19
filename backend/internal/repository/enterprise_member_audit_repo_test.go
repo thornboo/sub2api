@@ -9,6 +9,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestEnterpriseMemberAuditRepositoryRecordsCredentialSafeKeyReveal(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectExec(`(?s)INSERT INTO enterprise_member_audit_logs.*member_key.reveal_authorized.*enterprise_member_key_reveal`).
+		WithArgs(int64(7), int64(41), int64(7), int64(28)).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	repo := &enterpriseMemberAuditRepository{db: db}
+	require.NoError(t, repo.RecordKeyReveal(context.Background(), 7, 41, 7, 28))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestEnterpriseMemberAuditRepositoryScopesByOwnerAndMember(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)

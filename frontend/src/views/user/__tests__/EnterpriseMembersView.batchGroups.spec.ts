@@ -2,10 +2,11 @@ import { flushPromises, shallowMount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { archive, batchReplaceGroups, batchUpdate, createBudgetAdjustment, createEnterpriseMemberOperationIdempotencyKey, getBudget, getOwnerUsageSummary, getUsageAnalytics, getAvailableGroups, listAuditEvents, listBudgetEntries, listMembers, permanentlyDelete, restore, setStatus, showError, showSuccess, usageQuery } = vi.hoisted(() => ({
+const { archive, batchReplaceGroups, batchUpdate, clipboardCopy, createBudgetAdjustment, createEnterpriseMemberOperationIdempotencyKey, getBudget, getOwnerUsageSummary, getUsageAnalytics, getAvailableGroups, listAuditEvents, listBudgetEntries, listKeys, listMembers, permanentlyDelete, restore, revealKey, setStatus, showError, showSuccess, usageQuery } = vi.hoisted(() => ({
   archive: vi.fn(),
   batchReplaceGroups: vi.fn(),
   batchUpdate: vi.fn(),
+  clipboardCopy: vi.fn(),
   createBudgetAdjustment: vi.fn(),
   createEnterpriseMemberOperationIdempotencyKey: vi.fn(() => 'stable-operation-key'),
   getBudget: vi.fn(),
@@ -14,9 +15,11 @@ const { archive, batchReplaceGroups, batchUpdate, createBudgetAdjustment, create
   getAvailableGroups: vi.fn(),
   listAuditEvents: vi.fn(),
   listBudgetEntries: vi.fn(),
+  listKeys: vi.fn(),
   listMembers: vi.fn(),
   permanentlyDelete: vi.fn(),
   restore: vi.fn(),
+  revealKey: vi.fn(),
   setStatus: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
@@ -46,16 +49,12 @@ vi.mock('@/api/groups', () => ({
   userGroupsAPI: { getAvailable: getAvailableGroups },
 }))
 
-vi.mock('@/api/keys', () => ({
-  keysAPI: {},
-}))
-
 vi.mock('@/api/usage', () => ({
   usageAPI: { query: usageQuery },
 }))
 
 vi.mock('@/composables/useClipboard', () => ({
-  useClipboard: () => ({ copyToClipboard: vi.fn() }),
+  useClipboard: () => ({ copyToClipboard: clipboardCopy }),
 }))
 
 vi.mock('@/api/enterpriseMembers', () => ({
@@ -73,6 +72,8 @@ vi.mock('@/api/enterpriseMembers', () => ({
     permanentlyDelete,
     listAuditEvents,
     listBudgetEntries,
+    listKeys,
+    revealKey,
     restore,
     setStatus,
   },
@@ -159,6 +160,9 @@ describe('EnterpriseMembersView destructive batch group confirmation', () => {
     getUsageAnalytics.mockResolvedValue({ trend: [], groups: [], models: [] })
     listBudgetEntries.mockResolvedValue({ items: [], total: 0 })
     listAuditEvents.mockResolvedValue({ items: [], total: 0 })
+    listKeys.mockResolvedValue([])
+    revealKey.mockResolvedValue({ id: 28, member_id: member.id, key: 'sk-plaintext-secret' })
+    clipboardCopy.mockResolvedValue(true)
     usageQuery.mockResolvedValue({ items: [], total: 0, page: 1, pages: 0 })
     batchReplaceGroups.mockResolvedValue([{ id: member.id, version: 4, group_ids: [], status: 'disabled', updated_at: '2026-07-02T00:00:00Z' }])
     batchUpdate.mockResolvedValue({ updated_count: 1 })
@@ -176,6 +180,101 @@ describe('EnterpriseMembersView destructive batch group confirmation', () => {
     expect(showError).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('enterpriseMembers.copy.pendingConfiguration')
     expect(wrapper.text()).toContain('enterpriseMembers.copy.noGroupsBoundKeysCannotCall')
+  })
+
+  it('copies a member key through the enterprise-scoped reveal endpoint', async () => {
+    const key = {
+      id: 28,
+      user_id: member.enterprise_user_id,
+      member_id: member.id,
+      name: '张三',
+      key: 'sk-77c...0d6e',
+      tags: [],
+      group_id: null,
+      status: 'active',
+      ip_whitelist: [],
+      ip_blacklist: [],
+      last_used_at: null,
+      last_used_ip: null,
+      quota: 0,
+      quota_used: 0,
+      expires_at: null,
+      created_at: '2026-07-01T00:00:00Z',
+      updated_at: '2026-07-20T00:00:00Z',
+      current_concurrency: 0,
+      rate_limit_5h: 0,
+      rate_limit_1d: 0,
+      rate_limit_7d: 0,
+      usage_5h: 0,
+      usage_1d: 0,
+      usage_7d: 0,
+      window_5h_start: null,
+      window_1d_start: null,
+      window_7d_start: null,
+      reset_5h_at: null,
+      reset_1d_at: null,
+      reset_7d_at: null,
+    } as const
+    listKeys.mockResolvedValue([key])
+    const wrapper = mountView()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      openKeys: (target: typeof member) => Promise<void>
+      copyMemberKey: (target: typeof key) => Promise<void>
+    }
+
+    await vm.openKeys(member)
+    await vm.copyMemberKey(key)
+
+    expect(revealKey).toHaveBeenCalledWith(member.id, key.id)
+    expect(clipboardCopy).toHaveBeenCalledWith('sk-plaintext-secret', 'enterpriseMembers.copy.keyCopied')
+    expect(showError).not.toHaveBeenCalled()
+  })
+
+  it('rejects a reveal response that does not match the requested key', async () => {
+    const key = {
+      id: 28,
+      member_id: member.id,
+      name: '张三',
+      key: 'sk-77c...0d6e',
+      status: 'active',
+    }
+    revealKey.mockResolvedValueOnce({ id: 29, member_id: member.id, key: 'sk-wrong-key' })
+    const wrapper = mountView()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      openKeys: (target: typeof member) => Promise<void>
+      copyMemberKey: (target: typeof key) => Promise<void>
+    }
+
+    await vm.openKeys(member)
+    await vm.copyMemberKey(key)
+
+    expect(clipboardCopy).not.toHaveBeenCalled()
+    expect(showError).toHaveBeenCalledWith('enterpriseMembers.copy.failedToCopyKey')
+  })
+
+  it('discards a late reveal response after switching to another member', async () => {
+    const pendingReveal = deferred<{ id: number, member_id: number, key: string }>()
+    const key = { id: 28, member_id: member.id, name: '张三', key: 'sk-77c...0d6e', status: 'active' }
+    const anotherMember = { ...member, id: 42, member_code: 'member-42', name: '成员 42' }
+    revealKey.mockReturnValueOnce(pendingReveal.promise)
+    const wrapper = mountView()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      keyMember: typeof member | null
+      openKeys: (target: typeof member) => Promise<void>
+      copyMemberKey: (target: typeof key) => Promise<void>
+    }
+
+    await vm.openKeys(member)
+    const copyPromise = vm.copyMemberKey(key)
+    vm.keyMember = anotherMember
+    pendingReveal.resolve({ id: key.id, member_id: member.id, key: 'sk-old-member-secret' })
+    await copyPromise
+
+    expect(clipboardCopy).not.toHaveBeenCalled()
+    expect(showError).not.toHaveBeenCalled()
   })
 
   it('does not change a member status until the explicit confirmation is accepted', async () => {
