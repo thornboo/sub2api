@@ -805,9 +805,12 @@ func (r *enterpriseMemberBudgetRepository) GetOwnerUsageTrend(ctx context.Contex
 		return nil, errors.New("enterprise member budget repository db is nil")
 	}
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT TO_CHAR(created_at AT TIME ZONE $4, 'YYYY-MM-DD'), COUNT(*),
-		       COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), COALESCE(SUM(actual_cost), 0)
-		FROM usage_logs WHERE user_id = $1 AND member_id IS NOT NULL AND created_at >= $2 AND created_at < $3
+		SELECT TO_CHAR(ul.created_at AT TIME ZONE $4, 'YYYY-MM-DD'), COUNT(*),
+		       COALESCE(SUM(ul.input_tokens), 0), COALESCE(SUM(ul.output_tokens), 0), COALESCE(SUM(ul.actual_cost), 0)
+		FROM usage_logs ul
+		WHERE ul.user_id = $1
+		  AND `+ownerVisibleEnterpriseMemberFactCondition("ul")+`
+		  AND ul.created_at >= $2 AND ul.created_at < $3
 		GROUP BY 1 ORDER BY 1`, ownerID, start, end, enterpriseBudgetTimezone())
 	if err != nil {
 		return nil, err

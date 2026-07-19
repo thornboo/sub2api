@@ -20,7 +20,8 @@ func TestAppendUsageLogMemberWhereCondition(t *testing.T) {
 		args       []any
 	}{
 		{name: "all is additive no-op", filters: usagestats.UsageLogFilters{MemberScope: usagestats.MemberScopeAll}},
-		{name: "assigned", filters: usagestats.UsageLogFilters{MemberScope: usagestats.MemberScopeAssigned}, conditions: []string{"member_id IS NOT NULL"}},
+		{name: "assigned", filters: usagestats.UsageLogFilters{MemberScope: usagestats.MemberScopeAssigned}, conditions: []string{"member_id IS NOT NULL AND EXISTS (SELECT 1 FROM enterprise_members visible_member WHERE visible_member.id = member_id AND visible_member.enterprise_user_id = user_id AND visible_member.removed_at IS NULL)"}},
+		{name: "assigned with alias", filters: usagestats.UsageLogFilters{MemberScope: usagestats.MemberScopeAssigned}, alias: "ul", conditions: []string{"ul.member_id IS NOT NULL AND EXISTS (SELECT 1 FROM enterprise_members visible_member WHERE visible_member.id = ul.member_id AND visible_member.enterprise_user_id = ul.user_id AND visible_member.removed_at IS NULL)"}},
 		{name: "unassigned with alias", filters: usagestats.UsageLogFilters{MemberScope: usagestats.MemberScopeUnassigned}, alias: "ul", conditions: []string{"ul.member_id IS NULL"}},
 		{name: "specific member wins", filters: usagestats.UsageLogFilters{MemberID: &memberID, MemberScope: usagestats.MemberScopeAssigned}, alias: "ul", conditions: []string{"ul.member_id = $2"}, args: []any{int64(7), memberID}},
 	}
@@ -36,6 +37,25 @@ func TestAppendUsageLogMemberWhereCondition(t *testing.T) {
 			require.Equal(t, tt.args, args)
 		})
 	}
+}
+
+func TestOwnerAnalyticsAssignedMembersExcludeRemovedTombstones(t *testing.T) {
+	conditions, args, err := ownerAnalyticsUsageConditions(service.OwnerAPIKeyAnalyticsFilters{
+		UserID:          7,
+		MemberScope:     usagestats.MemberScopeAssigned,
+		MemberFilterSet: true,
+		StartTime:       time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		EndTime:         time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC),
+	}, true)
+
+	require.NoError(t, err)
+	require.Len(t, args, 3)
+	joined := strings.Join(conditions, " ")
+	require.Contains(t, joined, "ul.member_id IS NOT NULL")
+	require.Contains(t, joined, "visible_member.id = ul.member_id")
+	require.Contains(t, joined, "visible_member.enterprise_user_id = ul.user_id")
+	require.Contains(t, joined, "visible_member.removed_at IS NULL")
+	require.NotContains(t, joined, "visible_member.deleted_at", "archived members remain part of owner-visible history")
 }
 
 func TestOwnerAnalyticsAllMembersUsesRequestFactsWithoutForcingAssignment(t *testing.T) {

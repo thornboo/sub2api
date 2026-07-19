@@ -101,6 +101,38 @@ func appendUsageLogBillingModeQueryFilter(query string, args []any, billingMode 
 	return query + " AND " + conditions[0], args
 }
 
+// ownerVisibleEnterpriseMemberFactCondition keeps owner-facing member usage
+// scoped to members that have not completed permanent removal. Archived
+// members remain visible because removed_at stays NULL until the irreversible
+// owner-facing removal step. Historical facts remain stored for audit queries
+// that do not opt into the assigned-member scope.
+func ownerVisibleEnterpriseMemberFactCondition(alias string) string {
+	memberIDColumn := "member_id"
+	ownerIDColumn := "user_id"
+	if alias != "" {
+		memberIDColumn = alias + ".member_id"
+		ownerIDColumn = alias + ".user_id"
+	}
+	return ownerVisibleEnterpriseMemberFactConditionForColumns(memberIDColumn, ownerIDColumn)
+}
+
+func ownerVisibleEnterpriseMemberFactConditionForColumns(memberIDColumn, ownerIDExpression string) string {
+	return fmt.Sprintf(
+		"%s IS NOT NULL AND EXISTS (SELECT 1 FROM enterprise_members visible_member WHERE visible_member.id = %s AND visible_member.enterprise_user_id = %s AND visible_member.removed_at IS NULL)",
+		memberIDColumn,
+		memberIDColumn,
+		ownerIDExpression,
+	)
+}
+
+func ownerVisibleEnterpriseMemberFactOrUnassignedCondition(memberIDColumn, ownerIDExpression string) string {
+	return fmt.Sprintf(
+		"(%s IS NULL OR (%s))",
+		memberIDColumn,
+		ownerVisibleEnterpriseMemberFactConditionForColumns(memberIDColumn, ownerIDExpression),
+	)
+}
+
 func appendUsageLogMemberWhereCondition(conditions []string, args []any, filters usagestats.UsageLogFilters, alias string) ([]string, []any) {
 	column := "member_id"
 	if alias != "" {
@@ -113,7 +145,7 @@ func appendUsageLogMemberWhereCondition(conditions []string, args []any, filters
 	}
 	switch strings.TrimSpace(filters.MemberScope) {
 	case usagestats.MemberScopeAssigned:
-		conditions = append(conditions, column+" IS NOT NULL")
+		conditions = append(conditions, ownerVisibleEnterpriseMemberFactCondition(alias))
 	case usagestats.MemberScopeUnassigned:
 		conditions = append(conditions, column+" IS NULL")
 	}

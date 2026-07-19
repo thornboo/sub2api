@@ -38,6 +38,10 @@ func (m *opsRepoMock) GetErrorLogByID(ctx context.Context, id int64) (*OpsErrorL
 	return &OpsErrorLogDetail{}, nil
 }
 
+func (m *opsRepoMock) GetErrorLogByIDForOwner(ctx context.Context, id, userID int64) (*OpsErrorLogDetail, error) {
+	return m.GetErrorLogByID(ctx, id)
+}
+
 func (m *opsRepoMock) ListRequestDetails(ctx context.Context, filter *OpsRequestDetailFilter) ([]*OpsRequestDetail, int64, error) {
 	return []*OpsRequestDetail{}, 0, nil
 }

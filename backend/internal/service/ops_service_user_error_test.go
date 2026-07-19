@@ -11,6 +11,7 @@ import (
 type stubOpsRepoForUserErr struct {
 	OpsRepository // 嵌入接口，未实现的方法 panic，仅覆盖 ListErrorLogs
 	gotFilter     *OpsErrorLogFilter
+	gotOwnerID    int64
 
 	// GetErrorLogByID 控制字段
 	detailToReturn    *OpsErrorLogDetail
@@ -34,6 +35,11 @@ func (s *stubOpsRepoForUserErr) GetErrorLogByID(ctx context.Context, id int64) (
 		return nil, s.detailErrToReturn
 	}
 	return s.detailToReturn, nil
+}
+
+func (s *stubOpsRepoForUserErr) GetErrorLogByIDForOwner(ctx context.Context, id, userID int64) (*OpsErrorLogDetail, error) {
+	s.gotOwnerID = userID
+	return s.GetErrorLogByID(ctx, id)
 }
 
 func TestListUserErrorRequests_ForcesScopeAndRedacts(t *testing.T) {
@@ -133,6 +139,9 @@ func TestGetUserErrorRequestDetail_OwnershipEnforced(t *testing.T) {
 	}
 	if got2.Message != "upstream failed" {
 		t.Errorf("want Message=%q, got %q", "upstream failed", got2.Message)
+	}
+	if stub.gotOwnerID != ownerUID {
+		t.Errorf("owner-scoped repository query got user_id=%d, want %d", stub.gotOwnerID, ownerUID)
 	}
 }
 

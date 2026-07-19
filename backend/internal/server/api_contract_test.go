@@ -2515,6 +2515,10 @@ func (r *stubUsageLogRepo) GetByID(ctx context.Context, id int64) (*service.Usag
 	return nil, errors.New("not implemented")
 }
 
+func (r *stubUsageLogRepo) GetByIDForOwner(ctx context.Context, id, userID int64) (*service.UsageLog, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (r *stubUsageLogRepo) Delete(ctx context.Context, id int64) error {
 	return errors.New("not implemented")
 }

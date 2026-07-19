@@ -23,7 +23,23 @@ const usageLogSelectColumns = "id, user_id, api_key_id, account_id, request_id, 
 
 func (r *usageLogRepository) GetByID(ctx context.Context, id int64) (log *service.UsageLog, err error) {
 	query := "SELECT " + usageLogSelectColumns + " FROM usage_logs WHERE id = $1"
-	rows, err := r.sql.QueryContext(ctx, query, id)
+	return r.getOne(ctx, query, id)
+}
+
+// GetByIDForOwner loads one owner-facing usage fact without crossing a
+// permanently removed enterprise member tombstone. Unassigned facts and facts
+// for archived members remain visible; the unfiltered GetByID path is retained
+// for admin/audit consumers.
+func (r *usageLogRepository) GetByIDForOwner(ctx context.Context, id, userID int64) (log *service.UsageLog, err error) {
+	query := "SELECT " + usageLogSelectColumns + " FROM usage_logs usage_record" +
+		" WHERE usage_record.id = $1" +
+		" AND usage_record.user_id = $2" +
+		" AND " + ownerVisibleEnterpriseMemberFactOrUnassignedCondition("usage_record.member_id", "usage_record.user_id")
+	return r.getOne(ctx, query, id, userID)
+}
+
+func (r *usageLogRepository) getOne(ctx context.Context, query string, args ...any) (log *service.UsageLog, err error) {
+	rows, err := r.sql.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -39,6 +39,32 @@ func TestBuildOpsErrorLogsWhere_UserScopedFilters(t *testing.T) {
 	}
 }
 
+func TestBuildOpsErrorLogsWhere_AssignedMembersExcludeRemovedTombstones(t *testing.T) {
+	uid := int64(42)
+	where, args := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{
+		UserID:      &uid,
+		MemberScope: "assigned",
+		View:        "all",
+	})
+
+	for _, want := range []string{
+		"e.member_id IS NOT NULL",
+		"visible_member.id = e.member_id",
+		"visible_member.enterprise_user_id = e.user_id",
+		"visible_member.removed_at IS NULL",
+	} {
+		if !strings.Contains(where, want) {
+			t.Fatalf("assigned member error scope missing %q\nfull: %s", want, where)
+		}
+	}
+	if len(args) != 1 || args[0] != uid {
+		t.Fatalf("expected only user id arg %d, got %v", uid, args)
+	}
+	if strings.Contains(where, "visible_member.deleted_at") {
+		t.Fatalf("archived members must remain in owner-visible error history\nfull: %s", where)
+	}
+}
+
 func TestBuildOpsErrorLogsWhere_ModelFuzzy(t *testing.T) {
 	// 默认（ModelFuzzy=false）保持精确匹配
 	exact := &service.OpsErrorLogFilter{Model: "claude"}

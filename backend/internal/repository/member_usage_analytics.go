@@ -108,7 +108,7 @@ func ownerMemberUsageConditions(filters service.OwnerAPIKeyAnalyticsFilters, sta
 	} else {
 		switch strings.TrimSpace(filters.MemberScope) {
 		case usagestats.MemberScopeAssigned:
-			conditions = append(conditions, "ul.member_id IS NOT NULL")
+			conditions = append(conditions, ownerVisibleEnterpriseMemberFactCondition("ul"))
 		case usagestats.MemberScopeUnassigned:
 			conditions = append(conditions, "ul.member_id IS NULL")
 		}

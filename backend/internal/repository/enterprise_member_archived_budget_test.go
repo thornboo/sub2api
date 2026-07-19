@@ -76,3 +76,26 @@ func TestEnterpriseMemberOwnerSummaryExcludesRemovedFactsFromCurrentTotalsAndIte
 	require.Equal(t, int64(12), summary.Members[0].MemberID)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestEnterpriseMemberOwnerUsageTrendExcludesRemovedMembers(t *testing.T) {
+	t.Parallel()
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	start := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+	mock.ExpectQuery(`(?s)FROM usage_logs ul.*visible_member\.id = ul\.member_id.*visible_member\.enterprise_user_id = ul\.user_id.*visible_member\.removed_at IS NULL`).
+		WithArgs(int64(7), start, end, "Asia/Shanghai").
+		WillReturnRows(sqlmock.NewRows([]string{"date", "request_count", "input_tokens", "output_tokens", "actual_cost"}).
+			AddRow("2026-07-01", 1, 40, 10, 20.0))
+
+	repo := &enterpriseMemberBudgetRepository{db: db}
+	trend, err := repo.GetOwnerUsageTrend(t.Context(), 7, start, end)
+	require.NoError(t, err)
+	require.Len(t, trend, 1)
+	require.Equal(t, int64(1), trend[0].RequestCount)
+	require.Equal(t, 20.0, trend[0].ActualCost)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
