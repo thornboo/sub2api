@@ -347,6 +347,7 @@ export default {
             nearRateLimitKeys: 'Near Rate Limit Now',
             memberCount: 'Members',
             budgetRiskMembers: 'Members at Budget Risk',
+            memberActualCost: 'Actual Member Spend',
             reservedBudget: 'Reserved Budget',
             budgetUsed: 'Budget Used',
             memberBudget: 'Current Budget',

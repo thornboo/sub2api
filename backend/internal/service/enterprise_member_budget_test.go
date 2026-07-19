@@ -33,18 +33,48 @@ type enterpriseMemberBudgetReceiptRepoSpy struct {
 	groupID                *int64
 	payloadHash            string
 	amount                 float64
+	receiptKind            string
+	expiresAt              time.Time
+	asyncTaskRequestID     string
+	asyncTaskID            string
+	asyncTaskExpiresAt     time.Time
+	asyncTaskExecuting     bool
 	resolvedReceiptID      int64
 	resolvedInput          EnterpriseMemberAmbiguousReceiptResolution
 	resolvedActorUserID    int64
 	resolveAmbiguousCalled bool
 }
 
+func (s *enterpriseMemberBudgetReceiptRepoSpy) AttachAsyncTask(_ context.Context, requestID, taskID string, expiresAt time.Time) error {
+	s.asyncTaskRequestID = requestID
+	s.asyncTaskID = taskID
+	s.asyncTaskExpiresAt = expiresAt
+	return nil
+}
+
+func (s *enterpriseMemberBudgetReceiptRepoSpy) MarkAsyncTaskExecuting(_ context.Context, requestID, taskID string) error {
+	s.asyncTaskRequestID = requestID
+	s.asyncTaskID = taskID
+	s.asyncTaskExecuting = true
+	return nil
+}
+
 func (s *enterpriseMemberBudgetReceiptRepoSpy) Reserve(_ context.Context, requestID string, memberID int64, groupID *int64, payloadHash string, amount float64, expiresAt time.Time) (*EnterpriseMemberBudgetReservation, error) {
+	return s.reserve(requestID, memberID, groupID, payloadHash, amount, EnterpriseMemberReceiptKindLegacy, expiresAt)
+}
+
+func (s *enterpriseMemberBudgetReceiptRepoSpy) ReserveWithKind(_ context.Context, requestID string, memberID int64, groupID *int64, payloadHash string, amount float64, receiptKind string, expiresAt time.Time) (*EnterpriseMemberBudgetReservation, error) {
+	return s.reserve(requestID, memberID, groupID, payloadHash, amount, receiptKind, expiresAt)
+}
+
+func (s *enterpriseMemberBudgetReceiptRepoSpy) reserve(requestID string, memberID int64, groupID *int64, payloadHash string, amount float64, receiptKind string, expiresAt time.Time) (*EnterpriseMemberBudgetReservation, error) {
 	s.requestID = requestID
 	s.memberID = memberID
 	s.groupID = groupID
 	s.payloadHash = payloadHash
 	s.amount = amount
+	s.receiptKind = receiptKind
+	s.expiresAt = expiresAt
 	return &EnterpriseMemberBudgetReservation{
 		ID:          91,
 		RequestID:   requestID,
@@ -53,6 +83,7 @@ func (s *enterpriseMemberBudgetReceiptRepoSpy) Reserve(_ context.Context, reques
 		PayloadHash: payloadHash,
 		ReservedUSD: amount,
 		Status:      "reserved",
+		ReceiptKind: receiptKind,
 		ExpiresAt:   expiresAt,
 	}, nil
 }
@@ -113,6 +144,148 @@ func TestEnterpriseMemberBudgetReserveCreatesDurableReceiptForUnlimitedMember(t 
 	require.Equal(t, &groupID, repo.groupID)
 	require.Equal(t, HashUsageRequestPayload(body), repo.payloadHash)
 	require.Zero(t, repo.amount)
+	require.Equal(t, EnterpriseMemberReceiptKindSync, repo.receiptKind)
+}
+
+func TestEnterpriseMemberBudgetReserveCreatesZeroAmountReceiptForLimitedSynchronousRequest(t *testing.T) {
+	repo := &enterpriseMemberBudgetReceiptRepoSpy{}
+	budgetService := NewEnterpriseMemberBudgetService(repo, nil, nil)
+	memberID := int64(44)
+	groupID := int64(9)
+	body := []byte(`{"model":"expensive-mapped-model","input":"hello"}`)
+
+	receipt, err := budgetService.Reserve(context.Background(), EnterpriseMemberBudgetEstimateInput{
+		RequestID: "request-with-remaining-budget",
+		APIKey: &APIKey{
+			ID:       17,
+			MemberID: &memberID,
+			GroupID:  &groupID,
+			Member: &EnterpriseMember{
+				ID:              memberID,
+				MonthlyLimitUSD: 300,
+				Groups:          []Group{{ID: groupID, RateMultiplier: 99}},
+			},
+		},
+		RequestedModel: "expensive-mapped-model",
+		Method:         "POST",
+		Endpoint:       "/v1/responses",
+		ContentType:    "application/json",
+		Body:           body,
+	})
+
+	require.NoError(t, err, "synchronous authorization must not depend on a theoretical pricing upper bound")
+	require.NotNil(t, receipt)
+	require.Zero(t, repo.amount)
+	require.Zero(t, receipt.ReservedUSD)
+	require.Equal(t, EnterpriseMemberReceiptKindSync, repo.receiptKind)
+	require.Equal(t, HashUsageRequestPayload(body), repo.payloadHash)
+}
+
+func TestEnterpriseMemberBudgetReserveKeepsPositiveHoldForAsynchronousVideo(t *testing.T) {
+	repo := &enterpriseMemberBudgetReceiptRepoSpy{}
+	pricingService := &PricingService{pricingData: map[string]*LiteLLMModelPricing{}}
+	budgetService := NewEnterpriseMemberBudgetService(repo, NewModelPricingResolver(nil, NewBillingService(nil, pricingService)), nil)
+	memberID := int64(44)
+	groupID := int64(9)
+
+	receipt, err := budgetService.Reserve(context.Background(), EnterpriseMemberBudgetEstimateInput{
+		RequestID: "async-video-request",
+		APIKey: &APIKey{
+			ID:       17,
+			MemberID: &memberID,
+			GroupID:  &groupID,
+			Member: &EnterpriseMember{
+				ID:              memberID,
+				MonthlyLimitUSD: 300,
+				Groups:          []Group{{ID: groupID, RateMultiplier: 1}},
+			},
+		},
+		RequestedModel: "grok-imagine-video",
+		Method:         "POST",
+		Endpoint:       "/v1/videos/generations",
+		ContentType:    "application/json",
+		Body:           []byte(`{"model":"grok-imagine-video","duration":8}`),
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, receipt)
+	require.Positive(t, repo.amount, "asynchronous work that continues after the HTTP response must keep a real hold")
+	require.Equal(t, repo.amount, receipt.ReservedUSD)
+	require.Equal(t, EnterpriseMemberReceiptKindAsyncVideo, repo.receiptKind)
+}
+
+func TestEnterpriseMemberBudgetReserveKeepsPositiveHoldForAsynchronousImage(t *testing.T) {
+	repo := &enterpriseMemberBudgetReceiptRepoSpy{}
+	pricingService := &PricingService{pricingData: map[string]*LiteLLMModelPricing{}}
+	budgetService := NewEnterpriseMemberBudgetService(repo, NewModelPricingResolver(nil, NewBillingService(nil, pricingService)), nil)
+	memberID := int64(44)
+	groupID := int64(9)
+	imagePrice := 0.04
+
+	receipt, err := budgetService.Reserve(context.Background(), EnterpriseMemberBudgetEstimateInput{
+		RequestID: "async-image-request",
+		APIKey: &APIKey{
+			ID:       17,
+			MemberID: &memberID,
+			GroupID:  &groupID,
+			Member: &EnterpriseMember{
+				ID:              memberID,
+				MonthlyLimitUSD: 300,
+				Groups: []Group{{
+					ID: groupID, RateMultiplier: 1,
+					ImagePrice1K: &imagePrice, ImagePrice2K: &imagePrice, ImagePrice4K: &imagePrice,
+				}},
+			},
+		},
+		RequestedModel: "gpt-image-2",
+		Method:         "POST",
+		Endpoint:       "/v1/images/generations/async",
+		ContentType:    "application/json",
+		Body:           []byte(`{"model":"gpt-image-2","prompt":"cat","n":1}`),
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, receipt)
+	require.Positive(t, repo.amount, "an image task that runs after the 202 response must keep a real hold")
+	require.Equal(t, repo.amount, receipt.ReservedUSD)
+	require.Equal(t, EnterpriseMemberReceiptKindAsyncImage, repo.receiptKind)
+	require.WithinDuration(t, time.Now().Add(5*time.Minute), repo.expiresAt, time.Second)
+}
+
+func TestEnterpriseMemberBudgetAsyncImageTaskLinkUsesShortQueuedFence(t *testing.T) {
+	repo := &enterpriseMemberBudgetReceiptRepoSpy{}
+	budgetService := NewEnterpriseMemberBudgetService(repo, nil, nil)
+
+	require.NoError(t, budgetService.AttachImageTask(context.Background(), "17:client:request-1", "imgtask_1"))
+	require.Equal(t, "17:client:request-1", repo.asyncTaskRequestID)
+	require.Equal(t, "imgtask_1", repo.asyncTaskID)
+	require.WithinDuration(t, time.Now().Add(defaultImageTaskDispatchTimeout+defaultImageTaskRecoveryGrace), repo.asyncTaskExpiresAt, time.Second)
+
+	require.NoError(t, budgetService.MarkImageTaskExecuting(context.Background(), "17:client:request-1", "imgtask_1"))
+	require.True(t, repo.asyncTaskExecuting)
+}
+
+func TestEnterpriseMemberBudgetAmountHoldEndpointClassification(t *testing.T) {
+	for _, endpoint := range []string{
+		"/v1/images/generations/async",
+		"/images/generations/async",
+		"/v1/images/edits/async",
+		"/images/edits/async",
+		"/v1/videos/generations",
+		"/v1/videos/edits",
+		"/v1/videos/extensions",
+	} {
+		require.True(t, enterpriseMemberBudgetRequiresAmountHold("POST", endpoint), endpoint)
+	}
+	for _, endpoint := range []string{
+		"/v1/responses",
+		"/v1/images/generations",
+		"/v1/images/edits",
+		"/v1/images/tasks/imgtask-1",
+	} {
+		require.False(t, enterpriseMemberBudgetRequiresAmountHold("POST", endpoint), endpoint)
+	}
+	require.False(t, enterpriseMemberBudgetRequiresAmountHold("GET", "/v1/images/generations/async"))
 }
 
 func (s *enterpriseMemberBudgetRateRepoStub) GetByUserAndGroup(context.Context, int64, int64) (*float64, error) {
@@ -391,6 +564,7 @@ func TestNormalizeEnterpriseMemberBudgetRequestIDMatchesUnifiedBilling(t *testin
 func TestEnterpriseMemberEndpointIsBillableDelegatesAsyncBatchLifecycle(t *testing.T) {
 	require.False(t, enterpriseMemberEndpointIsBillable("POST", "/v1/images/batches"))
 	require.False(t, enterpriseMemberEndpointIsBillable("GET", "/v1/images/batches/job-1"))
+	require.False(t, enterpriseMemberEndpointIsBillable("GET", "/v1/images/tasks/imgtask-1"))
 	require.True(t, enterpriseMemberEndpointIsBillable("POST", "/v1/images/generations"))
 	require.True(t, enterpriseMemberEndpointIsBillable("POST", "/v1/videos/generations"))
 	require.True(t, enterpriseMemberEndpointIsBillable("POST", "/v1/videos/edits"))

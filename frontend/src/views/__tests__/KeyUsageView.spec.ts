@@ -86,7 +86,7 @@ const summary = {
     timezone: 'Asia/Shanghai',
     monthly: { limit: 100, used: 8, remaining: 92 },
     settled_usd: 8,
-    reserved_usd: 0,
+    reserved_usd: 53.38,
     request_count: 3,
     input_tokens: 100,
     output_tokens: 50,
@@ -207,6 +207,28 @@ describe('KeyUsageView', () => {
     expect(wrapper.text()).toContain('gpt-5.6-sol')
     expect(wrapper.text()).toContain('gpt-5.5')
     expect(wrapper.text()).toContain('keyUsage.exit')
+    expect(wrapper.text()).not.toContain('$53.38')
+  })
+
+  it('shows the actual member-budget overage without exposing internal reservations', async () => {
+    getSession.mockResolvedValue({ valid: true })
+    getSummary.mockResolvedValueOnce({
+      ...summary,
+      member_budget: {
+        ...summary.member_budget,
+        monthly: { limit: 100, used: 100.2, remaining: 0 },
+        settled_usd: 100.2,
+        reserved_usd: 80,
+      },
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('keyUsage.budgetOverage')
+    expect(wrapper.text()).toContain('$0.20')
+    expect(wrapper.text()).toContain('keyUsage.budgetRequestsStopped')
+    expect(wrapper.text()).not.toContain('$80.00')
   })
 
   it('is linked from the public home navigation', () => {

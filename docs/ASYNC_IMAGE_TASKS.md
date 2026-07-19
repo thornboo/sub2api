@@ -62,6 +62,12 @@ The server stores the initial task in Redis and responds with `202 Accepted`:
   "task_id": "imgtask_0123456789abcdef",
   "object": "image.generation.task",
   "status": "processing",
+  "phase": "queued",
+  "budget": {
+    "task_hold_usd": 4.00,
+    "status": "held",
+    "message": "US$4.00 is temporarily held for this asynchronous task; it is not settled usage."
+  },
   "created_at": 1784092800,
   "expires_at": 1784179200,
   "poll_url": "/v1/images/tasks/imgtask_0123456789abcdef"
@@ -69,6 +75,8 @@ The server stores the initial task in Redis and responds with `202 Accepted`:
 ```
 
 `Location` contains the polling path and `Retry-After: 3` provides the recommended polling interval.
+
+For enterprise members with spending limits, `budget.task_hold_usd` is the temporary amount reserved for this task. It is not part of settled usage. `budget.status` progresses through `held`, `settled`, `released`, or `needs_review`; unlimited members can receive `not_required`. This makes a budget rejection caused by active task holds distinguishable from a member whose actual usage is already exhausted.
 
 ## Poll a task
 
@@ -87,6 +95,12 @@ While work is in progress:
   "task_id": "imgtask_0123456789abcdef",
   "object": "image.generation.task",
   "status": "processing",
+  "phase": "running",
+  "budget": {
+    "task_hold_usd": 4.00,
+    "status": "held",
+    "message": "US$4.00 is temporarily held for this asynchronous task; it is not settled usage."
+  },
   "created_at": 1784092800,
   "expires_at": 1784179200
 }
@@ -100,6 +114,11 @@ On success, `result` mirrors the synchronous image API body, except each image h
   "task_id": "imgtask_0123456789abcdef",
   "object": "image.generation.task",
   "status": "completed",
+  "budget": {
+    "task_hold_usd": 4.00,
+    "status": "settled",
+    "message": "The task was billed from actual usage and its temporary hold was closed."
+  },
   "http_status": 200,
   "image_url": "https://...",
   "result": {
@@ -133,4 +152,12 @@ For URL responses, `image_url` mirrors the first `data[].url` for simple clients
 
 All submit and poll responses include `Cache-Control: no-store`, preventing a CDN from caching the `processing` state. Tasks and results expire 24 hours after their latest state update. A task executes for at most 30 minutes.
 
+The Redis task snapshot also stores the private budget receipt link and a recovery deadline. PostgreSQL stores the explicit `async_image` receipt kind, task ID, and a `queued` / `executing` durability fence. The handler must persist `executing` before it is allowed to call the upstream. Lifecycle transitions are atomically indexed in Redis as `queued`, `executing`, `finalizing`, and `recovering`.
+
+After a process restart, an overdue task that is still `queued` in both stores is proven not to have reached the upstream and its hold is released. A task that had entered execution or finalization is not replayed; its receipt is marked `ambiguous`, the task returns `budget.status=needs_review`, and the existing reconciliation workflow determines the final charge. Release and ambiguous transitions are fenced by both receipt request ID and image task ID, so a duplicate request cannot mutate the hold belonging to an earlier task. The public budget status comes from the authoritative receipt returned by that transition. Tasks in `needs_review` stay on a low-frequency reconciliation index, so a later receipt settlement or release updates the public budget status instead of leaving stale text until task expiry. If unified billing had already settled the receipt, recovery reports `budget.status=settled` even when the image result itself could not be restored.
+
+If the Redis task key is missing but its PostgreSQL receipt still exists, the poll endpoint returns a customer-safe failed-task tombstone with the current budget status and a recovery explanation. It does not expose the internal receipt or request ID. Unresolved `reserved` / `ambiguous` tombstones remain pollable beyond the normal 24-hour result TTL while they still consume a hold; settled or released tombstones obey the normal task expiry. Every persisted task transition refreshes both the Redis TTL and public `expires_at`. New submissions remain disabled when object storage is unavailable, but polling and budget recovery for already accepted tasks continue. Graceful shutdown waits for the recovery loop to stop using Redis and PostgreSQL before those clients close.
+
 Task ownership is scoped to both user and API key. Unknown task IDs and IDs owned by another key both return `404`, avoiding task-existence disclosure. Polling remains available when the completed generation used the key's remaining balance; normal authentication, disabled-key, user, IP, and group checks still apply.
+
+When a new task cannot fit because other asynchronous tasks are holding part of the same member limit, the API returns `429` with stable error code `ENTERPRISE_MEMBER_ASYNC_BUDGET_UNAVAILABLE`. The protocol-specific error body includes the stable code/reason and a metadata object containing the applicable window, limit, settled usage, active task holds, and requested hold. The human-readable message lists the same values, and they are also available in `X-Sub2API-Budget-*` response headers for clients and support tooling. This error does not mean the listed settled usage has exhausted the budget.

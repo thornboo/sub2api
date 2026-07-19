@@ -79,8 +79,8 @@ function memberResponse(memberID?: number) {
     member_count: memberID ? 1 : 3,
     budget_risk_member_count: memberID ? 0 : 2,
     total_reserved_usd: memberID ? 2 : 12,
-    total_actual_cost: 0,
-    displayed_actual_cost: 0,
+    total_actual_cost: memberID ? 2 : 12,
+    displayed_actual_cost: memberID ? 2 : 12,
   }
 }
 
@@ -94,7 +94,7 @@ function memberLeaderboardItem(memberID: number | null, name: string) {
     key_count: memberID ? 1 : 3,
     monthly_limit_usd: memberID ? 100 : 0,
     current_used_usd: 0,
-    current_reserved_usd: 0,
+    current_reserved_usd: 999,
     requests: memberID ? 2 : 5,
     input_tokens: 10,
     output_tokens: 5,
@@ -167,7 +167,8 @@ describe('UsageAnalyticsPanel member metrics', () => {
     await flushPromises()
     expect(metricCardText(wrapper, 'usage.analytics.memberCount')).toContain('3')
     expect(metricCardText(wrapper, 'usage.analytics.budgetRiskMembers')).toContain('2')
-    expect(metricCardText(wrapper, 'usage.analytics.reservedBudget')).toContain('$12.0000')
+    expect(metricCardText(wrapper, 'usage.analytics.memberActualCost')).toContain('$12.0000')
+    expect(wrapper.text()).not.toContain('usage.analytics.reservedBudget')
 
     const trendTab = wrapper.findAll('button').find((button) => button.text() === 'usage.analytics.tabs.trend')
     expect(trendTab).toBeDefined()
@@ -189,7 +190,8 @@ describe('UsageAnalyticsPanel member metrics', () => {
     )
     expect(metricCardText(wrapper, 'usage.analytics.memberCount')).toContain('1')
     expect(metricCardText(wrapper, 'usage.analytics.budgetRiskMembers')).toContain('0')
-    expect(metricCardText(wrapper, 'usage.analytics.reservedBudget')).toContain('$2.0000')
+    expect(metricCardText(wrapper, 'usage.analytics.memberActualCost')).toContain('$2.0000')
+    expect(wrapper.text()).not.toContain('usage.analytics.reservedBudget')
   })
 
   it('keeps the regular-key compatibility bucket out of the member ranking', async () => {
@@ -219,6 +221,7 @@ describe('UsageAnalyticsPanel member metrics', () => {
 
     expect(wrapper.text()).toContain('Finance')
     expect(wrapper.text()).not.toContain('usage.members.unassignedShort')
+    expect(wrapper.text()).not.toContain('$999.0000')
   })
 
   it('keeps the dedicated member module scoped to assigned usage until a member is selected', async () => {

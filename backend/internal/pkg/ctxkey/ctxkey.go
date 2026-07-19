@@ -45,9 +45,15 @@ const (
 	// enterprise member key. Ordinary single-group keys may omit it.
 	ActiveGroup Key = "ctx_active_group"
 
-	// MemberBudgetReservation identifies the durable member-budget hold for the
-	// current logical request.
+	// MemberBudgetReservation identifies the durable member-budget receipt for
+	// the current logical request. Async work may attach a positive hold.
 	MemberBudgetReservation Key = "ctx_member_budget_reservation"
+
+	// MemberBudgetAsyncTaskOwned marks that an asynchronous task has been
+	// durably created and now exclusively owns receipt state transitions. Once
+	// set, request middleware must not use request-ID-only release/ambiguous
+	// fallbacks because those operations cannot verify the task fence.
+	MemberBudgetAsyncTaskOwned Key = "ctx_member_budget_async_task_owned"
 
 	// UserID 认证后的 Sub2API 用户 ID，由 API Key 认证中间件设置。
 	// 供 service 层执行用户级策略，不能使用客户端请求体中的 user 标识替代。

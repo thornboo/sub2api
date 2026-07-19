@@ -54,6 +54,7 @@ export interface PublicKeyUsageMemberBudget {
   timezone: string
   monthly: PublicKeyUsageLimit
   settled_usd: number
+  /** Compatibility/operations field; customer UI must not treat it as actual spend. */
   reserved_usd: number
   request_count: number
   input_tokens: number

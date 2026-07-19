@@ -385,6 +385,7 @@ describe('EnterpriseMembersView destructive batch group confirmation', () => {
     getBudget.mockResolvedValue({
       ...budgetSummaryFixture(member.id, 'small-usage'),
       used_usd: 0.09,
+      reserved_usd: 253.38,
       remaining_usd: 99.91,
       request_count: 3,
       input_tokens: 24_000,
@@ -405,6 +406,32 @@ describe('EnterpriseMembersView destructive batch group confirmation', () => {
     expect(wrapper.text()).toContain('enterpriseMembers.copy.usedThisMonth')
     expect(wrapper.text()).toContain('enterpriseMembers.copy.availableBudget')
     expect(wrapper.text()).not.toContain('enterpriseMembers.copy.periodActivity')
+    expect(wrapper.text()).not.toContain('enterpriseMembers.copy.reservedAmount')
+    expect(wrapper.text()).not.toContain('US$253.38')
+  })
+
+  it('shows actual overage and explains that subsequent requests are stopped', async () => {
+    getBudget.mockResolvedValue({
+      ...budgetSummaryFixture(member.id, 'over-budget'),
+      limit_usd: 100,
+      used_usd: 100.2,
+      reserved_usd: 80,
+      remaining_usd: 0,
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      openBudget: (target: typeof member) => Promise<void>
+    }
+
+    await vm.openBudget(member)
+    await nextTick()
+
+    expect(wrapper.text()).toContain('enterpriseMembers.copy.budgetOverage')
+    expect(wrapper.text()).toContain('US$0.20')
+    expect(wrapper.text()).toContain('enterpriseMembers.copy.budgetRequestsStopped')
+    expect(wrapper.text()).not.toContain('US$80.00')
   })
 
   it('requires project confirmation and freezes the budget adjustment payload before writing', async () => {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -306,10 +307,11 @@ func extractEnterpriseMemberRequestedModel(c *gin.Context) (string, error) {
 	return service.ExtractEnterpriseMemberBudgetRequestModel(contentType, body)
 }
 
-// EnforceEnterpriseMemberBudget creates a durable upper-bound reservation
-// before the request reaches any upstream handler. Failed local/upstream
-// attempts release the reservation; successful requests are settled by the
-// unified billing transaction.
+// EnforceEnterpriseMemberBudget authorizes member spending before the request
+// reaches an upstream handler. Synchronous requests create a zero-amount receipt
+// after checking settled usage; asynchronous image/video tasks keep a positive
+// hold. Definitive failures release the receipt, unknown outcomes become
+// ambiguous, and successful requests are settled by unified billing.
 func EnforceEnterpriseMemberBudget(budgetService *service.EnterpriseMemberBudgetService, cfg *config.Config, writeError GatewayErrorWriter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		apiKey, ok := GetAPIKeyFromContext(c)
@@ -317,9 +319,9 @@ func EnforceEnterpriseMemberBudget(budgetService *service.EnterpriseMemberBudget
 			c.Next()
 			return
 		}
-		// Responses WebSocket is a multi-turn protocol. Its model and cost bound
-		// arrive in each response.create frame, so the handler owns one durable
-		// reservation per turn instead of creating an unbounded connection hold.
+		// Responses WebSocket is a multi-turn protocol, so the handler owns one
+		// durable zero-amount receipt per response.create turn instead of creating
+		// a connection-wide receipt here.
 		if isWebSocketUpgrade(c.Request) {
 			c.Next()
 			return
@@ -345,7 +347,8 @@ func EnforceEnterpriseMemberBudget(budgetService *service.EnterpriseMemberBudget
 			if service.IsEnterpriseMemberBudgetExceeded(err) {
 				status = http.StatusTooManyRequests
 			}
-			writeError(c, status, err.Error())
+			writeEnterpriseMemberBudgetErrorDetails(c, err)
+			writeError(c, status, enterpriseMemberBudgetClientMessage(err))
 			c.Abort()
 			return
 		}
@@ -356,6 +359,12 @@ func EnforceEnterpriseMemberBudget(budgetService *service.EnterpriseMemberBudget
 		ctx := context.WithValue(c.Request.Context(), ctxkey.MemberBudgetReservation, reservation)
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
+		if owned, _ := c.Request.Context().Value(ctxkey.MemberBudgetAsyncTaskOwned).(bool); owned {
+			// The async task handler owns the receipt from task creation onward.
+			// Its release/ambiguous operations include both request ID and task ID;
+			// falling back here would bypass that durable task fence.
+			return
+		}
 		if service.IsEnterpriseMemberBudgetOutcomeAmbiguous(c) {
 			reconcileCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -372,6 +381,43 @@ func EnforceEnterpriseMemberBudget(budgetService *service.EnterpriseMemberBudget
 			_ = budgetService.Release(releaseCtx, apiKey.ID, requestID)
 		}
 	}
+}
+
+func writeEnterpriseMemberBudgetErrorDetails(c *gin.Context, err error) {
+	if c == nil || err == nil {
+		return
+	}
+	appErr := infraerrors.FromError(err)
+	if appErr == nil {
+		return
+	}
+	if reason := strings.TrimSpace(appErr.Reason); reason != "" {
+		c.Header(gatewayErrorCodeHeader, reason)
+	}
+	for key, header := range gatewayBudgetMetadataHeaders {
+		if value := strings.TrimSpace(appErr.Metadata[key]); value != "" {
+			c.Header(header, value)
+		}
+	}
+}
+
+func enterpriseMemberBudgetClientMessage(err error) string {
+	appErr := infraerrors.FromError(err)
+	if appErr == nil {
+		return "Member budget authorization failed"
+	}
+	if appErr.Reason != service.ErrEnterpriseMemberAsyncBudgetUnavailable.Reason {
+		return appErr.Message
+	}
+	metadata := appErr.Metadata
+	return fmt.Sprintf(
+		"Asynchronous task budget is unavailable for the %s limit: limit US$%s, settled usage US$%s, active task holds US$%s, requested task hold US$%s. Wait for an active task to finish, lower the task cost, or ask the enterprise administrator to increase the limit.",
+		strings.TrimSpace(metadata["limit_window"]),
+		strings.TrimSpace(metadata["limit_usd"]),
+		strings.TrimSpace(metadata["settled_used_usd"]),
+		strings.TrimSpace(metadata["active_task_holds_usd"]),
+		strings.TrimSpace(metadata["requested_task_hold_usd"]),
+	)
 }
 
 func enterpriseMemberBudgetRequired(apiKey *service.APIKey) bool {

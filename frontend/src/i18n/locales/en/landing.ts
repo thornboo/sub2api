@@ -153,6 +153,8 @@ export default {
     keyBudgetTitle: 'Key limits',
     memberBudgetTitle: 'Member shared budget',
     monthlyBudget: 'Monthly budget',
+    budgetOverage: 'Amount over budget',
+    budgetRequestsStopped: 'The monthly budget is exhausted. Subsequent requests are stopped.',
     statsTitle: 'Selected range statistics',
     trendTitle: 'Spending trend',
     recordsTitle: 'Request records',

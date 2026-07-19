@@ -22,10 +22,14 @@ type enterpriseMemberBudgetMiddlewareRepo struct {
 	markedRequestID    string
 	markedReason       string
 	releasedRequestIDs []string
+	reserveErr         error
 }
 
 func (r *enterpriseMemberBudgetMiddlewareRepo) Reserve(_ context.Context, requestID string, memberID int64, groupID *int64, payloadHash string, amount float64, expiresAt time.Time) (*service.EnterpriseMemberBudgetReservation, error) {
 	r.reservedRequestID = requestID
+	if r.reserveErr != nil {
+		return nil, r.reserveErr
+	}
 	return &service.EnterpriseMemberBudgetReservation{
 		ID:          1,
 		RequestID:   requestID,
@@ -36,6 +40,60 @@ func (r *enterpriseMemberBudgetMiddlewareRepo) Reserve(_ context.Context, reques
 		ExpiresAt:   expiresAt,
 		Status:      "reserved",
 	}, nil
+}
+
+func TestEnforceEnterpriseMemberBudgetExplainsAsyncTaskHoldRejection(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	memberID := int64(8)
+	key := &service.APIKey{
+		ID: 17, UserID: 3, MemberID: &memberID,
+		Member: &service.EnterpriseMember{ID: memberID, EnterpriseUserID: 3, Status: service.EnterpriseMemberStatusActive},
+	}
+	repo := &enterpriseMemberBudgetMiddlewareRepo{reserveErr: service.ErrEnterpriseMemberAsyncBudgetUnavailable.WithMetadata(map[string]string{
+		"limit_window": "monthly", "limit_usd": "300.000000", "settled_used_usd": "39.640000",
+		"active_task_holds_usd": "253.380000", "requested_task_hold_usd": "20.000000",
+	})}
+	budgetService := service.NewEnterpriseMemberBudgetService(repo, nil, nil)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(ContextKeyAPIKey), key)
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.ClientRequestID, "request-1"))
+		c.Next()
+	})
+	router.Use(EnforceEnterpriseMemberBudget(budgetService, &config.Config{RunMode: config.RunModeStandard}, AnthropicErrorWriter))
+	router.POST("/v1/images/generations/async", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/images/generations/async", strings.NewReader(`{"model":"gpt-image-1","prompt":"cat"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusTooManyRequests, response.Code)
+	require.Equal(t, "ENTERPRISE_MEMBER_ASYNC_BUDGET_UNAVAILABLE", response.Header().Get("X-Sub2API-Error-Code"))
+	require.Equal(t, "253.380000", response.Header().Get("X-Sub2API-Budget-Active-Holds-USD"))
+	require.Equal(t, "20.000000", response.Header().Get("X-Sub2API-Budget-Requested-Hold-USD"))
+	require.Contains(t, response.Body.String(), `"code":"ENTERPRISE_MEMBER_ASYNC_BUDGET_UNAVAILABLE"`)
+	require.Contains(t, response.Body.String(), `"metadata":`)
+	require.Contains(t, response.Body.String(), `"active_task_holds_usd":"253.380000"`)
+	require.Contains(t, response.Body.String(), "settled usage US$39.640000")
+	require.Contains(t, response.Body.String(), "active task holds US$253.380000")
+	require.NotContains(t, response.Body.String(), "metadata=map")
+}
+
+func TestGoogleErrorWriterExposesStructuredBudgetDetails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Header(gatewayErrorCodeHeader, "ENTERPRISE_MEMBER_ASYNC_BUDGET_UNAVAILABLE")
+	c.Header(gatewayBudgetMetadataHeaders["limit_window"], "monthly")
+	c.Header(gatewayBudgetMetadataHeaders["active_task_holds_usd"], "253.380000")
+
+	GoogleErrorWriter(c, http.StatusTooManyRequests, "Asynchronous task budget is unavailable")
+
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Contains(t, w.Body.String(), `"reason":"ENTERPRISE_MEMBER_ASYNC_BUDGET_UNAVAILABLE"`)
+	require.Contains(t, w.Body.String(), `"limit_window":"monthly"`)
+	require.Contains(t, w.Body.String(), `"active_task_holds_usd":"253.380000"`)
 }
 
 func (r *enterpriseMemberBudgetMiddlewareRepo) MarkAmbiguous(_ context.Context, requestID, outcomeReason string) error {

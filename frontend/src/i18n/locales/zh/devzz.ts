@@ -347,6 +347,7 @@ export default {
             nearRateLimitKeys: '当前接近速率限制',
             memberCount: '成员数',
             budgetRiskMembers: '预算风险成员',
+            memberActualCost: '成员实际消费',
             reservedBudget: '已预留预算',
             budgetUsed: '本期已用预算',
             memberBudget: '本期预算',

@@ -525,18 +525,23 @@ func ProvideAPIKeyAuthCacheInvalidator(apiKeyService *APIKeyService) APIKeyAuthC
 
 // ProvideImageTaskService 构造异步图片任务服务。
 //
-// 对象存储是异步图片任务的启用前提：仅当 image_storage 开关打开且凭证齐全时，
-// 服务才启用，并挂上把结果转存到对象存储的 uploader；否则功能整体禁用
-// （handler 返回 404，不创建任务、不写 Redis），从而避免大 base64 结果撑爆 Redis。
-func ProvideImageTaskService(store ImageTaskStore, storage ImageStorage, cfg *config.Config) *ImageTaskService {
+// 对象存储是接收新异步图片任务的前提：仅当 image_storage 开关打开且凭证齐全时，
+// 才挂上把结果转存到对象存储的 uploader。任务存储、历史查询和预算恢复始终启用，
+// 避免配置回退期间已接收任务变成不可查询或预占无法收敛。
+func ProvideImageTaskService(store ImageTaskStore, storage ImageStorage, memberBudget *EnterpriseMemberBudgetService, cfg *config.Config) *ImageTaskService {
+	var svc *ImageTaskService
 	if !cfg.ImageStorage.Active() {
 		if cfg.ImageStorage.Enabled {
 			logger.L().Warn("image_storage.enabled is true but object storage is not fully configured; async image tasks are disabled")
 		}
-		return NewImageTaskService(store)
+		svc = NewImageTaskService(store)
+	} else {
+		uploader := NewImageResultUploader(storage, cfg.ImageStorage.Prefix, cfg.ImageStorage.MaxDownloadByte, nil)
+		svc = NewImageTaskServiceWithUploader(store, uploader, defaultImageTaskTTL, defaultImageTaskExecutionTimeout)
 	}
-	uploader := NewImageResultUploader(storage, cfg.ImageStorage.Prefix, cfg.ImageStorage.MaxDownloadByte, nil)
-	return NewImageTaskServiceWithUploader(store, uploader, defaultImageTaskTTL, defaultImageTaskExecutionTimeout)
+	svc.ConfigureBudgetRecovery(memberBudget)
+	svc.Start()
+	return svc
 }
 
 // ProvideBackupService creates and starts BackupService

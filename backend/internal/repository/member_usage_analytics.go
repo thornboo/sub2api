@@ -316,10 +316,10 @@ func (r *usageLogRepository) GetOwnerMemberAnalyticsLeaderboard(ctx context.Cont
 			last_used_at,
 			COUNT(*) OVER () AS total_items,
 			COUNT(*) OVER () AS member_count,
-			COUNT(*) FILTER (
-				WHERE NOT archived
-				  AND monthly_limit_usd > 0
-				  AND current_used_usd + current_reserved_usd >= monthly_limit_usd * 0.8
+				COUNT(*) FILTER (
+					WHERE NOT archived
+					  AND monthly_limit_usd > 0
+					  AND current_used_usd >= monthly_limit_usd * 0.8
 			) OVER () AS budget_risk_member_count,
 			COALESCE(SUM(current_reserved_usd) OVER (), 0) AS total_reserved_usd,
 			COALESCE(SUM(actual_cost) OVER (), 0) AS total_actual_cost

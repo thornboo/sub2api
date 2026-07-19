@@ -653,7 +653,7 @@ func mapPublicKeyUsageMemberBudget(summary *service.EnterpriseMemberBudgetSummar
 		PeriodStart:  summary.PeriodStart,
 		PeriodEnd:    summary.PeriodEnd,
 		Timezone:     summary.Timezone,
-		Monthly:      publicKeyUsageLimit{Limit: summary.LimitUSD, Used: summary.UsedUSD + summary.ReservedUSD, Remaining: summary.RemainingUSD},
+		Monthly:      publicKeyUsageLimit{Limit: summary.LimitUSD, Used: summary.UsedUSD, Remaining: summary.RemainingUSD},
 		SettledUSD:   summary.UsedUSD,
 		ReservedUSD:  summary.ReservedUSD,
 		RequestCount: summary.RequestCount,

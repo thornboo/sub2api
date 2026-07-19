@@ -155,7 +155,6 @@
                     <div v-if="member.monthly_limit_usd > 0" class="mt-1 h-1 overflow-hidden rounded-full bg-stone-100 dark:bg-white/[0.08]">
                       <div class="h-full rounded-full transition-[width]" :class="memberBudgetBarClass(member)" :style="{ width: `${memberBudgetPercent(member)}%` }"></div>
                     </div>
-                    <p v-if="memberUsage(member.id)?.reserved_usd" class="mt-1 whitespace-nowrap text-[11px] tabular-nums text-amber-600 dark:text-amber-300">+{{ formatMoney(memberUsage(member.id)?.reserved_usd || 0) }} {{ t('enterpriseMembers.copy.reserved') }}</p>
                   </td>
                   <td class="px-3 py-2 align-middle text-sm font-semibold tabular-nums text-stone-900 dark:text-white">
                     {{ member.key_count }}
@@ -226,7 +225,7 @@
 
                   <dl class="mt-4 grid grid-cols-2 gap-x-5 gap-y-3 text-xs">
                     <div><dt class="text-stone-500">{{ t('enterpriseMembers.copy.monthlyBudget') }}</dt><dd class="mt-1 whitespace-nowrap font-semibold tabular-nums text-stone-900 dark:text-white">{{ member.monthly_limit_usd > 0 ? formatMoney(member.monthly_limit_usd) : t('enterpriseMembers.copy.unlimited6381d248') }}</dd></div>
-                    <div><dt class="text-stone-500">{{ t('enterpriseMembers.copy.usedThisMonth') }}</dt><dd class="mt-1 whitespace-nowrap font-semibold tabular-nums text-stone-900 dark:text-white">{{ formatMoney(memberUsage(member.id)?.used_usd || 0) }}</dd><dd v-if="memberUsage(member.id)?.reserved_usd" class="mt-0.5 whitespace-nowrap text-[11px] tabular-nums text-amber-600 dark:text-amber-300">+{{ formatMoney(memberUsage(member.id)?.reserved_usd || 0) }} {{ t('enterpriseMembers.copy.reserved') }}</dd></div>
+                    <div><dt class="text-stone-500">{{ t('enterpriseMembers.copy.usedThisMonth') }}</dt><dd class="mt-1 whitespace-nowrap font-semibold tabular-nums text-stone-900 dark:text-white">{{ formatMoney(memberUsage(member.id)?.used_usd || 0) }}</dd></div>
                     <div><dt class="text-stone-500">{{ t('enterpriseMembers.copy.keys') }}</dt><dd class="mt-1 font-semibold tabular-nums text-stone-900 dark:text-white">{{ member.key_count }}</dd></div>
                     <div><dt class="text-stone-500">{{ t('enterpriseMembers.copy.groups') }}</dt><dd class="mt-1 font-semibold tabular-nums text-stone-900 dark:text-white">{{ member.group_ids.length }}</dd></div>
                   </dl>
@@ -585,10 +584,10 @@
                 <dd class="mt-2 text-2xl font-semibold tabular-nums tracking-tight text-stone-950 dark:text-white">{{ formatMoney(budgetSummary.used_usd) }}</dd>
                 <p class="mt-2 text-xs leading-5 text-emerald-800/75 dark:text-emerald-200/70">{{ t('enterpriseMembers.copy.usedAmountHint') }}</p>
               </div>
-              <div class="rounded-2xl border border-stone-200 bg-white p-4 dark:border-white/10 dark:bg-white/[0.025]">
-                <dt class="text-xs font-medium text-stone-500">{{ t('enterpriseMembers.copy.availableBudget') }}</dt>
-                <dd class="mt-2 text-2xl font-semibold tabular-nums tracking-tight text-emerald-700 dark:text-emerald-300">
-                  {{ budgetSummary.limit_usd > 0 ? formatMoney(Math.max(0, budgetSummary.remaining_usd)) : t('enterpriseMembers.copy.unlimited') }}
+              <div class="rounded-2xl border p-4" :class="budgetHasOverage ? 'border-rose-200 bg-rose-50/70 dark:border-rose-800/50 dark:bg-rose-400/[0.08]' : 'border-stone-200 bg-white dark:border-white/10 dark:bg-white/[0.025]'">
+                <dt class="text-xs font-medium" :class="budgetHasOverage ? 'text-rose-700 dark:text-rose-200' : 'text-stone-500'">{{ t(budgetHasOverage ? 'enterpriseMembers.copy.budgetOverage' : 'enterpriseMembers.copy.availableBudget') }}</dt>
+                <dd class="mt-2 text-2xl font-semibold tabular-nums tracking-tight" :class="budgetHasOverage ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300'">
+                  {{ budgetHasOverage ? formatMoney(budgetOverageUsd) : (budgetSummary.limit_usd > 0 ? formatMoney(Math.max(0, budgetSummary.remaining_usd)) : t('enterpriseMembers.copy.unlimited')) }}
                 </dd>
               </div>
             </dl>
@@ -600,13 +599,12 @@
               </div>
               <div class="flex h-2 overflow-hidden rounded-full bg-stone-100 dark:bg-white/5" role="progressbar" :aria-valuenow="budgetUsagePercent" aria-valuemin="0" aria-valuemax="100">
                 <div class="h-full bg-emerald-500 transition-all" :style="{ width: `${budgetSettledPercent}%` }"></div>
-                <div v-if="budgetReservedPercent > 0" class="h-full bg-amber-400 transition-all" :style="{ width: `${budgetReservedPercent}%` }"></div>
               </div>
             </div>
 
-            <div v-if="budgetSummary.reserved_usd > 0" class="mt-5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-amber-100">
-              <Icon name="clock" size="sm" class="mt-0.5 shrink-0" />
-              <p class="text-xs leading-5"><b>{{ t('enterpriseMembers.copy.reservedAmount') }} {{ formatMoney(budgetSummary.reserved_usd) }}</b><span class="ml-1 opacity-75">{{ t('enterpriseMembers.copy.reservedAmountHint') }}</span></p>
+            <div v-if="budgetExhausted" class="mt-5 flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-950 dark:border-rose-800/50 dark:bg-rose-950/20 dark:text-rose-100">
+              <Icon name="lock" size="sm" class="mt-0.5 shrink-0" />
+              <p class="text-xs leading-5"><b v-if="budgetHasOverage">{{ t('enterpriseMembers.copy.budgetOverage') }} {{ formatMoney(budgetOverageUsd) }}</b><span :class="budgetHasOverage ? 'ml-1' : ''">{{ t('enterpriseMembers.copy.budgetRequestsStopped') }}</span></p>
             </div>
 
             <details class="mt-5 overflow-hidden rounded-2xl border border-stone-200 bg-stone-50/70 dark:border-white/10 dark:bg-white/[0.025]">
@@ -1016,7 +1014,7 @@ const filteredMembers = computed(() => {
       || (statusFilter.value === 'archived' ? Boolean(member.deleted_at) : !member.deleted_at && member.status === statusFilter.value)
     const matchesArchiveScope = includeArchived.value || !member.deleted_at
     const usage = memberUsage(member.id)
-    const consumed = (usage?.used_usd || 0) + (usage?.reserved_usd || 0)
+    const consumed = usage?.used_usd || 0
     const ratio = member.monthly_limit_usd > 0 ? consumed / member.monthly_limit_usd : 0
     const matchesBudget = budgetFilter.value === 'all'
       || (budgetFilter.value === 'unlimited' && member.monthly_limit_usd <= 0)
@@ -1037,20 +1035,29 @@ const budgetSettledPercent = computed(() => {
   if (!budgetSummary.value || budgetSummary.value.limit_usd <= 0) return 0
   return Math.min(100, Math.max(0, (budgetSummary.value.used_usd / budgetSummary.value.limit_usd) * 100))
 })
-const budgetReservedPercent = computed(() => {
+const budgetUsagePercentRaw = computed(() => {
   if (!budgetSummary.value || budgetSummary.value.limit_usd <= 0) return 0
-  const availableWidth = 100 - budgetSettledPercent.value
-  return Math.min(availableWidth, Math.max(0, (budgetSummary.value.reserved_usd / budgetSummary.value.limit_usd) * 100))
+  return Math.max(0, (budgetSummary.value.used_usd / budgetSummary.value.limit_usd) * 100)
 })
-const budgetUsagePercent = computed(() => budgetSettledPercent.value + budgetReservedPercent.value)
+const budgetUsagePercent = computed(() => Math.min(100, budgetUsagePercentRaw.value))
 const budgetUsagePercentLabel = computed(() => {
-  const percent = budgetUsagePercent.value
+  const percent = budgetUsagePercentRaw.value
   if (percent <= 0) return '0%'
   if (percent < 0.01) return '<0.01%'
   if (percent < 1) return `${percent.toFixed(2)}%`
   if (percent < 10) return `${percent.toFixed(1)}%`
   return `${Math.round(percent)}%`
 })
+const budgetOverageUsd = computed(() => {
+  if (!budgetSummary.value || budgetSummary.value.limit_usd <= 0) return 0
+  return Math.max(0, budgetSummary.value.used_usd - budgetSummary.value.limit_usd)
+})
+const budgetHasOverage = computed(() => budgetOverageUsd.value > 0)
+const budgetExhausted = computed(() => Boolean(
+  budgetSummary.value
+  && budgetSummary.value.limit_usd > 0
+  && budgetSummary.value.used_usd >= budgetSummary.value.limit_usd,
+))
 const budgetAdjustmentConfirmMessage = computed(() => pendingBudgetAdjustment.value
   ? t('enterpriseMembers.dynamic.confirmBudgetAdjustment', {
       name: pendingBudgetAdjustment.value.memberName,
@@ -1889,12 +1896,12 @@ async function copyPlaintext() {
 
 const groupName = (id: number) => availableGroups.value.find(group => group.id === id)?.name || `#${id}`
 const memberUsage = (id: number): EnterpriseMemberOwnerUsageItem | undefined => ownerUsageSummary.value?.members.find(item => item.member_id === id)
-const memberBudgetConsumed = (member: EnterpriseMember) => {
+const memberBudgetUsed = (member: EnterpriseMember) => {
   const usage = memberUsage(member.id)
-  return (usage?.used_usd || 0) + (usage?.reserved_usd || 0)
+  return usage?.used_usd || 0
 }
 const memberBudgetPercent = (member: EnterpriseMember) => member.monthly_limit_usd > 0
-  ? Math.min(100, Math.max(0, (memberBudgetConsumed(member) / member.monthly_limit_usd) * 100))
+  ? Math.min(100, Math.max(0, (memberBudgetUsed(member) / member.monthly_limit_usd) * 100))
   : 0
 const memberBudgetBarClass = (member: EnterpriseMember) => {
   const percent = memberBudgetPercent(member)

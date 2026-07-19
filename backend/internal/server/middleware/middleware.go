@@ -87,23 +87,61 @@ func AbortWithError(c *gin.Context, statusCode int, code, message string) {
 // GatewayErrorWriter 定义网关错误响应格式（不同协议使用不同格式）
 type GatewayErrorWriter func(c *gin.Context, status int, message string)
 
+const gatewayErrorCodeHeader = "X-Sub2API-Error-Code"
+
+var gatewayBudgetMetadataHeaders = map[string]string{
+	"limit_window":            "X-Sub2API-Budget-Window",
+	"limit_usd":               "X-Sub2API-Budget-Limit-USD",
+	"settled_used_usd":        "X-Sub2API-Budget-Settled-USD",
+	"active_task_holds_usd":   "X-Sub2API-Budget-Active-Holds-USD",
+	"requested_task_hold_usd": "X-Sub2API-Budget-Requested-Hold-USD",
+}
+
 // AnthropicErrorWriter 按 Anthropic API 规范输出错误
 func AnthropicErrorWriter(c *gin.Context, status int, message string) {
+	errorBody := gin.H{"type": "permission_error", "message": message}
+	if code, metadata := gatewayErrorStructuredDetails(c); code != "" {
+		errorBody["code"] = code
+		if len(metadata) > 0 {
+			errorBody["metadata"] = metadata
+		}
+	}
 	c.JSON(status, gin.H{
 		"type":  "error",
-		"error": gin.H{"type": "permission_error", "message": message},
+		"error": errorBody,
 	})
 }
 
 // GoogleErrorWriter 按 Google API 规范输出错误
 func GoogleErrorWriter(c *gin.Context, status int, message string) {
+	errorBody := gin.H{
+		"code":    status,
+		"message": message,
+		"status":  googleapi.HTTPStatusToGoogleStatus(status),
+	}
+	if reason, metadata := gatewayErrorStructuredDetails(c); reason != "" {
+		errorBody["reason"] = reason
+		if len(metadata) > 0 {
+			errorBody["metadata"] = metadata
+		}
+	}
 	c.JSON(status, gin.H{
-		"error": gin.H{
-			"code":    status,
-			"message": message,
-			"status":  googleapi.HTTPStatusToGoogleStatus(status),
-		},
+		"error": errorBody,
 	})
+}
+
+func gatewayErrorStructuredDetails(c *gin.Context) (string, map[string]string) {
+	if c == nil {
+		return "", nil
+	}
+	code := c.Writer.Header().Get(gatewayErrorCodeHeader)
+	metadata := make(map[string]string, len(gatewayBudgetMetadataHeaders))
+	for key, header := range gatewayBudgetMetadataHeaders {
+		if value := c.Writer.Header().Get(header); value != "" {
+			metadata[key] = value
+		}
+	}
+	return code, metadata
 }
 
 // RequireGroupAssignment 检查 API Key 是否已分配到分组，

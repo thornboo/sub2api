@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -26,9 +27,10 @@ type enterpriseMemberSpendingLimitState struct {
 }
 
 // reserveEnterpriseMemberSpendingLimits serializes every member-level spending
-// decision on the member row. The same durable reservation participates in the
-// natural-month and fixed-window checks, so concurrent keys cannot each pass a
-// stale preflight check and oversubscribe the member limit.
+// decision on the member row. A zero amount is a synchronous request receipt:
+// it checks settled usage only and deliberately ignores historical holds. A
+// positive amount is an asynchronous task hold and keeps strict reservation
+// semantics until the task captures or releases it.
 func reserveEnterpriseMemberSpendingLimits(ctx context.Context, tx *sql.Tx, memberID int64, amount float64, now time.Time) (time.Time, bool, error) {
 	state, err := lockEnterpriseMemberSpendingLimitState(ctx, tx, memberID, now)
 	if err != nil {
@@ -37,18 +39,51 @@ func reserveEnterpriseMemberSpendingLimits(ctx context.Context, tx *sql.Tx, memb
 	if state.monthlyLimit <= 0 && state.limit5h <= 0 && state.limit1d <= 0 && state.limit7d <= 0 {
 		return state.periodStart, false, nil
 	}
-	pending := state.reserved + amount
-	if state.monthlyLimit > 0 && state.monthlyUsed+pending > state.monthlyLimit {
+	if amount <= 0 {
+		if state.monthlyLimit > 0 && state.monthlyUsed >= state.monthlyLimit {
+			return time.Time{}, false, service.ErrEnterpriseMemberBudgetExceeded
+		}
+		if state.limit5h > 0 && state.usage5h >= state.limit5h {
+			return time.Time{}, false, service.ErrEnterpriseMemberRateLimit5hExceeded
+		}
+		if state.limit1d > 0 && state.usage1d >= state.limit1d {
+			return time.Time{}, false, service.ErrEnterpriseMemberRateLimit1dExceeded
+		}
+		if state.limit7d > 0 && state.usage7d >= state.limit7d {
+			return time.Time{}, false, service.ErrEnterpriseMemberRateLimit7dExceeded
+		}
+		return state.periodStart, true, nil
+	}
+
+	// Preserve the established exhaustion errors when settled usage alone has
+	// consumed the limit. If only a new asynchronous hold cannot fit, return a
+	// distinct explanation so clients do not mistake frozen task funds for
+	// already billed usage.
+	if state.monthlyLimit > 0 && state.monthlyUsed >= state.monthlyLimit {
 		return time.Time{}, false, service.ErrEnterpriseMemberBudgetExceeded
 	}
-	if state.limit5h > 0 && state.usage5h+pending > state.limit5h {
+	if state.limit5h > 0 && state.usage5h >= state.limit5h {
 		return time.Time{}, false, service.ErrEnterpriseMemberRateLimit5hExceeded
 	}
-	if state.limit1d > 0 && state.usage1d+pending > state.limit1d {
+	if state.limit1d > 0 && state.usage1d >= state.limit1d {
 		return time.Time{}, false, service.ErrEnterpriseMemberRateLimit1dExceeded
 	}
-	if state.limit7d > 0 && state.usage7d+pending > state.limit7d {
+	if state.limit7d > 0 && state.usage7d >= state.limit7d {
 		return time.Time{}, false, service.ErrEnterpriseMemberRateLimit7dExceeded
+	}
+
+	pending := state.reserved + amount
+	if state.monthlyLimit > 0 && state.monthlyUsed+pending > state.monthlyLimit {
+		return time.Time{}, false, enterpriseMemberAsyncBudgetUnavailable("monthly", state.monthlyLimit, state.monthlyUsed, state.reserved, amount)
+	}
+	if state.limit5h > 0 && state.usage5h+pending > state.limit5h {
+		return time.Time{}, false, enterpriseMemberAsyncBudgetUnavailable("5h", state.limit5h, state.usage5h, state.reserved, amount)
+	}
+	if state.limit1d > 0 && state.usage1d+pending > state.limit1d {
+		return time.Time{}, false, enterpriseMemberAsyncBudgetUnavailable("1d", state.limit1d, state.usage1d, state.reserved, amount)
+	}
+	if state.limit7d > 0 && state.usage7d+pending > state.limit7d {
+		return time.Time{}, false, enterpriseMemberAsyncBudgetUnavailable("7d", state.limit7d, state.usage7d, state.reserved, amount)
 	}
 
 	if _, err := tx.ExecContext(ctx, `
@@ -56,6 +91,15 @@ func reserveEnterpriseMemberSpendingLimits(ctx context.Context, tx *sql.Tx, memb
 		SET reserved_usd = reserved_usd + $1, version = version + 1, updated_at = NOW()
 		WHERE member_id = $2 AND period_start = $3`, amount, memberID, state.periodStart); err != nil {
 		return time.Time{}, false, err
+	}
+	if state.limit5h <= 0 && state.limit1d <= 0 && state.limit7d <= 0 {
+		// Settlement increments the shared rolling-usage projection even when
+		// no rolling limit is configured. A fresh monthly-only asynchronous
+		// hold must initialize that row before it can be captured.
+		if err := ensureEnterpriseMemberRateLimitPeriod(ctx, tx, memberID); err != nil {
+			return time.Time{}, false, err
+		}
+		return state.periodStart, true, nil
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE enterprise_member_rate_limit_periods
@@ -67,6 +111,19 @@ func reserveEnterpriseMemberSpendingLimits(ctx context.Context, tx *sql.Tx, memb
 		return time.Time{}, false, err
 	}
 	return state.periodStart, true, nil
+}
+
+func enterpriseMemberAsyncBudgetUnavailable(window string, limit, used, held, requested float64) error {
+	format := func(value float64) string {
+		return strconv.FormatFloat(value, 'f', 6, 64)
+	}
+	return service.ErrEnterpriseMemberAsyncBudgetUnavailable.WithMetadata(map[string]string{
+		"limit_window":            window,
+		"limit_usd":               format(limit),
+		"settled_used_usd":        format(used),
+		"active_task_holds_usd":   format(held),
+		"requested_task_hold_usd": format(requested),
+	})
 }
 
 func lockEnterpriseMemberSpendingLimitState(ctx context.Context, tx *sql.Tx, memberID int64, now time.Time) (*enterpriseMemberSpendingLimitState, error) {
@@ -100,6 +157,9 @@ func lockEnterpriseMemberSpendingLimitState(ctx context.Context, tx *sql.Tx, mem
 		return nil, err
 	}
 	if state.monthlyLimit <= 0 && state.limit5h <= 0 && state.limit1d <= 0 && state.limit7d <= 0 {
+		return state, nil
+	}
+	if state.limit5h <= 0 && state.limit1d <= 0 && state.limit7d <= 0 {
 		return state, nil
 	}
 

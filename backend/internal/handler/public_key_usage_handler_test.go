@@ -152,4 +152,26 @@ func TestPublicKeyUsageDTOsOmitSecretsAndAccountCost(t *testing.T) {
 	}
 }
 
+func TestPublicKeyUsageMemberBudgetUsesSettledSpendOnly(t *testing.T) {
+	mapped := mapPublicKeyUsageMemberBudget(&service.EnterpriseMemberBudgetSummary{
+		LimitUSD:     100,
+		UsedUSD:      39.64,
+		ReservedUSD:  53.38,
+		RemainingUSD: 60.36,
+	})
+
+	if mapped == nil {
+		t.Fatal("expected member budget mapping")
+	}
+	if mapped.Monthly.Used != 39.64 {
+		t.Fatalf("monthly used = %v, want settled spend only", mapped.Monthly.Used)
+	}
+	if mapped.Monthly.Remaining != 60.36 {
+		t.Fatalf("monthly remaining = %v, want settled-spend remainder", mapped.Monthly.Remaining)
+	}
+	if mapped.ReservedUSD != 53.38 {
+		t.Fatalf("compatibility reserved_usd = %v, want unchanged diagnostic field", mapped.ReservedUSD)
+	}
+}
+
 func floatPointer(value float64) *float64 { return &value }

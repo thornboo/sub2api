@@ -384,8 +384,8 @@ func reserveBatchImageEnterpriseMemberBudget(ctx context.Context, tx *sql.Tx, cm
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO enterprise_member_budget_reservations
-			(request_id, member_id, group_id, request_payload_hash, period_start, reserved_usd, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			(request_id, member_id, group_id, request_payload_hash, period_start, reserved_usd, receipt_kind, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, 'batch_image', $7)`,
 		cmd.MemberBudgetRequestID, *cmd.MemberID, cmd.GroupID, strings.TrimSpace(cmd.RequestPayloadHash), periodStart, reservedAmount, expiresAt)
 	if err != nil {
 		if isUniqueConstraintViolation(err) {

@@ -240,6 +240,7 @@ export interface OwnerMemberLeaderboardItem extends OwnerApiKeyUsageTotals {
   key_count: number
   monthly_limit_usd: number
   current_used_usd: number
+  /** Compatibility/operations field; customer analytics must use current_used_usd. */
   current_reserved_usd: number
   share_percent: number
   previous_actual_cost: number
@@ -252,6 +253,7 @@ export interface OwnerMemberLeaderboardResponse extends OwnerApiKeyAnalyticsMeta
   total: number
   member_count: number
   budget_risk_member_count: number
+  /** Compatibility/operations field; customer KPIs must use total_actual_cost. */
   total_reserved_usd: number
   total_actual_cost: number
   displayed_actual_cost: number

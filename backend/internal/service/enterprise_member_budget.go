@@ -19,13 +19,14 @@ import (
 )
 
 var (
-	ErrEnterpriseMemberBudgetExceeded        = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_BUDGET_EXCEEDED", "enterprise member monthly budget is exhausted")
-	ErrEnterpriseMemberRateLimit5hExceeded   = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_RATE_5H_EXCEEDED", "enterprise member 5-hour spending limit is exhausted")
-	ErrEnterpriseMemberRateLimit1dExceeded   = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_RATE_1D_EXCEEDED", "enterprise member daily spending limit is exhausted")
-	ErrEnterpriseMemberRateLimit7dExceeded   = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_RATE_7D_EXCEEDED", "enterprise member 7-day spending limit is exhausted")
-	ErrEnterpriseMemberBudgetUnbounded       = infraerrors.BadRequest("ENTERPRISE_MEMBER_BUDGET_UNBOUNDED_REQUEST", "request cost cannot be bounded for the enterprise member budget")
-	ErrEnterpriseMemberBudgetConflict        = infraerrors.Conflict("ENTERPRISE_MEMBER_BUDGET_REQUEST_CONFLICT", "member budget request id was reused with different parameters")
-	ErrEnterpriseMemberBudgetReceiptNotFound = infraerrors.NotFound("ENTERPRISE_MEMBER_BUDGET_RECEIPT_NOT_FOUND", "enterprise member budget receipt not found")
+	ErrEnterpriseMemberBudgetExceeded         = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_BUDGET_EXCEEDED", "enterprise member monthly budget is exhausted")
+	ErrEnterpriseMemberRateLimit5hExceeded    = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_RATE_5H_EXCEEDED", "enterprise member 5-hour spending limit is exhausted")
+	ErrEnterpriseMemberRateLimit1dExceeded    = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_RATE_1D_EXCEEDED", "enterprise member daily spending limit is exhausted")
+	ErrEnterpriseMemberRateLimit7dExceeded    = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_RATE_7D_EXCEEDED", "enterprise member 7-day spending limit is exhausted")
+	ErrEnterpriseMemberAsyncBudgetUnavailable = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_ASYNC_BUDGET_UNAVAILABLE", "available enterprise member budget is insufficient for this asynchronous task after accounting for active task holds and this task's estimated cost")
+	ErrEnterpriseMemberBudgetUnbounded        = infraerrors.BadRequest("ENTERPRISE_MEMBER_BUDGET_UNBOUNDED_REQUEST", "request cost cannot be bounded for the enterprise member budget")
+	ErrEnterpriseMemberBudgetConflict         = infraerrors.Conflict("ENTERPRISE_MEMBER_BUDGET_REQUEST_CONFLICT", "member budget request id was reused with different parameters")
+	ErrEnterpriseMemberBudgetReceiptNotFound  = infraerrors.NotFound("ENTERPRISE_MEMBER_BUDGET_RECEIPT_NOT_FOUND", "enterprise member budget receipt not found")
 )
 
 // EnterpriseMemberBudgetTimezone is the authoritative calendar timezone for member budgets and import openings.
@@ -33,6 +34,17 @@ const EnterpriseMemberBudgetTimezone = "Asia/Shanghai"
 const enterpriseMemberBudgetTimezone = EnterpriseMemberBudgetTimezone
 
 const enterpriseMemberUsageAuditNote = "usage values updated by %s"
+
+const (
+	EnterpriseMemberReceiptKindLegacy     = "legacy"
+	EnterpriseMemberReceiptKindSync       = "sync"
+	EnterpriseMemberReceiptKindAsyncImage = "async_image"
+	EnterpriseMemberReceiptKindAsyncVideo = "async_video"
+	EnterpriseMemberReceiptKindBatchImage = "batch_image"
+
+	EnterpriseMemberAsyncTaskPhaseQueued    = "queued"
+	EnterpriseMemberAsyncTaskPhaseExecuting = "executing"
+)
 
 type EnterpriseMemberBudgetReservation struct {
 	ID          int64
@@ -44,8 +56,12 @@ type EnterpriseMemberBudgetReservation struct {
 	ReservedUSD float64
 	ActualUSD   float64
 	Status      string
+	ReceiptKind string
+	TaskID      string
+	TaskPhase   string
 	UsageLogID  *int64
 	ExpiresAt   time.Time
+	CreatedAt   time.Time
 }
 
 type EnterpriseMemberAmbiguousReceipt struct {
@@ -58,6 +74,9 @@ type EnterpriseMemberAmbiguousReceipt struct {
 	GroupID           *int64     `json:"group_id,omitempty"`
 	PeriodStart       time.Time  `json:"period_start"`
 	ReservedUSD       float64    `json:"reserved_usd"`
+	ReceiptKind       string     `json:"receipt_kind"`
+	TaskID            string     `json:"task_id,omitempty"`
+	TaskPhase         string     `json:"task_phase,omitempty"`
 	OutcomeReason     string     `json:"outcome_reason"`
 	ReconcileAttempts int        `json:"reconcile_attempts"`
 	LastReconcileAt   *time.Time `json:"last_reconcile_at,omitempty"`
@@ -184,6 +203,7 @@ type EnterpriseMemberOwnerUsageSummary struct {
 
 type EnterpriseMemberBudgetRepository interface {
 	Reserve(ctx context.Context, requestID string, memberID int64, groupID *int64, payloadHash string, amount float64, expiresAt time.Time) (*EnterpriseMemberBudgetReservation, error)
+	GetReservation(ctx context.Context, requestID string) (*EnterpriseMemberBudgetReservation, error)
 	Release(ctx context.Context, requestID string) error
 	MarkAmbiguous(ctx context.Context, requestID, outcomeReason string) error
 	GetPeriod(ctx context.Context, memberID int64, periodStart time.Time) (usedUSD, reservedUSD float64, err error)
@@ -199,6 +219,24 @@ type EnterpriseMemberBudgetRepository interface {
 	ReconcilePeriods(ctx context.Context, limit int) (EnterpriseMemberBudgetReconciliationResult, error)
 	ListAmbiguousReceipts(ctx context.Context, limit, offset int) ([]EnterpriseMemberAmbiguousReceipt, int64, error)
 	ResolveAmbiguousReceipt(ctx context.Context, receiptID int64, input EnterpriseMemberAmbiguousReceiptResolution, actorUserID int64) (*EnterpriseMemberAmbiguousReceipt, error)
+}
+
+type EnterpriseMemberTypedBudgetRepository interface {
+	ReserveWithKind(ctx context.Context, requestID string, memberID int64, groupID *int64, payloadHash string, amount float64, receiptKind string, expiresAt time.Time) (*EnterpriseMemberBudgetReservation, error)
+}
+
+type EnterpriseMemberAsyncTaskRepository interface {
+	AttachAsyncTask(ctx context.Context, requestID, taskID string, expiresAt time.Time) error
+	MarkAsyncTaskExecuting(ctx context.Context, requestID, taskID string) error
+}
+
+type EnterpriseMemberAsyncTaskReleaseRepository interface {
+	ReleaseAsyncTask(ctx context.Context, requestID, taskID string) (*EnterpriseMemberBudgetReservation, error)
+	MarkAsyncTaskAmbiguous(ctx context.Context, requestID, taskID, outcomeReason string) (*EnterpriseMemberBudgetReservation, error)
+}
+
+type EnterpriseMemberAsyncTaskLookupRepository interface {
+	GetReservationByTaskID(ctx context.Context, taskID string) (*EnterpriseMemberBudgetReservation, error)
 }
 
 type EnterpriseMemberUsageAdjustmentInput struct {
@@ -487,7 +525,7 @@ func (s *EnterpriseMemberBudgetService) Reserve(ctx context.Context, input Enter
 	}
 	amount := 0.0
 	var err error
-	if input.APIKey.Member.HasSpendingLimits() {
+	if input.APIKey.Member.HasSpendingLimits() && enterpriseMemberBudgetRequiresAmountHold(input.Method, input.Endpoint) {
 		amount, err = s.estimateUpperBound(ctx, input)
 		if err != nil {
 			return nil, err
@@ -500,17 +538,48 @@ func (s *EnterpriseMemberBudgetService) Reserve(ctx context.Context, input Enter
 	if err != nil {
 		return nil, err
 	}
-	reservation, err := s.repo.Reserve(
-		ctx,
-		EnterpriseMemberBudgetRequestID(input.APIKey.ID, billingRequestID),
-		input.APIKey.Member.ID,
-		input.APIKey.GroupID,
-		HashUsageRequestPayload(input.Body),
-		amount,
-		time.Now().Add(2*time.Hour),
-	)
+	receiptKind := enterpriseMemberReceiptKind(input.Method, input.Endpoint)
+	expiresAt := time.Now().Add(2 * time.Hour)
+	if receiptKind == EnterpriseMemberReceiptKindAsyncImage {
+		// Until the Redis task is linked, no background execution is allowed.
+		// A short expiry lets recovery safely release a receipt orphaned by a
+		// process crash between PostgreSQL reservation and Redis task creation.
+		expiresAt = time.Now().Add(5 * time.Minute)
+	}
+	requestID := EnterpriseMemberBudgetRequestID(input.APIKey.ID, billingRequestID)
+	var reservation *EnterpriseMemberBudgetReservation
+	if typedRepo, ok := s.repo.(EnterpriseMemberTypedBudgetRepository); ok {
+		reservation, err = typedRepo.ReserveWithKind(ctx, requestID, input.APIKey.Member.ID, input.APIKey.GroupID,
+			HashUsageRequestPayload(input.Body), amount, receiptKind, expiresAt)
+	} else {
+		reservation, err = s.repo.Reserve(ctx, requestID, input.APIKey.Member.ID, input.APIKey.GroupID,
+			HashUsageRequestPayload(input.Body), amount, expiresAt)
+	}
 	RecordEnterpriseMemberBudgetReservation(err)
 	return reservation, err
+}
+
+func enterpriseMemberReceiptKind(method, endpoint string) string {
+	if enterpriseMemberBudgetRequiresAmountHold(method, endpoint) {
+		endpoint = strings.ToLower(strings.TrimSpace(endpoint))
+		if strings.Contains(endpoint, "/images/") {
+			return EnterpriseMemberReceiptKindAsyncImage
+		}
+		return EnterpriseMemberReceiptKindAsyncVideo
+	}
+	return EnterpriseMemberReceiptKindSync
+}
+
+func enterpriseMemberBudgetRequiresAmountHold(method, endpoint string) bool {
+	if !strings.EqualFold(strings.TrimSpace(method), "POST") {
+		return false
+	}
+	endpoint = strings.ToLower(strings.TrimSpace(endpoint))
+	return strings.HasSuffix(endpoint, "/images/generations/async") ||
+		strings.HasSuffix(endpoint, "/images/edits/async") ||
+		strings.HasSuffix(endpoint, "/videos/generations") ||
+		strings.HasSuffix(endpoint, "/videos/edits") ||
+		strings.HasSuffix(endpoint, "/videos/extensions")
 }
 
 func (s *EnterpriseMemberBudgetService) Release(ctx context.Context, apiKeyID int64, requestID string) error {
@@ -524,6 +593,96 @@ func (s *EnterpriseMemberBudgetService) Release(ctx context.Context, apiKeyID in
 	err = s.repo.Release(ctx, EnterpriseMemberBudgetRequestID(apiKeyID, billingRequestID))
 	RecordEnterpriseMemberBudgetRelease(err)
 	return err
+}
+
+// GetReservationByRequestID reads a fully scoped durable receipt identifier.
+// It is used by asynchronous task recovery and must not be exposed to clients.
+func (s *EnterpriseMemberBudgetService) GetReservationByRequestID(ctx context.Context, requestID string) (*EnterpriseMemberBudgetReservation, error) {
+	if s == nil || s.repo == nil || strings.TrimSpace(requestID) == "" {
+		return nil, ErrEnterpriseMemberBudgetReceiptNotFound
+	}
+	return s.repo.GetReservation(ctx, strings.TrimSpace(requestID))
+}
+
+func (s *EnterpriseMemberBudgetService) GetReservationByTaskID(ctx context.Context, taskID string) (*EnterpriseMemberBudgetReservation, error) {
+	if s == nil || s.repo == nil || strings.TrimSpace(taskID) == "" {
+		return nil, ErrEnterpriseMemberBudgetReceiptNotFound
+	}
+	typedRepo, ok := s.repo.(EnterpriseMemberAsyncTaskLookupRepository)
+	if !ok {
+		return nil, ErrEnterpriseMemberBudgetReceiptNotFound
+	}
+	return typedRepo.GetReservationByTaskID(ctx, strings.TrimSpace(taskID))
+}
+
+func (s *EnterpriseMemberBudgetService) ReleaseReservationByRequestID(ctx context.Context, requestID string) error {
+	if s == nil || s.repo == nil || strings.TrimSpace(requestID) == "" {
+		return ErrEnterpriseMemberBudgetReceiptNotFound
+	}
+	err := s.repo.Release(ctx, strings.TrimSpace(requestID))
+	RecordEnterpriseMemberBudgetRelease(err)
+	return err
+}
+
+func (s *EnterpriseMemberBudgetService) ReleaseImageTaskReservationByRequestID(ctx context.Context, requestID, taskID string) (*EnterpriseMemberBudgetReservation, error) {
+	if s == nil || s.repo == nil || strings.TrimSpace(requestID) == "" || strings.TrimSpace(taskID) == "" {
+		return nil, ErrEnterpriseMemberBudgetReceiptNotFound
+	}
+	typedRepo, ok := s.repo.(EnterpriseMemberAsyncTaskReleaseRepository)
+	if !ok {
+		return nil, ErrEnterpriseMemberBudgetConflict
+	}
+	receipt, err := typedRepo.ReleaseAsyncTask(ctx, strings.TrimSpace(requestID), strings.TrimSpace(taskID))
+	RecordEnterpriseMemberBudgetRelease(err)
+	return receipt, err
+}
+
+func (s *EnterpriseMemberBudgetService) MarkImageTaskReservationAmbiguousByRequestID(ctx context.Context, requestID, taskID, outcomeReason string) (*EnterpriseMemberBudgetReservation, error) {
+	if s == nil || s.repo == nil || strings.TrimSpace(requestID) == "" || strings.TrimSpace(taskID) == "" {
+		return nil, ErrEnterpriseMemberBudgetReceiptNotFound
+	}
+	outcomeReason = strings.TrimSpace(outcomeReason)
+	if outcomeReason == "" || len(outcomeReason) > 64 {
+		return nil, ErrEnterpriseMemberBudgetConflict
+	}
+	typedRepo, ok := s.repo.(EnterpriseMemberAsyncTaskReleaseRepository)
+	if !ok {
+		return nil, ErrEnterpriseMemberBudgetConflict
+	}
+	return typedRepo.MarkAsyncTaskAmbiguous(ctx, strings.TrimSpace(requestID), strings.TrimSpace(taskID), outcomeReason)
+}
+
+func (s *EnterpriseMemberBudgetService) MarkReservationAmbiguousByRequestID(ctx context.Context, requestID, outcomeReason string) error {
+	if s == nil || s.repo == nil || strings.TrimSpace(requestID) == "" {
+		return ErrEnterpriseMemberBudgetReceiptNotFound
+	}
+	outcomeReason = strings.TrimSpace(outcomeReason)
+	if outcomeReason == "" || len(outcomeReason) > 64 {
+		return ErrEnterpriseMemberBudgetConflict
+	}
+	return s.repo.MarkAmbiguous(ctx, strings.TrimSpace(requestID), outcomeReason)
+}
+
+func (s *EnterpriseMemberBudgetService) AttachImageTask(ctx context.Context, requestID, taskID string) error {
+	if s == nil || s.repo == nil || strings.TrimSpace(requestID) == "" || strings.TrimSpace(taskID) == "" {
+		return ErrEnterpriseMemberBudgetConflict
+	}
+	typedRepo, ok := s.repo.(EnterpriseMemberAsyncTaskRepository)
+	if !ok {
+		return ErrEnterpriseMemberBudgetConflict
+	}
+	return typedRepo.AttachAsyncTask(ctx, strings.TrimSpace(requestID), strings.TrimSpace(taskID), time.Now().Add(defaultImageTaskDispatchTimeout+defaultImageTaskRecoveryGrace))
+}
+
+func (s *EnterpriseMemberBudgetService) MarkImageTaskExecuting(ctx context.Context, requestID, taskID string) error {
+	if s == nil || s.repo == nil || strings.TrimSpace(requestID) == "" || strings.TrimSpace(taskID) == "" {
+		return ErrEnterpriseMemberBudgetConflict
+	}
+	typedRepo, ok := s.repo.(EnterpriseMemberAsyncTaskRepository)
+	if !ok {
+		return ErrEnterpriseMemberBudgetConflict
+	}
+	return typedRepo.MarkAsyncTaskExecuting(ctx, strings.TrimSpace(requestID), strings.TrimSpace(taskID))
 }
 
 func (s *EnterpriseMemberBudgetService) MarkAmbiguous(ctx context.Context, apiKeyID int64, requestID, outcomeReason string) error {
@@ -569,6 +728,9 @@ func enterpriseMemberEndpointIsBillable(method, endpoint string) bool {
 		return true
 	}
 	if method == "GET" && (strings.HasSuffix(endpoint, "/models") || strings.Contains(endpoint, "/models/") || strings.Contains(endpoint, "/videos/")) {
+		return false
+	}
+	if method == "GET" && strings.Contains(endpoint, "/images/tasks") {
 		return false
 	}
 	if strings.Contains(endpoint, "/usage") || strings.HasSuffix(endpoint, "/images/batches") || strings.Contains(endpoint, "/batches/") || strings.Contains(endpoint, "/videos/") && !strings.HasSuffix(endpoint, "/generations") {
@@ -1014,7 +1176,8 @@ func IsEnterpriseMemberBudgetExceeded(err error) bool {
 	return errors.Is(err, ErrEnterpriseMemberBudgetExceeded) ||
 		errors.Is(err, ErrEnterpriseMemberRateLimit5hExceeded) ||
 		errors.Is(err, ErrEnterpriseMemberRateLimit1dExceeded) ||
-		errors.Is(err, ErrEnterpriseMemberRateLimit7dExceeded)
+		errors.Is(err, ErrEnterpriseMemberRateLimit7dExceeded) ||
+		errors.Is(err, ErrEnterpriseMemberAsyncBudgetUnavailable)
 }
 
 type EnterpriseMemberBudgetRecoveryService struct {

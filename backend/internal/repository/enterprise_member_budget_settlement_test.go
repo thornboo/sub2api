@@ -115,6 +115,48 @@ func TestSettleEnterpriseMemberBudgetPersistsActualCostWhenEstimateIsExceeded(t 
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestSettleEnterpriseMemberBudgetAllowsZeroReceiptToCrossLimitOnFinalRequest(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	memberID := int64(42)
+	requestID := "17:client:req-final"
+	periodStart := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT member_id, period_start, reserved_usd, status`).
+		WithArgs(requestID).
+		WillReturnRows(sqlmock.NewRows([]string{"member_id", "period_start", "reserved_usd", "status"}).
+			AddRow(memberID, periodStart, 0.0, "reserved"))
+	mock.ExpectExec(`UPDATE enterprise_member_budget_periods`).
+		WithArgs(0.30, 0.0, memberID, periodStart).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO enterprise_member_rate_limit_periods`).
+		WithArgs(memberID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE enterprise_member_rate_limit_periods`).
+		WithArgs(0.30, memberID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE enterprise_member_budget_reservations`).
+		WithArgs(0.30, requestID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO enterprise_member_budget_entries`).
+		WithArgs(memberID, periodStart, requestID, 0.30, "usage:"+requestID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	tx, err := db.BeginTx(context.Background(), nil)
+	require.NoError(t, err)
+	err = settleEnterpriseMemberBudget(context.Background(), tx, &service.UsageBillingCommand{
+		MemberID:              &memberID,
+		MemberBudgetRequestID: requestID,
+		MemberBudgetCost:      0.30,
+	})
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestReserveBatchImageEnterpriseMemberBudgetCreatesZeroReceiptForUnlimitedMember(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)

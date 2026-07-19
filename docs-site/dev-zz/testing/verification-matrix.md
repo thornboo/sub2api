@@ -44,9 +44,11 @@
 | worker Stop、处理 timeout 与 goroutine 生命周期 | `cd backend && go test -tags=unit ./internal/service -run '^TestEnterpriseMemberImportWorker(StopCancelsActiveProcessingAndWaitsForExit\|ProcessingTimeoutUsesFreshFailureContext)$' -count=1 -v` |
 | 普通 Key 显式迁移事务 | `cd backend && go test ./internal/repository -run 'TestEnterpriseMemberRepositoryAdoptKey' -count=1` |
 | 成员请求记录字段隔离 | `cd backend && go test ./internal/repository -run 'TestEnterpriseMemberRepositoryListUsageRecords' -count=1` |
-| 成员多窗口限额预留与无预留结算拒绝 | `cd backend && go test ./internal/repository -run 'TestReserveEnterpriseMemberSpendingLimits\|TestSettleEnterpriseMemberBudgetRejectsRateLimitedMemberWithoutReservation' -count=1` |
+| 成员同步零金额回执、实际用量授权、有限超额结算、滚动发布兼容与异步正金额 hold | `cd backend && go test -tags=unit ./internal/service ./internal/repository -run 'TestEnterpriseMemberBudget(ReserveCreatesZeroAmountReceiptForLimitedSynchronousRequest\|ReserveKeepsPositiveHoldForAsynchronous(Image\|Video)\|AmountHoldEndpointClassification\|ReserveReusesLegacyPositiveSyncReceiptAsZeroAmountRequest\|ReserveRejectsDifferentPositiveHoldForExistingRequest)\|TestReserveEnterpriseMemberSpendingLimits(ZeroReceipt\|PositiveHoldInitializesSettlementProjectionForMonthlyOnlyMember)\|TestSettleEnterpriseMemberBudgetAllowsZeroReceiptToCrossLimitOnFinalRequest' -count=1` |
+| 异步图片 hold 的客户状态、PG 执行栅栏、明确失败释放、未知结果保留、成功后计费失败核对和 middleware 生命周期让渡 | `cd backend && go test -tags=unit ./internal/handler -run 'TestAsyncImageHandler(SubmitAndPoll\|MiddlewareCannotReleaseOriginalTaskHoldAfterAttachConflict\|RunDoesNotDispatchWhenPostgresExecutionFenceFails\|RunReleasesMemberBudgetHoldOnDefinitiveFailure\|RunKeepsMemberBudgetHoldWhenSuccessResponseIsInvalid\|RunMarksValidSuccessAmbiguousWhenUsagePersistenceFails)' -count=1` |
+| 异步图片 Redis 原子状态、恢复索引、task-fenced transition、通用接口防绕过、排队释放、WATCH 重试、丢键 tombstone 和优雅关闭 | `cd backend && go test -tags=unit ./internal/service ./internal/repository -run 'TestImageTask(ServiceRecovery\|ServiceReturnsBudgetBackedTombstone\|ServiceStartsRecoveryWhenNewSubmissionsAreDisabled\|ServiceStopWaitsForRecoveryLoopExit\|StoreIndexes\|StoreUpdate)\|TestEnterpriseMemberBudget(ReleaseAsyncTask\|MarkAsyncTaskAmbiguous\|GenericRelease\|GenericAmbiguous)' -count=1` |
 | 成员 usage/计费原子写入、outbox 重放和载荷脱敏 | `cd backend && go test -tags=unit ./internal/repository -run 'TestUsageBillingRepositoryApply_\|TestUsageBillingRepositoryReplayPendingSettlement\|TestEnterpriseMemberSettlementPayloadExcludesHydratedSecrets' -count=1` |
-| 请求回执、核对元数据与 settlement outbox 迁移合同 | `cd backend && go test ./migrations -run 'TestEnterpriseMember(RequestReceipt\|ReceiptReconciliationMetadata\|UsageSettlementOutbox)Migration' -count=1` |
+| 请求回执、异步 task link/phase、核对元数据与 settlement outbox 迁移合同 | `cd backend && go test ./migrations -run 'TestEnterpriseMember(RequestReceipt\|BudgetReceiptTaskLink\|ReceiptReconciliationMetadata\|UsageSettlementOutbox)Migration' -count=1` |
 | 导入 Token 两位小数解析、JSON/SQL 精度与 migration 191 合同 | `cd backend && go test -tags=unit ./internal/service ./migrations -run 'Test(ParseImportTokenCount\|EnterpriseMemberTokenCount\|EnterpriseMemberImportPreviewPreservesDecimalTokenFormats\|EnterpriseMemberImportXLSXPreservesDecimalNumericCells\|EnterpriseMemberFractionalTokenBaselinesMigration)' -count=1` |
 | WebSocket 上游结果不明时禁止重放并保留成员预算 | `cd backend && go test -tags=unit ./internal/service -run 'TestOpenAIGatewayService_(ProxyResponsesWebSocketFromClient_(WriteOutcomeUnknownDoesNotRetry\|PreviousResponseNotFoundRecoversByDroppingPrevID\|PassthroughUnknownOutcomeMarksBudgetAmbiguous)\|Forward_WSv2(StreamEarlyCloseMarksOutcomeUnknown\|CloseAfterDispatchDoesNotReplay))' -count=1` |
 | Batch image 提交结果不明时保留 hold、禁止重提与退款 | `cd backend && go test -tags=unit ./internal/service -run 'Test(GeminiProvider_CreateBatch\|VertexProvider_CreateBatch\|BatchImagePublicService_Submit\|BatchImageBillingRecoveryService_\|CanTransitionBatchImageJob)' -count=1` |
@@ -115,7 +117,7 @@
 - `prompt_audit_config` 缺失时审计和阻断都关闭；`blocking_enabled` 不得在总审计关闭时独立生效。
 - Guard token 只允许写入/清除，公开配置和日志不得回显；任务表不得保存完整提示词，完整内容只允许进入最终事件证据。
 - 筛选删除必须先预览并冻结 filter hash、最高事件 ID、管理员和过期时间；确认不得删除预览后新增的事件。
-- WebSocket 首 turn 只审计一次，后续 turn 独立审计；企业成员预算仍按 turn 预留并在阻断/断连路径释放或标记结果不明。
+- WebSocket 首 turn 只审计一次，后续 turn 独立审计；企业成员预算按 turn 创建零金额 receipt，并在阻断/断连路径释放或标记结果不明。
 - 前端不得为 Stripe 恢复全局 `manualChunks`；三个支付入口必须继续通过 `@stripe/stripe-js/pure` 动态导入。
 
 ## OpenAI Responses → Chat fallback 工具桥

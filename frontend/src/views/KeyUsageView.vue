@@ -186,6 +186,10 @@
               <BudgetCell :label="t('keyUsage.limitDaily')" :limit="summary.member_budget.limit_1d" />
               <BudgetCell :label="t('keyUsage.limit7d')" :limit="summary.member_budget.limit_7d" />
             </div>
+            <div v-if="memberBudgetExhausted" class="flex items-start gap-3 border-t border-rose-200 bg-rose-50 px-5 py-4 text-rose-900 dark:border-rose-900/60 dark:bg-rose-950/25 dark:text-rose-100">
+              <Icon name="lock" size="sm" class="mt-0.5 shrink-0" />
+              <p class="text-sm leading-6"><b v-if="memberBudgetOverage > 0">{{ t('keyUsage.budgetOverage') }} {{ formatMoney(memberBudgetOverage) }}</b><span :class="memberBudgetOverage > 0 ? 'ml-1' : ''">{{ t('keyUsage.budgetRequestsStopped') }}</span></p>
+            </div>
           </section>
 
           <section class="rounded-2xl border border-stone-200 bg-white dark:border-[#242424] dark:bg-[#0d0d0d]">
@@ -427,6 +431,15 @@ const ipAccessLabel = computed(() => {
 })
 const trendMax = computed(() => Math.max(0, ...(summary.value?.trend.map((item) => item.actual_cost) || [])))
 const modelMax = computed(() => Math.max(0, ...(summary.value?.models.map((item) => item.actual_cost) || [])))
+const memberBudgetOverage = computed(() => {
+  const monthly = summary.value?.member_budget?.monthly
+  if (!monthly || monthly.limit <= 0) return 0
+  return Math.max(0, monthly.used - monthly.limit)
+})
+const memberBudgetExhausted = computed(() => {
+  const monthly = summary.value?.member_budget?.monthly
+  return Boolean(monthly && monthly.limit > 0 && monthly.used >= monthly.limit)
+})
 
 function localDateString(date: Date) {
   const year = date.getFullYear()

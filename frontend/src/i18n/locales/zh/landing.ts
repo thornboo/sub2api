@@ -153,6 +153,8 @@ export default {
     keyBudgetTitle: 'Key 额度',
     memberBudgetTitle: '成员共享预算',
     monthlyBudget: '本月预算',
+    budgetOverage: '超出金额',
+    budgetRequestsStopped: '本月预算已用完，后续请求已停止。',
     statsTitle: '所选时间范围统计',
     trendTitle: '消费趋势',
     recordsTitle: '请求记录',

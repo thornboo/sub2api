@@ -82,6 +82,9 @@ func TestAdminOpsAmbiguousReceiptListExposesOnlyOperationalCorrelationFields(t *
 		GroupID:           &groupID,
 		PeriodStart:       now,
 		ReservedUSD:       9.5,
+		ReceiptKind:       service.EnterpriseMemberReceiptKindAsyncImage,
+		TaskID:            "imgtask_51",
+		TaskPhase:         service.EnterpriseMemberAsyncTaskPhaseExecuting,
 		OutcomeReason:     "task_persistence_failed",
 		ReconcileAttempts: 2,
 		ExpiresAt:         now.Add(10 * time.Minute),
@@ -99,8 +102,12 @@ func TestAdminOpsAmbiguousReceiptListExposesOnlyOperationalCorrelationFields(t *
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"id":51`)
 	require.Contains(t, w.Body.String(), `"member_id":91`)
+	require.Contains(t, w.Body.String(), `"reserved_usd":9.5`)
+	require.Contains(t, w.Body.String(), `"receipt_kind":"async_image"`)
+	require.Contains(t, w.Body.String(), `"task_id":"imgtask_51"`)
+	require.Contains(t, w.Body.String(), `"task_phase":"executing"`)
 	require.Contains(t, w.Body.String(), "task_persistence_failed")
-	for _, secret := range []string{"secret-request-id", "secret-member-code", "Secret Member Name", `"group_id"`, `"reserved_usd"`, `"enterprise_user_id"`, `"period_start"`} {
+	for _, secret := range []string{"secret-request-id", "secret-member-code", "Secret Member Name", `"group_id"`, `"enterprise_user_id"`, `"period_start"`} {
 		require.NotContains(t, w.Body.String(), secret)
 	}
 }

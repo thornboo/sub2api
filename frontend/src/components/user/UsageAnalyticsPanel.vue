@@ -185,8 +185,8 @@
         <div class="mt-1 font-semibold tabular-nums text-amber-600 dark:text-amber-300">{{ formatInteger(memberBudgetRiskCount) }}</div>
       </div>
       <div class="rounded-lg border border-stone-200/80 bg-white/60 px-3 py-2 dark:border-white/10 dark:bg-black/20">
-        <div class="text-xs text-stone-500 dark:text-stone-400">{{ t('usage.analytics.reservedBudget') }}</div>
-        <div class="mt-1 font-semibold tabular-nums text-stone-950 dark:text-white">{{ formatMoney(memberReservedTotal) }}</div>
+        <div class="text-xs text-stone-500 dark:text-stone-400">{{ t('usage.analytics.memberActualCost') }}</div>
+        <div class="mt-1 font-semibold tabular-nums text-stone-950 dark:text-white">{{ formatMoney(memberActualCostTotal) }}</div>
       </div>
     </div>
 
@@ -346,7 +346,7 @@ const leaderboardItems = ref<OwnerApiKeyLeaderboardItem[]>([])
 const memberLeaderboardItems = ref<OwnerMemberLeaderboardItem[]>([])
 const memberCount = ref(0)
 const memberBudgetRiskCount = ref(0)
-const memberReservedTotal = ref(0)
+const memberActualCostTotal = ref(0)
 const modelItems = ref<OwnerModelAnalyticsItem[]>([])
 const groupItems = ref<OwnerGroupAnalyticsItem[]>([])
 const tagItems = ref<OwnerTagAnalyticsItem[]>([])
@@ -668,7 +668,6 @@ const memberLeaderboardChartOptions = computed<ChartOptions<'bar'>>(() => makeRa
       `${t('usage.actualCost')}: ${formatMoney(item.actual_cost)}`,
       `${t('usage.analytics.share')}: ${formatPercent(item.share_percent)}`,
       `${t('usage.analytics.budgetUsed')}: ${formatMoney(item.current_used_usd)}`,
-      `${t('usage.analytics.reservedBudget')}: ${formatMoney(item.current_reserved_usd)}`,
       `${t('usage.totalRequests')}: ${formatInteger(item.requests)}`
     ]
   },
@@ -888,7 +887,7 @@ function applyTabResult(result: Awaited<ReturnType<typeof loadActiveTab>>) {
 function applyMemberMetrics(result: OwnerMemberLeaderboardResponse) {
   memberCount.value = result.member_count
   memberBudgetRiskCount.value = result.budget_risk_member_count
-  memberReservedTotal.value = result.total_reserved_usd
+  memberActualCostTotal.value = result.total_actual_cost
 }
 
 function scheduleLoad() {
@@ -1194,7 +1193,7 @@ function currentAnalyticsExport() {
   if (analyticsDimension.value === 'member') {
     return {
       filename: `member_usage_leaderboard_${suffix}.csv`,
-      headers: ['member_id', 'member_code', 'member_name', 'status', 'archived', 'key_count', 'monthly_limit_usd', 'current_used_usd', 'current_reserved_usd', 'requests', 'total_tokens', 'actual_cost', 'share_percent', 'change_percent', 'last_used_at'],
+      headers: ['member_id', 'member_code', 'member_name', 'status', 'archived', 'key_count', 'monthly_limit_usd', 'current_used_usd', 'requests', 'total_tokens', 'actual_cost', 'share_percent', 'change_percent', 'last_used_at'],
       rows: memberLeaderboardItems.value.map((item) => [
         item.member_id ?? '',
         item.member_code,
@@ -1204,7 +1203,6 @@ function currentAnalyticsExport() {
         item.key_count,
         item.monthly_limit_usd,
         item.current_used_usd,
-        item.current_reserved_usd,
         item.requests,
         item.total_tokens,
         item.actual_cost,
@@ -1350,11 +1348,10 @@ const OwnerMemberLeaderboardTable = defineComponent({
       return item.status
     }
     const budgetText = (item: OwnerMemberLeaderboardItem) => {
-      const consumed = item.current_used_usd + item.current_reserved_usd
       if (item.monthly_limit_usd <= 0) {
-        return `${formatMoney(consumed)} / ∞`
+        return `${formatMoney(item.current_used_usd)} / ∞`
       }
-      return `${formatMoney(consumed)} / ${formatMoney(item.monthly_limit_usd)}`
+      return `${formatMoney(item.current_used_usd)} / ${formatMoney(item.monthly_limit_usd)}`
     }
     return () => h('div', { class: 'overflow-hidden rounded-lg border border-stone-200/80 dark:border-white/10' }, [
       h('div', { class: 'overflow-x-auto' }, [
@@ -1400,7 +1397,7 @@ const OwnerMemberLeaderboardTable = defineComponent({
             h('td', { class: numericCellClass }, formatInteger(item.key_count)),
             h('td', {
               class: numericCellClass,
-              title: `${t('usage.analytics.budgetUsed')}: ${formatMoney(item.current_used_usd)}; ${t('usage.analytics.reservedBudget')}: ${formatMoney(item.current_reserved_usd)}`
+              title: `${t('usage.analytics.budgetUsed')}: ${formatMoney(item.current_used_usd)}`
             }, budgetText(item)),
             h('td', { class: numericCellClass }, formatCompactNumber(item.requests)),
             h('td', { class: numericCellClass, title: formatInteger(item.total_tokens) }, formatCompactNumber(item.total_tokens)),

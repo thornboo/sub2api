@@ -22,8 +22,16 @@ func NewEnterpriseMemberBudgetRepository(db *sql.DB) service.EnterpriseMemberBud
 }
 
 func (r *enterpriseMemberBudgetRepository) Reserve(ctx context.Context, requestID string, memberID int64, groupID *int64, payloadHash string, amount float64, expiresAt time.Time) (_ *service.EnterpriseMemberBudgetReservation, err error) {
+	return r.ReserveWithKind(ctx, requestID, memberID, groupID, payloadHash, amount, service.EnterpriseMemberReceiptKindLegacy, expiresAt)
+}
+
+func (r *enterpriseMemberBudgetRepository) ReserveWithKind(ctx context.Context, requestID string, memberID int64, groupID *int64, payloadHash string, amount float64, receiptKind string, expiresAt time.Time) (_ *service.EnterpriseMemberBudgetReservation, err error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("enterprise member budget repository db is nil")
+	}
+	receiptKind = strings.TrimSpace(receiptKind)
+	if !validEnterpriseMemberReceiptKind(receiptKind) {
+		return nil, service.ErrEnterpriseMemberBudgetConflict
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -33,14 +41,18 @@ func (r *enterpriseMemberBudgetRepository) Reserve(ctx context.Context, requestI
 
 	var existing service.EnterpriseMemberBudgetReservation
 	err = tx.QueryRowContext(ctx, `
-		SELECT id, request_id, member_id, group_id, request_payload_hash, period_start, reserved_usd, actual_usd, status, usage_log_id, expires_at
+		SELECT id, request_id, member_id, group_id, request_payload_hash, period_start, reserved_usd, actual_usd, status, receipt_kind, COALESCE(async_task_id, ''), COALESCE(async_task_phase, ''), usage_log_id, expires_at
 		FROM enterprise_member_budget_reservations WHERE request_id = $1 FOR UPDATE`, requestID).
-		Scan(&existing.ID, &existing.RequestID, &existing.MemberID, &existing.GroupID, &existing.PayloadHash, &existing.PeriodStart, &existing.ReservedUSD, &existing.ActualUSD, &existing.Status, &existing.UsageLogID, &existing.ExpiresAt)
+		Scan(&existing.ID, &existing.RequestID, &existing.MemberID, &existing.GroupID, &existing.PayloadHash, &existing.PeriodStart, &existing.ReservedUSD, &existing.ActualUSD, &existing.Status, &existing.ReceiptKind, &existing.TaskID, &existing.TaskPhase, &existing.UsageLogID, &existing.ExpiresAt)
 	if err == nil {
 		existingPayloadHash := strings.TrimSpace(existing.PayloadHash)
+		amountMatches := mathAbs(existing.ReservedUSD-amount) <= 1e-8
+		legacyReceipt := existing.ReceiptKind == "" || existing.ReceiptKind == service.EnterpriseMemberReceiptKindLegacy
+		legacyPositiveSyncReceipt := receiptKind == service.EnterpriseMemberReceiptKindSync && legacyReceipt && mathAbs(amount) <= 1e-8 && existing.ReservedUSD > 1e-8
 		if existing.Status != "reserved" ||
 			existing.MemberID != memberID ||
-			mathAbs(existing.ReservedUSD-amount) > 1e-8 ||
+			(!legacyReceipt && existing.ReceiptKind != receiptKind) ||
+			(!amountMatches && !legacyPositiveSyncReceipt) ||
 			!sameOptionalInt64(existing.GroupID, groupID) ||
 			existingPayloadHash != strings.TrimSpace(payloadHash) {
 			return nil, service.ErrEnterpriseMemberBudgetConflict
@@ -58,11 +70,11 @@ func (r *enterpriseMemberBudgetRepository) Reserve(ctx context.Context, requestI
 	if !enforced && amount > 0 {
 		return nil, service.ErrEnterpriseMemberBudgetConflict
 	}
-	reservation := &service.EnterpriseMemberBudgetReservation{RequestID: requestID, MemberID: memberID, GroupID: groupID, PayloadHash: payloadHash, PeriodStart: periodStart, ReservedUSD: amount, Status: "reserved", ExpiresAt: expiresAt}
+	reservation := &service.EnterpriseMemberBudgetReservation{RequestID: requestID, MemberID: memberID, GroupID: groupID, PayloadHash: payloadHash, PeriodStart: periodStart, ReservedUSD: amount, Status: "reserved", ReceiptKind: receiptKind, ExpiresAt: expiresAt}
 	if err := tx.QueryRowContext(ctx, `
-		INSERT INTO enterprise_member_budget_reservations (request_id, member_id, group_id, request_payload_hash, period_start, reserved_usd, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id`, requestID, memberID, groupID, strings.TrimSpace(payloadHash), periodStart, amount, expiresAt).Scan(&reservation.ID); err != nil {
+		INSERT INTO enterprise_member_budget_reservations (request_id, member_id, group_id, request_payload_hash, period_start, reserved_usd, receipt_kind, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id`, requestID, memberID, groupID, strings.TrimSpace(payloadHash), periodStart, amount, receiptKind, expiresAt).Scan(&reservation.ID); err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
 			return nil, service.ErrEnterpriseMemberBudgetConflict
 		}
@@ -72,6 +84,217 @@ func (r *enterpriseMemberBudgetRepository) Reserve(ctx context.Context, requestI
 		return nil, err
 	}
 	return reservation, nil
+}
+
+func validEnterpriseMemberReceiptKind(kind string) bool {
+	switch kind {
+	case service.EnterpriseMemberReceiptKindLegacy, service.EnterpriseMemberReceiptKindSync,
+		service.EnterpriseMemberReceiptKindAsyncImage, service.EnterpriseMemberReceiptKindAsyncVideo,
+		service.EnterpriseMemberReceiptKindBatchImage:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *enterpriseMemberBudgetRepository) AttachAsyncTask(ctx context.Context, requestID, taskID string, expiresAt time.Time) error {
+	if r == nil || r.db == nil || strings.TrimSpace(requestID) == "" || strings.TrimSpace(taskID) == "" {
+		return service.ErrEnterpriseMemberBudgetConflict
+	}
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE enterprise_member_budget_reservations
+		SET async_task_id = $2, async_task_phase = 'queued', expires_at = $3, updated_at = NOW()
+		WHERE request_id = $1 AND receipt_kind = 'async_image' AND status = 'reserved'
+		  AND (async_task_id IS NULL OR async_task_id = $2)`, strings.TrimSpace(requestID), strings.TrimSpace(taskID), expiresAt)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrEnterpriseMemberBudgetConflict
+	}
+	return nil
+}
+
+func (r *enterpriseMemberBudgetRepository) MarkAsyncTaskExecuting(ctx context.Context, requestID, taskID string) error {
+	if r == nil || r.db == nil || strings.TrimSpace(requestID) == "" || strings.TrimSpace(taskID) == "" {
+		return service.ErrEnterpriseMemberBudgetConflict
+	}
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE enterprise_member_budget_reservations
+		SET async_task_phase = 'executing', expires_at = NOW() + INTERVAL '2 hours', updated_at = NOW()
+		WHERE request_id = $1 AND async_task_id = $2 AND receipt_kind = 'async_image'
+		  AND status = 'reserved' AND async_task_phase IN ('queued', 'executing')`,
+		strings.TrimSpace(requestID), strings.TrimSpace(taskID))
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrEnterpriseMemberBudgetConflict
+	}
+	return nil
+}
+
+func (r *enterpriseMemberBudgetRepository) ReleaseAsyncTask(ctx context.Context, requestID, taskID string) (_ *service.EnterpriseMemberBudgetReservation, err error) {
+	if r == nil || r.db == nil || strings.TrimSpace(requestID) == "" || strings.TrimSpace(taskID) == "" {
+		return nil, service.ErrEnterpriseMemberBudgetConflict
+	}
+	requestID = strings.TrimSpace(requestID)
+	taskID = strings.TrimSpace(taskID)
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	receipt := &service.EnterpriseMemberBudgetReservation{RequestID: requestID}
+	err = tx.QueryRowContext(ctx, `
+		SELECT id, member_id, group_id, period_start, reserved_usd, actual_usd, status,
+		       receipt_kind, COALESCE(async_task_id, ''), COALESCE(async_task_phase, ''), expires_at
+		FROM enterprise_member_budget_reservations
+		WHERE request_id = $1
+		FOR UPDATE`, requestID).Scan(
+		&receipt.ID, &receipt.MemberID, &receipt.GroupID, &receipt.PeriodStart,
+		&receipt.ReservedUSD, &receipt.ActualUSD, &receipt.Status, &receipt.ReceiptKind,
+		&receipt.TaskID, &receipt.TaskPhase, &receipt.ExpiresAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrEnterpriseMemberBudgetReceiptNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if receipt.ReceiptKind != service.EnterpriseMemberReceiptKindAsyncImage ||
+		(receipt.TaskID != "" && receipt.TaskID != taskID) {
+		return nil, service.ErrEnterpriseMemberBudgetConflict
+	}
+	if receipt.Status != "reserved" {
+		return receipt, nil
+	}
+	if receipt.TaskPhase != "" && receipt.TaskPhase != service.EnterpriseMemberAsyncTaskPhaseQueued &&
+		receipt.TaskPhase != service.EnterpriseMemberAsyncTaskPhaseExecuting {
+		return nil, service.ErrEnterpriseMemberBudgetConflict
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE enterprise_member_budget_periods
+		SET reserved_usd = GREATEST(0, reserved_usd - $1), version = version + 1, updated_at = NOW()
+		WHERE member_id = $2 AND period_start = $3`, receipt.ReservedUSD, receipt.MemberID, receipt.PeriodStart); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE enterprise_member_budget_reservations
+		SET status = 'released', outcome_reason = 'released_before_completion', updated_at = NOW()
+		WHERE request_id = $1`, requestID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	receipt.Status = "released"
+	return receipt, nil
+}
+
+func (r *enterpriseMemberBudgetRepository) MarkAsyncTaskAmbiguous(ctx context.Context, requestID, taskID, outcomeReason string) (_ *service.EnterpriseMemberBudgetReservation, err error) {
+	if r == nil || r.db == nil || strings.TrimSpace(requestID) == "" || strings.TrimSpace(taskID) == "" || strings.TrimSpace(outcomeReason) == "" {
+		return nil, service.ErrEnterpriseMemberBudgetConflict
+	}
+	requestID = strings.TrimSpace(requestID)
+	taskID = strings.TrimSpace(taskID)
+	outcomeReason = strings.TrimSpace(outcomeReason)
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	receipt := &service.EnterpriseMemberBudgetReservation{RequestID: requestID}
+	err = tx.QueryRowContext(ctx, `
+		SELECT id, member_id, reserved_usd, actual_usd, status, receipt_kind,
+		       COALESCE(async_task_id, ''), COALESCE(async_task_phase, ''), expires_at
+		FROM enterprise_member_budget_reservations
+		WHERE request_id = $1
+		FOR UPDATE`, requestID).Scan(
+		&receipt.ID, &receipt.MemberID, &receipt.ReservedUSD, &receipt.ActualUSD,
+		&receipt.Status, &receipt.ReceiptKind, &receipt.TaskID, &receipt.TaskPhase, &receipt.ExpiresAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrEnterpriseMemberBudgetReceiptNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if receipt.ReceiptKind != service.EnterpriseMemberReceiptKindAsyncImage || receipt.TaskID != taskID {
+		return nil, service.ErrEnterpriseMemberBudgetConflict
+	}
+	if receipt.Status == "reserved" {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE enterprise_member_budget_reservations
+			SET status = 'ambiguous', outcome_reason = $1,
+			    reconcile_attempts = reconcile_attempts + 1, last_reconcile_at = NOW(),
+			    expires_at = NOW() + INTERVAL '10 minutes', updated_at = NOW()
+			WHERE request_id = $2`, outcomeReason, requestID); err != nil {
+			return nil, err
+		}
+		receipt.Status = "ambiguous"
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return receipt, nil
+}
+
+func (r *enterpriseMemberBudgetRepository) GetReservation(ctx context.Context, requestID string) (*service.EnterpriseMemberBudgetReservation, error) {
+	if r == nil || r.db == nil || strings.TrimSpace(requestID) == "" {
+		return nil, service.ErrEnterpriseMemberBudgetReceiptNotFound
+	}
+	receipt := &service.EnterpriseMemberBudgetReservation{}
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, request_id, member_id, group_id, request_payload_hash, period_start,
+		       reserved_usd, actual_usd, status, receipt_kind, COALESCE(async_task_id, ''), COALESCE(async_task_phase, ''), usage_log_id, expires_at
+		FROM enterprise_member_budget_reservations
+		WHERE request_id = $1`, strings.TrimSpace(requestID)).Scan(
+		&receipt.ID, &receipt.RequestID, &receipt.MemberID, &receipt.GroupID,
+		&receipt.PayloadHash, &receipt.PeriodStart, &receipt.ReservedUSD,
+		&receipt.ActualUSD, &receipt.Status, &receipt.ReceiptKind, &receipt.TaskID, &receipt.TaskPhase, &receipt.UsageLogID, &receipt.ExpiresAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrEnterpriseMemberBudgetReceiptNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return receipt, nil
+}
+
+func (r *enterpriseMemberBudgetRepository) GetReservationByTaskID(ctx context.Context, taskID string) (*service.EnterpriseMemberBudgetReservation, error) {
+	if r == nil || r.db == nil || strings.TrimSpace(taskID) == "" {
+		return nil, service.ErrEnterpriseMemberBudgetReceiptNotFound
+	}
+	receipt := &service.EnterpriseMemberBudgetReservation{}
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, request_id, member_id, group_id, request_payload_hash, period_start,
+		       reserved_usd, actual_usd, status, receipt_kind, COALESCE(async_task_id, ''),
+		       COALESCE(async_task_phase, ''), usage_log_id, expires_at, created_at
+		FROM enterprise_member_budget_reservations
+		WHERE async_task_id = $1`, strings.TrimSpace(taskID)).Scan(
+		&receipt.ID, &receipt.RequestID, &receipt.MemberID, &receipt.GroupID,
+		&receipt.PayloadHash, &receipt.PeriodStart, &receipt.ReservedUSD,
+		&receipt.ActualUSD, &receipt.Status, &receipt.ReceiptKind, &receipt.TaskID,
+		&receipt.TaskPhase, &receipt.UsageLogID, &receipt.ExpiresAt, &receipt.CreatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrEnterpriseMemberBudgetReceiptNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return receipt, nil
 }
 
 func (r *enterpriseMemberBudgetRepository) Release(ctx context.Context, requestID string) (err error) {
@@ -87,12 +310,17 @@ func (r *enterpriseMemberBudgetRepository) Release(ctx context.Context, requestI
 	var periodStart time.Time
 	var amount float64
 	var status string
-	err = tx.QueryRowContext(ctx, `SELECT member_id, period_start, reserved_usd, status FROM enterprise_member_budget_reservations WHERE request_id = $1 FOR UPDATE`, requestID).Scan(&memberID, &periodStart, &amount, &status)
+	var receiptKind string
+	var taskID string
+	err = tx.QueryRowContext(ctx, `SELECT member_id, period_start, reserved_usd, status, receipt_kind, COALESCE(async_task_id, '') FROM enterprise_member_budget_reservations WHERE request_id = $1 FOR UPDATE`, requestID).Scan(&memberID, &periodStart, &amount, &status, &receiptKind, &taskID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return err
+	}
+	if receiptKind == service.EnterpriseMemberReceiptKindAsyncImage && taskID != "" {
+		return service.ErrEnterpriseMemberBudgetConflict
 	}
 	if status != "reserved" {
 		return nil
@@ -116,7 +344,8 @@ func (r *enterpriseMemberBudgetRepository) MarkAmbiguous(ctx context.Context, re
 		    reconcile_attempts = reconcile_attempts + 1,
 		    last_reconcile_at = NOW(), expires_at = NOW() + INTERVAL '10 minutes',
 		    updated_at = NOW()
-		WHERE request_id = $2 AND status = 'reserved'`, outcomeReason, requestID)
+		WHERE request_id = $2 AND status = 'reserved'
+		  AND NOT (receipt_kind = 'async_image' AND async_task_id IS NOT NULL)`, outcomeReason, requestID)
 	if err != nil {
 		return err
 	}
@@ -128,12 +357,15 @@ func (r *enterpriseMemberBudgetRepository) MarkAmbiguous(ctx context.Context, re
 		service.RecordEnterpriseMemberBudgetAmbiguous()
 		return nil
 	}
-	var status string
-	if err := r.db.QueryRowContext(ctx, `SELECT status FROM enterprise_member_budget_reservations WHERE request_id = $1`, requestID).Scan(&status); err != nil {
+	var status, receiptKind, taskID string
+	if err := r.db.QueryRowContext(ctx, `SELECT status, receipt_kind, COALESCE(async_task_id, '') FROM enterprise_member_budget_reservations WHERE request_id = $1`, requestID).Scan(&status, &receiptKind, &taskID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return service.ErrEnterpriseMemberBudgetReceiptNotFound
 		}
 		return err
+	}
+	if receiptKind == service.EnterpriseMemberReceiptKindAsyncImage && taskID != "" {
+		return service.ErrEnterpriseMemberBudgetConflict
 	}
 	if status == "ambiguous" {
 		return nil
@@ -198,7 +430,7 @@ func (r *enterpriseMemberBudgetRepository) GetSummary(ctx context.Context, membe
 	if summary.LimitUSD <= 0 {
 		summary.RemainingUSD = -1
 	} else {
-		summary.RemainingUSD = summary.LimitUSD - summary.UsedUSD - summary.ReservedUSD
+		summary.RemainingUSD = summary.LimitUSD - summary.UsedUSD
 		if summary.RemainingUSD < 0 {
 			summary.RemainingUSD = 0
 		}
@@ -775,7 +1007,7 @@ func (r *enterpriseMemberBudgetRepository) GetOwnerUsageSummary(ctx context.Cont
 		if item.LimitUSD <= 0 {
 			item.RemainingUSD = -1
 		} else {
-			item.RemainingUSD = item.LimitUSD - item.UsedUSD - item.ReservedUSD
+			item.RemainingUSD = item.LimitUSD - item.UsedUSD
 			if item.RemainingUSD < 0 {
 				item.RemainingUSD = 0
 			}
@@ -858,6 +1090,7 @@ func (r *enterpriseMemberBudgetRepository) ListAmbiguousReceipts(ctx context.Con
 		SELECT reservation.id, reservation.request_id, member.enterprise_user_id,
 		       reservation.member_id, member.member_code, member.display_name,
 		       reservation.group_id, reservation.period_start, reservation.reserved_usd,
+		       reservation.receipt_kind, COALESCE(reservation.async_task_id, ''), COALESCE(reservation.async_task_phase, ''),
 		       reservation.outcome_reason, reservation.reconcile_attempts,
 		       reservation.last_reconcile_at, reservation.expires_at,
 		       reservation.created_at, reservation.updated_at
@@ -877,6 +1110,7 @@ func (r *enterpriseMemberBudgetRepository) ListAmbiguousReceipts(ctx context.Con
 			&item.ID, &item.RequestID, &item.EnterpriseUserID,
 			&item.MemberID, &item.MemberCode, &item.MemberName,
 			&item.GroupID, &item.PeriodStart, &item.ReservedUSD,
+			&item.ReceiptKind, &item.TaskID, &item.TaskPhase,
 			&item.OutcomeReason, &item.ReconcileAttempts,
 			&item.LastReconcileAt, &item.ExpiresAt,
 			&item.CreatedAt, &item.UpdatedAt,
@@ -904,6 +1138,7 @@ func (r *enterpriseMemberBudgetRepository) ResolveAmbiguousReceipt(ctx context.C
 		SELECT reservation.id, reservation.request_id, member.enterprise_user_id,
 		       reservation.member_id, member.member_code, member.display_name,
 		       reservation.group_id, reservation.period_start, reservation.reserved_usd,
+		       reservation.receipt_kind, COALESCE(reservation.async_task_id, ''), COALESCE(reservation.async_task_phase, ''),
 		       reservation.outcome_reason, reservation.reconcile_attempts,
 		       reservation.last_reconcile_at, reservation.expires_at,
 		       reservation.created_at, reservation.updated_at, reservation.status
@@ -914,6 +1149,7 @@ func (r *enterpriseMemberBudgetRepository) ResolveAmbiguousReceipt(ctx context.C
 		&receipt.ID, &receipt.RequestID, &receipt.EnterpriseUserID,
 		&receipt.MemberID, &receipt.MemberCode, &receipt.MemberName,
 		&receipt.GroupID, &receipt.PeriodStart, &receipt.ReservedUSD,
+		&receipt.ReceiptKind, &receipt.TaskID, &receipt.TaskPhase,
 		&receipt.OutcomeReason, &receipt.ReconcileAttempts,
 		&receipt.LastReconcileAt, &receipt.ExpiresAt,
 		&receipt.CreatedAt, &receipt.UpdatedAt, &status,
@@ -1041,7 +1277,8 @@ func (r *enterpriseMemberBudgetRepository) RecoverExpired(ctx context.Context, l
 	}
 	defer func() { _ = tx.Rollback() }()
 	rows, err := tx.QueryContext(ctx, `
-		SELECT request_id, member_id, period_start, reserved_usd, status
+		SELECT request_id, member_id, period_start, reserved_usd, status, receipt_kind,
+		       COALESCE(async_task_id, ''), COALESCE(async_task_phase, '')
 		FROM enterprise_member_budget_reservations
 		WHERE status IN ('reserved', 'ambiguous') AND expires_at <= NOW()
 		ORDER BY expires_at, id
@@ -1056,11 +1293,14 @@ func (r *enterpriseMemberBudgetRepository) RecoverExpired(ctx context.Context, l
 		periodStart time.Time
 		reservedUSD float64
 		status      string
+		receiptKind string
+		taskID      string
+		taskPhase   string
 	}
 	items := make([]expiredReservation, 0, limit)
 	for rows.Next() {
 		var item expiredReservation
-		if err := rows.Scan(&item.requestID, &item.memberID, &item.periodStart, &item.reservedUSD, &item.status); err != nil {
+		if err := rows.Scan(&item.requestID, &item.memberID, &item.periodStart, &item.reservedUSD, &item.status, &item.receiptKind, &item.taskID, &item.taskPhase); err != nil {
 			_ = rows.Close()
 			return 0, err
 		}
@@ -1142,6 +1382,31 @@ func (r *enterpriseMemberBudgetRepository) RecoverExpired(ctx context.Context, l
 				service.RecordEnterpriseMemberBudgetAmbiguous()
 				recovered++
 			}
+			continue
+		}
+		if item.receiptKind == service.EnterpriseMemberReceiptKindAsyncImage &&
+			(strings.TrimSpace(item.taskID) == "" || item.taskPhase == service.EnterpriseMemberAsyncTaskPhaseQueued) {
+			// Async image execution is gated on the PostgreSQL executing fence.
+			// A missing link or a row that is still queued proves upstream
+			// dispatch never began, even if the Redis task key was lost.
+			outcomeReason := "async_task_not_dispatched"
+			if strings.TrimSpace(item.taskID) == "" {
+				outcomeReason = "async_task_not_created"
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE enterprise_member_budget_periods
+				SET reserved_usd = GREATEST(0, reserved_usd - $1), version = version + 1, updated_at = NOW()
+				WHERE member_id = $2 AND period_start = $3`, item.reservedUSD, item.memberID, item.periodStart); err != nil {
+				return recovered, err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE enterprise_member_budget_reservations
+				SET status = 'released', outcome_reason = $2,
+				    reconcile_attempts = reconcile_attempts + 1, last_reconcile_at = NOW(), updated_at = NOW()
+				WHERE request_id = $1`, item.requestID, outcomeReason); err != nil {
+				return recovered, err
+			}
+			recovered++
 			continue
 		}
 		// Absence of local billing evidence does not prove that the upstream

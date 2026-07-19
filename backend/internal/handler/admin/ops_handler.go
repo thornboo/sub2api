@@ -21,6 +21,10 @@ type OpsHandler struct {
 type adminEnterpriseMemberAmbiguousReceipt struct {
 	ID                int64      `json:"id"`
 	MemberID          int64      `json:"member_id"`
+	ReservedUSD       float64    `json:"reserved_usd"`
+	ReceiptKind       string     `json:"receipt_kind"`
+	TaskID            string     `json:"task_id,omitempty"`
+	TaskPhase         string     `json:"task_phase,omitempty"`
 	OutcomeReason     string     `json:"outcome_reason"`
 	ReconcileAttempts int        `json:"reconcile_attempts"`
 	LastReconcileAt   *time.Time `json:"last_reconcile_at,omitempty"`
@@ -31,7 +35,9 @@ type adminEnterpriseMemberAmbiguousReceipt struct {
 
 func redactAdminEnterpriseMemberAmbiguousReceipt(item service.EnterpriseMemberAmbiguousReceipt) adminEnterpriseMemberAmbiguousReceipt {
 	return adminEnterpriseMemberAmbiguousReceipt{
-		ID: item.ID, MemberID: item.MemberID, OutcomeReason: item.OutcomeReason,
+		ID: item.ID, MemberID: item.MemberID, ReservedUSD: item.ReservedUSD,
+		ReceiptKind: item.ReceiptKind, TaskID: item.TaskID, TaskPhase: item.TaskPhase,
+		OutcomeReason:     item.OutcomeReason,
 		ReconcileAttempts: item.ReconcileAttempts, LastReconcileAt: item.LastReconcileAt,
 		ExpiresAt: item.ExpiresAt, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
 	}

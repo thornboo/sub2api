@@ -26,11 +26,11 @@
 
 | 方法 | 路径 | 用途 | 关键语义 |
 | --- | --- | --- | --- |
-| `POST` | `/v1/images/generations/async` | 异步提交图片生成 | 返回 `202`、task ID、`Location` 和轮询建议；沿用同步端点的鉴权、成员分组、预算、计费和 failover |
+| `POST` | `/v1/images/generations/async` | 异步提交图片生成 | 返回 `202`、task ID、`Location`、任务阶段和可选 `budget`；成员限额下明确标注“任务冻结金额”，不混同实际已用 |
 | `POST` | `/v1/images/edits/async` | 异步提交图片编辑 | 支持同步编辑端点的 multipart / JSON 载荷；流式请求拒绝 |
-| `GET` | `/v1/images/tasks/:task_id` | 查询任务状态 / 结果 | 只能使用创建任务的 Key；对象存储未启用时端点返回 `404` |
+| `GET` | `/v1/images/tasks/:task_id` | 查询任务状态 / 结果 | 只能使用创建任务的 Key；返回 `phase` 与 `budget.status`，可区分 `held`、`settled`、`released`、`needs_review`；对象存储临时禁用时仍可查询既有任务 |
 
-以上路径同时提供既有无 `/v1` 别名。任务只支持 OpenAI / Grok 分组，图片结果转存 S3 兼容对象存储后才写入紧凑 Redis 结果；完整响应合同见 `docs/ASYNC_IMAGE_TASKS.md`。
+以上路径同时提供既有无 `/v1` 别名。任务只支持 OpenAI / Grok 分组，图片结果转存 S3 兼容对象存储后才写入紧凑 Redis 结果。Redis 私有快照保存预算 receipt 关联和恢复期限，PostgreSQL receipt 保存 task ID 与 `queued/executing` 执行栅栏：未发往上游的过期排队任务自动释放冻结，已进入执行但结果不明的任务不重放并转待核对。Redis task key 丢失时，轮询接口按 PostgreSQL receipt 返回不泄露内部 request ID 的恢复终态，而不是让仍在占用预算的任务直接变成 `404`。完整响应合同见 `docs/ASYNC_IMAGE_TASKS.md`。
 
 ## 操作审计与 step-up 2FA
 
