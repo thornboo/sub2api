@@ -61,7 +61,7 @@ func TestOpsRepositoryGetErrorLogByIDForOwnerRequiresVisibleOrUnassignedMember(t
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	repo := NewOpsRepository(db).(*opsRepository)
+	repo := &opsRepository{db: db}
 	mock.ExpectQuery(`(?s)WHERE e\.id = \$1\s+AND \(e\.user_id = \$2 OR e\.deleted_key_owner_user_id = \$2\)\s+AND \(e\.member_id IS NULL OR \(e\.member_id IS NOT NULL AND EXISTS \(SELECT 1 FROM enterprise_members visible_member WHERE visible_member\.id = e\.member_id AND visible_member\.enterprise_user_id = \$2 AND visible_member\.removed_at IS NULL\)\)\)\s+LIMIT 1`).
 		WithArgs(int64(88), int64(42)).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
@@ -77,7 +77,7 @@ func TestOpsRepositoryGetErrorLogByIDRetainsUnfilteredAuditLookup(t *testing.T) 
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	repo := NewOpsRepository(db).(*opsRepository)
+	repo := &opsRepository{db: db}
 	mock.ExpectQuery(`(?s)WHERE e\.id = \$1\s+LIMIT 1`).
 		WithArgs(int64(88)).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))

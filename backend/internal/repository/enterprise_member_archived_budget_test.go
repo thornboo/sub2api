@@ -58,11 +58,9 @@ func TestEnterpriseMemberOwnerSummaryExcludesRemovedFactsFromCurrentTotalsAndIte
 		"billed_usd", "total_tokens", "migration_input_tokens", "migration_output_tokens",
 		"cache_tokens", "cache_creation_tokens", "cache_read_tokens",
 	}
-	removedAt := periodStart.Add(24 * time.Hour)
-	mock.ExpectQuery(`FROM enterprise_members m`).
+	mock.ExpectQuery(`(?s)FROM enterprise_members m.*WHERE m\.enterprise_user_id = \$1\s+AND m\.removed_at IS NULL`).
 		WithArgs(int64(7), "2026-07-01").
 		WillReturnRows(sqlmock.NewRows(columns).
-			AddRow(11, "~deleted~11", "Deleted member #11", "disabled", 100, removedAt, 30, 0, 2, 100, 50, 0, 0, 0, 0, 0, 0, 0).
 			AddRow(12, "member-12", "Member 12", "active", 200, nil, 20, 0, 1, 40, 10, 0, 0, 0, 0, 0, 0, 0))
 
 	repo := &enterpriseMemberBudgetRepository{db: db}
@@ -72,7 +70,7 @@ func TestEnterpriseMemberOwnerSummaryExcludesRemovedFactsFromCurrentTotalsAndIte
 	require.Equal(t, int64(1), summary.RequestCount)
 	require.Equal(t, int64(40), summary.InputTokens)
 	require.Equal(t, int64(10), summary.OutputTokens)
-	require.Len(t, summary.Members, 1, "removed tombstones are not returned as manageable members")
+	require.Len(t, summary.Members, 1, "removed tombstones are filtered before aggregation")
 	require.Equal(t, int64(12), summary.Members[0].MemberID)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

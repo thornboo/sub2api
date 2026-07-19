@@ -64,6 +64,9 @@ func TestListUserErrorRequests_ForcesScopeAndRedacts(t *testing.T) {
 	if !stub.gotFilter.ExcludeCountTokens {
 		t.Fatal("ExcludeCountTokens not forced")
 	}
+	if !stub.gotFilter.OwnerVisibleMembers {
+		t.Fatal("OwnerVisibleMembers not forced")
+	}
 	// 强制清空 Phase（防止 "upstream" 绕过 status>=400 子句 + 与 ErrorPhasesAny 双重约束）
 	if stub.gotFilter.Phase != "" {
 		t.Fatalf("Phase not cleared: %q", stub.gotFilter.Phase)
@@ -197,8 +200,8 @@ func TestListUserErrorRequests_EnablesMatchDeletedKeyOwner(t *testing.T) {
 	if _, err := svc.ListUserErrorRequests(context.Background(), uid, &OpsErrorLogFilter{}); err != nil {
 		t.Fatal(err)
 	}
-	if stub.gotFilter == nil || !stub.gotFilter.MatchDeletedKeyOwner {
-		t.Fatal("ListUserErrorRequests should enable MatchDeletedKeyOwner for the user scope")
+	if stub.gotFilter == nil || !stub.gotFilter.MatchDeletedKeyOwner || !stub.gotFilter.OwnerVisibleMembers {
+		t.Fatal("ListUserErrorRequests should enable owner visibility controls for the user scope")
 	}
 }
 

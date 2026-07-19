@@ -414,6 +414,7 @@ func (s *OpsService) ListUserErrorRequests(ctx context.Context, userID int64, fi
 	filter = &f
 	uid := userID
 	filter.UserID = &uid
+	filter.OwnerVisibleMembers = true
 	// 用户侧放宽归属:纳入「删 key 后认证失败」(user_id=NULL,靠 deleted_key_owner 归因)的记录。
 	filter.MatchDeletedKeyOwner = true
 	// APIKeyID 透传：保留 handler 传入的值。安全由 buildOpsErrorLogsWhere 的

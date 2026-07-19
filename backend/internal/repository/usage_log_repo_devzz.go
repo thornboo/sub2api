@@ -99,12 +99,15 @@ func ownerAnalyticsAPIKeyFilters(conditions []string, args []any, filters servic
 	if filters.MemberID != nil {
 		conditions = append(conditions, fmt.Sprintf("%s.member_id = $%d", alias, len(args)+1))
 		args = append(args, *filters.MemberID)
+		conditions = append(conditions, ownerVisibleEnterpriseMemberFactCondition(alias))
 	} else {
 		switch strings.TrimSpace(filters.MemberScope) {
 		case usagestats.MemberScopeAssigned:
-			conditions = append(conditions, fmt.Sprintf("%s.member_id IS NOT NULL", alias))
+			conditions = append(conditions, ownerVisibleEnterpriseMemberFactCondition(alias))
 		case usagestats.MemberScopeUnassigned:
 			conditions = append(conditions, fmt.Sprintf("%s.member_id IS NULL", alias))
+		default:
+			conditions = append(conditions, ownerVisibleEnterpriseMemberFactOrUnassignedCondition(alias+".member_id", alias+".user_id"))
 		}
 	}
 	if filters.GroupID != nil {
@@ -156,12 +159,15 @@ func ownerAnalyticsUsageConditions(filters service.OwnerAPIKeyAnalyticsFilters, 
 		if filters.MemberID != nil {
 			conditions = append(conditions, fmt.Sprintf("ul.member_id = $%d", len(args)+1))
 			args = append(args, *filters.MemberID)
+			conditions = append(conditions, ownerVisibleEnterpriseMemberFactCondition("ul"))
 		} else {
 			switch strings.TrimSpace(filters.MemberScope) {
 			case usagestats.MemberScopeAssigned:
 				conditions = append(conditions, ownerVisibleEnterpriseMemberFactCondition("ul"))
 			case usagestats.MemberScopeUnassigned:
 				conditions = append(conditions, "ul.member_id IS NULL")
+			default:
+				conditions = append(conditions, ownerVisibleEnterpriseMemberFactOrUnassignedCondition("ul.member_id", "ul.user_id"))
 			}
 		}
 		if filters.APIKeyID != nil {
@@ -199,7 +205,12 @@ func ownerAnalyticsUsageConditions(filters service.OwnerAPIKeyAnalyticsFilters, 
 		}
 		return conditions, args, nil
 	}
-	return ownerAnalyticsAPIKeyFilters(conditions, args, filters, "ak")
+	conditions, args, err := ownerAnalyticsAPIKeyFilters(conditions, args, filters, "ak")
+	if err != nil {
+		return nil, nil, err
+	}
+	conditions = append(conditions, ownerVisibleEnterpriseMemberFactOrUnassignedCondition("ul.member_id", "ul.user_id"))
+	return conditions, args, nil
 }
 
 func ownerAnalyticsUsageSelect(prefix string) string {

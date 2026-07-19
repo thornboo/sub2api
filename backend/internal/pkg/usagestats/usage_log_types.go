@@ -289,7 +289,11 @@ type UsageLogFilters struct {
 	// MemberScope is used only when MemberID is nil and supports all/assigned/unassigned.
 	MemberID    *int64
 	MemberScope string
-	Model       string
+	// OwnerVisibleMembers makes all/empty scope include only unassigned facts or
+	// facts belonging to enterprise members that have not been permanently removed.
+	// Admin and audit callers leave this false to retain historical visibility.
+	OwnerVisibleMembers bool
+	Model               string
 	// ModelFilterSource controls how Model is matched. Empty preserves raw usage_logs.model semantics.
 	ModelFilterSource string
 	RequestType       *int16

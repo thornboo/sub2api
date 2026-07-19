@@ -175,7 +175,7 @@ func shouldUseFastUsageLogTotal(filters UsageLogFilters) bool {
 		return false
 	}
 	// 强选择过滤下记录集通常较小，保留精确总数。
-	return filters.UserID == 0 && filters.APIKeyID == 0 && filters.AccountID == 0 && filters.MemberID == nil && filters.MemberScope == ""
+	return filters.UserID == 0 && filters.APIKeyID == 0 && filters.AccountID == 0 && filters.MemberID == nil && filters.MemberScope == "" && !filters.OwnerVisibleMembers
 }
 
 func (r *usageLogRepository) listUsageLogsWithPagination(ctx context.Context, whereClause string, args []any, params pagination.PaginationParams) ([]service.UsageLog, *pagination.PaginationResult, error) {

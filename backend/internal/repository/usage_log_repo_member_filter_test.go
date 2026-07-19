@@ -20,10 +20,13 @@ func TestAppendUsageLogMemberWhereCondition(t *testing.T) {
 		args       []any
 	}{
 		{name: "all is additive no-op", filters: usagestats.UsageLogFilters{MemberScope: usagestats.MemberScopeAll}},
-		{name: "assigned", filters: usagestats.UsageLogFilters{MemberScope: usagestats.MemberScopeAssigned}, conditions: []string{"member_id IS NOT NULL AND EXISTS (SELECT 1 FROM enterprise_members visible_member WHERE visible_member.id = member_id AND visible_member.enterprise_user_id = user_id AND visible_member.removed_at IS NULL)"}},
-		{name: "assigned with alias", filters: usagestats.UsageLogFilters{MemberScope: usagestats.MemberScopeAssigned}, alias: "ul", conditions: []string{"ul.member_id IS NOT NULL AND EXISTS (SELECT 1 FROM enterprise_members visible_member WHERE visible_member.id = ul.member_id AND visible_member.enterprise_user_id = ul.user_id AND visible_member.removed_at IS NULL)"}},
+		{name: "owner all excludes removed tombstones", filters: usagestats.UsageLogFilters{MemberScope: usagestats.MemberScopeAll, OwnerVisibleMembers: true}, conditions: []string{"(member_id IS NULL OR (member_id IS NOT NULL AND EXISTS (SELECT 1 FROM enterprise_members visible_member WHERE visible_member.id = member_id AND visible_member.enterprise_user_id = user_id AND visible_member.removed_at IS NULL)))"}},
+		{name: "owner empty scope excludes removed tombstones", filters: usagestats.UsageLogFilters{OwnerVisibleMembers: true}, alias: "ul", conditions: []string{"(ul.member_id IS NULL OR (ul.member_id IS NOT NULL AND EXISTS (SELECT 1 FROM enterprise_members visible_member WHERE visible_member.id = ul.member_id AND visible_member.enterprise_user_id = ul.user_id AND visible_member.removed_at IS NULL)))"}},
+		{name: "audit assigned retains tombstones", filters: usagestats.UsageLogFilters{MemberScope: usagestats.MemberScopeAssigned}, conditions: []string{"member_id IS NOT NULL"}},
+		{name: "owner assigned with alias excludes tombstones", filters: usagestats.UsageLogFilters{MemberScope: usagestats.MemberScopeAssigned, OwnerVisibleMembers: true}, alias: "ul", conditions: []string{"ul.member_id IS NOT NULL AND EXISTS (SELECT 1 FROM enterprise_members visible_member WHERE visible_member.id = ul.member_id AND visible_member.enterprise_user_id = ul.user_id AND visible_member.removed_at IS NULL)"}},
 		{name: "unassigned with alias", filters: usagestats.UsageLogFilters{MemberScope: usagestats.MemberScopeUnassigned}, alias: "ul", conditions: []string{"ul.member_id IS NULL"}},
 		{name: "specific member wins", filters: usagestats.UsageLogFilters{MemberID: &memberID, MemberScope: usagestats.MemberScopeAssigned}, alias: "ul", conditions: []string{"ul.member_id = $2"}, args: []any{int64(7), memberID}},
+		{name: "owner specific member also requires current visibility", filters: usagestats.UsageLogFilters{MemberID: &memberID, OwnerVisibleMembers: true}, alias: "ul", conditions: []string{"ul.member_id = $1", "ul.member_id IS NOT NULL AND EXISTS (SELECT 1 FROM enterprise_members visible_member WHERE visible_member.id = ul.member_id AND visible_member.enterprise_user_id = ul.user_id AND visible_member.removed_at IS NULL)"}, args: []any{memberID}},
 	}
 
 	for _, tt := range tests {
@@ -37,6 +40,22 @@ func TestAppendUsageLogMemberWhereCondition(t *testing.T) {
 			require.Equal(t, tt.args, args)
 		})
 	}
+}
+
+func TestAppendUsageLogMemberQueryFilterPreservesAllOwnerConditions(t *testing.T) {
+	memberID := int64(42)
+	query, args := appendUsageLogMemberQueryFilter(
+		"SELECT 1 FROM usage_logs WHERE user_id = $1",
+		[]any{int64(7)},
+		usagestats.UsageLogFilters{MemberID: &memberID, OwnerVisibleMembers: true},
+		"",
+	)
+
+	require.Equal(t, []any{int64(7), memberID}, args)
+	require.Contains(t, query, "member_id = $2 AND member_id IS NOT NULL AND EXISTS")
+	require.Contains(t, query, "visible_member.id = member_id")
+	require.Contains(t, query, "visible_member.enterprise_user_id = user_id")
+	require.Contains(t, query, "visible_member.removed_at IS NULL")
 }
 
 func TestOwnerAnalyticsAssignedMembersExcludeRemovedTombstones(t *testing.T) {
@@ -58,7 +77,7 @@ func TestOwnerAnalyticsAssignedMembersExcludeRemovedTombstones(t *testing.T) {
 	require.NotContains(t, joined, "visible_member.deleted_at", "archived members remain part of owner-visible history")
 }
 
-func TestOwnerAnalyticsAllMembersUsesRequestFactsWithoutForcingAssignment(t *testing.T) {
+func TestOwnerAnalyticsAllMembersExcludeRemovedTombstonesWithoutForcingAssignment(t *testing.T) {
 	conditions, args, err := ownerAnalyticsUsageConditions(service.OwnerAPIKeyAnalyticsFilters{
 		UserID:          7,
 		MemberScope:     usagestats.MemberScopeAll,
@@ -74,6 +93,24 @@ func TestOwnerAnalyticsAllMembersUsesRequestFactsWithoutForcingAssignment(t *tes
 	require.Contains(t, joined, "ul.user_id")
 	require.Contains(t, joined, "ul.group_id")
 	require.NotContains(t, joined, "ak.group_id")
-	require.NotContains(t, joined, "ul.member_id IS NOT NULL")
-	require.NotContains(t, joined, "ul.member_id IS NULL")
+	require.Contains(t, joined, "ul.member_id IS NULL OR")
+	require.Contains(t, joined, "visible_member.id = ul.member_id")
+	require.Contains(t, joined, "visible_member.enterprise_user_id = ul.user_id")
+	require.Contains(t, joined, "visible_member.removed_at IS NULL")
+	require.NotContains(t, joined, "visible_member.deleted_at")
+}
+
+func TestOwnerAnalyticsEmptyMemberScopeStillExcludesRemovedTombstones(t *testing.T) {
+	conditions, _, err := ownerAnalyticsUsageConditions(service.OwnerAPIKeyAnalyticsFilters{
+		UserID:    7,
+		StartTime: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC),
+	}, true)
+
+	require.NoError(t, err)
+	joined := strings.Join(conditions, " ")
+	require.Contains(t, joined, "ak.deleted_at IS NULL")
+	require.Contains(t, joined, "ul.member_id IS NULL OR")
+	require.Contains(t, joined, "visible_member.id = ul.member_id")
+	require.Contains(t, joined, "visible_member.removed_at IS NULL")
 }

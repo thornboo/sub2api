@@ -753,6 +753,7 @@ func (r *enterpriseMemberBudgetRepository) GetOwnerUsageSummary(ctx context.Cont
 			WHERE baseline.member_id = m.id AND baseline.period_start = $2
 		) b ON TRUE
 		WHERE m.enterprise_user_id = $1
+		  AND m.removed_at IS NULL
 		ORDER BY m.id`, ownerID, periodStart.Format("2006-01-02"))
 	if err != nil {
 		return nil, err

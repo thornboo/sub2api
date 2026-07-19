@@ -141,13 +141,28 @@ func appendUsageLogMemberWhereCondition(conditions []string, args []any, filters
 	if filters.MemberID != nil {
 		conditions = append(conditions, fmt.Sprintf("%s = $%d", column, len(args)+1))
 		args = append(args, *filters.MemberID)
+		if filters.OwnerVisibleMembers {
+			conditions = append(conditions, ownerVisibleEnterpriseMemberFactCondition(alias))
+		}
 		return conditions, args
 	}
 	switch strings.TrimSpace(filters.MemberScope) {
 	case usagestats.MemberScopeAssigned:
-		conditions = append(conditions, ownerVisibleEnterpriseMemberFactCondition(alias))
+		if filters.OwnerVisibleMembers {
+			conditions = append(conditions, ownerVisibleEnterpriseMemberFactCondition(alias))
+		} else {
+			conditions = append(conditions, column+" IS NOT NULL")
+		}
 	case usagestats.MemberScopeUnassigned:
 		conditions = append(conditions, column+" IS NULL")
+	default:
+		if filters.OwnerVisibleMembers {
+			ownerColumn := "user_id"
+			if alias != "" {
+				ownerColumn = alias + ".user_id"
+			}
+			conditions = append(conditions, ownerVisibleEnterpriseMemberFactOrUnassignedCondition(column, ownerColumn))
+		}
 	}
 	return conditions, args
 }
@@ -157,7 +172,7 @@ func appendUsageLogMemberQueryFilter(query string, args []any, filters usagestat
 	if len(conditions) == 0 {
 		return query, args
 	}
-	return query + " AND " + conditions[0], args
+	return query + " AND " + strings.Join(conditions, " AND "), args
 }
 
 func appendUsageLogModelWhereCondition(conditions []string, args []any, model string, source string) ([]string, []any) {

@@ -1281,12 +1281,23 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 	if filter.MemberID != nil && *filter.MemberID > 0 {
 		args = append(args, *filter.MemberID)
 		clauses = append(clauses, "e.member_id = $"+itoa(len(args)))
+		if filter.OwnerVisibleMembers {
+			clauses = append(clauses, ownerVisibleEnterpriseMemberFactCondition("e"))
+		}
 	} else {
 		switch strings.TrimSpace(filter.MemberScope) {
 		case "assigned":
-			clauses = append(clauses, ownerVisibleEnterpriseMemberFactCondition("e"))
+			if filter.OwnerVisibleMembers {
+				clauses = append(clauses, ownerVisibleEnterpriseMemberFactCondition("e"))
+			} else {
+				clauses = append(clauses, "e.member_id IS NOT NULL")
+			}
 		case "unassigned":
 			clauses = append(clauses, "e.member_id IS NULL")
+		default:
+			if filter.OwnerVisibleMembers {
+				clauses = append(clauses, ownerVisibleEnterpriseMemberFactOrUnassignedCondition("e.member_id", "e.user_id"))
+			}
 		}
 	}
 	if m := strings.TrimSpace(filter.Model); m != "" {
