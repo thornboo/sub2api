@@ -1104,6 +1104,24 @@ func (s *APIKeyService) GetPublicStatusByKey(ctx context.Context, key string) (*
 	if err != nil {
 		return nil, fmt.Errorf("get api key: %w", err)
 	}
+	return buildAPIKeyPublicStatus(apiKey), nil
+}
+
+// GetPublicStatusByID reloads current status for an already-authorized public
+// query session. It intentionally skips the plaintext-key lookup cooldown;
+// established sessions have their own route/session rate limits.
+func (s *APIKeyService) GetPublicStatusByID(ctx context.Context, id int64) (*APIKeyPublicStatus, error) {
+	apiKey, err := s.apiKeyRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get api key: %w", err)
+	}
+	return buildAPIKeyPublicStatus(apiKey), nil
+}
+
+func buildAPIKeyPublicStatus(apiKey *APIKey) *APIKeyPublicStatus {
+	if apiKey == nil {
+		return nil
+	}
 
 	status := apiKey.Status
 	isExpired := apiKey.IsExpired()
@@ -1114,10 +1132,15 @@ func (s *APIKeyService) GetPublicStatusByKey(ctx context.Context, key string) (*
 		status = StatusAPIKeyQuotaExhausted
 	}
 
-	userActive := apiKey.User == nil || apiKey.User.IsActive()
-	isActive := status == StatusActive && userActive
+	staticAccessAvailable := apiKeyStaticAccessAvailable(apiKey)
+	if status == StatusActive && !staticAccessAvailable {
+		status = StatusAPIKeyDisabled
+	}
+	isActive := status == StatusActive && staticAccessAvailable
 	out := &APIKeyPublicStatus{
 		ID:               apiKey.ID,
+		UserID:           apiKey.UserID,
+		MemberID:         apiKey.MemberID,
 		Name:             apiKey.Name,
 		Status:           status,
 		GroupID:          apiKey.GroupID,
@@ -1144,7 +1167,43 @@ func (s *APIKeyService) GetPublicStatusByKey(ctx context.Context, key string) (*
 		out.GroupName = apiKey.Group.Name
 		out.GroupPlatform = apiKey.Group.Platform
 	}
-	return out, nil
+	return out
+}
+
+// apiKeyStaticAccessAvailable mirrors the gateway's identity and fixed-group
+// eligibility checks. Request-specific model, endpoint, subscription, balance,
+// and IP decisions remain on the gateway request path and are intentionally not
+// represented as a global Key status.
+func apiKeyStaticAccessAvailable(apiKey *APIKey) bool {
+	if apiKey == nil || apiKey.User == nil || !apiKey.User.IsActive() {
+		return false
+	}
+	if apiKey.MemberID != nil {
+		member := apiKey.Member
+		if !apiKey.User.IsEnterprise() || member == nil || member.ID != *apiKey.MemberID ||
+			member.EnterpriseUserID != apiKey.UserID || member.DeletedAt != nil ||
+			member.Status != EnterpriseMemberStatusActive || apiKey.GroupID != nil {
+			return false
+		}
+		for i := range member.Groups {
+			if apiKeyGroupStaticAccessAvailable(apiKey.User, &member.Groups[i]) {
+				return true
+			}
+		}
+		return false
+	}
+	if apiKey.GroupID == nil {
+		return true
+	}
+	group := apiKey.Group
+	return apiKeyGroupStaticAccessAvailable(apiKey.User, group)
+}
+
+func apiKeyGroupStaticAccessAvailable(user *User, group *Group) bool {
+	if user == nil || group == nil || !group.IsActive() || !IsGroupContextValid(group) {
+		return false
+	}
+	return group.IsSubscriptionType() || user.CanBindGroup(group.ID, group.IsExclusive)
 }
 
 // checkAPIKeyRateLimit 检查用户创建自定义Key的错误次数是否超限

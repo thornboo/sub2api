@@ -52,6 +52,13 @@
           </button>
 
           <router-link
+            to="/key-usage"
+            class="inline-flex h-9 items-center rounded-lg border border-stone-200 px-3 text-sm font-medium text-stone-700 transition hover:border-emerald-500/40 hover:text-emerald-600 dark:border-[#1e1e1e] dark:text-stone-300"
+          >
+            {{ t('home.keyQuery') }}
+          </router-link>
+
+          <router-link
             v-if="isAuthenticated"
             :to="dashboardPath"
             class="inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-500 px-3 text-sm font-semibold text-black transition hover:bg-emerald-400"

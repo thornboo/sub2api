@@ -57,6 +57,8 @@ type GatewayHandler struct {
 	maxAccountSwitchesGemini  int
 	cfg                       *config.Config
 	settingService            *service.SettingService
+	memberBudgetService       *service.EnterpriseMemberBudgetService
+	opsService                *service.OpsService
 }
 
 // NewGatewayHandler creates a new GatewayHandler

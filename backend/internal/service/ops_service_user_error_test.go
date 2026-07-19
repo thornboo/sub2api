@@ -136,6 +136,23 @@ func TestGetUserErrorRequestDetail_OwnershipEnforced(t *testing.T) {
 	}
 }
 
+func TestGetUserAPIKeyErrorRequestDetail_RequiresExactKey(t *testing.T) {
+	ownerUID := int64(999)
+	ownedKeyID := int64(7)
+	detail := &OpsErrorLogDetail{OpsErrorLog: OpsErrorLog{
+		ID: 42, UserID: &ownerUID, APIKeyID: &ownedKeyID, StatusCode: 429,
+		Phase: "request", Type: "rate_limit_error", Message: "limited",
+	}}
+	svc := &OpsService{opsRepo: &stubOpsRepoForUserErr{detailToReturn: detail}}
+
+	if got, err := svc.GetUserAPIKeyErrorRequestDetail(context.Background(), ownerUID, ownedKeyID, 42); err != nil || got == nil {
+		t.Fatalf("exact owner/key should be allowed, detail=%+v err=%v", got, err)
+	}
+	if got, err := svc.GetUserAPIKeyErrorRequestDetail(context.Background(), ownerUID, 8, 42); err == nil || got != nil || !infraerrors.IsNotFound(err) {
+		t.Fatalf("same owner other key must be hidden, detail=%+v err=%v", got, err)
+	}
+}
+
 func TestGetUserErrorRequestDetail_NotFound(t *testing.T) {
 	stub := &stubOpsRepoForUserErr{detailErrToReturn: sql.ErrNoRows}
 	svc := &OpsService{opsRepo: stub}

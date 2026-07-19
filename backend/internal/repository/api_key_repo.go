@@ -103,9 +103,9 @@ func (r *apiKeyRepository) RunInTx(ctx context.Context, fn func(context.Context)
 func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIKey, error) {
 	m, err := r.activeQuery().
 		Where(apikey.IDEQ(id)).
-		WithUser().
+		WithUser(withAPIKeyUserAccess).
 		WithGroup().
-		WithMember().
+		WithMember(withAPIKeyMemberAccessFull).
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
@@ -119,9 +119,9 @@ func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIK
 func (r *apiKeyRepository) GetByIDIncludingDeleted(ctx context.Context, id int64) (*service.APIKey, error) {
 	m, err := r.client.APIKey.Query().
 		Where(apikey.IDEQ(id)).
-		WithUser().
+		WithUser(withAPIKeyUserAccess).
 		WithGroup().
-		WithMember().
+		WithMember(withAPIKeyMemberAccessFull).
 		Only(mixins.SkipSoftDelete(ctx))
 	if err != nil {
 		if dbent.IsNotFound(err) {
@@ -154,12 +154,9 @@ func (r *apiKeyRepository) GetKeyAndOwnerID(ctx context.Context, id int64) (stri
 func (r *apiKeyRepository) GetByKey(ctx context.Context, key string) (*service.APIKey, error) {
 	m, err := r.activeQuery().
 		Where(apikey.KeyEQ(key)).
-		WithUser(func(q *dbent.UserQuery) {
-			q.WithAllowedGroups(func(gq *dbent.GroupQuery) {
-				gq.Select(group.FieldID)
-			})
-		}).
+		WithUser(withAPIKeyUserAccess).
 		WithGroup().
+		WithMember(withAPIKeyMemberAccessFull).
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
@@ -258,27 +255,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldPeakRateMultiplier,
 			)
 		}).
-		WithMember(func(q *dbent.EnterpriseMemberQuery) {
-			q.Select(
-				enterprisemember.FieldID,
-				enterprisemember.FieldEnterpriseUserID,
-				enterprisemember.FieldMemberCode,
-				enterprisemember.FieldName,
-				enterprisemember.FieldStatus,
-				enterprisemember.FieldMonthlyLimitUsd,
-				enterprisemember.FieldRateLimit5h,
-				enterprisemember.FieldRateLimit1d,
-				enterprisemember.FieldRateLimit7d,
-				enterprisemember.FieldVersion,
-			)
-			q.WithEnterpriseMemberGroupBindings(func(bq *dbent.EnterpriseMemberGroupBindingQuery) {
-				bq.Order(
-					dbent.Asc(enterprisemembergroupbinding.FieldSortOrder),
-					dbent.Asc(enterprisemembergroupbinding.FieldGroupID),
-				)
-				bq.WithGroup()
-			})
-		}).
+		WithMember(withAPIKeyMemberAccess).
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
@@ -287,6 +264,44 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 		return nil, err
 	}
 	return apiKeyEntityToService(m), nil
+}
+
+func withAPIKeyMemberAccess(q *dbent.EnterpriseMemberQuery) {
+	q.Select(
+		enterprisemember.FieldID,
+		enterprisemember.FieldEnterpriseUserID,
+		enterprisemember.FieldMemberCode,
+		enterprisemember.FieldName,
+		enterprisemember.FieldStatus,
+		enterprisemember.FieldMonthlyLimitUsd,
+		enterprisemember.FieldRateLimit5h,
+		enterprisemember.FieldRateLimit1d,
+		enterprisemember.FieldRateLimit7d,
+		enterprisemember.FieldVersion,
+	)
+	q.WithEnterpriseMemberGroupBindings(func(bq *dbent.EnterpriseMemberGroupBindingQuery) {
+		bq.Order(
+			dbent.Asc(enterprisemembergroupbinding.FieldSortOrder),
+			dbent.Asc(enterprisemembergroupbinding.FieldGroupID),
+		)
+		bq.WithGroup()
+	})
+}
+
+func withAPIKeyMemberAccessFull(q *dbent.EnterpriseMemberQuery) {
+	q.WithEnterpriseMemberGroupBindings(func(bq *dbent.EnterpriseMemberGroupBindingQuery) {
+		bq.Order(
+			dbent.Asc(enterprisemembergroupbinding.FieldSortOrder),
+			dbent.Asc(enterprisemembergroupbinding.FieldGroupID),
+		)
+		bq.WithGroup()
+	})
+}
+
+func withAPIKeyUserAccess(q *dbent.UserQuery) {
+	q.WithAllowedGroups(func(gq *dbent.GroupQuery) {
+		gq.Select(group.FieldID)
+	})
 }
 
 func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey) error {
@@ -1124,7 +1139,9 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 				continue
 			}
 			out.Member.GroupIDs = append(out.Member.GroupIDs, binding.GroupID)
-			out.Member.Groups = append(out.Member.Groups, *groupEntityToService(binding.Edges.Group))
+			mappedGroup := groupEntityToService(binding.Edges.Group)
+			mappedGroup.SortOrder = binding.SortOrder
+			out.Member.Groups = append(out.Member.Groups, *mappedGroup)
 		}
 	}
 	return out

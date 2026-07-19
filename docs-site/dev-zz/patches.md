@@ -1,5 +1,32 @@
 # 补丁记录
 
+## 2026-07-19 - v1.7.10 Key 自助查询
+
+### 目标
+
+- 为无法登录站点的企业成员及普通 Key 持有者提供独立的自助查询入口，在不暴露完整 Key、其他 Key、上游账号或管理员成本的前提下，查询额度、静态可用状态、可访问分组与模型、统计、请求记录、详情和 CSV 导出。
+
+### 主要变化
+
+- 首页新增 Key 查询入口；浏览器使用一次性 Bearer Key 换取短时 `HttpOnly` 查询会话，完整 Key 不进入 URL、本地存储、业务接口参数或日志。
+- 摘要区分当前 Key 额度与企业成员共享预算，展示成员有序分组及完整模型列表；成功记录与失败记录都强制 owner + API Key 双重归属，公开 DTO 排除上游账号、账号成本和内部错误字段。
+- 查询会话采用 15 分钟空闲、1 小时绝对过期，Redis 只保存随机令牌哈希和最小身份快照；读取接口共享单 IP 60 次/分钟限流，详情和导出叠加更严格限制，Redis 故障时 fail closed。
+- 前端以 session epoch 和 `AbortController` 隔离摘要、记录、详情与导出请求；退出时立即清空旧数据，撤销完成前禁止建立下一把 Key 会话，避免迟到响应和 Cookie 时序重新展示上一会话数据。
+- Key 静态状态同步校验 owner、企业能力、成员状态、分组完整性及普通/独占分组授权；模型、端点、订阅/余额、IP 和实时上游资格继续留在具体请求路径判断。
+- 错误 CSV 按 Repository 实际页大小继续分页到 5,000 行；成员分组返回 binding 的真实排序值；新增 `(api_key_id, created_at)` 错误记录索引支持单 Key 时间范围查询。
+
+### 数据与兼容性
+
+- 新增 migration `194_ops_error_logs_api_key_time_index_notx.sql`，只增加并发索引，不改写历史错误记录。
+- Cookie 使用 `SameSite=Strict`，当前部署合同要求前端与 API 属于浏览器意义上的 same-site；跨站部署必须先补 Origin 白名单与 CSRF 设计。
+- 正式发布版本提升为 `1.7.10`，Compose 继续默认 `thornboo/sub2api:latest`。
+
+### 验证
+
+- 后端 handler、service、repository、routes、middleware 与 server wiring 测试通过；新增会话生命周期、字段白名单、跨 Key 边界、导出分页、静态状态和成员 binding 排序回归测试。
+- 前端 Key 查询/API 定向测试、typecheck、ESLint 和生产构建通过；覆盖原始 Key 提前清除、会话恢复/退出、迟到摘要/详情隔离和 DELETE 未完成时禁止下一次查询。
+- `git diff --check` 通过；严格快照导出仍可在后续将 OFFSET 分页升级为 `(created_at, id)` keyset pagination。
+
 ## 2026-07-18 - v1.7.9 上游 main 同步：提示词审计、安全开关与 Grok 媒体资格
 
 ### 目标

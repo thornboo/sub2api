@@ -217,9 +217,40 @@ func RegisterAuthRoutes(
 	key := v1.Group("/key")
 	key.Use(servermiddleware.BackendModeAuthGuard(settingService))
 	{
+		keyUsageReadLimit := rateLimiter.LimitWithOptions("key-usage-read", 60, time.Minute, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose})
 		key.POST("/status", rateLimiter.LimitWithOptions("key-status", 30, time.Minute, middleware.RateLimitOptions{
 			FailureMode: middleware.RateLimitFailClose,
 		}), h.APIKey.PublicStatus)
+		key.POST("/usage-session",
+			rateLimiter.LimitWithOptions("key-usage-session-minute", 5, time.Minute, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose}),
+			rateLimiter.LimitWithOptions("key-usage-session-hour", 30, time.Hour, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose}),
+			h.Gateway.CreatePublicKeyUsageSession,
+		)
+		key.GET("/usage-session",
+			keyUsageReadLimit,
+			h.Gateway.GetPublicKeyUsageSession,
+		)
+		key.DELETE("/usage-session",
+			rateLimiter.LimitWithOptions("key-usage-session-delete", 20, time.Minute, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose}),
+			h.Gateway.DeletePublicKeyUsageSession,
+		)
+		key.GET("/usage/summary",
+			keyUsageReadLimit,
+			h.Gateway.GetPublicKeyUsageSummary,
+		)
+		key.GET("/usage/records",
+			keyUsageReadLimit,
+			h.Gateway.ListPublicKeyUsageRecords,
+		)
+		key.GET("/usage/records/:id",
+			keyUsageReadLimit,
+			rateLimiter.LimitWithOptions("key-usage-record-detail", 30, time.Minute, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose}),
+			h.Gateway.GetPublicKeyUsageRecordDetail,
+		)
+		key.GET("/usage/export",
+			rateLimiter.LimitWithOptions("key-usage-export", 3, 10*time.Minute, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose}),
+			h.Gateway.ExportPublicKeyUsageRecords,
+		)
 	}
 
 	// 公开设置（无需认证）

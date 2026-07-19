@@ -492,6 +492,27 @@ func (s *OpsService) GetUserErrorRequestDetail(ctx context.Context, userID, id i
 	return ToUserErrorRequestDetail(detail), nil
 }
 
+// GetUserAPIKeyErrorRequestDetail applies the stricter authority required by
+// the public Key-holder portal: the row must belong both to the owner and to
+// the single API key captured by the short-lived query session.
+func (s *OpsService) GetUserAPIKeyErrorRequestDetail(ctx context.Context, userID, apiKeyID, id int64) (*UserErrorRequestDetail, error) {
+	if s.opsRepo == nil || id <= 0 || apiKeyID <= 0 {
+		return nil, infraerrors.NotFound("OPS_ERROR_NOT_FOUND", "ops error log not found")
+	}
+	detail, err := s.opsRepo.GetErrorLogByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, infraerrors.NotFound("OPS_ERROR_NOT_FOUND", "ops error log not found")
+		}
+		return nil, infraerrors.InternalServer("OPS_ERROR_LOAD_FAILED", "Failed to load ops error log").WithCause(err)
+	}
+	ownedDirectly := detail.UserID != nil && *detail.UserID == userID
+	if !ownedDirectly || detail.APIKeyID == nil || *detail.APIKeyID != apiKeyID {
+		return nil, infraerrors.NotFound("OPS_ERROR_NOT_FOUND", "ops error log not found")
+	}
+	return ToUserErrorRequestDetail(detail), nil
+}
+
 // LookupDeletedKeyAudit 按明文 key 反查已删除 key 的原所有者;未命中或未启用返回 (nil, nil)。
 func (s *OpsService) LookupDeletedKeyAudit(ctx context.Context, key string) (*DeletedKeyAuditResult, error) {
 	if s.opsRepo == nil {

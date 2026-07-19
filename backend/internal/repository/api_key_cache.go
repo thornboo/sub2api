@@ -13,11 +13,12 @@ import (
 )
 
 const (
-	apiKeyRateLimitKeyPrefix   = "apikey:ratelimit:"
-	apiKeyRateLimitDuration    = 24 * time.Hour
-	apiKeyAuthCachePrefix      = "apikey:auth:"
-	apiKeyStatusLookupPrefix   = "apikey:status-lookup:"
-	authCacheInvalidateChannel = "auth:cache:invalidate"
+	apiKeyRateLimitKeyPrefix    = "apikey:ratelimit:"
+	apiKeyRateLimitDuration     = 24 * time.Hour
+	apiKeyAuthCachePrefix       = "apikey:auth:"
+	apiKeyStatusLookupPrefix    = "apikey:status-lookup:"
+	publicKeyUsageSessionPrefix = "apikey:public-usage-session:"
+	authCacheInvalidateChannel  = "auth:cache:invalidate"
 )
 
 // apiKeyRateLimitKey generates the Redis key for API key creation rate limiting.
@@ -31,6 +32,10 @@ func apiKeyAuthCacheKey(key string) string {
 
 func apiKeyStatusLookupKey(keyHash string) string {
 	return fmt.Sprintf("%s%s", apiKeyStatusLookupPrefix, keyHash)
+}
+
+func publicKeyUsageSessionKey(tokenHash string) string {
+	return fmt.Sprintf("%s%s", publicKeyUsageSessionPrefix, tokenHash)
 }
 
 type apiKeyCache struct {
@@ -101,6 +106,50 @@ func (c *apiKeyCache) DeleteAuthCache(ctx context.Context, key string) error {
 
 func (c *apiKeyCache) ClaimStatusLookupCooldown(ctx context.Context, keyHash string, ttl time.Duration) (bool, error) {
 	return c.rdb.SetNX(ctx, apiKeyStatusLookupKey(keyHash), "1", ttl).Result()
+}
+
+func (c *apiKeyCache) CreatePublicKeyUsageSession(ctx context.Context, tokenHash string, session *service.PublicKeyUsageSession, ttl time.Duration) error {
+	if session == nil || ttl <= 0 {
+		return errors.New("invalid public key usage session")
+	}
+	payload, err := json.Marshal(session)
+	if err != nil {
+		return err
+	}
+	return c.rdb.Set(ctx, publicKeyUsageSessionKey(tokenHash), payload, ttl).Err()
+}
+
+func (c *apiKeyCache) GetPublicKeyUsageSession(ctx context.Context, tokenHash string) (*service.PublicKeyUsageSession, error) {
+	payload, err := c.rdb.Get(ctx, publicKeyUsageSessionKey(tokenHash)).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return nil, service.ErrPublicKeyUsageSessionInvalid
+	}
+	if err != nil {
+		return nil, err
+	}
+	var session service.PublicKeyUsageSession
+	if err := json.Unmarshal(payload, &session); err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+func (c *apiKeyCache) RefreshPublicKeyUsageSession(ctx context.Context, tokenHash string, ttl time.Duration) error {
+	if ttl <= 0 {
+		return errors.New("invalid public key usage session ttl")
+	}
+	ok, err := c.rdb.Expire(ctx, publicKeyUsageSessionKey(tokenHash), ttl).Result()
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return service.ErrPublicKeyUsageSessionInvalid
+	}
+	return nil
+}
+
+func (c *apiKeyCache) DeletePublicKeyUsageSession(ctx context.Context, tokenHash string) error {
+	return c.rdb.Del(ctx, publicKeyUsageSessionKey(tokenHash)).Err()
 }
 
 // PublishAuthCacheInvalidation publishes a cache invalidation message to all instances

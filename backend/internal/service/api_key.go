@@ -260,6 +260,8 @@ type BatchDeleteAPIKeysResult struct {
 
 type APIKeyPublicStatus struct {
 	ID               int64
+	UserID           int64
+	MemberID         *int64
 	Name             string
 	Status           string
 	GroupID          *int64

@@ -3,12 +3,13 @@
 ## Source of truth
 
 - Status: Active
-- Last refreshed: 2026-07-18
+- Last refreshed: 2026-07-19
 - Primary product surfaces:
   - User console: `frontend/src/views/user/**`
   - User API Key management: `frontend/src/views/user/KeysView.vue`, `frontend/src/components/keys/**`
   - Enterprise member control plane: `frontend/src/views/user/EnterpriseMembersView.vue`
   - User usage records: `frontend/src/views/user/UsageView.vue`
+  - Public Key self-service: `frontend/src/views/KeyUsageView.vue`, route `/key-usage`
   - Admin usage and dashboard: `frontend/src/views/admin/UsageView.vue`, `frontend/src/api/admin/dashboard.ts`
   - Admin operations monitoring: `frontend/src/views/admin/ops/**`, `frontend/src/components/admin/ops/**`
   - dev-zz product records: `docs-site/dev-zz/**`
@@ -68,11 +69,11 @@
 - Primary personas:
   - Platform administrator: operates the whole site, upstream accounts, channels, groups, pricing, abuse, and profitability.
   - Enterprise owner: a normal enterprise user who manages non-login member identities, their Keys, access groups, and aggregate limits.
-  - Employee with a Key only: has no site account and can only inspect that Key's limited status.
+  - Employee or user with a Key only: has no site account and can inspect that Key's status, effective access, own usage evidence, and applicable Key/member limits without gaining owner-console authority.
 - User jobs:
   - Platform administrator: troubleshoot global usage, cost, routing, failed requests, and user behavior.
   - Enterprise owner: create members, issue multiple Keys per member, delegate accessible groups, set aggregate limits, correct consumed projections with immutable audit evidence, and inspect usage evidence.
-  - Employee with a Key only: confirm whether the Key is active, expired, rate limited, or out of quota.
+  - Employee or user with a Key only: confirm whether the Key is active, expired, rate limited, or out of quota; understand the effective groups/models; distinguish current-Key usage from shared member budget; inspect and export only that Key's redacted request evidence.
 - Key contexts of use:
   - Dense admin console on desktop.
   - Owner-side console for repeated operational checks.
@@ -81,9 +82,11 @@
 ## Information architecture
 
 - Primary navigation:
+  - Public landing header: language, theme, Key query, login, registration/dashboard.
   - User side: Dashboard, API Keys, Usage Records, Profile.
   - Admin side: Dashboard, Usage, Users, Groups, Accounts, Ops.
 - Core routes/screens:
+  - `/key-usage` is the account-free Key-holder self-service surface. It uses a short-lived server-side query session and never grants access to the owner console.
   - User API Keys remain the owner workspace for employee-seat Key management.
   - User Usage Records remain the owner request-log surface.
   - Enterprise Members is the owner workspace for member identity, shared spending limits, group delegation/order, Keys, usage, and audit.
@@ -140,8 +143,9 @@
 ## Components
 
 - Existing components to reuse:
-  - `BaseDialog`, `ConfirmDialog`, `Select`, `DateRangePicker`, `Pagination`, admin usage charts, usage tables, and existing `components/keys` panels.
+  - `LocaleSwitcher`, `Select`, `Pagination`, `Icon`, existing card/table utilities, and existing `components/keys` panels.
 - New/changed components:
+  - Public Key query orchestration currently stays in `KeyUsageView.vue`; its API transport remains isolated in `frontend/src/api/publicKeyUsage.ts` so the signed-in JWT client cannot overwrite the one-time Key credential.
   - Owner analytics dashboard components should live under `frontend/src/components/keys` or a future `frontend/src/components/enterprise-usage`.
   - Admin-only analytics components should stay under `frontend/src/components/admin`.
 - Variants and states:
@@ -242,6 +246,9 @@
   - Member creation may establish non-zero current-period usage for 5h/1d/7d/month without an extra reason field, while the backend commits the member, group bindings, opening ledger/projections, and system-attributed audit evidence atomically. Calendar-month opening usage is `migration_opening`, not fabricated request usage.
   - Member group delegation must reuse current group authorization semantics: public vs exclusive groups, `users.AllowedGroups`, subscription eligibility, and group fallback behavior.
   - New public import templates omit group IDs. Historical CSV `groups` columns and XLSX `MemberGroups` sheets remain accepted for backward-compatible policy-version-1 jobs and are always server-authorized; policy-version-2 jobs use only the owner-selected system policy, including an intentionally empty selection.
+  - Public Key self-service submits the plaintext Key once, exchanges it for an opaque short-lived server-side session, and clears the plaintext from frontend state immediately. Every subsequent summary, record-detail, filter, and export query is scoped to the session's single API Key ID.
+  - Public Key self-service may expose the current member's safe identity, shared member limits, effective groups/models, user-billed usage, and redacted request evidence. It must not expose sibling Keys, owner identity, upstream accounts/endpoints, channel data, routing diagnostics, administrator cost, or raw internal errors.
+  - Public Key self-service date ranges are bounded to 90 days, exports are bounded to 5,000 records, session creation and export have stricter rate limits than established-session reads, and session state is stored server-side with idle and absolute expiry.
   - Imported monetary opening usage affects the current calendar-month budget through an immutable `migration_opening` ledger entry. Imported aggregate token values are immutable migration baselines and never fabricated into `usage_logs`.
   - Import summaries expose migration baselines separately from native request facts; owner screens may present them side by side but must not silently merge them into request-log totals.
   - Import files may use customer-facing aliases such as `用户名称`, `api key`, `消费金额`, `月限制金额`, and aggregate token headers; normalized server fields remain the stored authority.
@@ -259,6 +266,6 @@
 ## Open questions
 
 - [ ] Whether owner analytics should be a tab inside API Keys or a dedicated user route / owner / impact: product owner / route and navigation scope.
-- [ ] Whether the public Key-status surface should expose member aggregate remaining limits in addition to the Key's own limits / owner / impact: privacy and support expectations.
+- [x] Public Key self-service exposes the current member's shared aggregate limits alongside the queried Key's own limits, with explicit labels and no sibling-Key identities / owner: product owner / decided 2026-07-19.
 - [ ] Whether owner-visible model analytics should include mapped model names or only requested model names / owner / impact: privacy and debugging usefulness.
 - [ ] Whether owner analytics needs CSV export in the first implementation phase / owner / impact: scope and data volume.
