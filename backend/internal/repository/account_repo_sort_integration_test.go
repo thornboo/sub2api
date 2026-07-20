@@ -39,10 +39,12 @@ func (s *AccountRepoSuite) TestListWithFilters_SortByPriorityDesc() {
 
 func (s *AccountRepoSuite) TestListWithFilters_SortByUpstreamEffectiveDiscount() {
 	lowDiscount := mustCreateAccount(s.T(), s.client, &service.Account{Name: "discount-low"})
+	cnyDiscount := mustCreateAccount(s.T(), s.client, &service.Account{Name: "discount-cny"})
 	highDiscount := mustCreateAccount(s.T(), s.client, &service.Account{Name: "discount-high"})
 	unconfigured := mustCreateAccount(s.T(), s.client, &service.Account{Name: "discount-none"})
 
 	s.mustBindAccountCostForSort(lowDiscount.ID, 5.6, 7, 0.5)
+	s.mustBindAccountCostForSort(cnyDiscount.ID, 1, 7, 0.8, service.UpstreamPriceReferenceCurrencyCNY)
 	s.mustBindAccountCostForSort(highDiscount.ID, 3.5, 7, 2)
 
 	asc, _, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{
@@ -52,10 +54,13 @@ func (s *AccountRepoSuite) TestListWithFilters_SortByUpstreamEffectiveDiscount()
 		SortOrder: "asc",
 	}, "", "", "", "", 0, "")
 	s.Require().NoError(err)
-	s.Require().Len(asc, 3)
+	s.Require().Len(asc, 4)
 	s.Require().Equal(lowDiscount.ID, asc[0].ID)
-	s.Require().Equal(highDiscount.ID, asc[1].ID)
-	s.Require().Equal(unconfigured.ID, asc[2].ID)
+	s.Require().Equal(cnyDiscount.ID, asc[1].ID)
+	s.Require().Equal(highDiscount.ID, asc[2].ID)
+	s.Require().Equal(unconfigured.ID, asc[3].ID)
+	s.Require().NotNil(asc[1].UpstreamEffectiveDiscount)
+	s.Require().InDelta(0.8, *asc[1].UpstreamEffectiveDiscount, 0.000001)
 
 	desc, _, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{
 		Page:      1,
@@ -64,10 +69,11 @@ func (s *AccountRepoSuite) TestListWithFilters_SortByUpstreamEffectiveDiscount()
 		SortOrder: "desc",
 	}, "", "", "", "", 0, "")
 	s.Require().NoError(err)
-	s.Require().Len(desc, 3)
+	s.Require().Len(desc, 4)
 	s.Require().Equal(highDiscount.ID, desc[0].ID)
-	s.Require().Equal(lowDiscount.ID, desc[1].ID)
-	s.Require().Equal(unconfigured.ID, desc[2].ID)
+	s.Require().Equal(cnyDiscount.ID, desc[1].ID)
+	s.Require().Equal(lowDiscount.ID, desc[2].ID)
+	s.Require().Equal(unconfigured.ID, desc[3].ID)
 }
 
 func (s *AccountRepoSuite) TestListWithFilters_SortByUpstreamMultiplier() {
@@ -128,8 +134,12 @@ func (s *AccountRepoSuite) TestListWithFilters_UpstreamDiscountRequiresRealNonSy
 	s.Require().InDelta(1, *byID[archivedSupplierAccount.ID].UpstreamEffectiveDiscount, 0.000001)
 }
 
-func (s *AccountRepoSuite) mustBindAccountCostForSort(accountID int64, effectiveCNYPerUSD, referenceFXRate, defaultMultiplier float64) {
+func (s *AccountRepoSuite) mustBindAccountCostForSort(accountID int64, effectiveCNYPerUSD, referenceFXRate, defaultMultiplier float64, priceReferenceCurrencies ...string) {
 	s.T().Helper()
+	priceReferenceCurrency := service.UpstreamPriceReferenceCurrencyUSD
+	if len(priceReferenceCurrencies) > 0 {
+		priceReferenceCurrency = priceReferenceCurrencies[0]
+	}
 
 	supplierID := s.mustInsertIDForAccountSort(
 		`INSERT INTO upstream_suppliers (name) VALUES ($1) RETURNING id`,
@@ -161,11 +171,12 @@ func (s *AccountRepoSuite) mustBindAccountCostForSort(accountID int64, effective
 	s.Require().NoError(err)
 	_, err = s.repo.sql.ExecContext(
 		s.ctx,
-		`INSERT INTO upstream_account_cost_bindings (account_id, cost_pool_id, status, default_multiplier)
-		 VALUES ($1, $2, 'active', $3)`,
+		`INSERT INTO upstream_account_cost_bindings (account_id, cost_pool_id, status, default_multiplier, price_reference_currency, price_reference_confirmed)
+		 VALUES ($1, $2, 'active', $3, $4, TRUE)`,
 		accountID,
 		poolID,
 		defaultMultiplier,
+		priceReferenceCurrency,
 	)
 	s.Require().NoError(err)
 }
@@ -201,8 +212,8 @@ func (s *AccountRepoSuite) mustBindAccountCostForEligibility(accountID int64, is
 	}
 	_, err := s.repo.sql.ExecContext(
 		s.ctx,
-		`INSERT INTO upstream_account_cost_bindings (account_id, cost_pool_id, status, default_multiplier)
-		 VALUES ($1, $2, 'active', 1)`,
+		`INSERT INTO upstream_account_cost_bindings (account_id, cost_pool_id, status, default_multiplier, price_reference_confirmed)
+		 VALUES ($1, $2, 'active', 1, TRUE)`,
 		accountID,
 		poolID,
 	)

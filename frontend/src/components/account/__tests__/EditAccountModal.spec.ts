@@ -528,6 +528,8 @@ describe('EditAccountModal', () => {
       status: 'active',
       default_multiplier: 1,
       upstream_group_name: 'claude-sale',
+      price_reference_currency: 'USD',
+      price_reference_confirmed: true,
       upstream_group_multiplier: 1,
       model_family_multipliers: [],
       valid_from: '2026-07-09T00:00:00Z',
@@ -540,6 +542,7 @@ describe('EditAccountModal', () => {
 
     await wrapper.get('[data-testid="upstream-group-name"]').setValue('claude-premium')
     await wrapper.get('[data-testid="upstream-group-multiplier"]').setValue('1.4')
+    await wrapper.get('[data-testid="upstream-price-reference-currency"]').setValue('CNY')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
 
@@ -549,7 +552,64 @@ describe('EditAccountModal', () => {
       supplier_id: 10,
       cost_pool_id: 20,
       upstream_group_name: 'claude-premium',
+      price_reference_currency: 'CNY',
       upstream_group_multiplier: 1.4
+    })
+  })
+
+  it('requires an explicit price basis before confirming a legacy supplier binding', async () => {
+    const account = buildAccount()
+    updateAccountMock.mockReset()
+    updateAccountUpstreamSupplierBindingMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+    listUpstreamSuppliersMock.mockResolvedValue([
+      { id: 10, name: 'Supplier A', status: 'active', is_system: false }
+    ])
+    getAccountUpstreamCostBindingMock.mockResolvedValue({
+      id: 31,
+      account_id: account.id,
+      account_name: account.name,
+      account_platform: account.platform,
+      cost_pool_id: 20,
+      cost_pool_name: 'Supplier A 主余额池',
+      supplier_id: 10,
+      supplier_name: 'Supplier A',
+      status: 'active',
+      default_multiplier: 0.8,
+      upstream_group_name: 'kimi',
+      price_reference_currency: 'USD',
+      price_reference_confirmed: false,
+      upstream_group_multiplier: 0.8,
+      model_family_multipliers: [],
+      valid_from: '2026-07-09T00:00:00Z',
+      created_at: '2026-07-09T00:00:00Z',
+      updated_at: '2026-07-09T00:00:00Z'
+    })
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+
+    expect((wrapper.get('[data-testid="upstream-price-reference-currency"]').element as HTMLSelectElement).value).toBe('')
+    expect(wrapper.text()).toContain('admin.accounts.upstreamCost.priceReferenceFormulaPending')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    expect(updateAccountUpstreamSupplierBindingMock).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-testid="upstream-price-reference-currency"]').setValue('CNY')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountUpstreamSupplierBindingMock).toHaveBeenCalledWith(account.id, {
+      supplier_id: 10,
+      cost_pool_id: 20,
+      upstream_group_name: 'kimi',
+      price_reference_currency: 'CNY',
+      upstream_group_multiplier: 0.8
     })
   })
 

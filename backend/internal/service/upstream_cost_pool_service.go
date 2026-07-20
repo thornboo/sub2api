@@ -18,6 +18,8 @@ const (
 	upstreamCostPoolAccountAdvisoryLockBase  = int64(1660000000000)
 	upstreamCostPoolSnapshotAdvisoryLockBase = int64(1661000000000)
 	upstreamCostPoolSupplierAdvisoryLockBase = int64(1662000000000)
+	UpstreamPriceReferenceCurrencyCNY        = "CNY"
+	UpstreamPriceReferenceCurrencyUSD        = "USD"
 )
 
 var (
@@ -140,6 +142,8 @@ type UpstreamAccountCostBinding struct {
 	Status                  string                              `json:"status"`
 	DefaultMultiplier       float64                             `json:"default_multiplier"`
 	UpstreamGroupName       *string                             `json:"upstream_group_name,omitempty"`
+	PriceReferenceCurrency  string                              `json:"price_reference_currency"`
+	PriceReferenceConfirmed bool                                `json:"price_reference_confirmed"`
 	UpstreamGroupMultiplier float64                             `json:"upstream_group_multiplier"`
 	ModelFamilyMultipliers  []UpstreamCostModelFamilyMultiplier `json:"model_family_multipliers"`
 	Note                    *string                             `json:"note,omitempty"`
@@ -153,6 +157,7 @@ type UpstreamCostBindingInput struct {
 	AccountID              int64
 	CostPoolID             int64
 	UpstreamGroupName      *string
+	PriceReferenceCurrency *string
 	DefaultMultiplier      float64
 	ModelFamilyMultipliers []UpstreamCostModelFamilyMultiplier
 	Note                   *string
@@ -166,6 +171,7 @@ type UpstreamSupplierBindingInput struct {
 	CostPoolID             int64
 	Clear                  bool
 	UpstreamGroupName      *string
+	PriceReferenceCurrency *string
 	DefaultMultiplier      float64
 	ModelFamilyMultipliers []UpstreamCostModelFamilyMultiplier
 	Note                   *string
@@ -711,6 +717,16 @@ func (s *adminServiceImpl) UpdateAccountUpstreamCostBinding(ctx context.Context,
 	if _, err := requireBindableUpstreamCostPool(ctx, txClient, normalized.CostPoolID); err != nil {
 		return nil, err
 	}
+	priceReferenceCurrency, priceReferenceConfirmed, err := resolveUpstreamBindingPriceReference(
+		ctx,
+		txClient,
+		normalized.AccountID,
+		normalized.CostPoolID,
+		normalized.PriceReferenceCurrency,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	rows, err := txClient.QueryContext(ctx, `
 WITH archived AS (
@@ -727,18 +743,22 @@ inserted AS (
         account_id,
         cost_pool_id,
         upstream_group_name,
+        price_reference_currency,
+        price_reference_confirmed,
         default_multiplier,
         model_family_multipliers,
         note,
         created_by
     )
-	    SELECT $1, $2, $3, $4, $5::jsonb, $6, $7
+	    SELECT $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9
 	    WHERE (SELECT COUNT(*) FROM archived) >= 0
 	    RETURNING id,
 	              account_id,
 	              cost_pool_id,
 	              status,
 	              upstream_group_name,
+	              price_reference_currency,
+	              price_reference_confirmed,
 	              default_multiplier,
 	              model_family_multipliers,
 	              note,
@@ -751,6 +771,8 @@ inserted AS (
 		normalized.AccountID,
 		normalized.CostPoolID,
 		nullableString(normalized.UpstreamGroupName),
+		priceReferenceCurrency,
+		priceReferenceConfirmed,
 		normalized.DefaultMultiplier,
 		string(modelFamiliesJSON),
 		nullableString(normalized.Note),
@@ -858,6 +880,16 @@ WHERE account_id = $1
 			return nil, err
 		}
 	}
+	priceReferenceCurrency, priceReferenceConfirmed, err := resolveUpstreamBindingPriceReference(
+		ctx,
+		txClient,
+		normalized.AccountID,
+		costPoolID,
+		normalized.PriceReferenceCurrency,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	rows, err := txClient.QueryContext(ctx, `
 WITH archived AS (
@@ -874,18 +906,22 @@ inserted AS (
         account_id,
         cost_pool_id,
         upstream_group_name,
+        price_reference_currency,
+        price_reference_confirmed,
         default_multiplier,
         model_family_multipliers,
         note,
         created_by
     )
-	    SELECT $1, $2, $3, $4, $5::jsonb, $6, $7
+	    SELECT $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9
 	    WHERE (SELECT COUNT(*) FROM archived) >= 0
 	    RETURNING id,
 	              account_id,
 	              cost_pool_id,
 	              status,
 	              upstream_group_name,
+	              price_reference_currency,
+	              price_reference_confirmed,
 	              default_multiplier,
 	              model_family_multipliers,
 	              note,
@@ -898,6 +934,8 @@ inserted AS (
 		normalized.AccountID,
 		costPoolID,
 		nullableString(normalized.UpstreamGroupName),
+		priceReferenceCurrency,
+		priceReferenceConfirmed,
 		normalized.DefaultMultiplier,
 		string(modelFamiliesJSON),
 		nullableString(normalized.Note),
@@ -1490,6 +1528,13 @@ func normalizeUpstreamCostBindingInput(input UpstreamCostBindingInput) (Upstream
 	if input.UpstreamGroupName != nil && len([]rune(*input.UpstreamGroupName)) > 120 {
 		return UpstreamCostBindingInput{}, infraerrors.BadRequest("INVALID_UPSTREAM_GROUP_NAME", "upstream group name is too long")
 	}
+	if input.PriceReferenceCurrency != nil {
+		currency := strings.ToUpper(strings.TrimSpace(*input.PriceReferenceCurrency))
+		if currency != UpstreamPriceReferenceCurrencyCNY && currency != UpstreamPriceReferenceCurrencyUSD {
+			return UpstreamCostBindingInput{}, infraerrors.BadRequest("INVALID_UPSTREAM_PRICE_REFERENCE_CURRENCY", "upstream price reference currency must be CNY or USD")
+		}
+		input.PriceReferenceCurrency = &currency
+	}
 	input.DefaultMultiplier = normalizeMoney(input.DefaultMultiplier)
 	if input.DefaultMultiplier <= 0 {
 		input.DefaultMultiplier = 1
@@ -1531,6 +1576,7 @@ func normalizeUpstreamSupplierBindingInput(input UpstreamSupplierBindingInput) (
 		input.SupplierName = ""
 		input.CostPoolID = 0
 		input.UpstreamGroupName = nil
+		input.PriceReferenceCurrency = nil
 		input.ModelFamilyMultipliers = nil
 		input.Note = nil
 		return input, nil
@@ -1545,6 +1591,7 @@ func normalizeUpstreamSupplierBindingInput(input UpstreamSupplierBindingInput) (
 		AccountID:              input.AccountID,
 		CostPoolID:             1,
 		UpstreamGroupName:      input.UpstreamGroupName,
+		PriceReferenceCurrency: input.PriceReferenceCurrency,
 		DefaultMultiplier:      input.DefaultMultiplier,
 		ModelFamilyMultipliers: input.ModelFamilyMultipliers,
 		Note:                   input.Note,
@@ -1554,6 +1601,7 @@ func normalizeUpstreamSupplierBindingInput(input UpstreamSupplierBindingInput) (
 		return UpstreamSupplierBindingInput{}, err
 	}
 	input.UpstreamGroupName = costBinding.UpstreamGroupName
+	input.PriceReferenceCurrency = costBinding.PriceReferenceCurrency
 	input.DefaultMultiplier = costBinding.DefaultMultiplier
 	input.ModelFamilyMultipliers = costBinding.ModelFamilyMultipliers
 	input.Note = costBinding.Note
@@ -1573,6 +1621,50 @@ func acquireUpstreamCostPoolAdvisoryLock(ctx context.Context, exec upstreamCostP
 		return sql.ErrNoRows
 	}
 	return rows.Err()
+}
+
+// resolveUpstreamBindingPriceReference keeps older PUT clients non-destructive:
+// an omitted field preserves the active binding when the target pool is unchanged.
+// A new target remains on the legacy USD formula but is explicitly unconfirmed,
+// so it cannot silently participate in cost-first scheduling.
+func resolveUpstreamBindingPriceReference(
+	ctx context.Context,
+	exec upstreamCostPoolSQLExecutor,
+	accountID int64,
+	costPoolID int64,
+	requested *string,
+) (string, bool, error) {
+	if requested != nil {
+		return *requested, true, nil
+	}
+
+	rows, err := exec.QueryContext(ctx, `
+SELECT price_reference_currency,
+       price_reference_confirmed
+FROM upstream_account_cost_bindings
+WHERE account_id = $1
+  AND cost_pool_id = $2
+  AND status = 'active'
+  AND valid_to IS NULL
+ORDER BY id DESC
+LIMIT 1`, accountID, costPoolID)
+	if err != nil {
+		return "", false, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	if rows.Next() {
+		var currency string
+		var confirmed bool
+		if err := rows.Scan(&currency, &confirmed); err != nil {
+			return "", false, err
+		}
+		return currency, confirmed, rows.Err()
+	}
+	if err := rows.Err(); err != nil {
+		return "", false, err
+	}
+	return UpstreamPriceReferenceCurrencyUSD, false, nil
 }
 
 func upstreamCostPoolStringPtr(value string) *string {
@@ -1636,6 +1728,8 @@ SELECT binding.id,
        supplier.name AS supplier_name,
        binding.status,
        binding.upstream_group_name,
+       binding.price_reference_currency,
+       binding.price_reference_confirmed,
        binding.default_multiplier::double precision,
        binding.model_family_multipliers::text,
        binding.note,
@@ -1777,6 +1871,8 @@ func scanUpstreamAccountCostBinding(scanner upstreamRechargeScanner) (*UpstreamA
 		&item.SupplierName,
 		&item.Status,
 		&upstreamGroup,
+		&item.PriceReferenceCurrency,
+		&item.PriceReferenceConfirmed,
 		&item.DefaultMultiplier,
 		&modelFamilies,
 		&note,

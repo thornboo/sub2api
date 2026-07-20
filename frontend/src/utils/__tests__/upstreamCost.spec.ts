@@ -18,6 +18,7 @@ import {
   UPSTREAM_GROUP_MULTIPLIER_KEY,
   UPSTREAM_RECHARGE_CNY_PER_USD_KEY,
   UPSTREAM_REFERENCE_FX_RATE_KEY,
+  calculateUpstreamBindingEffectiveFactor,
   calculateUpstreamCost,
   isUpstreamBalanceQueryEnabled,
   mergeUpstreamCostProfileExtra,
@@ -30,6 +31,12 @@ import {
 } from '@/utils/upstreamCost'
 
 describe('upstreamCost utils', () => {
+  it('uses the selected upstream group price basis for effective discount', () => {
+    expect(calculateUpstreamBindingEffectiveFactor(1, 7, 0.8, 'CNY')).toBeCloseTo(0.8, 6)
+    expect(calculateUpstreamBindingEffectiveFactor(1, 7, 0.8, 'USD')).toBeCloseTo(0.114286, 6)
+    expect(calculateUpstreamBindingEffectiveFactor(1, 7, 0.8, undefined)).toBeCloseTo(0.114286, 6)
+  })
+
   it('calculates effective discount from recharge ratio and group multiplier', () => {
     const result = calculateUpstreamCost({
       recharge_cny_per_usd: 1,

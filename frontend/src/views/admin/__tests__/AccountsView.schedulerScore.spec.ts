@@ -76,8 +76,13 @@ const DataTableStub = {
   props: ['columns', 'data'],
   template: `
     <div data-test="data-table">
-      <div v-for="row in data" :key="row.id" :data-test="'scheduler-score-' + row.id">
-        <slot name="cell-scheduler_score" :row="row" />
+      <div v-for="row in data" :key="row.id">
+        <div :data-test="'scheduler-score-' + row.id">
+          <slot name="cell-scheduler_score" :row="row" />
+        </div>
+        <div :data-test="'upstream-discount-' + row.id">
+          <slot name="cell-upstream_effective_discount" :row="row" />
+        </div>
       </div>
     </div>
   `
@@ -281,6 +286,94 @@ describe('admin AccountsView scheduler score column', () => {
     const emptyCell = wrapper.find('[data-test="scheduler-score-3"]')
     expect(emptyCell.exists()).toBe(true)
     expect(emptyCell.text()).toBe('-')
+    expect(wrapper.get('[data-test="upstream-discount-3"]').text()).toBe('-')
+  })
+
+  it('renders confirmed CNY discount, marks legacy bindings pending, and requires a real snapshot', async () => {
+    listAccounts.mockResolvedValue({
+      items: [
+        { ...baseAccount, id: 11, name: 'kimi-confirmed' },
+        { ...baseAccount, id: 12, name: 'legacy-unconfirmed' },
+        { ...baseAccount, id: 13, name: 'no-snapshot' }
+      ],
+      total: 3,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+    listUpstreamCostPools.mockResolvedValue([
+      {
+        id: 21,
+        supplier_id: 31,
+        supplier_name: 'Supplier A',
+        name: '主余额池',
+        is_default: true,
+        status: 'active',
+        reference_fx_rate: 7,
+        current_effective_cny_per_usd: 1,
+        current_snapshot_id: 41
+      },
+      {
+        id: 22,
+        supplier_id: 31,
+        supplier_name: 'Supplier A',
+        name: '备用池',
+        is_default: false,
+        status: 'active',
+        reference_fx_rate: 7,
+        current_effective_cny_per_usd: 1,
+        current_snapshot_id: null
+      }
+    ])
+    listUpstreamCostPoolAccounts.mockImplementation(async (poolID: number) => (
+      poolID === 21
+        ? [
+            {
+              account_id: 11,
+              cost_pool_id: 21,
+              status: 'active',
+              default_multiplier: 0.8,
+              price_reference_currency: 'CNY',
+              price_reference_confirmed: true,
+              model_family_multipliers: []
+            },
+            {
+              account_id: 12,
+              cost_pool_id: 21,
+              status: 'active',
+              default_multiplier: 0.8,
+              price_reference_currency: 'USD',
+              price_reference_confirmed: false,
+              model_family_multipliers: []
+            }
+          ]
+        : [
+            {
+              account_id: 13,
+              cost_pool_id: 22,
+              status: 'active',
+              default_multiplier: 0.8,
+              price_reference_currency: 'CNY',
+              price_reference_confirmed: true,
+              model_family_multipliers: []
+            }
+          ]
+    ))
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const confirmedCell = wrapper.get('[data-test="upstream-discount-11"]')
+    expect(confirmedCell.text()).toContain('8.0admin.accounts.upstreamCost.discountSuffix')
+    expect(confirmedCell.text()).toContain('admin.accounts.upstreamCost.priceReferenceShortCNY')
+
+    const legacyCell = wrapper.get('[data-test="upstream-discount-12"]')
+    expect(legacyCell.text()).toContain('admin.accounts.upstreamCost.priceReferencePending')
+    expect(legacyCell.text()).toContain('admin.accounts.upstreamCost.priceReferencePendingLegacy')
+    expect(legacyCell.text()).not.toContain('1.1')
+
+    const noSnapshotCell = wrapper.get('[data-test="upstream-discount-13"]')
+    expect(noSnapshotCell.text()).toContain('-')
   })
 
   it('forces a fresh pool request after recharge updates and ignores the older in-flight response', async () => {

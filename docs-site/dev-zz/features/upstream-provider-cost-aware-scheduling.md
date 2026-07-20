@@ -213,11 +213,13 @@ flowchart TD
 | --- | --- | --- |
 | 资金池基础成本 | 资金池当前成本快照 `effective_cny_per_usd` | 该资金池当前每 1 USD 额度的真实人民币成本 |
 | 账号消费倍率 | 账号成本绑定 `upstream_group_multiplier`（兼容存储列 `default_multiplier`）/ `model_family_multipliers` | 该账号对应的上游 key 在此资金池上按什么倍率折算成本 |
+| 分组计价基准 | 账号成本绑定 `price_reference_currency` | 上游分组倍率相对人民币价目表还是美元价目表计算；取值为 `CNY` / `USD` |
+| 计价基准确认 | 账号成本绑定 `price_reference_confirmed` | 只有管理员明确确认后的绑定才可进入成本排序和 `cost_first` |
 
 两点边界：
 
 - 不要复用现有账号的 `rate_multiplier` 表达上游成本。那个字段已经有对用户扣费和统计的含义，混入上游成本会让历史成本解释不清。
-- 上游分组倍率属于账号成本绑定，因为站内账号对应供应商侧的一把 key；数据库兼容存储列仍是 `default_multiplier`，API / UI 使用 `upstream_group_multiplier` 表达业务语义。
+- 上游分组倍率和计价基准都属于账号成本绑定，因为同一供应商 / 资金池可以同时包含人民币定价分组和美元定价分组；不能按供应商所在地或模型名称自动猜测。
 
 如果同一个资金池下不同模型族倍率不同，用账号绑定的模型族覆盖值表达：
 
@@ -233,12 +235,26 @@ opus 覆盖：0.80
 综合折扣按真实人民币成本算。基础成本来自资金池当前快照，倍率来自账号成本绑定：
 
 ```text
-基础成本系数 = pool_effective_cny_per_usd / reference_fx_rate
+计价基准系数 = 1（price_reference_currency = CNY）
+             或 reference_fx_rate（price_reference_currency = USD）
+基础成本系数 = pool_effective_cny_per_usd / 计价基准系数
 综合折扣 = 基础成本系数 × account_multiplier
 折扣展示 = 综合折扣 × 10 折
 ```
 
-示例：
+计算进入账号列表排序和调度快照还需同时满足：资金池存在真实 `current_snapshot_id`，且绑定 `price_reference_confirmed=true`。迁移前的历史绑定暂按旧美元公式保存，但标记为未确认、在页面显示“待确认”，并在确认前排除出 `cost_first`。
+
+人民币官方价分组示例：
+
+```text
+资金池基础成本 = 1 CNY/USD（1 RMB 获得 1 USD 额度）
+分组计价基准 = CNY
+账号倍率 = 0.80
+综合折扣 = 1 / 1 × 0.80 = 0.80
+展示等于 8 折
+```
+
+美元官方价分组示例：
 
 ```text
 资金池基础成本 = 1 CNY/USD（1 RMB 获得 1 USD 额度）
@@ -262,12 +278,12 @@ opus 覆盖：0.80
 
 账号管理页可以这样展示：
 
-| 供应商 | 模型族 | 资金池充值 | 账号倍率 | 综合折扣 | 建议优先级 |
-| --- | --- | --- | --- | --- | --- |
-| A | haiku | 1 RMB = 1 USD | 0.35 | 0.5 折 | 1 |
-| B | haiku | 1 RMB = 1 USD | 0.50 | 0.7 折 | 2 |
-| A | sonnet | 1 RMB = 1 USD | 0.50 | 0.7 折 | 1 |
-| C | sonnet | 2 RMB = 1 USD | 0.30 | 0.9 折 | 2 |
+| 供应商 | 模型族 | 计价基准 | 资金池充值 | 账号倍率 | 综合折扣 | 建议优先级 |
+| --- | --- | --- | --- | --- | --- | --- |
+| A | kimi | CNY | 1 RMB = 1 USD | 0.80 | 8.0 折 | 1 |
+| A | haiku | USD | 1 RMB = 1 USD | 0.35 | 0.5 折 | 1 |
+| B | haiku | USD | 1 RMB = 1 USD | 0.50 | 0.7 折 | 2 |
+| C | sonnet | USD | 2 RMB = 1 USD | 0.30 | 0.9 折 | 2 |
 
 第一版只展示和给排序建议，不自动改写账号 priority。自动策略要等调度解释、模型级健康都稳定后再开。
 
@@ -507,8 +523,10 @@ ScheduleStrategy string `json:"schedule_strategy"` // "strict_priority" | "cost_
 调度是热路径，不能每请求查库：
 
 - 在账号快照 / 调度缓存（`backend/internal/repository/scheduler_cache.go`）为每账号预解析并携带 `effectiveDiscount *float64`（`nil` = 未绑定成本池 / 无有效资金池快照）。
-- 复用 `upstream_cost_pool_service.go:findActiveUpstreamCostPoolIDForAccount` + 资金池 `effective_cny_per_usd` 与账号成本绑定倍率，按本文「计算公式」求综合折扣，在快照构建 / 刷新时算一次。
+- 从 active 账号成本绑定读取资金池真实快照、`default_multiplier`、`price_reference_currency` 和 `price_reference_confirmed`，按本文公式计算综合折扣，在快照构建 / 刷新时算一次。
 - 只有存在 `current_snapshot_id` 的真实成本才进入综合折扣；供应商默认充值配置不会被当成调度成本。
+- `price_reference_confirmed=false` 的历史绑定不生成调度成本。字段省略的旧客户端更新同一资金池时保留已有基准和确认状态；切换到新资金池仍省略时创建未确认绑定。
+- 首版 `cost_first` 使用账号绑定的标量 `default_multiplier`。`model_family_multipliers` 仍保留为后续请求模型族感知成本的领域字段，但当前比较器不会按每次请求动态选择模型族倍率；在该能力落地前，不应把模型族覆盖描述成已经参与自动成本调度。
 - 充值新增、修改或删除提交后，主动刷新该资金池所有 active 绑定账号的调度快照；数据库仍是最终事实来源。
 
 **排序语义（`cost_first`，折扣为主、priority 兜底）**

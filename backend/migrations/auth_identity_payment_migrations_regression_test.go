@@ -254,6 +254,17 @@ func TestMigration166CreatesUpstreamCostPoolsAndBackfillsLegacyRechargeRecords(t
 	require.NotContains(t, sql, "ALTER TABLE upstream_recharge_records DROP COLUMN")
 }
 
+func TestMigration196AddsUpstreamBindingPriceReferenceCurrency(t *testing.T) {
+	content, err := FS.ReadFile("196_upstream_binding_price_reference_currency.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS price_reference_currency VARCHAR(3) NOT NULL DEFAULT 'USD'")
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS price_reference_confirmed BOOLEAN NOT NULL DEFAULT FALSE")
+	require.Contains(t, sql, "upstream_account_cost_bindings_price_reference_currency_check")
+	require.Contains(t, sql, "price_reference_currency IN ('CNY', 'USD')")
+}
+
 func TestMigration172MarksSystemUpstreamSupplier(t *testing.T) {
 	content, err := FS.ReadFile("172_upstream_suppliers_system_flag.sql")
 	require.NoError(t, err)

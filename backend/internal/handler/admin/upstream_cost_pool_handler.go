@@ -46,6 +46,7 @@ type upstreamCostPoolRechargeRecordRequest struct {
 type upstreamCostBindingRequest struct {
 	CostPoolID              int64                       `json:"cost_pool_id"`
 	UpstreamGroupName       *string                     `json:"upstream_group_name"`
+	PriceReferenceCurrency  *string                     `json:"price_reference_currency"`
 	UpstreamGroupMultiplier *float64                    `json:"upstream_group_multiplier"`
 	DefaultMultiplier       *float64                    `json:"default_multiplier"`
 	ModelFamilies           []upstreamCostFamilyRequest `json:"model_families"`
@@ -57,6 +58,7 @@ type upstreamSupplierBindingRequest struct {
 	SupplierName            *string                     `json:"supplier_name"`
 	CostPoolID              *int64                      `json:"cost_pool_id"`
 	UpstreamGroupName       *string                     `json:"upstream_group_name"`
+	PriceReferenceCurrency  *string                     `json:"price_reference_currency"`
 	UpstreamGroupMultiplier *float64                    `json:"upstream_group_multiplier"`
 	DefaultMultiplier       *float64                    `json:"default_multiplier"`
 	ModelFamilies           []upstreamCostFamilyRequest `json:"model_families"`
@@ -365,6 +367,7 @@ func (h *AccountHandler) UpdateAccountUpstreamCostBinding(c *gin.Context) {
 		AccountID:              accountID,
 		CostPoolID:             req.CostPoolID,
 		UpstreamGroupName:      req.UpstreamGroupName,
+		PriceReferenceCurrency: req.PriceReferenceCurrency,
 		DefaultMultiplier:      1,
 		ModelFamilyMultipliers: make([]service.UpstreamCostModelFamilyMultiplier, 0, len(req.ModelFamilies)),
 		Note:                   req.Note,
@@ -424,6 +427,7 @@ func (h *AccountHandler) UpdateAccountUpstreamSupplierBinding(c *gin.Context) {
 	_ = json.Unmarshal(body, &raw)
 	input := service.UpstreamSupplierBindingInput{
 		AccountID:              accountID,
+		PriceReferenceCurrency: req.PriceReferenceCurrency,
 		DefaultMultiplier:      1,
 		ModelFamilyMultipliers: make([]service.UpstreamCostModelFamilyMultiplier, 0, len(req.ModelFamilies)),
 		Note:                   req.Note,

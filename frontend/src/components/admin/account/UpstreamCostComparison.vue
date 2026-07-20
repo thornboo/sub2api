@@ -12,7 +12,7 @@
             <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.boundAccounts') }}</th>
             <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.currentCost') }}</th>
             <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.rechargeRatio') }}</th>
-            <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.rechargeDiscount') }}</th>
+            <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.poolDiscountUSD') }}</th>
             <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.rechargeRecords.records') }}</th>
             <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.status') }}</th>
             <th class="px-4 py-3 text-right text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.columns.actions') }}</th>
@@ -41,7 +41,7 @@
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-2">
                       <span class="font-semibold text-stone-950 dark:text-white">{{ row.supplierName }}</span>
-                      <span v-if="row.pool" class="rounded-md bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-500 dark:bg-white/[0.07] dark:text-stone-400">
+                      <span v-if="row.pool && row.showPoolName" class="rounded-md bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-500 dark:bg-white/[0.07] dark:text-stone-400">
                         {{ row.pool.name }}
                       </span>
                     </div>
@@ -165,6 +165,7 @@ interface SupplierCostRow {
   isSystem: boolean
   pools: UpstreamCostPool[]
   pool: UpstreamCostPool | null
+  showPoolName: boolean
   bindingCount: number
   recordCount: number
 }
@@ -189,6 +190,7 @@ const archiveTarget = ref<SupplierCostRow | null>(null)
 const deleteTarget = ref<SupplierCostRow | null>(null)
 
 const isReserved = (row: SupplierCostRow) => row.isSystem
+const isActivePool = (pool: UpstreamCostPool) => pool.status === 'active' && !pool.archived_at
 
 const toggleArchive = async (row: SupplierCostRow) => {
   const nextStatus = row.supplierStatus === 'archived' ? 'active' : 'archived'
@@ -300,6 +302,7 @@ const rows = computed<SupplierCostRow[]>(() => {
       isSystem: supplier.is_system === true,
       pools: [],
       pool: null,
+      showPoolName: false,
       bindingCount: 0,
       recordCount: 0
     })
@@ -317,6 +320,7 @@ const rows = computed<SupplierCostRow[]>(() => {
         isSystem: false,
         pools: [],
         pool: null,
+        showPoolName: false,
         bindingCount: 0,
         recordCount: 0
       })
@@ -327,10 +331,10 @@ const rows = computed<SupplierCostRow[]>(() => {
   return [...bySupplier.values()]
     .map((row) => {
       const pools = [...row.pools].sort((a, b) => {
+        const activeDelta = Number(isActivePool(b)) - Number(isActivePool(a))
+        if (activeDelta !== 0) return activeDelta
         const defaultDelta = Number(Boolean(b.is_default)) - Number(Boolean(a.is_default))
         if (defaultDelta !== 0) return defaultDelta
-        const activeDelta = Number(b.status === 'active') - Number(a.status === 'active')
-        if (activeDelta !== 0) return activeDelta
         const costDelta = Number(Boolean(b.current_snapshot_id && b.current_effective_cny_per_usd)) -
           Number(Boolean(a.current_snapshot_id && a.current_effective_cny_per_usd))
         if (costDelta !== 0) return costDelta
@@ -341,6 +345,7 @@ const rows = computed<SupplierCostRow[]>(() => {
         ...row,
         pools,
         pool: pools[0] || null,
+        showPoolName: pools.filter(isActivePool).length > 1,
         bindingCount: pools.reduce((sum, pool) => sum + (pool.binding_count || 0), 0),
         recordCount: pools.reduce((sum, pool) => sum + (pool.record_count || 0), 0)
       }

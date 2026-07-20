@@ -356,9 +356,17 @@
             </div>
           </template>
           <template #cell-upstream_effective_discount="{ row }">
-            <span :class="accountUpstreamDiscountBadgeClass(row)">
-              {{ accountUpstreamEffectiveDiscountLabel(row) }}
-            </span>
+            <div class="flex flex-col items-start gap-1">
+              <span :class="accountUpstreamDiscountBadgeClass(row)">
+                {{ accountUpstreamEffectiveDiscountLabel(row) }}
+              </span>
+              <span
+                v-if="accountUpstreamBinding(row)"
+                class="text-[11px] text-gray-500 dark:text-gray-400"
+              >
+                {{ accountUpstreamPriceReferenceLabel(row) }}
+              </span>
+            </div>
           </template>
           <template #cell-upstream_recharge_ratio="{ row }">
             <span class="font-mono text-sm text-gray-700 dark:text-gray-300">
@@ -636,8 +644,10 @@ import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import {
+  calculateUpstreamBindingEffectiveFactor,
   formatUpstreamDiscountLabel,
-  formatUpstreamRatio
+  formatUpstreamRatio,
+  normalizeUpstreamPriceReferenceCurrency
 } from '@/utils/upstreamCost'
 import { tableSelectionCheckboxClasses as selectionCheckboxClasses, tableSelectionLabel as selectionLabel } from '@/utils/tableSelectionCheckbox'
 import { extractApiErrorMessage } from '@/utils/apiError'
@@ -1792,13 +1802,15 @@ const accountUpstreamGroupMultiplier = (account: Account): number | null => {
 }
 
 const accountUpstreamRechargeFactor = (account: Account): number | null => {
+  const binding = accountUpstreamBinding(account)
   const pool = accountUpstreamPool(account)
-  const cost = pool?.current_effective_cny_per_usd
-  const fx = pool?.reference_fx_rate
-  if (!Number.isFinite(Number(cost)) || !Number.isFinite(Number(fx)) || Number(fx) <= 0) {
-    return null
-  }
-  return Number(cost) / Number(fx)
+  if (!pool?.current_snapshot_id) return null
+  return calculateUpstreamBindingEffectiveFactor(
+    pool?.current_effective_cny_per_usd,
+    pool?.reference_fx_rate,
+    1,
+    binding?.price_reference_currency
+  )
 }
 
 const accountUpstreamEffectiveFactor = (account: Account): number | null => {
@@ -1811,12 +1823,28 @@ const accountUpstreamEffectiveFactor = (account: Account): number | null => {
 }
 
 const accountUpstreamEffectiveDiscountLabel = (account: Account): string => {
+  const binding = accountUpstreamBinding(account)
+  if (!binding) return '-'
+  if (binding.price_reference_confirmed !== true) {
+    return t('admin.accounts.upstreamCost.priceReferencePending')
+  }
   const factor = accountUpstreamEffectiveFactor(account)
   if (factor === null) return '-'
   return formatUpstreamDiscountLabel(factor * 10, {
     suffix: t('admin.accounts.upstreamCost.discountSuffix'),
     notConfiguredLabel: t('admin.accounts.upstreamCost.notConfigured')
   })
+}
+
+const accountUpstreamPriceReferenceLabel = (account: Account): string => {
+  const binding = accountUpstreamBinding(account)
+  if (binding?.price_reference_confirmed !== true) {
+    return t('admin.accounts.upstreamCost.priceReferencePendingLegacy')
+  }
+  const currency = normalizeUpstreamPriceReferenceCurrency(binding.price_reference_currency)
+  return currency === 'CNY'
+    ? t('admin.accounts.upstreamCost.priceReferenceShortCNY')
+    : t('admin.accounts.upstreamCost.priceReferenceShortUSD')
 }
 
 const accountUpstreamRechargeRatioLabel = (account: Account): string => {
@@ -1837,6 +1865,10 @@ const accountUpstreamMultiplierLabel = (account: Account): string => {
 
 const accountUpstreamDiscountBadgeClass = (account: Account): string => {
   const base = 'rounded-md px-2 py-1 font-mono text-xs font-semibold'
+  const binding = accountUpstreamBinding(account)
+  if (binding && binding.price_reference_confirmed !== true) {
+    return `${base} bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300`
+  }
   const factor = accountUpstreamEffectiveFactor(account)
   if (factor === null) {
     return `${base} bg-stone-100 text-stone-500 dark:bg-white/[0.07] dark:text-stone-400`

@@ -87,6 +87,9 @@ func TestNormalizeUpstreamCostBindingInput_DefaultsAndDeduplicatesFamilies(t *te
 	if values.UpstreamGroupName == nil || *values.UpstreamGroupName != "claude-sale" {
 		t.Fatalf("UpstreamGroupName = %v, want claude-sale", values.UpstreamGroupName)
 	}
+	if values.PriceReferenceCurrency != nil {
+		t.Fatalf("PriceReferenceCurrency = %v, want nil for omitted legacy field", values.PriceReferenceCurrency)
+	}
 	if len(values.ModelFamilyMultipliers) != 2 {
 		t.Fatalf("len(ModelFamilyMultipliers) = %d, want 2", len(values.ModelFamilyMultipliers))
 	}
@@ -128,6 +131,29 @@ func TestNormalizeUpstreamCostBindingInput_RejectsInvalidPoolAndFamilyMultiplier
 		t.Fatal("normalizeUpstreamCostBindingInput() error = nil, want invalid multiplier error")
 	}
 	if got, want := infraerrors.Reason(err), "INVALID_UPSTREAM_COST_MODEL_FAMILY_MULTIPLIER"; got != want {
+		t.Fatalf("error reason = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizeUpstreamCostBindingInput_NormalizesAndValidatesPriceReferenceCurrency(t *testing.T) {
+	values, err := normalizeUpstreamCostBindingInput(UpstreamCostBindingInput{
+		AccountID:              1,
+		CostPoolID:             2,
+		PriceReferenceCurrency: upstreamCostPoolStringPtr(" cny "),
+	})
+	if err != nil {
+		t.Fatalf("normalizeUpstreamCostBindingInput() error = %v", err)
+	}
+	if values.PriceReferenceCurrency == nil || *values.PriceReferenceCurrency != UpstreamPriceReferenceCurrencyCNY {
+		t.Fatalf("PriceReferenceCurrency = %v, want CNY", values.PriceReferenceCurrency)
+	}
+
+	_, err = normalizeUpstreamCostBindingInput(UpstreamCostBindingInput{
+		AccountID:              1,
+		CostPoolID:             2,
+		PriceReferenceCurrency: upstreamCostPoolStringPtr("EUR"),
+	})
+	if got, want := infraerrors.Reason(err), "INVALID_UPSTREAM_PRICE_REFERENCE_CURRENCY"; got != want {
 		t.Fatalf("error reason = %q, want %q", got, want)
 	}
 }

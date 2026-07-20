@@ -63,7 +63,7 @@ vi.mock('vue-i18n', async () => {
     'admin.accounts.upstreamCost.boundAccounts': 'Bound',
     'admin.accounts.upstreamCost.currentCost': 'Cost',
     'admin.accounts.upstreamCost.rechargeRatio': 'Ratio',
-    'admin.accounts.upstreamCost.rechargeDiscount': 'Discount',
+    'admin.accounts.upstreamCost.poolDiscountUSD': 'Pool discount (USD basis)',
     'admin.accounts.upstreamCost.status': 'Status',
     'admin.accounts.upstreamCost.noSuppliers': 'No suppliers',
     'admin.accounts.upstreamCost.supplierNoPool': 'No pool',
@@ -119,6 +119,7 @@ function mountComparison(options: {
   isSystem?: boolean
   supplierName?: string
   hasSnapshot?: boolean
+  costPools?: Record<string, unknown>[]
 } = {}) {
   const bindingCount = options.bindingCount ?? 0
   const supplierStatus = options.supplierStatus ?? 'active'
@@ -140,7 +141,7 @@ function mountComparison(options: {
           archived_at: null
         }
       ],
-      costPools: [
+      costPools: options.costPools ?? [
         {
           id: 9,
           supplier_id: 7,
@@ -187,6 +188,8 @@ describe('UpstreamCostComparison', () => {
     expect(wrapper.text()).not.toContain('Manage supplier costs')
     expect(wrapper.text()).not.toContain('Configured')
     expect(wrapper.text()).not.toContain('Best')
+    expect(wrapper.text()).toContain('Pool discount (USD basis)')
+    expect(wrapper.text()).not.toContain('主余额池')
   })
 
   it('does not present configured defaults as current cost without a real snapshot', () => {
@@ -194,6 +197,46 @@ describe('UpstreamCostComparison', () => {
 
     expect(wrapper.text()).toContain('Needs setup')
     expect(wrapper.text()).not.toContain('6 CNY/USD')
+  })
+
+  it('uses the only active pool without exposing an archived default pool label', () => {
+    const wrapper = mountComparison({
+      costPools: [
+        {
+          id: 9,
+          supplier_id: 7,
+          supplier_name: 'Supplier A',
+          name: '主余额池',
+          is_default: true,
+          status: 'archived',
+          archived_at: '2026-07-20T00:00:00Z',
+          reference_fx_rate: 7,
+          current_effective_cny_per_usd: 6,
+          current_snapshot_id: 10,
+          binding_count: 0,
+          record_count: 1
+        },
+        {
+          id: 10,
+          supplier_id: 7,
+          supplier_name: 'Supplier A',
+          name: '当前余额池',
+          is_default: false,
+          status: 'active',
+          archived_at: null,
+          reference_fx_rate: 7,
+          current_effective_cny_per_usd: 4,
+          current_snapshot_id: 11,
+          binding_count: 1,
+          record_count: 1
+        }
+      ]
+    })
+
+    expect(wrapper.text()).toContain('4 CNY/USD')
+    expect(wrapper.text()).not.toContain('6 CNY/USD')
+    expect(wrapper.text()).not.toContain('主余额池')
+    expect(wrapper.text()).not.toContain('当前余额池')
   })
 
   it('hands supplier editing to the page-level modal', async () => {

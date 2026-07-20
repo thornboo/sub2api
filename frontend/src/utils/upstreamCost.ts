@@ -10,6 +10,8 @@ export const UPSTREAM_BALANCE_AUTH_MODE_KEY = 'upstream_balance_auth_mode'
 export const UPSTREAM_BALANCE_AUTH_HEADER_KEY = 'upstream_balance_auth_header'
 export const UPSTREAM_BALANCE_SNAPSHOT_KEY = 'upstream_balance_snapshot'
 export const DEFAULT_UPSTREAM_REFERENCE_FX_RATE = 7
+export const UPSTREAM_PRICE_REFERENCE_CURRENCY_CNY = 'CNY'
+export const UPSTREAM_PRICE_REFERENCE_CURRENCY_USD = 'USD'
 export const UPSTREAM_BALANCE_PROVIDER_SUB2API = 'sub2api'
 export const UPSTREAM_BALANCE_PROVIDER_NEW_API = 'new_api_compatible'
 export const DEFAULT_UPSTREAM_BALANCE_PROVIDER = UPSTREAM_BALANCE_PROVIDER_SUB2API
@@ -28,6 +30,10 @@ export type UpstreamBalanceAuthMode =
   | typeof UPSTREAM_BALANCE_AUTH_MODE_ACCOUNT_API_KEY
   | typeof UPSTREAM_BALANCE_AUTH_MODE_BEARER_TOKEN
   | typeof UPSTREAM_BALANCE_AUTH_MODE_CUSTOM_HEADER
+
+export type UpstreamPriceReferenceCurrency =
+  | typeof UPSTREAM_PRICE_REFERENCE_CURRENCY_CNY
+  | typeof UPSTREAM_PRICE_REFERENCE_CURRENCY_USD
 
 export type UpstreamCostMissingField =
   | 'recharge_cny_per_usd'
@@ -95,6 +101,34 @@ const toPositiveNumber = (value: unknown): number | undefined => {
   const num = typeof value === 'string' ? Number(value.trim()) : Number(value)
   if (!Number.isFinite(num) || num <= 0) return undefined
   return num
+}
+
+export const normalizeUpstreamPriceReferenceCurrency = (
+  value: unknown
+): UpstreamPriceReferenceCurrency => (
+  value === UPSTREAM_PRICE_REFERENCE_CURRENCY_CNY
+    ? UPSTREAM_PRICE_REFERENCE_CURRENCY_CNY
+    : UPSTREAM_PRICE_REFERENCE_CURRENCY_USD
+)
+
+export const calculateUpstreamBindingEffectiveFactor = (
+  currentEffectiveCNYPerUSD: unknown,
+  referenceFXRate: unknown,
+  groupMultiplier: unknown,
+  priceReferenceCurrency: unknown
+): number | null => {
+  const cost = toPositiveNumber(currentEffectiveCNYPerUSD)
+  const multiplier = toPositiveNumber(groupMultiplier)
+  if (cost === undefined || multiplier === undefined) return null
+
+  const currency = normalizeUpstreamPriceReferenceCurrency(priceReferenceCurrency)
+  if (currency === UPSTREAM_PRICE_REFERENCE_CURRENCY_CNY) {
+    return cost * multiplier
+  }
+
+  const fx = toPositiveNumber(referenceFXRate)
+  if (fx === undefined) return null
+  return (cost / fx) * multiplier
 }
 
 const normalizeFamily = (value: unknown): string => normalizeString(value)

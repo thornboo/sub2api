@@ -57,6 +57,7 @@ type upstreamRechargeAdmin interface {
 	CreateUpstreamRechargeRecord(context.Context, svc.UpstreamRechargeRecordInput) (*svc.UpstreamRechargeRecord, error)
 	UpdateUpstreamRechargeRecord(context.Context, int64, svc.UpstreamRechargeRecordInput) (*svc.UpstreamRechargeRecord, error)
 	DeleteUpstreamRechargeRecord(context.Context, int64, int64) error
+	GetAccountUpstreamCostBinding(context.Context, int64) (*svc.UpstreamAccountCostBinding, error)
 	UpdateAccountUpstreamSupplierBinding(context.Context, svc.UpstreamSupplierBindingInput) (*svc.UpstreamAccountCostBinding, error)
 }
 
@@ -497,6 +498,88 @@ WHERE cost_pool_id = $1
 	require.Equal(t, 1, activeBindings)
 }
 
+func TestCNYPriceReferencePersistsAndRefreshesSchedulerAtEightTenths(t *testing.T) {
+	ctx := context.Background()
+	cache := &recordingSchedulerCache{}
+	admin := newUpstreamRechargeAdminWithCache(t, cache)
+	account := createUpstreamCostPoolAccount(t, nil)
+	priceReferenceCurrency := svc.UpstreamPriceReferenceCurrencyCNY
+
+	binding, err := admin.UpdateAccountUpstreamSupplierBinding(ctx, svc.UpstreamSupplierBindingInput{
+		AccountID:              account.ID,
+		SupplierName:           fmt.Sprintf("cny-reference-supplier-%d", account.ID),
+		PriceReferenceCurrency: &priceReferenceCurrency,
+		DefaultMultiplier:      0.8,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, binding)
+	require.Equal(t, svc.UpstreamPriceReferenceCurrencyCNY, binding.PriceReferenceCurrency)
+	require.True(t, binding.PriceReferenceConfirmed)
+
+	cache.reset()
+	_, err = admin.CreateUpstreamRechargeRecord(ctx, svc.UpstreamRechargeRecordInput{
+		AccountID:            account.ID,
+		Type:                 "recharge",
+		PaidAmount:           1,
+		ReceivedCreditAmount: 1,
+		ReferenceFXRate:      7,
+	})
+	require.NoError(t, err)
+	refreshed := cache.lastAccount()
+	require.NotNil(t, refreshed)
+	require.NotNil(t, refreshed.UpstreamEffectiveDiscount)
+	require.InDelta(t, 0.8, *refreshed.UpstreamEffectiveDiscount, 0.000001)
+
+	persisted, err := admin.GetAccountUpstreamCostBinding(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, svc.UpstreamPriceReferenceCurrencyCNY, persisted.PriceReferenceCurrency)
+	require.True(t, persisted.PriceReferenceConfirmed)
+
+	cache.reset()
+	preserved, err := admin.UpdateAccountUpstreamSupplierBinding(ctx, svc.UpstreamSupplierBindingInput{
+		AccountID:         account.ID,
+		SupplierID:        binding.SupplierID,
+		CostPoolID:        binding.CostPoolID,
+		DefaultMultiplier: 0.8,
+	})
+	require.NoError(t, err)
+	require.Equal(t, svc.UpstreamPriceReferenceCurrencyCNY, preserved.PriceReferenceCurrency)
+	require.True(t, preserved.PriceReferenceConfirmed)
+	refreshed = cache.lastAccount()
+	require.NotNil(t, refreshed)
+	require.NotNil(t, refreshed.UpstreamEffectiveDiscount)
+	require.InDelta(t, 0.8, *refreshed.UpstreamEffectiveDiscount, 0.000001)
+}
+
+func TestUnconfirmedPriceReferenceIsExcludedFromSchedulerCost(t *testing.T) {
+	ctx := context.Background()
+	cache := &recordingSchedulerCache{}
+	admin := newUpstreamRechargeAdminWithCache(t, cache)
+	account := createUpstreamCostPoolAccount(t, nil)
+
+	binding, err := admin.UpdateAccountUpstreamSupplierBinding(ctx, svc.UpstreamSupplierBindingInput{
+		AccountID:         account.ID,
+		SupplierName:      fmt.Sprintf("legacy-reference-supplier-%d", account.ID),
+		DefaultMultiplier: 0.8,
+	})
+	require.NoError(t, err)
+	require.Equal(t, svc.UpstreamPriceReferenceCurrencyUSD, binding.PriceReferenceCurrency)
+	require.False(t, binding.PriceReferenceConfirmed)
+
+	cache.reset()
+	_, err = admin.CreateUpstreamRechargeRecord(ctx, svc.UpstreamRechargeRecordInput{
+		AccountID:            account.ID,
+		Type:                 "recharge",
+		PaidAmount:           7,
+		ReceivedCreditAmount: 1,
+		ReferenceFXRate:      7,
+	})
+	require.NoError(t, err)
+	refreshed := cache.lastAccount()
+	require.NotNil(t, refreshed)
+	require.Nil(t, refreshed.UpstreamEffectiveDiscount)
+}
+
 func TestUpstreamCostPoolConcurrentRechargeUsesExistingSupplierBinding(t *testing.T) {
 	ctx := context.Background()
 	admin := newUpstreamRechargeAdmin(t)
@@ -802,10 +885,12 @@ func newUpstreamRechargeAdminWithCache(t *testing.T, cache svc.SchedulerCache) u
 func bindUpstreamRechargeAccount(t *testing.T, admin upstreamRechargeAdmin, account *svc.Account) *svc.UpstreamAccountCostBinding {
 	t.Helper()
 	require.NotNil(t, account)
+	priceReferenceCurrency := svc.UpstreamPriceReferenceCurrencyUSD
 	binding, err := admin.UpdateAccountUpstreamSupplierBinding(context.Background(), svc.UpstreamSupplierBindingInput{
-		AccountID:         account.ID,
-		SupplierName:      fmt.Sprintf("recharge-supplier-%d", account.ID),
-		DefaultMultiplier: 1,
+		AccountID:              account.ID,
+		SupplierName:           fmt.Sprintf("recharge-supplier-%d", account.ID),
+		PriceReferenceCurrency: &priceReferenceCurrency,
+		DefaultMultiplier:      1,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, binding)

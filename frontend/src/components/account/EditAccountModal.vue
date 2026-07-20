@@ -612,7 +612,7 @@
 
           <div
             v-if="upstreamSupplierID"
-            class="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1.35fr)_minmax(10rem,0.65fr)]"
+            class="grid grid-cols-1 gap-3 md:grid-cols-3"
           >
             <div>
               <label class="input-label">{{ t('admin.accounts.upstreamCost.upstreamGroupName') }}</label>
@@ -641,6 +641,20 @@
               />
               <p class="input-hint">{{ t('admin.accounts.upstreamCost.upstreamGroupMultiplierHint') }}</p>
             </div>
+            <div>
+              <label class="input-label">{{ t('admin.accounts.upstreamCost.priceReferenceCurrency') }}</label>
+              <Select
+                v-model="upstreamPriceReferenceCurrency"
+                :options="upstreamPriceReferenceCurrencyOptions"
+                :placeholder="t('admin.accounts.upstreamCost.priceReferenceCurrencyPlaceholder')"
+                :disabled="upstreamSupplierBindingReadOnly"
+                data-testid="upstream-price-reference-currency"
+              />
+              <p class="input-hint">{{ t('admin.accounts.upstreamCost.priceReferenceCurrencyHint') }}</p>
+            </div>
+            <p class="rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600 dark:bg-white/[0.04] dark:text-stone-300 md:col-span-3">
+              {{ upstreamPriceReferenceFormulaPreview }}
+            </p>
           </div>
 
           <p class="text-xs text-stone-500 dark:text-stone-500">
@@ -2948,6 +2962,7 @@ import type {
   UpstreamSupplier,
   UpstreamSupplierBindingPayload
 } from '@/api/admin/accounts'
+import type { UpstreamPriceReferenceCurrency } from '@/utils/upstreamCost'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import type {
   Account,
@@ -3066,6 +3081,7 @@ const upstreamSupplierID = ref<number | null>(null)
 const upstreamSupplierSelectionDirty = ref(false)
 const upstreamGroupName = ref('')
 const upstreamGroupMultiplier = ref('1')
+const upstreamPriceReferenceCurrency = ref<UpstreamPriceReferenceCurrency | null>(null)
 const upstreamSupplierLoading = ref(false)
 const upstreamSupplierLoadError = ref('')
 // Bedrock credentials
@@ -3204,6 +3220,10 @@ const upstreamSupplierBindingReadOnly = computed(() => {
   const selectedSupplier = upstreamSuppliers.value.find((supplier) => supplier.id === upstreamSupplierID.value)
   return Boolean(selectedSupplier && !isSelectableUpstreamSupplier(selectedSupplier))
 })
+const upstreamPriceReferenceCurrencyOptions = computed(() => [
+  { value: 'CNY', label: t('admin.accounts.upstreamCost.priceReferenceCurrencyCNY') },
+  { value: 'USD', label: t('admin.accounts.upstreamCost.priceReferenceCurrencyUSD') }
+])
 const formatUpstreamGroupMultiplierValue = (value?: number | null): string => {
   const numericValue = Number(value)
   return Number.isFinite(numericValue) && numericValue > 0 ? `${numericValue}` : '1'
@@ -3212,6 +3232,14 @@ const parseUpstreamGroupMultiplierValue = (): number => {
   const numericValue = Number(upstreamGroupMultiplier.value)
   return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : 1
 }
+const upstreamPriceReferenceFormulaPreview = computed(() => {
+  if (!upstreamPriceReferenceCurrency.value) {
+    return t('admin.accounts.upstreamCost.priceReferenceFormulaPending')
+  }
+  return upstreamPriceReferenceCurrency.value === 'CNY'
+    ? t('admin.accounts.upstreamCost.priceReferenceFormulaCNY', { multiplier: parseUpstreamGroupMultiplierValue() })
+    : t('admin.accounts.upstreamCost.priceReferenceFormulaUSD', { multiplier: parseUpstreamGroupMultiplierValue() })
+})
 const upstreamSupplierSelectValue = computed<string | number | boolean | null>({
   get: () => upstreamSupplierID.value,
   set: (value) => {
@@ -3228,15 +3256,20 @@ const upstreamSupplierSelectValue = computed<string | number | boolean | null>({
         upstreamGroupMultiplier.value = formatUpstreamGroupMultiplierValue(
           upstreamCostBinding.value.upstream_group_multiplier ?? upstreamCostBinding.value.default_multiplier
         )
+        upstreamPriceReferenceCurrency.value = upstreamCostBinding.value.price_reference_confirmed
+          ? upstreamCostBinding.value.price_reference_currency
+          : null
       } else {
         upstreamGroupName.value = ''
         upstreamGroupMultiplier.value = '1'
+        upstreamPriceReferenceCurrency.value = null
       }
       return
     }
     upstreamSupplierID.value = null
     upstreamGroupName.value = ''
     upstreamGroupMultiplier.value = '1'
+    upstreamPriceReferenceCurrency.value = null
   }
 })
 const showMixedChannelWarning = ref(false)
@@ -3799,6 +3832,7 @@ const resetUpstreamSupplierBindingState = () => {
   upstreamSupplierSelectionDirty.value = false
   upstreamGroupName.value = ''
   upstreamGroupMultiplier.value = '1'
+  upstreamPriceReferenceCurrency.value = null
   upstreamSupplierLoadError.value = ''
 }
 
@@ -3820,6 +3854,9 @@ const hydrateUpstreamSupplierBinding = (binding: UpstreamAccountCostBinding | nu
       ? binding?.upstream_group_multiplier ?? binding?.default_multiplier
       : null
   )
+  upstreamPriceReferenceCurrency.value = bindingCanBePreserved && binding?.price_reference_confirmed
+    ? binding.price_reference_currency
+    : null
   upstreamSupplierSelectionDirty.value = false
 }
 
@@ -3872,6 +3909,9 @@ const buildUpstreamSupplierBindingPayload = (): UpstreamSupplierBindingPayload |
     supplier_id: upstreamSupplierID.value,
     cost_pool_id: currentCostPoolID,
     upstream_group_name: trimmedGroupName || null,
+    ...(upstreamPriceReferenceCurrency.value
+      ? { price_reference_currency: upstreamPriceReferenceCurrency.value }
+      : {}),
     upstream_group_multiplier: parseUpstreamGroupMultiplierValue()
   }
 }
@@ -3895,6 +3935,13 @@ const upstreamSupplierBindingChanged = (payload: UpstreamSupplierBindingPayload 
   const currentGroupName = current.upstream_group_name?.trim() || ''
   const nextGroupName = payload.upstream_group_name?.trim() || ''
   if (currentGroupName !== nextGroupName) {
+    return true
+  }
+  if (current.price_reference_confirmed) {
+    if (payload.price_reference_currency !== current.price_reference_currency) {
+      return true
+    }
+  } else if (payload.price_reference_currency) {
     return true
   }
   const currentMultiplier = Number(current.upstream_group_multiplier ?? current.default_multiplier ?? 1)
@@ -4855,6 +4902,16 @@ const handleSubmit = async () => {
 
   if (form.status !== 'active' && form.status !== 'inactive' && form.status !== 'disabled' && form.status !== 'error') {
     appStore.showError(t('admin.accounts.pleaseSelectStatus'))
+    return
+  }
+
+  if (
+    showUpstreamSupplierBinding.value &&
+    upstreamSupplierID.value &&
+    !upstreamSupplierBindingReadOnly.value &&
+    !upstreamPriceReferenceCurrency.value
+  ) {
+    appStore.showError(t('admin.accounts.upstreamCost.priceReferenceCurrencyRequired'))
     return
   }
 

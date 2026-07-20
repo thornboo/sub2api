@@ -61,8 +61,8 @@ func TestAccountListOrder_UpstreamEffectiveDiscountSQL(t *testing.T) {
 	require.Contains(t, query, `"upstream_account_cost_binding_sort"."account_id" = "accounts"."id"`)
 	require.Contains(t, query, `"upstream_cost_pool_sort"."id" = "upstream_account_cost_binding_sort"."cost_pool_id"`)
 	require.Contains(t, query, `"upstream_cost_pool_sort"."archived_at" IS NULL`)
-	require.Contains(t, query, `"upstream_supplier_sort"."id" IS NOT NULL AND "upstream_cost_pool_sort"."current_snapshot_id" IS NOT NULL`)
-	require.Contains(t, query, `(("upstream_cost_pool_sort"."current_effective_cny_per_usd" / NULLIF("upstream_cost_pool_sort"."reference_fx_rate", 0)) * "upstream_account_cost_binding_sort"."default_multiplier") END DESC NULLS LAST`)
+	require.Contains(t, query, `"upstream_supplier_sort"."id" IS NOT NULL AND "upstream_cost_pool_sort"."current_snapshot_id" IS NOT NULL AND "upstream_account_cost_binding_sort"."price_reference_confirmed" = TRUE`)
+	require.Contains(t, query, `(("upstream_cost_pool_sort"."current_effective_cny_per_usd" / (CASE WHEN "upstream_account_cost_binding_sort"."price_reference_currency" = 'CNY' THEN 1 ELSE NULLIF("upstream_cost_pool_sort"."reference_fx_rate", 0) END)) * "upstream_account_cost_binding_sort"."default_multiplier") END DESC NULLS LAST`)
 	require.True(t, strings.Contains(query, `ORDER BY`) && strings.Contains(query, `"accounts"."id" DESC`), query)
 }
 
@@ -86,7 +86,7 @@ func TestAccountRepository_LoadUpstreamEffectiveDiscounts(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	repo := newAccountRepositoryWithSQL(nil, db, nil)
-	mock.ExpectQuery(`(?s)SELECT binding\.account_id,.*FROM upstream_account_cost_bindings binding.*JOIN upstream_cost_pools pool ON pool\.id = binding\.cost_pool_id.*JOIN upstream_suppliers supplier ON supplier\.id = pool\.supplier_id.*binding\.status = \$2.*binding\.valid_to IS NULL.*pool\.status = \$2.*pool\.archived_at IS NULL.*supplier\.is_system = FALSE.*pool\.current_snapshot_id IS NOT NULL.*pool\.reference_fx_rate > 0.*binding\.default_multiplier > 0`).
+	mock.ExpectQuery(`(?s)SELECT binding\.account_id,.*binding\.price_reference_currency = 'CNY'.*FROM upstream_account_cost_bindings binding.*JOIN upstream_cost_pools pool ON pool\.id = binding\.cost_pool_id.*JOIN upstream_suppliers supplier ON supplier\.id = pool\.supplier_id.*binding\.status = \$2.*binding\.valid_to IS NULL.*pool\.status = \$2.*pool\.archived_at IS NULL.*supplier\.is_system = FALSE.*binding\.price_reference_confirmed = TRUE.*pool\.current_snapshot_id IS NOT NULL.*pool\.current_effective_cny_per_usd IS NOT NULL.*binding\.default_multiplier > 0`).
 		WithArgs(sqlmock.AnyArg(), service.StatusActive).
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "effective_discount"}).
 			AddRow(int64(1), 0.4).

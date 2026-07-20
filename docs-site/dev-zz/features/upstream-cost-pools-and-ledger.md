@@ -56,7 +56,7 @@ Anthropic 账号 B -> 供应商 X / 主余额池
 
 ## 2026-07-09 / 2026-07-10 已落地补充：供应商管理与账号编辑边界
 
-这次补齐的是 Phase 1 兼容层之上的管理端操作面，并收紧默认配置、真实快照和调度成本的边界；综合折扣公式不变，普通用户侧返回字段不变。
+这次补齐的是 Phase 1 兼容层之上的管理端操作面，并收紧默认配置、真实快照和调度成本的边界。2026-07-20 起综合折扣增加绑定级人民币 / 美元计价基准，普通用户侧返回字段不变。
 
 ### 管理端供应商操作
 
@@ -87,13 +87,13 @@ Anthropic 账号 B -> 供应商 X / 主余额池
 
 ### 账号编辑边界
 
-账号编辑弹窗不挂载旧 `UpstreamCostSettings`，也不在账号主流程里编辑真实充值比例、参考汇率或资金池基础成本；它只维护账号与供应商 / 默认资金池的归属绑定，以及这把上游 key 在供应商侧的分组名和分组倍率：
+账号编辑弹窗不挂载旧 `UpstreamCostSettings`，也不在账号主流程里编辑真实充值比例、参考汇率或资金池基础成本；它只维护账号与供应商 / 默认资金池的归属绑定，以及这把上游 key 在供应商侧的分组名、分组倍率和分组计价基准：
 
 - 账号编辑负责选择 / 清空 active 供应商绑定；这一步表达“这把 key 消费哪个供应商 / 默认资金池”。
 - 当前绑定供应商归档后仍以禁用历史项展示，存量绑定继续生效；无关字段保存不会解绑，管理员明确点叉号才清空。已归档供应商不能用于新绑定。
-- 账号编辑负责保存 `upstream_group_name` 和 `upstream_group_multiplier`；这一步表达“这把 key 在供应商侧属于哪个分组、按什么倍率计价”。
+- 账号编辑负责保存 `upstream_group_name`、`upstream_group_multiplier` 和 `price_reference_currency`；这一步表达“这把 key 在供应商侧属于哪个分组、按什么倍率、相对人民币还是美元价目表计价”。
 - 默认充值换算和默认参考汇率属于供应商默认资金池的低频运营配置；真实支付、到账、汇率和基础成本属于账本与成本快照。调整默认值只影响以后录入，实际成本变化必须通过新 `recharge` 记录和快照固化，而不是覆盖账号 `extra`。
-- 当前兼容层的账号列表综合折扣按 `current_effective_cny_per_usd / reference_fx_rate * upstream_group_multiplier` 展示；数据库内 `default_multiplier` 仍作为兼容存储列承载这个分组倍率，旧读取路径可回退到该字段。
+- 账号列表、排序和 `cost_first` 使用同一公式：人民币价基准按 `current_effective_cny_per_usd * upstream_group_multiplier`，美元价基准按 `current_effective_cny_per_usd / reference_fx_rate * upstream_group_multiplier`。历史绑定保留 `USD` 旧口径，但 `price_reference_confirmed=false`，页面显示“待确认”，并且在管理员确认前不进入 `cost_first`。
 - 旧 `PATCH /admin/accounts/:id/upstream-cost-profile` 保留为兼容接口，用于读取或迁移历史账号 `extra` 成本字段；不作为新版账号编辑主入口。
 
 后续供应商 / 资金池详情页应继续承担这些高级入口：
@@ -107,7 +107,7 @@ Anthropic 账号 B -> 供应商 X / 主余额池
 边界：
 
 - `172_upstream_suppliers_system_flag.sql` 增加稳定的系统供应商标志，`173_upstream_account_binding_group_name.sql` 增加供应商侧分组名，`174_upstream_cost_pool_defaults.sql` 把低频默认充值配置与最近一次真实成本拆开保存。
-- 不改变当前综合折扣公式。
+- 综合折扣公式增加绑定级计价基准；不按供应商所在地、模型名或分组名自动推断。
 - 不把供应商、资金池、上游余额、真实成本或利润暴露给普通用户侧接口。
 - 不把账号 `extra` 成本口径继续扩成新版主流程；历史字段迁移到资金池 / 绑定 / 快照仍是后续专项。
 
@@ -297,6 +297,8 @@ account_id
 cost_pool_id
 status
 upstream_group_name
+price_reference_currency
+price_reference_confirmed
 default_multiplier
 model_family_multipliers
 note
@@ -314,6 +316,8 @@ updated_at
 | `account_id` | 绑定的上游账号 |
 | `cost_pool_id` | 绑定的资金池 |
 | `upstream_group_name` | 这把上游 key 在供应商侧所属的分组，例如 `claude-sale` |
+| `price_reference_currency` | 上游分组价目表基准，`CNY` 表示人民币官方价，`USD` 表示美元官方价；历史数据暂存 `USD` 仅为保持旧公式 |
+| `price_reference_confirmed` | 管理员是否明确确认过计价基准；历史数据为 `false`，不参与成本优先排序或调度 |
 | `default_multiplier` | 兼容存储列，当前承载这把上游 key 的分组倍率；API / UI 对外命名为 `upstream_group_multiplier` |
 | `model_family_multipliers` | 模型族覆盖，例如 haiku / sonnet / opus |
 | `valid_from` / `valid_to` | 绑定历史区间 |
@@ -433,9 +437,12 @@ account_upstream_cost_cny =
 折扣展示：
 
 ```text
-effective_discount = pool_effective_cny_per_usd / reference_fx_rate × account_multiplier
+reference_divisor = price_reference_currency == CNY ? 1 : reference_fx_rate
+effective_discount = pool_effective_cny_per_usd / reference_divisor × account_multiplier
 display_discount = effective_discount × 10
 ```
+
+只有存在真实 `current_snapshot_id` 且 `price_reference_confirmed=true` 的绑定才生成可用于排序 / 调度的综合折扣。历史未确认绑定继续保留旧美元公式用于兼容解释，但账号列表显示“待确认”，不会把它包装成准确成本。
 
 示例：
 
@@ -449,6 +456,9 @@ OpenAI 有效折扣：5 / 7 × 1.0 × 10 = 7.1 折
 
 Anthropic 账号倍率：1.4
 Anthropic 有效折扣：5 / 7 × 1.4 × 10 = 10.0 折
+
+Kimi 人民币价分组倍率：0.8
+Kimi 有效折扣：1 / 1 × 0.8 × 10 = 8.0 折（资金池基础成本为 1 CNY/USD 时）
 ```
 
 同一资金池下不同账号可以拥有不同倍率，但真实充值仍然只记录一次。
@@ -470,7 +480,7 @@ Anthropic 有效折扣：5 / 7 × 1.4 × 10 = 10.0 折
 - 新增供应商时，系统默认创建一个“主余额池”承载默认结算配置；账号是否绑定到该供应商，仍以账号编辑表单里最终选中的下拉值和账号保存动作为准。
 - 后续同一供应商的账号，在账号编辑弹窗里直接从下拉框选择“供应商 A”即可；如果该供应商只有一个 active 资金池，不应强迫管理员理解或选择资金池。
 - 只有当同一供应商存在多个钱包、套餐、分组、余额池或结算账户时，页面才展示“资金池 / 钱包”选择器。
-- 阶段 1 账号编辑页的主字段是“供应商、上游分组、上游分组倍率”。真实充值金额、到账额度、参考汇率和资金池基础成本来自供应商 / 资金池账本，不再让管理员在每个账号上重复录入。
+- 阶段 1 账号编辑页的主字段是“供应商、上游分组、上游分组倍率、分组计价基准”。真实充值金额、到账额度、参考汇率和资金池基础成本来自供应商 / 资金池账本，不再让管理员在每个账号上重复录入。
 - “资金池、成本快照、绑定历史”等术语应尽量隐藏在详情页、审计页或高级设置里，普通账号配置流程只看到供应商和必要的钱包名称。
 
 推荐的账号编辑区域：
@@ -487,8 +497,11 @@ Anthropic 有效折扣：5 / 7 × 1.4 × 10 = 10.0 折
 上游分组倍率：
 [ 1.4 ]
 
+分组计价基准：
+[ 美元官方价 v ]
+
 说明：
-后续充值记录会归到这个供应商；这把 key 的综合折扣按供应商充值折扣乘以上游分组倍率计算。
+后续充值记录会归到这个供应商；人民币价分组直接按资金池人民币成本叠加倍率，美元价分组再除以参考汇率。
 ```
 
 资金池 / 钱包、当前成本、账本入口应放在供应商或资金池详情页；只有当同一供应商存在多个 active 钱包 / 资金池且当前账号必须区分时，账号编辑才补充展示钱包选择器。
@@ -561,6 +574,7 @@ Anthropic 有效折扣：5 / 7 × 1.4 × 10 = 10.0 折
 | 基础成本 | 来自资金池当前快照 |
 | 上游分组 | 这把 key 在供应商侧所属分组 |
 | 上游分组倍率 | 来自账号成本绑定；数据库兼容存储列为 `default_multiplier` |
+| 分组计价基准 | 来自账号成本绑定；明确显示人民币价基准或美元价基准 |
 | 模型族覆盖 | 当前选择模型族的覆盖倍率 |
 | 最终折扣 | 资金池成本叠加上游分组倍率后的结果 |
 | 余额 | 来自资金池余额快照 |
@@ -574,6 +588,7 @@ Anthropic 有效折扣：5 / 7 × 1.4 × 10 = 10.0 折
 - 选择已有上游供应商；新增供应商从供应商标签页完成。
 - 录入上游分组名，例如 `claude-sale`。
 - 录入上游分组倍率，例如 `1.4`。
+- 选择分组计价基准；国产模型不等于人民币定价，必须以上游分组价目表实际币种为准。历史绑定在管理员确认前显示“待确认”，且不参与成本优先调度。
 - 如果供应商只有一个 active 资金池，自动绑定默认资金池。
 - 如果供应商有多个 active 资金池，展示资金池 / 钱包选择器。
 

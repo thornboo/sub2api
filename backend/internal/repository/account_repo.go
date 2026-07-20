@@ -1079,12 +1079,22 @@ func accountUpstreamCostOrder(sortBy string, sortOrder string) []func(*entsql.Se
 
 			orderExpr := "CASE WHEN " + supplier.C("id") + " IS NOT NULL THEN " + binding.C("default_multiplier") + " END"
 			if sortBy == "upstream_effective_discount" {
-				orderExpr = "CASE WHEN " + supplier.C("id") + " IS NOT NULL AND " + pool.C("current_snapshot_id") + " IS NOT NULL THEN ((" + pool.C("current_effective_cny_per_usd") + " / NULLIF(" + pool.C("reference_fx_rate") + ", 0)) * " + binding.C("default_multiplier") + ") END"
+				orderExpr = "CASE WHEN " + supplier.C("id") + " IS NOT NULL AND " + pool.C("current_snapshot_id") + " IS NOT NULL AND " + binding.C("price_reference_confirmed") + " = TRUE THEN " + upstreamEffectiveDiscountSQL(
+					pool.C("current_effective_cny_per_usd"),
+					pool.C("reference_fx_rate"),
+					binding.C("default_multiplier"),
+					binding.C("price_reference_currency"),
+				) + " END"
 			}
 			s.OrderExpr(entsql.Expr(orderExpr + " " + direction + " NULLS LAST"))
 			s.OrderBy(tieOrder(s.C(dbaccount.FieldID)))
 		},
 	}
+}
+
+func upstreamEffectiveDiscountSQL(currentCost, referenceFXRate, multiplier, priceReferenceCurrency string) string {
+	divisor := "CASE WHEN " + priceReferenceCurrency + " = '" + service.UpstreamPriceReferenceCurrencyCNY + "' THEN 1 ELSE NULLIF(" + referenceFXRate + ", 0) END"
+	return "((" + currentCost + " / (" + divisor + ")) * " + multiplier + ")"
 }
 
 func upstreamBillingRateSortExpression(extra string) string {
@@ -3094,7 +3104,12 @@ func (r *accountRepository) loadUpstreamEffectiveDiscounts(ctx context.Context, 
 
 	rows, err := r.sql.QueryContext(ctx, `
 SELECT binding.account_id,
-       ((pool.current_effective_cny_per_usd::double precision / NULLIF(pool.reference_fx_rate::double precision, 0)) * binding.default_multiplier::double precision) AS effective_discount
+       `+upstreamEffectiveDiscountSQL(
+		"pool.current_effective_cny_per_usd::double precision",
+		"pool.reference_fx_rate::double precision",
+		"binding.default_multiplier::double precision",
+		"binding.price_reference_currency",
+	)+` AS effective_discount
 FROM upstream_account_cost_bindings binding
 JOIN upstream_cost_pools pool ON pool.id = binding.cost_pool_id
 JOIN upstream_suppliers supplier ON supplier.id = pool.supplier_id
@@ -3104,9 +3119,9 @@ WHERE binding.account_id = ANY($1)
   AND pool.status = $2
   AND pool.archived_at IS NULL
   AND supplier.is_system = FALSE
+  AND binding.price_reference_confirmed = TRUE
   AND pool.current_snapshot_id IS NOT NULL
   AND pool.current_effective_cny_per_usd IS NOT NULL
-  AND pool.reference_fx_rate > 0
   AND binding.default_multiplier > 0`,
 		pq.Array(accountIDs),
 		service.StatusActive,

@@ -24,7 +24,11 @@ import type {
   UpstreamBillingProbeResult,
   UpstreamBillingProbeSettings
 } from '@/types'
-import type { UpstreamBalanceSnapshot, UpstreamCostProfile } from '@/utils/upstreamCost'
+import type {
+  UpstreamBalanceSnapshot,
+  UpstreamCostProfile,
+  UpstreamPriceReferenceCurrency
+} from '@/utils/upstreamCost'
 
 /**
  * List all accounts with pagination
@@ -346,6 +350,8 @@ export interface UpstreamAccountCostBinding {
   status: string
   default_multiplier: number
   upstream_group_name?: string | null
+  price_reference_currency: UpstreamPriceReferenceCurrency
+  price_reference_confirmed: boolean
   upstream_group_multiplier?: number
   model_family_multipliers: UpstreamCostModelFamilyMultiplier[]
   note?: string | null
@@ -360,6 +366,7 @@ export interface UpstreamSupplierBindingPayload {
   supplier_name?: string | null
   cost_pool_id?: number | null
   upstream_group_name?: string | null
+  price_reference_currency?: UpstreamPriceReferenceCurrency
   upstream_group_multiplier?: number
   default_multiplier?: number
   model_families?: UpstreamCostModelFamilyMultiplier[]
