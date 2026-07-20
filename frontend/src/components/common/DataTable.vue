@@ -34,13 +34,12 @@
     <template v-else>
       <div v-if="selectable" class="flex items-center justify-end gap-2 px-1">
         <label class="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
-          <input
-            type="checkbox"
-            class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
-            :checked="allVisibleSelected"
+          <BaseCheckbox
+            :model-value="allVisibleSelected"
             :indeterminate="someVisibleSelected"
+            :aria-label="t('common.selectAll')"
             data-test="select-all-mobile"
-            @change="toggleAllVisible(($event.target as HTMLInputElement).checked)"
+            @update:model-value="toggleAllVisible"
           />
           <span>{{ t('common.selectAll') }}</span>
         </label>
@@ -57,14 +56,12 @@
       >
         <div class="space-y-3">
           <div v-if="selectable" class="flex justify-end">
-            <input
-              type="checkbox"
-              class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
-              :checked="isRowSelected(row, index)"
+            <BaseCheckbox
+              :model-value="isRowSelected(row, index)"
               :aria-label="getRowSelectionLabel(row, index)"
               data-test="select-row"
               @click.stop
-              @change="toggleRowSelection(row, index, ($event.target as HTMLInputElement).checked)"
+              @update:model-value="toggleRowSelection(row, index, $event)"
             />
           </div>
           <div
@@ -110,14 +107,12 @@
             scope="col"
             class="sticky-header-cell w-11 min-w-11 px-3 py-3 text-center"
           >
-            <input
-              type="checkbox"
-              class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
-              :checked="allVisibleSelected"
+            <BaseCheckbox
+              :model-value="allVisibleSelected"
               :indeterminate="someVisibleSelected"
               :aria-label="t('common.selectAll')"
               data-test="select-all"
-              @change="toggleAllVisible(($event.target as HTMLInputElement).checked)"
+              @update:model-value="toggleAllVisible"
             />
           </th>
           <th
@@ -225,14 +220,12 @@
             @click="clickableRows && emit('rowClick', item.row)"
           >
             <td v-if="selectable" class="w-11 min-w-11 px-3 py-4 text-center">
-              <input
-                type="checkbox"
-                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
-                :checked="isRowSelected(item.row, item.index)"
+              <BaseCheckbox
+                :model-value="isRowSelected(item.row, item.index)"
                 :aria-label="getRowSelectionLabel(item.row, item.index)"
                 data-test="select-row"
                 @click.stop
-                @change="toggleRowSelection(item.row, item.index, ($event.target as HTMLInputElement).checked)"
+                @update:model-value="toggleRowSelection(item.row, item.index, $event)"
               />
             </td>
             <td
@@ -272,6 +265,7 @@ import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useVirtualizer, observeElementRect as observeElementRectDefault } from '@tanstack/vue-virtual'
 import { useI18n } from 'vue-i18n'
 import type { Column } from './types'
+import BaseCheckbox from '@/components/common/BaseCheckbox.vue'
 import Icon from '@/components/icons/Icon.vue'
 
 const { t } = useI18n()

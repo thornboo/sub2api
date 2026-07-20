@@ -10,8 +10,10 @@
       class="peer sr-only"
       :checked="modelValue"
       :disabled="disabled"
+      :indeterminate="indeterminate"
       :aria-label="ariaLabel"
       :aria-checked="indeterminate ? 'mixed' : modelValue"
+      :data-test="dataTest"
       @change="handleChange"
     />
     <span :class="boxClasses">
@@ -39,11 +41,13 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   indeterminate?: boolean
   ariaLabel?: string
+  dataTest?: string
   size?: 'sm' | 'md'
 }>(), {
   disabled: false,
   indeterminate: false,
   ariaLabel: undefined,
+  dataTest: undefined,
   size: 'md',
 })
 

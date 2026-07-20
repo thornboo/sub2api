@@ -384,10 +384,16 @@ describe('DataTable', () => {
 
     await wrapper.get('[data-test="select-all"]').setValue(true)
 
+    const visibleSelectAll = wrapper.get('[data-test="select-all"]').element.nextElementSibling
+    expect(visibleSelectAll?.classList.contains('h-5')).toBe(true)
+    expect(visibleSelectAll?.classList.contains('w-5')).toBe(true)
+    expect(visibleSelectAll?.classList.contains('dark:bg-neutral-950/70')).toBe(true)
+
     const selectedAll = wrapper.emitted('update:selectedKeys')?.at(-1)?.[0]
     expect(selectedAll).toEqual([99, 1, 2])
 
     await wrapper.setProps({ selectedKeys: selectedAll as number[] })
+    expect(visibleSelectAll?.classList.contains('bg-emerald-500')).toBe(true)
     const rowCheckboxes = wrapper.findAll<HTMLInputElement>('[data-test="select-row"]')
     expect(rowCheckboxes.every((checkbox) => checkbox.element.checked)).toBe(true)
 
