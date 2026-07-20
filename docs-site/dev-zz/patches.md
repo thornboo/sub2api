@@ -1,5 +1,34 @@
 # 补丁记录
 
+## 2026-07-20 - 上游 main 同步：入口安全、热配置与媒体路由
+
+### 目标
+
+- 将 `origin/main@bfabfe60c` 合入 `dev-zz`，吸收入口安全、鉴权缓存、客户端 IP、对象存储、Grok 媒体、上游倍率和 WebSocket 生命周期修复。
+- 保持企业成员路由/预算/归因、owner/admin 数据边界、永久留存、供应商成本、fork 发布和 stone/emerald 视觉合同不回退。
+
+### 主要变化
+
+- 无效 Key、缺失 Key 和分组拒绝等入口失败进入聚合记录与滥用限制，不再为高频无效请求逐条放大数据库错误日志；新增鉴权缓存失效 outbox、worker、订阅健康状态及清理工具。
+- 客户端 IP 来源改为显式配置的可信代理和请求头列表，设置保存会刷新运行时快照并写审计；部署示例补齐 Caddy / Docker 边缘安全说明。
+- 异步图片对象存储配置进入管理端备份页并支持保存即生效，环境变量启动仍可用；图片任务继续保留企业成员预算恢复、task fence、失败释放和结果不明处理。
+- Grok 视频生成、状态和内容查询绑定持久化的 group/account，受保护签名内容经本站同源代理返回并验证请求所有者，不能通过普通 failover 跨凭据读取。
+- OpenAI 首输出超时按预算上下文区分：普通 Key 在未输出语义内容时允许切换账号；企业成员已有预算 receipt 时禁止重放并保留结果不明 receipt。
+- OpenAI 模型失败合并双方优先级：明确的 model-not-found 先进入专用模型冷却，管理员临时规则随后按 account+model 隔离，剩余错误再走通用模型策略；配置了 OAuth 429 规则但未匹配时保持账号级短冷却。
+- 账号管理同时展示并排序供应商成本、上游有效倍率和峰值倍率；设置页增加客户端 IP 与倍率探测配置，表格继续使用 dev-zz 的可访问复选框和 stone/emerald 主题。
+
+### 数据与兼容性
+
+- 新增 `183_ops_ingress_reject_aggregates.sql` 和 `184_auth_cache_invalidation_outbox.sql`；按完整文件名追加，不修改任何既有迁移。
+- 运维错误 insert 合同删除已删除 Key 明文归属字段，保留企业成员快照与分类 v2；owner 明细查询要求当前 `user_id`，管理员审计查询继续可见完整证据。
+- 正式版本号保持 `1.7.13`，Compose 默认镜像保持 `thornboo/sub2api:latest`。
+
+### 验证
+
+- Wire 从合并后的 provider graph 重新生成；后端 handler、repository、middleware、routes、service、server 和入口清理命令测试通过，全量 unit 与 golangci-lint（0 issues）通过，repository integration 测试二进制编译成功。
+- 前端 ESLint、typecheck、214 个测试文件 / 1444 条测试和生产构建通过；docs-site 构建与最终冲突/whitespace 检查通过。
+- Compose 配置校验通过；浏览器人工 smoke 和 Docker/Testcontainers 运行时集成测试未执行。
+
 ## 2026-07-20 - v1.7.11 企业成员 Key 按需复制修复
 
 ### 问题

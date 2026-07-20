@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -79,9 +80,9 @@ func TestOpenAIForwardFirstOutputTimeoutIncludesResponseHeaderWait(t *testing.T)
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusGatewayTimeout, failoverErr.StatusCode)
 	require.Contains(t, string(failoverErr.ResponseBody), "first_output_timeout")
-	require.False(t, failoverErr.SafeToFailoverAfterWrite)
-	require.Equal(t, NextAccountStop, failoverErr.NextAccountAction)
-	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+	require.True(t, failoverErr.SafeToFailoverAfterWrite)
+	require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+	require.False(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
 	require.Less(t, time.Since(started), 1300*time.Millisecond)
 	require.Empty(t, rec.Body.String())
 	select {
@@ -140,9 +141,9 @@ func TestOpenAINativeFirstOutputTimeoutIgnoresPreambleAndCleansReader(t *testing
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusGatewayTimeout, failoverErr.StatusCode)
 	require.Contains(t, string(failoverErr.ResponseBody), "first_output_timeout")
-	require.False(t, failoverErr.SafeToFailoverAfterWrite)
-	require.Equal(t, NextAccountStop, failoverErr.NextAccountAction)
-	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+	require.True(t, failoverErr.SafeToFailoverAfterWrite)
+	require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+	require.False(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
 	require.Empty(t, rec.Body.String())
 	select {
 	case <-body.closed:
@@ -389,9 +390,9 @@ func assertOpenAINativeLargeOpenEventTimesOutWithoutLeak(t *testing.T, line stri
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusGatewayTimeout, failoverErr.StatusCode)
 	require.Contains(t, string(failoverErr.ResponseBody), "first_output_timeout")
-	require.False(t, failoverErr.SafeToFailoverAfterWrite)
-	require.Equal(t, NextAccountStop, failoverErr.NextAccountAction)
-	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+	require.True(t, failoverErr.SafeToFailoverAfterWrite)
+	require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+	require.False(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
 	require.NotContains(t, rec.Body.String(), "data:", "attempt JSON must remain private before the SSE boundary")
 	require.NotContains(t, rec.Body.String(), `"type"`, "attempt JSON must remain private before the SSE boundary")
 	for _, outputLine := range strings.Split(strings.TrimSpace(rec.Body.String()), "\n") {
@@ -406,6 +407,32 @@ func assertOpenAINativeLargeOpenEventTimesOutWithoutLeak(t *testing.T, line stri
 	case <-time.After(time.Second):
 		t.Fatal("partial-event writer did not exit after timeout closed the body")
 	}
+}
+
+func TestOpenAIFirstOutputTimeoutStopsFailoverForEnterpriseMemberBudget(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	ctx := context.WithValue(context.Background(), ctxkey.MemberBudgetReservation, &EnterpriseMemberBudgetReservation{
+		RequestID: "member-request",
+	})
+
+	failoverErr := svc.newOpenAIFirstOutputTimeoutError(
+		ctx,
+		c,
+		&Account{ID: 1, Platform: PlatformOpenAI},
+		time.Now(),
+		"gpt-5.5",
+		"low",
+		time.Second,
+		"test",
+		http.Header{},
+	)
+
+	require.False(t, failoverErr.SafeToFailoverAfterWrite)
+	require.Equal(t, NextAccountStop, failoverErr.NextAccountAction)
+	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+	require.Equal(t, "upstream_first_output_timeout", EnterpriseMemberBudgetOutcomeAmbiguousReason(c))
 }
 
 func TestOpenAINativeFirstOutputEOFDispatchesTerminalEventWithoutBlankLine(t *testing.T) {

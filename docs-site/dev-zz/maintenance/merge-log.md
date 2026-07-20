@@ -1,5 +1,93 @@
 # 上游合并记录
 
+## 2026-07-20 - 将上游 `main` 合并到 `dev-zz`：入口安全、鉴权缓存、运行时对象存储与 Grok 媒体闭环合流
+
+分支：
+- 目标：`dev-zz`
+- 上游：`origin/main`
+- Base：`b1a6b8026`
+- 合并前目标：`8a7b65f54`
+- 上游 head：`bfabfe60c`
+- 结果提交：本次合并提交
+
+上游要点：
+- 新增入口鉴权拒绝聚合、无效凭据滥用限制和鉴权缓存失效 outbox，减少无效 Key 对数据库与运维错误明细的放大，同时提供清理命令和健康状态。
+- 客户端 IP 解析改为显式可信代理 / 请求头设置，并将配置、审计、部署示例和 Caddy 边缘安全说明串成同一合同。
+- 异步图片对象存储改为后台热配置并支持环境变量启动；Grok 视频内容使用同源代理、请求所有者隔离、签名地址校验和已持久化任务路由。
+- 上游倍率探测和账号列表新增有效倍率 / 峰值倍率排序，OpenAI WebSocket、流式错误、模型级临时冷却及 Responses 兼容继续修正。
+
+合并策略：
+- 合并前完整读取 `docs-site/dev-zz` 的分支策略、上游同步流程、历史合并记录、补丁/变更记录、变更地图和验证矩阵；刷新 `origin/main` 后先用 `git merge-tree --write-tree` 只读预演，再执行 `git merge --no-commit origin/main`。
+- 预演和真实合并均得到 38 个内容冲突。接受上游入口安全、鉴权缓存、客户端 IP、对象存储热配置、Grok 媒体和倍率探测修复；继续保留 dev-zz 企业成员有序分组、预算/归因、owner/admin 数据边界、永久留存、供应商成本、stone/emerald 视觉、fork 镜像和 `1.7.13` 版本线。
+- `183_ops_ingress_reject_aggregates.sql`、`184_auth_cache_invalidation_outbox.sql` 与 dev-zz 既有更高编号迁移按完整文件名并存；没有修改任何已应用迁移。
+
+冲突文件：
+- `backend/cmd/server/VERSION`
+- `backend/cmd/server/wire.go`
+- `backend/cmd/server/wire_gen.go`
+- `backend/internal/handler/admin/setting_handler_update.go`
+- `backend/internal/handler/grok_media.go`
+- `backend/internal/handler/image_task_handler.go`
+- `backend/internal/handler/openai_gateway_handler.go`
+- `backend/internal/handler/ops_error_logger.go`
+- `backend/internal/handler/ops_error_logger_test.go`
+- `backend/internal/handler/wire.go`
+- `backend/internal/repository/account_repo.go`
+- `backend/internal/repository/account_repo_sort_integration_test.go`
+- `backend/internal/repository/ops_error_where_test.go`
+- `backend/internal/repository/ops_repo.go`
+- `backend/internal/repository/ops_repo_args_test.go`
+- `backend/internal/repository/ops_repo_get_error_log_by_id_integration_test.go`
+- `backend/internal/server/middleware/api_key_auth.go`
+- `backend/internal/server/middleware/api_key_auth_google.go`
+- `backend/internal/server/routes/gateway.go`
+- `backend/internal/service/api_key_service.go`
+- `backend/internal/service/gemini_chat_completions_compat_service.go`
+- `backend/internal/service/grok_media.go`
+- `backend/internal/service/image_task.go`
+- `backend/internal/service/openai_account_runtime_block_fastpath.go`
+- `backend/internal/service/openai_gateway_grok_test.go`
+- `backend/internal/service/openai_ws_v2_passthrough_adapter.go`
+- `backend/internal/service/ops_port.go`
+- `backend/internal/service/ops_service.go`
+- `backend/internal/service/ops_service_user_error_test.go`
+- `backend/internal/service/ratelimit_service.go`
+- `backend/internal/service/ratelimit_service_model_not_found_test.go`
+- `backend/internal/service/wire.go`
+- `frontend/src/components/account/CreateAccountModal.vue`
+- `frontend/src/components/common/DataTable.vue`
+- `frontend/src/views/admin/AccountsView.vue`
+- `frontend/src/views/admin/__tests__/AccountsView.bulkEdit.spec.ts`
+- `frontend/src/views/admin/__tests__/SettingsView.spec.ts`
+- `frontend/src/views/admin/ops/components/OpsSettingsDialog.vue`
+
+解决说明：
+- Wire 从合并后的 `wire.go` 重新生成，同时注入上游入口拒绝聚合、鉴权缓存失效 worker、Ops 运行时刷新和 Grok quota，以及 dev-zz 企业成员预算、图片预算恢复、媒体任务仓储和导入 worker。
+- API Key / Google 鉴权保留企业成员状态与分组验证，同时把入口拒绝写入聚合管线；删除 Key 的明文归属不再进入通用错误日志，owner 查询严格要求当前 `user_id`，管理员审计仍保留未过滤查询。
+- 图片任务继续执行企业成员预算恢复、异步任务 fence 和结果不明闭环，同时对象存储解析器改为保存即生效的运行时设置；Grok 视频状态和内容优先使用持久化 group/account 路由，不能跨凭据租户回退。
+- OpenAI 首输出超时在普通 Key 尚未写出语义内容时允许复用客户端连接切换账号；存在企业成员预算凭据时停止重放并把 receipt 标记为结果不明，避免同一 turn 产生重复上游副作用或重复计费。
+- OpenAI 错误处理按“明确模型不存在、管理员临时规则、通用模型冷却”依次判定；OAuth 账号配置了 429 规则时，匹配项只冷却 account+model，未匹配项继续走账号级短冷却，未配置规则的普通模型 429 保持模型级 failover。
+- 账号列表同时保留 dev-zz 供应商成本排序和上游有效倍率/峰值倍率排序；`DataTable`、账号页和设置页继续使用 stone/emerald 与可访问复选框，并吸收上游表头 slot、倍率列和客户端 IP 设置。
+- `VERSION` 保持 `1.7.13`，Compose 默认镜像保持 `thornboo/sub2api:latest`，不采用上游 `0.1.161` 版本线。
+
+验证：
+- `mise x -C backend -- go run github.com/google/wire/cmd/wire ./cmd/server`
+- `mise x -C backend -- go test ./internal/handler ./internal/repository ./internal/server/middleware ./internal/server/routes ./internal/service ./cmd/cleanup-ingress-reject-logs ./cmd/server -count=1`
+- `mise x -C backend -- make test-unit`
+- `mise x -C backend -- golangci-lint run --timeout=30m`（0 issues）
+- `mise x -C backend -- go test -tags=integration -c -o /tmp/sub2api-repository-integration.test ./internal/repository`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend test:run`（214 个测试文件、1444 个测试通过）
+- `pnpm --dir frontend build`
+- `pnpm --dir docs-site docs:build`
+- `docker-compose -f deploy/docker-compose.yml config -q`
+- `git diff --check`、`git diff --cached --check`、Wire 重生成、未合并索引与冲突标记扫描。
+
+未验证：
+- 浏览器人工 smoke。
+- Docker / Testcontainers 运行时集成测试；本轮只校验 Compose 配置并编译 repository integration 测试二进制。
+
 ## 2026-07-18 - 将上游 `main` 合并到 `dev-zz`：提示词审计、安全开关与 Grok 媒体路由合流
 
 分支：

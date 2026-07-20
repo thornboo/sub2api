@@ -24,6 +24,7 @@ func RegisterGatewayRoutes(
 	cfg *config.Config,
 ) {
 	bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
+	textBodyLimit := middleware.RequestBodyLimit(cfg.Gateway.TextMaxBodySize)
 	clientRequestID := middleware.ClientRequestID()
 	opsErrorLogger := handler.OpsErrorLoggerMiddleware(opsService)
 	endpointNorm := handler.InboundEndpointMiddleware()
@@ -88,6 +89,19 @@ func RegisterGatewayRoutes(
 	videoStatusHandler := func(c *gin.Context) {
 		if getGroupPlatform(c) == service.PlatformGrok {
 			h.OpenAIGateway.GrokVideoStatus(c)
+			return
+		}
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": gin.H{
+				"type":    "not_found_error",
+				"message": "Videos API is not supported for this platform",
+			},
+		})
+	}
+	videoContentHandler := func(c *gin.Context) {
+		if getGroupPlatform(c) == service.PlatformGrok {
+			h.OpenAIGateway.GrokVideoContent(c)
 			return
 		}
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
@@ -174,7 +188,7 @@ func RegisterGatewayRoutes(
 			}
 			h.Gateway.Responses(c)
 		}))
-		gateway.POST("/alpha/search", orchestrateMemberGroups(h.OpenAIGateway.AlphaSearch))
+		gateway.POST("/alpha/search", textBodyLimit, orchestrateMemberGroups(h.OpenAIGateway.AlphaSearch))
 		gateway.GET("/responses", func(c *gin.Context) {
 			h.OpenAIGateway.ResponsesWebSocket(c)
 		})
@@ -186,7 +200,7 @@ func RegisterGatewayRoutes(
 			}
 			h.Gateway.ChatCompletions(c)
 		}))
-		gateway.POST("/embeddings", orchestrateMemberGroups(func(c *gin.Context) {
+		gateway.POST("/embeddings", textBodyLimit, orchestrateMemberGroups(func(c *gin.Context) {
 			if getGroupPlatform(c) != service.PlatformOpenAI {
 				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 				c.JSON(http.StatusNotFound, gin.H{
@@ -218,6 +232,7 @@ func RegisterGatewayRoutes(
 		gateway.POST("/videos/edits", orchestrateMemberGroups(videoEditHandler))
 		gateway.POST("/videos/extensions", orchestrateMemberGroups(videoExtensionHandler))
 		gateway.GET("/videos/:request_id", videoStatusHandler)
+		gateway.GET("/videos/:request_id/content", videoContentHandler)
 	}
 
 	// Gemini 原生 API 兼容层（Gemini SDK/CLI 直连）
@@ -247,7 +262,7 @@ func RegisterGatewayRoutes(
 	}
 	r.POST("/responses", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, orchestrateMemberGroups(responsesHandler))
 	r.POST("/responses/*subpath", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, orchestrateMemberGroups(responsesHandler))
-	r.POST("/alpha/search", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, orchestrateMemberGroups(h.OpenAIGateway.AlphaSearch))
+	r.POST("/alpha/search", textBodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, orchestrateMemberGroups(h.OpenAIGateway.AlphaSearch))
 	r.GET("/responses", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, func(c *gin.Context) {
 		h.OpenAIGateway.ResponsesWebSocket(c)
 	})
@@ -257,7 +272,7 @@ func RegisterGatewayRoutes(
 	{
 		codexDirect.POST("/responses", orchestrateMemberGroups(responsesHandler))
 		codexDirect.POST("/responses/*subpath", orchestrateMemberGroups(responsesHandler))
-		codexDirect.POST("/alpha/search", orchestrateMemberGroups(h.OpenAIGateway.AlphaSearch))
+		codexDirect.POST("/alpha/search", textBodyLimit, orchestrateMemberGroups(h.OpenAIGateway.AlphaSearch))
 		codexDirect.GET("/responses", func(c *gin.Context) {
 			h.OpenAIGateway.ResponsesWebSocket(c)
 		})
@@ -271,7 +286,7 @@ func RegisterGatewayRoutes(
 		}
 		h.Gateway.ChatCompletions(c)
 	}))
-	r.POST("/embeddings", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, orchestrateMemberGroups(func(c *gin.Context) {
+	r.POST("/embeddings", textBodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, orchestrateMemberGroups(func(c *gin.Context) {
 		if getGroupPlatform(c) != service.PlatformOpenAI {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{
@@ -293,6 +308,7 @@ func RegisterGatewayRoutes(
 	r.POST("/videos/edits", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, orchestrateMemberGroups(videoEditHandler))
 	r.POST("/videos/extensions", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, orchestrateMemberGroups(videoExtensionHandler))
 	r.GET("/videos/:request_id", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, videoStatusHandler)
+	r.GET("/videos/:request_id/content", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, videoContentHandler)
 
 	// Antigravity 模型列表
 	r.GET("/antigravity/models", gin.HandlerFunc(apiKeyAuth), resolveMemberGroupAnthropic, enforceMemberBudgetAnthropic, requireGroupAnthropic, h.Gateway.AntigravityModels)

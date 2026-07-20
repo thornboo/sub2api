@@ -2,6 +2,10 @@
 
 ## 2026-07-20
 
+- 同步上游 `main`（`bfabfe60c`）到 `dev-zz`：新增入口拒绝聚合与鉴权缓存失效 outbox、可信代理/客户端 IP 请求头设置、异步图片对象存储热配置、Grok 受保护视频内容代理，以及上游有效倍率/峰值倍率排序。
+- 合并继续保留企业成员有序分组、预算/归因和 owner/admin 数据隔离：普通 Key 的 OpenAI 首输出超时可在尚未产生语义输出时切换账号，企业成员已有预算 receipt 时则停止重放并进入结果不明闭环，避免重复副作用或重复计费。
+- 运维错误明细不再为已删除 Key 保存或查询明文归属；无效鉴权流量进入低基数聚合入口，owner 只能读取当前用户及未永久移除成员的记录，管理员审计查询不受影响。
+- `VERSION` 保持 `1.7.13`，Compose 继续使用 `thornboo/sub2api:latest`；上游新增迁移按完整文件名追加，没有改写已应用迁移。
 - 发布 `v1.7.11`：修复企业成员管理中复制成员 Key 固定返回 `API key not found` 的问题。成员 Key 列表继续只返回脱敏值，owner 主动复制时改走企业成员专用按需读取接口，不放宽普通 `/keys/:id` 对成员 Key 的隔离。
 - 专用接口在应用服务内同时校验企业 owner、当前成员、Key ID、成员归属和未删除状态，并在返回明文前写入不含凭据的 append-only `member_key.reveal_authorized` 审计；审计缺失或写入失败时 fail closed。
 - 明文响应只包含 `id`、`member_id` 和 `key`，设置 `Cache-Control: no-store` / `Pragma: no-cache`；前端冻结请求成员与 Key 身份，切换成员时丢弃迟到响应，并同时校验响应中的成员 ID 和 Key ID。

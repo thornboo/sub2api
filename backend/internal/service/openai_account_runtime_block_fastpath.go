@@ -65,24 +65,37 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		return false
 	}
 
-	if s != nil && s.rateLimitService != nil && len(canonicalModel) > 0 &&
-		!shouldUseOpenAIAPIKeyRuntimeFailurePolicy(account, statusCode, responseBody) {
-		if handled, shouldFailover := s.rateLimitService.HandleModelScopedFailure(stateCtx, account, canonicalModel[0], statusCode, headers, responseBody); handled {
-			return shouldFailover
+	if s == nil || account == nil {
+		return false
+	}
+	stateCtx = withTempUnschedulableModel(stateCtx, canonicalModel)
+	if s.rateLimitService != nil && len(canonicalModel) > 0 {
+		model := strings.TrimSpace(canonicalModel[0])
+		if model != "" && s.rateLimitService.HandleUpstreamModelNotFound(stateCtx, account, model, statusCode, responseBody) {
+			return true
+		}
+		// An explicit administrator rule wins over the generic provider model
+		// cooldown and remains scoped to this account+model pair.
+		if statusCode != http.StatusUnauthorized && model != "" &&
+			s.rateLimitService.HandleTempUnschedulable(stateCtx, account, statusCode, responseBody, model) {
+			return true
+		}
+		if !shouldUseOpenAIAccountRuntimeFailurePolicy(account, statusCode, responseBody) {
+			if handled, shouldFailover := s.rateLimitService.HandleModelScopedFailure(stateCtx, account, model, statusCode, headers, responseBody); handled {
+				return shouldFailover
+			}
 		}
 	}
-
 	if statusCode == http.StatusTooManyRequests {
 		s.markOpenAIOAuth429RateLimited(stateCtx, account, headers, responseBody)
 	}
-	if s == nil || account == nil || s.rateLimitService == nil {
+	if s.rateLimitService == nil {
 		return false
 	}
-	if len(canonicalModel) > 0 && s.rateLimitService.HandleUpstreamModelNotFound(stateCtx, account, canonicalModel[0], statusCode, responseBody) {
-		return true
-	}
 	shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody)
-	if shouldDisable {
+	modelTempMatched := statusCode != http.StatusUnauthorized && tempUnschedulableModel(stateCtx, nil) != "" &&
+		len(matchTempUnschedulableRules(account, statusCode, responseBody)) > 0
+	if shouldDisable && !modelTempMatched {
 		s.BlockAccountScheduling(account, time.Time{}, "upstream_disable")
 	}
 	if !shouldDisable && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey && shouldCooldownOpenAITransientUpstreamError(statusCode, responseBody) {
@@ -115,16 +128,30 @@ func shouldCooldownOpenAITransientUpstreamError(statusCode int, responseBody []b
 	}
 }
 
-// shouldUseOpenAIAPIKeyRuntimeFailurePolicy preserves the newer OpenAI API-key
-// behavior for request-shape failures and transient upstream errors. Parameter
-// 400s must not create a persistent model cooldown, while transient failures
-// use the request-local consecutive-failure policy below instead of the generic
-// provider model cooldown.
-func shouldUseOpenAIAPIKeyRuntimeFailurePolicy(account *Account, statusCode int, responseBody []byte) bool {
-	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey {
+// shouldUseOpenAIAccountRuntimeFailurePolicy preserves the account-level paths
+// that must not be swallowed by the generic provider model cooldown. When an
+// OAuth account has an explicit rule for this status, that rule defines which
+// responses are model-specific: a non-match therefore stays account-wide.
+// Without such a rule, ordinary OAuth model failures retain the generic
+// account+model failover behavior. API-key request-shape and transient failures
+// use their dedicated runtime policies rather than a persistent model cooldown.
+func shouldUseOpenAIAccountRuntimeFailurePolicy(account *Account, statusCode int, responseBody []byte) bool {
+	if account == nil || account.Platform != PlatformOpenAI {
 		return false
 	}
-	return statusCode == http.StatusBadRequest || shouldCooldownOpenAITransientUpstreamError(statusCode, responseBody)
+	if account.Type == AccountTypeOAuth {
+		if statusCode != http.StatusTooManyRequests || !account.IsTempUnschedulableEnabled() {
+			return false
+		}
+		for _, rule := range account.GetTempUnschedulableRules() {
+			if rule.ErrorCode == statusCode {
+				return true
+			}
+		}
+		return false
+	}
+	return account.Type == AccountTypeAPIKey &&
+		(statusCode == http.StatusBadRequest || shouldCooldownOpenAITransientUpstreamError(statusCode, responseBody))
 }
 
 func (s *OpenAIGatewayService) markOpenAIOAuth429RateLimited(ctx context.Context, account *Account, headers http.Header, responseBody []byte) {

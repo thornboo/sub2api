@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 )
@@ -270,15 +271,23 @@ func (s *OpenAIGatewayService) newOpenAIFirstOutputTimeoutError(
 	if s.rateLimitService != nil {
 		s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
 	}
-	MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "upstream_first_output_timeout")
-	return &UpstreamFailoverError{
-		StatusCode:        http.StatusGatewayTimeout,
-		ResponseBody:      []byte(`{"error":{"type":"first_output_timeout","message":"Upstream produced no output before the deadline"}}`),
-		ResponseHeaders:   responseHeaders.Clone(),
-		Stage:             GatewayFailureStageInference,
-		Scope:             GatewayFailureScopeRequest,
-		NextAccountAction: NextAccountStop,
+	failoverErr := &UpstreamFailoverError{
+		StatusCode:               http.StatusGatewayTimeout,
+		ResponseBody:             []byte(`{"error":{"type":"first_output_timeout","message":"Upstream produced no output before the deadline"}}`),
+		ResponseHeaders:          responseHeaders.Clone(),
+		SafeToFailoverAfterWrite: true,
+		Stage:                    GatewayFailureStageInference,
+		Scope:                    GatewayFailureScopeRequest,
+		NextAccountAction:        NextAccountRetry,
 	}
+	if ctx != nil {
+		if reservation, _ := ctx.Value(ctxkey.MemberBudgetReservation).(*EnterpriseMemberBudgetReservation); reservation != nil {
+			MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "upstream_first_output_timeout")
+			failoverErr.SafeToFailoverAfterWrite = false
+			failoverErr.NextAccountAction = NextAccountStop
+		}
+	}
+	return failoverErr
 }
 
 type openAIFirstOutputHeaderGuard struct {
