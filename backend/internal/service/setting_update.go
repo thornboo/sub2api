@@ -404,6 +404,11 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyBackendModeEnabled] = strconv.FormatBool(settings.BackendModeEnabled)
 
 	// Gateway forwarding behavior
+	// A config-sourced value means an older client omitted the new field. Do not
+	// silently turn that deployment default into a persistent database override.
+	if settings.NativeModelProtocolRoutingSource != "config" {
+		updates[SettingKeyNativeModelProtocolRoutingEnabled] = strconv.FormatBool(settings.NativeModelProtocolRoutingEnabled)
+	}
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
 	updates[SettingKeyEnableCCHSigning] = strconv.FormatBool(settings.EnableCCHSigning)
@@ -576,6 +581,16 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		rewriteMessageCacheControl:       settings.RewriteMessageCacheControl,
 		clientDatelineNormalization:      settings.EnableClientDatelineNormalization,
 		expiresAt:                        time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
+	})
+	s.nativeModelProtocolRoutingSF.Forget("native_model_protocol_routing")
+	nativeModelProtocolRoutingSource := settings.NativeModelProtocolRoutingSource
+	if nativeModelProtocolRoutingSource == "" {
+		nativeModelProtocolRoutingSource = "settings"
+	}
+	s.nativeModelProtocolRoutingCache.Store(&cachedNativeModelProtocolRouting{
+		enabled:   settings.NativeModelProtocolRoutingEnabled,
+		source:    nativeModelProtocolRoutingSource,
+		expiresAt: time.Now().Add(nativeModelProtocolRoutingCacheTTL).UnixNano(),
 	})
 	s.antigravityUAVersionSF.Forget("antigravity_user_agent_version")
 	antigravityUserAgentVersion := antigravity.NormalizeUserAgentVersion(settings.AntigravityUserAgentVersion)

@@ -49,6 +49,26 @@ const getBodyText = () => document.body.textContent ?? ''
 const getBodyButtons = () => Array.from(document.body.querySelectorAll('button'))
 
 describe('AccountActionMenu — spark shadow 按钮可见性', () => {
+  it('OpenAI API Key 账号显示模型协议能力入口', () => {
+    const account = makeAccount({ platform: 'openai', type: 'apikey' })
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+    expect(getBodyText()).toContain('admin.accounts.modelProtocol.action')
+    wrapper.unmount()
+  })
+
+  it('不支持原生多协议路由的账号不显示模型协议能力入口', () => {
+    const account = makeAccount({ platform: 'anthropic', type: 'apikey' })
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+    expect(getBodyText()).not.toContain('admin.accounts.modelProtocol.action')
+    wrapper.unmount()
+  })
+
   it('普通账号显示「复制账号」按钮', () => {
     const account = makeAccount({ platform: 'anthropic', type: 'apikey', parent_account_id: null })
     const wrapper = mount(AccountActionMenu, {

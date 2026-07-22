@@ -19,11 +19,12 @@ type ChannelHandler struct {
 	channelService *service.ChannelService
 	billingService *service.BillingService
 	pricingService *service.PricingService
+	modelDelivery  *service.ModelDeliveryService
 }
 
 // NewChannelHandler creates a new admin channel handler
-func NewChannelHandler(channelService *service.ChannelService, billingService *service.BillingService, pricingService *service.PricingService) *ChannelHandler {
-	return &ChannelHandler{channelService: channelService, billingService: billingService, pricingService: pricingService}
+func NewChannelHandler(channelService *service.ChannelService, billingService *service.BillingService, pricingService *service.PricingService, modelDelivery *service.ModelDeliveryService) *ChannelHandler {
+	return &ChannelHandler{channelService: channelService, billingService: billingService, pricingService: pricingService, modelDelivery: modelDelivery}
 }
 
 // --- Request / Response types ---
@@ -158,6 +159,64 @@ type availableCatalogChannelResponse struct {
 	Description string                                    `json:"description"`
 	Status      string                                    `json:"status"`
 	Platforms   []availableCatalogPlatformSectionResponse `json:"platforms"`
+}
+
+type channelModelDeliveryEndpointResponse struct {
+	Protocol string  `json:"protocol"`
+	Path     string  `json:"path"`
+	Mode     string  `json:"mode"`
+	GroupIDs []int64 `json:"group_ids"`
+}
+
+type channelModelDeliveryRouteEndpointResponse struct {
+	Protocol string `json:"protocol"`
+	Path     string `json:"path"`
+	Mode     string `json:"mode"`
+	Source   string `json:"source,omitempty"`
+}
+
+type channelModelDeliveryProtocolDecisionResponse struct {
+	Protocol           string   `json:"protocol"`
+	Path               string   `json:"path"`
+	Status             string   `json:"status"`
+	Mode               string   `json:"mode,omitempty"`
+	ChannelMappedModel string   `json:"channel_mapped_model,omitempty"`
+	UpstreamModel      string   `json:"upstream_model,omitempty"`
+	UpstreamProtocol   string   `json:"upstream_protocol,omitempty"`
+	Source             string   `json:"source,omitempty"`
+	ReasonCodes        []string `json:"reason_codes"`
+	GroupIDs           []int64  `json:"group_ids,omitempty"`
+}
+
+type channelModelDeliveryRouteResponse struct {
+	AccountID          int64                                          `json:"account_id"`
+	AccountName        string                                         `json:"account_name"`
+	ChannelMappedModel string                                         `json:"channel_mapped_model"`
+	UpstreamModel      string                                         `json:"upstream_model"`
+	Endpoints          []channelModelDeliveryRouteEndpointResponse    `json:"endpoints"`
+	Protocols          []channelModelDeliveryProtocolDecisionResponse `json:"protocols"`
+}
+
+type channelModelDeliveryGroupResponse struct {
+	ID         int64                                          `json:"id"`
+	Name       string                                         `json:"name"`
+	Platform   string                                         `json:"platform"`
+	Status     string                                         `json:"status"`
+	RouteCount int                                            `json:"route_count"`
+	Routes     []channelModelDeliveryRouteResponse            `json:"routes"`
+	Protocols  []channelModelDeliveryProtocolDecisionResponse `json:"protocols"`
+}
+
+type channelModelDeliveryResponse struct {
+	Name                  string                                         `json:"name"`
+	Platform              string                                         `json:"platform"`
+	Status                string                                         `json:"status"`
+	DeliverableGroupCount int                                            `json:"deliverable_group_count"`
+	TotalGroupCount       int                                            `json:"total_group_count"`
+	RouteCount            int                                            `json:"route_count"`
+	Endpoints             []channelModelDeliveryEndpointResponse         `json:"endpoints"`
+	Protocols             []channelModelDeliveryProtocolDecisionResponse `json:"protocols"`
+	Groups                []channelModelDeliveryGroupResponse            `json:"groups"`
 }
 
 type channelModelPricingResponse struct {
@@ -533,6 +592,277 @@ func (h *ChannelHandler) GetByID(c *gin.Context) {
 	}
 
 	response.Success(c, channelToResponse(channel))
+}
+
+// GetModelDelivery resolves administrator-only stable delivery routes for all
+// public models configured on one channel.
+// GET /api/v1/admin/channels/:id/model-delivery
+func (h *ChannelHandler) GetModelDelivery(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.ErrorFrom(c, infraerrors.BadRequest("INVALID_CHANNEL_ID", "Invalid channel ID"))
+		return
+	}
+	channel, err := h.channelService.GetByID(c.Request.Context(), id)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if h.modelDelivery == nil {
+		response.InternalError(c, "Model delivery service is not configured")
+		return
+	}
+	models := channel.SupportedModels()
+	modelIDs := make([]string, 0, len(models))
+	for _, model := range models {
+		modelIDs = append(modelIDs, model.Name)
+	}
+	delivery, err := h.modelDelivery.ResolveForGroups(c.Request.Context(), channel.GroupIDs, modelIDs)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	result := make([]channelModelDeliveryResponse, 0, len(models))
+	for _, model := range models {
+		row := channelModelDeliveryResponse{Name: model.Name, Platform: model.Platform}
+		endpointGroups := make(map[service.ModelProtocol][]int64)
+		endpointModes := make(map[service.ModelProtocol]service.ModelDeliveryMode)
+		protocolDecisions := make(map[service.ModelProtocol]channelModelDeliveryProtocolDecisionResponse)
+		stableRouteGroupCount := 0
+		for _, groupID := range channel.GroupIDs {
+			group := delivery.Group(model.Name, groupID)
+			if group == nil || group.Platform != model.Platform {
+				continue
+			}
+			row.TotalGroupCount++
+			groupRow := channelModelDeliveryGroupResponse{
+				ID:        group.GroupID,
+				Name:      group.GroupName,
+				Platform:  group.Platform,
+				Status:    "no_route",
+				Routes:    []channelModelDeliveryRouteResponse{},
+				Protocols: []channelModelDeliveryProtocolDecisionResponse{},
+			}
+			if group.StableRouteAvailable() {
+				stableRouteGroupCount++
+			}
+			if group.Deliverable() {
+				groupRow.Status = "deliverable"
+				row.DeliverableGroupCount++
+			} else if group.StableRouteAvailable() {
+				groupRow.Status = "no_endpoint"
+			}
+			for protocol, mode := range group.Endpoints {
+				endpointGroups[protocol] = append(endpointGroups[protocol], group.GroupID)
+				endpointModes[protocol] = mergeChannelDeliveryMode(endpointModes[protocol], mode)
+			}
+			for _, protocol := range service.AllModelProtocols {
+				decision, ok := group.Decisions[protocol]
+				if !ok {
+					continue
+				}
+				decisionRow := channelModelDeliveryDecisionToResponse(decision, nil)
+				groupRow.Protocols = append(groupRow.Protocols, decisionRow)
+				protocolDecisions[protocol] = mergeChannelModelProtocolDecision(
+					protocolDecisions[protocol],
+					decisionRow,
+					group.GroupID,
+				)
+			}
+			for _, route := range group.Routes {
+				routeRow := channelModelDeliveryRouteResponse{
+					AccountID:          route.AccountID,
+					AccountName:        route.AccountName,
+					ChannelMappedModel: summarizeRouteDecisionModel(route.Decisions, false),
+					UpstreamModel:      summarizeRouteDecisionModel(route.Decisions, true),
+					Endpoints:          []channelModelDeliveryRouteEndpointResponse{},
+					Protocols:          []channelModelDeliveryProtocolDecisionResponse{},
+				}
+				for _, endpoint := range route.Endpoints {
+					routeRow.Endpoints = append(routeRow.Endpoints, channelModelDeliveryRouteEndpointResponse{
+						Protocol: string(endpoint.Protocol),
+						Path:     service.PublicPathForModelProtocol(endpoint.Protocol),
+						Mode:     string(endpoint.Mode),
+						Source:   endpoint.Source,
+					})
+				}
+				for _, protocol := range service.AllModelProtocols {
+					decision, ok := route.Decisions[protocol]
+					if !ok {
+						continue
+					}
+					routeRow.Protocols = append(routeRow.Protocols, channelModelDeliveryDecisionToResponse(decision, nil))
+				}
+				groupRow.Routes = append(groupRow.Routes, routeRow)
+				row.RouteCount++
+			}
+			groupRow.RouteCount = len(groupRow.Routes)
+			row.Groups = append(row.Groups, groupRow)
+		}
+		switch {
+		case row.DeliverableGroupCount == 0:
+			if stableRouteGroupCount > 0 {
+				row.Status = "no_endpoint"
+			} else {
+				row.Status = "no_route"
+			}
+		case row.DeliverableGroupCount < row.TotalGroupCount:
+			row.Status = "partial"
+		default:
+			row.Status = "deliverable"
+		}
+		for _, protocol := range service.AllModelProtocols {
+			if decision, ok := protocolDecisions[protocol]; ok {
+				row.Protocols = append(row.Protocols, decision)
+			}
+			groupIDs := endpointGroups[protocol]
+			if len(groupIDs) == 0 {
+				continue
+			}
+			sort.Slice(groupIDs, func(i, j int) bool { return groupIDs[i] < groupIDs[j] })
+			row.Endpoints = append(row.Endpoints, channelModelDeliveryEndpointResponse{
+				Protocol: string(protocol),
+				Path:     service.PublicPathForModelProtocol(protocol),
+				Mode:     string(endpointModes[protocol]),
+				GroupIDs: groupIDs,
+			})
+		}
+		sort.SliceStable(row.Groups, func(i, j int) bool { return row.Groups[i].Name < row.Groups[j].Name })
+		result = append(result, row)
+	}
+	warnings := delivery.Warnings
+	if warnings == nil {
+		warnings = []string{}
+	}
+	response.Success(c, gin.H{
+		"channel_id":   channel.ID,
+		"channel_name": channel.Name,
+		"models":       result,
+		"warnings":     warnings,
+	})
+}
+
+func channelModelDeliveryDecisionToResponse(decision service.ModelDeliveryDecision, groupIDs []int64) channelModelDeliveryProtocolDecisionResponse {
+	reasons := make([]string, 0, len(decision.ReasonCodes))
+	for _, reason := range decision.ReasonCodes {
+		reasons = append(reasons, string(reason))
+	}
+	status := "blocked"
+	if decision.Eligible {
+		status = "available"
+	}
+	return channelModelDeliveryProtocolDecisionResponse{
+		Protocol:           string(decision.InboundProtocol),
+		Path:               service.PublicPathForModelProtocol(decision.InboundProtocol),
+		Status:             status,
+		Mode:               string(decision.Mode),
+		ChannelMappedModel: decision.ChannelMappedModel,
+		UpstreamModel:      decision.UpstreamModel,
+		UpstreamProtocol:   string(decision.UpstreamProtocol),
+		Source:             decision.CapabilitySource,
+		ReasonCodes:        reasons,
+		GroupIDs:           append([]int64(nil), groupIDs...),
+	}
+}
+
+func summarizeRouteDecisionModel(decisions map[service.ModelProtocol]service.ModelDeliveryDecision, upstream bool) string {
+	summary := ""
+	for _, protocol := range service.AllModelProtocols {
+		decision, ok := decisions[protocol]
+		if !ok {
+			continue
+		}
+		value := decision.ChannelMappedModel
+		if upstream {
+			value = decision.UpstreamModel
+		}
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if summary == "" {
+			summary = value
+			continue
+		}
+		if summary != value {
+			return ""
+		}
+	}
+	return summary
+}
+
+func mergeChannelModelProtocolDecision(
+	current channelModelDeliveryProtocolDecisionResponse,
+	next channelModelDeliveryProtocolDecisionResponse,
+	groupID int64,
+) channelModelDeliveryProtocolDecisionResponse {
+	if current.Protocol == "" {
+		current = next
+	}
+	if next.Status == "available" {
+		if current.Status != "available" {
+			current = next
+		} else if current.UpstreamProtocol != next.UpstreamProtocol {
+			// A model-level row may aggregate routes that use different upstream
+			// transports. Leaving the first route's protocol here would make the
+			// summary look deterministic when it is not; route rows retain the
+			// precise per-account value.
+			current.UpstreamProtocol = ""
+		}
+		if current.ChannelMappedModel != next.ChannelMappedModel {
+			current.ChannelMappedModel = ""
+		}
+		if current.UpstreamModel != next.UpstreamModel {
+			current.UpstreamModel = ""
+		}
+		current.Status = "available"
+		current.Mode = string(mergeChannelDeliveryMode(service.ModelDeliveryMode(current.Mode), service.ModelDeliveryMode(next.Mode)))
+		current.ReasonCodes = []string{}
+		current.GroupIDs = appendUniqueSortedInt64(current.GroupIDs, groupID)
+		return current
+	}
+	if current.Status == "available" {
+		return current
+	}
+	current.ReasonCodes = mergeUniqueStrings(current.ReasonCodes, next.ReasonCodes)
+	return current
+}
+
+func appendUniqueSortedInt64(values []int64, value int64) []int64 {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	values = append(values, value)
+	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
+	return values
+}
+
+func mergeUniqueStrings(existing, additions []string) []string {
+	seen := make(map[string]struct{}, len(existing)+len(additions))
+	result := make([]string, 0, len(existing)+len(additions))
+	for _, values := range [][]string{existing, additions} {
+		for _, value := range values {
+			if value == "" {
+				continue
+			}
+			if _, ok := seen[value]; ok {
+				continue
+			}
+			seen[value] = struct{}{}
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func mergeChannelDeliveryMode(current, next service.ModelDeliveryMode) service.ModelDeliveryMode {
+	if current == "" || current == next {
+		return next
+	}
+	return service.ModelDeliveryModeMixed
 }
 
 // Create handles creating a new channel

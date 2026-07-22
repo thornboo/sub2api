@@ -67,11 +67,23 @@ type AccountHandler struct {
 	tokenCacheInvalidator   service.TokenCacheInvalidator
 	grokImportProber        grokImportProber
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
+	modelProtocolCapability *service.ModelProtocolCapabilityService
+	modelDelivery           *service.ModelDeliveryService
 }
 
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
 func (h *AccountHandler) SetUpstreamBillingProbeService(probe *service.UpstreamBillingProbeService) {
 	h.upstreamBillingProbe = probe
+}
+
+// SetModelProtocolCapabilityService attaches the account model protocol subresource.
+func (h *AccountHandler) SetModelProtocolCapabilityService(capability *service.ModelProtocolCapabilityService) {
+	h.modelProtocolCapability = capability
+}
+
+// SetModelDeliveryService attaches administrator-only public-model impact diagnostics.
+func (h *AccountHandler) SetModelDeliveryService(delivery *service.ModelDeliveryService) {
+	h.modelDelivery = delivery
 }
 
 type probeModelsRequest struct {
@@ -2884,6 +2896,181 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{"models": models})
+}
+
+// GetModelProtocolCapabilities lists observed and administrator-overridden protocol facts.
+// GET /api/v1/admin/accounts/:id/model-protocol-capabilities
+func (h *AccountHandler) GetModelProtocolCapabilities(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.NotFound(c, "Account not found")
+		return
+	}
+	if !supportsModelProtocolCapabilityManagement(account) {
+		response.BadRequest(c, "Model protocol capabilities are only supported for OpenAI API key accounts")
+		return
+	}
+	if h.modelProtocolCapability == nil {
+		response.InternalError(c, "Model protocol capability service is not configured")
+		return
+	}
+	items, err := h.modelProtocolCapability.List(c.Request.Context(), accountID)
+	if err != nil {
+		slog.Warn("list_model_protocol_capabilities_failed", "account_id", accountID)
+		response.InternalError(c, "Failed to list model protocol capabilities")
+		return
+	}
+	response.Success(c, h.modelProtocolCapabilityResponse(c, accountID, items, nil))
+}
+
+// UpdateModelProtocolCapabilityOverrides updates only administrator intent.
+// PUT /api/v1/admin/accounts/:id/model-protocol-capabilities/overrides
+func (h *AccountHandler) UpdateModelProtocolCapabilityOverrides(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.NotFound(c, "Account not found")
+		return
+	}
+	if !supportsModelProtocolCapabilityManagement(account) {
+		response.BadRequest(c, "Model protocol capabilities are only supported for OpenAI API key accounts")
+		return
+	}
+	var req struct {
+		Items []service.ModelProtocolOverride `json:"items" binding:"required,min=1"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if h.modelProtocolCapability == nil {
+		response.InternalError(c, "Model protocol capability service is not configured")
+		return
+	}
+	if err := h.modelProtocolCapability.UpdateOverrides(c.Request.Context(), accountID, req.Items); err != nil {
+		var validationErr *service.ModelProtocolCapabilityValidationError
+		if errors.As(err, &validationErr) {
+			response.BadRequest(c, validationErr.Error())
+			return
+		}
+		slog.Warn("update_model_protocol_capability_overrides_failed", "account_id", accountID)
+		response.InternalError(c, "Failed to update model protocol capability overrides")
+		return
+	}
+	items, err := h.modelProtocolCapability.List(c.Request.Context(), accountID)
+	if err != nil {
+		response.InternalError(c, "Overrides were saved but capabilities could not be reloaded")
+		return
+	}
+	response.Success(c, h.modelProtocolCapabilityResponse(c, accountID, items, nil))
+}
+
+// SyncModelProtocolCapabilities refreshes observed facts from the configured upstream model list.
+// POST /api/v1/admin/accounts/:id/model-protocol-capabilities/sync
+func (h *AccountHandler) SyncModelProtocolCapabilities(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.NotFound(c, "Account not found")
+		return
+	}
+	if !supportsModelProtocolCapabilityManagement(account) {
+		response.BadRequest(c, "Model protocol capabilities are only supported for OpenAI API key accounts")
+		return
+	}
+	if h.accountTestService == nil || h.modelProtocolCapability == nil {
+		response.InternalError(c, "Model protocol capability sync is not configured")
+		return
+	}
+	catalog, err := h.accountTestService.FetchUpstreamModelCatalog(c.Request.Context(), account)
+	if err != nil {
+		var syncErr *service.UpstreamModelSyncError
+		if errors.As(err, &syncErr) {
+			if syncErr.Kind == service.UpstreamModelSyncErrorConfiguration || syncErr.Kind == service.UpstreamModelSyncErrorUnsupported {
+				response.BadRequest(c, syncErr.SafeMessage())
+				return
+			}
+			response.Error(c, http.StatusBadGateway, syncErr.SafeMessage())
+			return
+		}
+		response.Error(c, http.StatusBadGateway, "Failed to sync model protocol capabilities")
+		return
+	}
+	result, err := h.modelProtocolCapability.SyncCatalog(c.Request.Context(), accountID, catalog)
+	if err != nil {
+		slog.Warn("sync_model_protocol_capabilities_failed", "account_id", accountID)
+		response.InternalError(c, "Failed to save model protocol capabilities")
+		return
+	}
+	items, err := h.modelProtocolCapability.List(c.Request.Context(), accountID)
+	if err != nil {
+		response.InternalError(c, "Capabilities were synced but could not be reloaded")
+		return
+	}
+	payload := h.modelProtocolCapabilityResponse(c, accountID, items, result.Warnings)
+	payload["models"] = result.Models
+	response.Success(c, payload)
+}
+
+func supportsModelProtocolCapabilityManagement(account *service.Account) bool {
+	return account != nil && account.Platform == service.PlatformOpenAI && account.Type == service.AccountTypeAPIKey
+}
+
+func (h *AccountHandler) modelProtocolCapabilityResponse(
+	c *gin.Context,
+	accountID int64,
+	items []service.AccountModelProtocolCapability,
+	warnings []string,
+) gin.H {
+	if warnings == nil {
+		warnings = []string{}
+	}
+	impacts := map[string][]service.AccountPublicModelImpact{}
+	impactsResolved := false
+	if h.modelDelivery != nil {
+		resolved, err := h.modelDelivery.ResolveAccountImpacts(c.Request.Context(), accountID)
+		if err != nil {
+			slog.Warn("resolve_model_protocol_public_impacts_failed", "account_id", accountID)
+			warnings = append(warnings, "Public model impact could not be resolved; capability facts are still available")
+		} else {
+			impacts = resolved
+			impactsResolved = true
+		}
+	}
+	orphanSet := make(map[string]struct{})
+	if impactsResolved {
+		for _, item := range items {
+			if item.UpstreamModel == service.ModelProtocolWildcardModel || len(impacts[item.UpstreamModel]) > 0 {
+				continue
+			}
+			orphanSet[item.UpstreamModel] = struct{}{}
+		}
+	}
+	orphans := make([]string, 0, len(orphanSet))
+	for model := range orphanSet {
+		orphans = append(orphans, model)
+	}
+	sort.Strings(orphans)
+	return gin.H{
+		"account_id":             accountID,
+		"items":                  items,
+		"warnings":               warnings,
+		"public_model_impacts":   impacts,
+		"orphan_upstream_models": orphans,
+	}
 }
 
 // SetPrivacy handles setting privacy for a single OpenAI/Antigravity OAuth account

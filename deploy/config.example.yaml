@@ -180,6 +180,9 @@ security:
 # 网关配置
 # =============================================================================
 gateway:
+  # Prefer a confirmed per-model native protocol before compatibility conversion.
+  # Default false: capability data and admin UI can be rolled out before traffic changes.
+  native_model_protocol_routing_enabled: false
   # Timeout for waiting upstream response headers (seconds)
   # 等待上游响应头超时时间（秒）
   response_header_timeout: 600

@@ -391,6 +391,9 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/models/sync-upstream-preview", h.Admin.Account.SyncUpstreamModelsPreview)
 		accounts.GET("/:id/models", h.Admin.Account.GetAvailableModels)
 		accounts.POST("/:id/models/sync-upstream", h.Admin.Account.SyncUpstreamModels)
+		accounts.GET("/:id/model-protocol-capabilities", h.Admin.Account.GetModelProtocolCapabilities)
+		accounts.PUT("/:id/model-protocol-capabilities/overrides", h.Admin.Account.UpdateModelProtocolCapabilityOverrides)
+		accounts.POST("/:id/model-protocol-capabilities/sync", h.Admin.Account.SyncModelProtocolCapabilities)
 		accounts.POST("/batch", h.Admin.Account.BatchCreate)
 		// 账号导出泄露上游凭证原文——要求 step-up 2FA
 		accounts.GET("/data", gin.HandlerFunc(stepUpAuth), h.Admin.Account.ExportData)
@@ -745,6 +748,7 @@ func registerChannelRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		channels.GET("/model-pricing", h.Admin.Channel.GetModelDefaultPricing)
 		channels.GET("/pricing/sync-models", h.Admin.Channel.SyncPricingModels)
 		channels.GET("/available-catalog", h.Admin.Channel.ListAvailableCatalog)
+		channels.GET("/:id/model-delivery", h.Admin.Channel.GetModelDelivery)
 		channels.GET("/:id", h.Admin.Channel.GetByID)
 		channels.POST("", h.Admin.Channel.Create)
 		channels.PUT("/:id", h.Admin.Channel.Update)

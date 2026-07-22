@@ -812,6 +812,13 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	// Gateway forwarding behavior (defaults: fingerprint=true, metadata_passthrough=false,
 	// cch_signing=false, claude_oauth_system_prompt_injection=true)
+	if v, ok := settings[SettingKeyNativeModelProtocolRoutingEnabled]; ok && strings.TrimSpace(v) != "" {
+		result.NativeModelProtocolRoutingEnabled = strings.TrimSpace(v) == "true"
+		result.NativeModelProtocolRoutingSource = "settings"
+	} else {
+		result.NativeModelProtocolRoutingEnabled = s.nativeModelProtocolRoutingConfigDefault()
+		result.NativeModelProtocolRoutingSource = "config"
+	}
 	if v, ok := settings[SettingKeyEnableFingerprintUnification]; ok && v != "" {
 		result.EnableFingerprintUnification = v == "true"
 	} else {

@@ -326,6 +326,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 	forwardBody := openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
+	deliveryRoutingModel := reqModel
+	if channelMapping.Mapped && strings.TrimSpace(channelMapping.MappedModel) != "" {
+		deliveryRoutingModel = strings.TrimSpace(channelMapping.MappedModel)
+	}
 	seedOpenAIForwardImageIntentHint(c, channelMapping.Mapped, imageIntent)
 
 	// 提前校验 function_call_output 是否具备可关联上下文，避免上游 400。
@@ -400,20 +404,39 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		}
 		// Select account supporting the requested model
 		reqLog.Debug("openai.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
-		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			c.Request.Context(),
-			apiKey.GroupID,
-			previousResponseID,
-			sessionHash,
-			reqModel,
-			failedAccountIDs,
-			service.OpenAIUpstreamTransportAny,
-			requiredCapability,
-			requireCompact,
-			false,
-			!imageIntent,
-			requestPlatform,
+		selection, scheduleDecision, deliveryDecision, deliveryErr := h.gatewayService.SelectAccountWithSchedulerForProtocolDelivery(
+			c.Request.Context(), apiKey.GroupID, previousResponseID, sessionHash, reqModel, deliveryRoutingModel, failedAccountIDs,
+			service.OpenAIUpstreamTransportAny, requiredCapability, requireCompact, false, !imageIntent,
+			service.ModelProtocolOpenAIResponses, requestPlatform,
 		)
+		var err error
+		if deliveryErr == nil && selection != nil && selection.Account != nil {
+			reqLog.Debug("openai.responses.delivery_decision",
+				zap.String("mode", string(deliveryDecision.Mode)),
+				zap.String("upstream_protocol", string(deliveryDecision.UpstreamProtocol)),
+				zap.String("capability_source", deliveryDecision.CapabilitySource),
+			)
+		} else if service.ShouldUseLegacyProtocolDeliverySelector(deliveryErr, deliveryDecision) {
+			if errors.Is(deliveryErr, service.ErrModelProtocolCapabilityUnavailable) {
+				reqLog.Warn("openai.responses.delivery_capability_unavailable_using_legacy", zap.Error(deliveryErr))
+			}
+			selection, scheduleDecision, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
+				c.Request.Context(),
+				apiKey.GroupID,
+				previousResponseID,
+				sessionHash,
+				reqModel,
+				failedAccountIDs,
+				service.OpenAIUpstreamTransportAny,
+				requiredCapability,
+				requireCompact,
+				false,
+				!imageIntent,
+				requestPlatform,
+			)
+		} else {
+			err = deliveryErr
+		}
 		if err != nil {
 			if failoverClientGone(c) {
 				reqLog.Info("openai.account_select_aborted_client_disconnected", zap.Error(err))
@@ -491,7 +514,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.Forward(c.Request.Context(), c, account, forwardBody)
+			return h.gatewayService.ForwardWithSelectedProtocol(
+				c.Request.Context(), c, account, forwardBody, deliveryDecision.UpstreamProtocol,
+			)
 		}()
 		cyberBlockKeyHTTP := ""
 		if service.GetOpsCyberPolicy(c) != nil {
@@ -567,7 +592,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						streamStarted = true
 					}
 					if failoverErr.ShouldReportAccountScheduleFailure() {
-						h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), false, nil)
+						h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, openAIScheduleResultModel(account, deliveryDecision, deliveryRoutingModel, result), false, nil)
 					}
 					if !failoverErr.ShouldRetryNextAccount() {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
@@ -627,7 +652,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					reqLog.Warn("openai.upstream_failover_switching", failoverSwitchFields...)
 					continue
 				}
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), false, nil)
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, openAIScheduleResultModel(account, deliveryDecision, deliveryRoutingModel, result), false, nil)
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
 				wroteFallback := false
 				if !upstreamErrorAlreadyCommunicated {
@@ -652,9 +677,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			if account.Type == service.AccountTypeOAuth && !account.IsShadow() {
 				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(c.Request.Context(), account.ID, result.ResponseHeaders)
 			}
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), openAIForwardSucceededForScheduling(result), result.FirstTokenMs)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, openAIScheduleResultModel(account, deliveryDecision, deliveryRoutingModel, result), openAIForwardSucceededForScheduling(result), result.FirstTokenMs)
 		} else {
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), openAIForwardSucceededForScheduling(result), nil)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, openAIScheduleResultModel(account, deliveryDecision, deliveryRoutingModel, result), openAIForwardSucceededForScheduling(result), nil)
 		}
 
 		// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
@@ -669,14 +694,19 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		cyberBlocked := service.GetOpsCyberPolicy(c) != nil
 		h.submitOpenAIUsageRecordTask(c, c.Request.Context(), result, apiKey, func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
-				Result:             result,
-				APIKey:             apiKey,
-				User:               apiKey.User,
-				Account:            account,
-				Subscription:       subscription,
-				InboundEndpoint:    inboundEndpoint,
-				UpstreamEndpoint:   upstreamEndpoint,
-				ScheduleMeta:       service.UsageScheduleMetaFromOpenAIDecision(scheduleDecision),
+				Result:           result,
+				APIKey:           apiKey,
+				User:             apiKey.User,
+				Account:          account,
+				Subscription:     subscription,
+				InboundEndpoint:  inboundEndpoint,
+				UpstreamEndpoint: upstreamEndpoint,
+				ScheduleMeta: protocolDeliveryUsageScheduleMeta(
+					scheduleDecision,
+					service.ModelProtocolOpenAIResponses,
+					deliveryDecision,
+					upstreamEndpoint,
+				),
 				UserAgent:          userAgent,
 				IPAddress:          clientIP,
 				RequestPayloadHash: requestPayloadHash,
@@ -916,7 +946,6 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	}
 	reqModel := modelResult.String()
 	routingModel := service.NormalizeOpenAICompatRequestedModel(reqModel)
-	preferredMappedModel := resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel)
 	reqStream := gjson.GetBytes(body, "stream").Bool()
 
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
@@ -931,6 +960,11 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMappingMsg, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	deliveryRoutingModel := service.ResolveOpenAIMessagesDeliveryModel(apiKey.Group, reqModel, channelMappingMsg)
+	if strings.TrimSpace(deliveryRoutingModel) == "" {
+		deliveryRoutingModel = routingModel
+	}
+	deliveryModelMapped := deliveryRoutingModel != routingModel
 	mappedBodyForMessages := newOpenAIModelMappedBodyCache(body, h.gatewayService.ReplaceModelInBody)
 
 	// 绑定错误透传服务，允许 service 层在非 failover 错误场景复用规则。
@@ -972,34 +1006,80 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
 	failedAccountIDs := make(map[int64]struct{})
+	nativeProtocolUnavailableAccountIDs := make(map[int64]struct{})
+	nativeLayerExhausted := false
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
-	effectiveMappedModel := preferredMappedModel
 
 	for {
 		if failoverClientGone(c) {
 			return
 		}
-		currentRoutingModel := routingModel
-		if effectiveMappedModel != "" {
-			currentRoutingModel = effectiveMappedModel
+		currentRoutingModel := deliveryRoutingModel
+		nativeExcludedAccountIDs := make(map[int64]struct{}, len(failedAccountIDs)+len(nativeProtocolUnavailableAccountIDs))
+		for accountID := range failedAccountIDs {
+			nativeExcludedAccountIDs[accountID] = struct{}{}
+		}
+		for accountID := range nativeProtocolUnavailableAccountIDs {
+			nativeExcludedAccountIDs[accountID] = struct{}{}
 		}
 		reqLog.Debug("openai_messages.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
-		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			c.Request.Context(),
-			apiKey.GroupID,
-			"", // no previous_response_id
-			sessionHash,
-			currentRoutingModel,
-			failedAccountIDs,
-			service.OpenAIUpstreamTransportAny,
-			service.OpenAIEndpointCapabilityChatCompletions,
-			false,
-			false,
-			true,
-			requestPlatform,
-		)
+		deliveryMode := "compatibility"
+		var selection *service.AccountSelectionResult
+		var scheduleDecision service.OpenAIAccountScheduleDecision
+		deliveryDecision := service.ModelDeliveryDecision{InboundProtocol: service.ModelProtocolAnthropicMessages}
+		capabilitySource := ""
+		var nativeErr error
+		if !nativeLayerExhausted {
+			selection, scheduleDecision, deliveryDecision, nativeErr = h.gatewayService.SelectAccountWithSchedulerForNativeProtocol(
+				c.Request.Context(), apiKey.GroupID, sessionHash, reqModel, deliveryRoutingModel, nativeExcludedAccountIDs,
+				service.ModelProtocolAnthropicMessages, requestPlatform,
+			)
+		} else {
+			nativeErr = service.ErrNoAvailableAccounts
+		}
+		var err error
+		if nativeErr == nil && selection != nil && selection.Account != nil {
+			deliveryMode = "native"
+			capabilitySource = deliveryDecision.CapabilitySource
+		} else if nativeErr != nil &&
+			!errors.Is(nativeErr, service.ErrNoAvailableAccounts) &&
+			!errors.Is(nativeErr, service.ErrModelProtocolCapabilityUnavailable) {
+			reqLog.Error("openai_messages.native_account_select_failed", zap.Error(nativeErr))
+			h.anthropicStreamingAwareError(c, http.StatusInternalServerError, "api_error", "Failed to resolve upstream protocol capabilities", streamStarted)
+			return
+		} else {
+			if errors.Is(nativeErr, service.ErrModelProtocolCapabilityUnavailable) {
+				reqLog.Warn("openai_messages.native_capability_unavailable_using_compatibility", zap.Error(nativeErr))
+			}
+			nativeLayerExhausted = true
+			var compatibilityErr error
+			selection, scheduleDecision, deliveryDecision, compatibilityErr = h.gatewayService.SelectAccountWithSchedulerForMessagesCompatibility(
+				c.Request.Context(), apiKey.GroupID, sessionHash, reqModel, deliveryRoutingModel, failedAccountIDs, requestPlatform,
+			)
+			if compatibilityErr == nil && selection != nil && selection.Account != nil {
+				deliveryMode = string(deliveryDecision.Mode)
+				capabilitySource = deliveryDecision.CapabilitySource
+			} else if service.ShouldUseLegacyProtocolDeliverySelector(compatibilityErr, deliveryDecision) {
+				selection, scheduleDecision, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
+					c.Request.Context(),
+					apiKey.GroupID,
+					"", // no previous_response_id
+					sessionHash,
+					currentRoutingModel,
+					failedAccountIDs,
+					service.OpenAIUpstreamTransportAny,
+					service.OpenAIEndpointCapabilityChatCompletions,
+					false,
+					false,
+					true,
+					requestPlatform,
+				)
+			} else {
+				err = compatibilityErr
+			}
+		}
 		if err != nil {
 			if failoverClientGone(c) {
 				reqLog.Info("openai_messages.account_select_aborted_client_disconnected", zap.Error(err))
@@ -1048,9 +1128,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
 
-		defaultMappedModel := strings.TrimSpace(effectiveMappedModel)
-		// 应用渠道模型映射到请求体
-		forwardBody := mappedBodyForMessages(channelMappingMsg.Mapped, channelMappingMsg.MappedModel)
+		// Apply the same channel/group delivery model used by capability lookup and
+		// scheduling before the selected account's own model mapping.
+		forwardBody := mappedBodyForMessages(deliveryModelMapped, deliveryRoutingModel)
 		writerSizeBeforeForward := c.Writer.Size()
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
@@ -1058,7 +1138,10 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardAsAnthropic(c.Request.Context(), c, account, forwardBody, promptCacheKey, defaultMappedModel)
+			if deliveryMode == "native" {
+				return h.gatewayService.ForwardNativeAnthropicMessages(c.Request.Context(), c, account, forwardBody, reqModel)
+			}
+			return h.gatewayService.ForwardAsAnthropic(c.Request.Context(), c, account, forwardBody, promptCacheKey, "")
 		}()
 		cyberBlockKeyMsg := ""
 		if service.GetOpsCyberPolicy(c) != nil {
@@ -1083,6 +1166,14 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					zap.Error(err),
 				)
 			} else {
+				if errors.Is(err, service.ErrNativeAnthropicStreamErrorForwarded) {
+					h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, openAIScheduleResultModel(account, deliveryDecision, currentRoutingModel, result), false, nil)
+					reqLog.Warn("openai_messages.native_stream_error_forwarded",
+						zap.Int64("account_id", account.ID),
+						zap.Error(err),
+					)
+					return
+				}
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					if failoverClientGone(c) {
@@ -1096,8 +1187,32 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						h.handleAnthropicFailoverExhausted(c, failoverErr, true)
 						return
 					}
+					if deliveryMode == "native" && failoverErr.IsNativeProtocolUnavailable() {
+						nativeProtocolUnavailableAccountIDs[account.ID] = struct{}{}
+						var exhausted bool
+						switchCount, exhausted = consumeNativeProtocolSwitchBudget(switchCount, maxAccountSwitches)
+						if exhausted {
+							reqLog.Warn("openai_messages.native_protocol_switch_budget_exhausted",
+								zap.Int64("account_id", account.ID),
+								zap.Int("upstream_status", failoverErr.StatusCode),
+								zap.Int("switch_count", switchCount),
+								zap.Int("max_switches", maxAccountSwitches),
+							)
+							h.handleAnthropicFailoverExhausted(c, failoverErr, streamStarted)
+							return
+						}
+						h.gatewayService.RecordOpenAIAccountSwitch()
+						reqLog.Warn("openai_messages.native_protocol_unavailable_falling_back",
+							zap.Int64("account_id", account.ID),
+							zap.Int("upstream_status", failoverErr.StatusCode),
+							zap.Int("native_excluded_account_count", len(nativeProtocolUnavailableAccountIDs)),
+							zap.Int("switch_count", switchCount),
+							zap.Bool("native_layer_exhausted", false),
+						)
+						continue
+					}
 					if failoverErr.ShouldReportAccountScheduleFailure() {
-						h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(currentRoutingModel), false, nil)
+						h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, openAIScheduleResultModel(account, deliveryDecision, currentRoutingModel, result), false, nil)
 					}
 					if !failoverErr.ShouldRetryNextAccount() {
 						h.handleAnthropicFailoverExhausted(c, failoverErr, streamStarted)
@@ -1149,7 +1264,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					)
 					return
 				}
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(currentRoutingModel), false, nil)
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, openAIScheduleResultModel(account, deliveryDecision, currentRoutingModel, result), false, nil)
 				wroteFallback := h.ensureAnthropicErrorResponse(c, streamStarted)
 				reqLog.Warn("openai_messages.forward_failed",
 					zap.Int64("account_id", account.ID),
@@ -1160,9 +1275,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			}
 		}
 		if result != nil {
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(currentRoutingModel), true, result.FirstTokenMs)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, openAIScheduleResultModel(account, deliveryDecision, currentRoutingModel, result), true, result.FirstTokenMs)
 		} else {
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(currentRoutingModel), true, nil)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, openAIScheduleResultModel(account, deliveryDecision, currentRoutingModel, result), true, nil)
 		}
 
 		userAgent := c.GetHeader("User-Agent")
@@ -1175,14 +1290,23 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		cyberBlocked := service.GetOpsCyberPolicy(c) != nil
 		h.submitOpenAIUsageRecordTask(c, c.Request.Context(), result, apiKey, func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
-				Result:             result,
-				APIKey:             apiKey,
-				User:               apiKey.User,
-				Account:            account,
-				Subscription:       subscription,
-				InboundEndpoint:    inboundEndpoint,
-				UpstreamEndpoint:   upstreamEndpoint,
-				ScheduleMeta:       service.UsageScheduleMetaFromOpenAIDecision(scheduleDecision),
+				Result:           result,
+				APIKey:           apiKey,
+				User:             apiKey.User,
+				Account:          account,
+				Subscription:     subscription,
+				InboundEndpoint:  inboundEndpoint,
+				UpstreamEndpoint: upstreamEndpoint,
+				ScheduleMeta: protocolDeliveryUsageScheduleMeta(
+					scheduleDecision,
+					service.ModelProtocolAnthropicMessages,
+					service.ModelDeliveryDecision{
+						UpstreamProtocol: openAIModelProtocolFromEndpoint(upstreamEndpoint),
+						Mode:             service.ModelDeliveryMode(deliveryMode),
+						CapabilitySource: capabilitySource,
+					},
+					upstreamEndpoint,
+				),
 				UserAgent:          userAgent,
 				IPAddress:          clientIP,
 				RequestPayloadHash: requestPayloadHash,
@@ -1225,6 +1349,13 @@ func resolveOpenAIMessagesMetadataSession(sessionHash, promptCacheKey, reqModel 
 }
 
 // anthropicErrorResponse writes an error in Anthropic Messages API format.
+func consumeNativeProtocolSwitchBudget(current, maximum int) (next int, exhausted bool) {
+	if current >= maximum {
+		return current, true
+	}
+	return current + 1, false
+}
+
 func (h *OpenAIGatewayHandler) anthropicErrorResponse(c *gin.Context, status int, errType, message string) {
 	c.JSON(status, gin.H{
 		"type": "error",

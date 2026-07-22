@@ -44,6 +44,13 @@
         >
           {{ billingModeLabel }}
         </span>
+        <span
+          v-if="props.modelDelivery"
+          class="flex-shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium"
+          :class="deliverySummaryClass"
+        >
+          {{ deliverySummaryLabel }}
+        </span>
       </div>
 
       <!-- Expanded: show the label "Pricing Entry" or similar -->
@@ -102,6 +109,36 @@
                   />
                   <span class="min-w-0 truncate font-mono" :title="model">{{ model }}</span>
                 </label>
+              </div>
+              <div v-if="props.modelDelivery || props.deliveryLoading" class="border-t border-stone-200/70 pt-2 dark:border-white/10">
+                <div class="mb-1.5 flex items-center justify-between gap-2 text-xs">
+                  <span class="font-medium text-stone-500 dark:text-stone-400">
+                    {{ t('admin.channels.form.modelDelivery') }}
+                  </span>
+                  <span class="text-stone-400">
+                    {{ props.deliveryLoading ? t('common.loading') : t('admin.channels.form.deliverySavedConfig') }}
+                  </span>
+                </div>
+                <div v-if="!props.deliveryLoading" class="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                  <button
+                    v-for="model in entry.models"
+                    :key="`delivery-${model}`"
+                    type="button"
+                    class="flex min-w-0 items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition hover:border-emerald-300 hover:bg-emerald-50/50 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/[0.06]"
+                    :class="deliveryRowClass(deliveryFor(model)?.status)"
+                    @click.stop="inspectDelivery(model)"
+                  >
+                    <span class="min-w-0">
+                      <span class="block truncate font-mono text-xs font-semibold" :title="model">{{ model }}</span>
+                      <span class="mt-0.5 block text-[11px] text-stone-400">
+                        {{ deliveryRouteSummary(deliveryFor(model)) }}
+                      </span>
+                    </span>
+                    <span class="shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold" :class="deliveryBadgeClass(deliveryFor(model)?.status)">
+                      {{ deliveryStatusLabel(deliveryFor(model)?.status) }}
+                    </span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -265,7 +302,7 @@ import IntervalRow from './IntervalRow.vue'
 import ModelTagInput from './ModelTagInput.vue'
 import type { PricingFormEntry, IntervalFormEntry } from './types'
 import { perTokenToMTok, getPlatformTagClass } from './types'
-import type { BillingMode } from '@/api/admin/channels'
+import type { BillingMode, ChannelModelDelivery, ModelDeliveryStatus } from '@/api/admin/channels'
 import channelsAPI from '@/api/admin/channels'
 
 const { t } = useI18n()
@@ -273,11 +310,14 @@ const { t } = useI18n()
 const props = defineProps<{
   entry: PricingFormEntry
   platform?: string
+  modelDelivery?: Record<string, ChannelModelDelivery>
+  deliveryLoading?: boolean
 }>()
 
 const emit = defineEmits<{
   update: [entry: PricingFormEntry]
   remove: []
+  'inspect-delivery': [delivery: ChannelModelDelivery]
 }>()
 
 // Collapse state: entries with existing models default to collapsed
@@ -297,6 +337,56 @@ const billingModeLabel = computed(() => {
 const enabledSelfCheckCount = computed(() =>
   pruneSelfCheckModels(props.entry.models, props.entry.self_check_enabled_models || []).length
 )
+
+const deliveryRows = computed(() => props.entry.models.map(model => deliveryFor(model)).filter(Boolean) as ChannelModelDelivery[])
+const deliverySummaryLabel = computed(() => {
+  const delivered = deliveryRows.value.filter(row => row.status === 'deliverable' || row.status === 'partial').length
+  return t('admin.channels.form.deliverySummary', { delivered, total: props.entry.models.length })
+})
+const deliverySummaryClass = computed(() => {
+  if (deliveryRows.value.length < props.entry.models.length || deliveryRows.value.some(row => row.status === 'no_route' || row.status === 'no_endpoint')) {
+    return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300'
+  }
+  return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300'
+})
+
+function deliveryFor(model: string): ChannelModelDelivery | undefined {
+  return props.modelDelivery?.[normalizeModelKey(model)]
+}
+
+function inspectDelivery(model: string) {
+  const delivery = deliveryFor(model)
+  if (delivery) emit('inspect-delivery', delivery)
+}
+
+function deliveryStatusLabel(status?: ModelDeliveryStatus): string {
+  return t(`admin.channels.form.deliveryStatus.${status || 'unknown'}`)
+}
+
+function deliveryBadgeClass(status?: ModelDeliveryStatus): string {
+  if (!status) return 'border-stone-200 bg-stone-100 text-stone-600 dark:border-white/10 dark:bg-white/[0.05] dark:text-stone-400'
+  if (status === 'deliverable') return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300'
+  if (status === 'partial') return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300'
+  if (status === 'no_endpoint') return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300'
+  return 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300'
+}
+
+function deliveryRowClass(status?: ModelDeliveryStatus): string {
+  if (!status) return 'border-stone-200/80 bg-stone-50/60 dark:border-white/10 dark:bg-white/[0.025]'
+  if (status === 'no_route') return 'border-rose-200/80 bg-rose-50/40 dark:border-rose-500/20 dark:bg-rose-500/[0.04]'
+  if (status === 'partial' || status === 'no_endpoint') return 'border-amber-200/80 bg-amber-50/40 dark:border-amber-500/20 dark:bg-amber-500/[0.04]'
+  return 'border-stone-200/80 bg-white dark:border-white/10 dark:bg-black/20'
+}
+
+function deliveryRouteSummary(delivery?: ChannelModelDelivery): string {
+  if (!delivery) return t('admin.channels.form.deliveryNotChecked')
+  const availableEndpoints = delivery.protocols.filter(protocol => protocol.status === 'available').length
+  return t('admin.channels.form.deliveryRouteSummary', {
+    endpoints: availableEndpoints,
+    totalEndpoints: delivery.protocols.length,
+    routes: delivery.route_count
+  })
+}
 
 function emitField(field: keyof PricingFormEntry, value: string) {
   emit('update', { ...props.entry, [field]: value === '' ? null : value })

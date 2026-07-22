@@ -263,6 +263,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		AllowUngroupedKeyScheduling:                            settings.AllowUngroupedKeyScheduling,
 		ScheduleStrategy:                                       settings.ScheduleStrategy,
 		BackendModeEnabled:                                     settings.BackendModeEnabled,
+		NativeModelProtocolRoutingEnabled:                      settings.NativeModelProtocolRoutingEnabled,
+		NativeModelProtocolRoutingSource:                       settings.NativeModelProtocolRoutingSource,
 		EnableFingerprintUnification:                           settings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              settings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       settings.EnableCCHSigning,

@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <TablePageLayout :table-mode="viewMode === 'cards' ? 'auto' : 'scroll'">
       <template #filters>
         <div class="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
           <div class="flex flex-1 flex-wrap items-center gap-3">
@@ -21,21 +21,18 @@
             <Select v-model="platformFilter" :options="platformFilterOptions" class="w-full sm:w-52" />
 
             <Select
-              v-if="viewMode === 'models'"
               v-model="billingModeFilter"
               :options="billingModeFilterOptions"
               class="w-full sm:w-44"
             />
 
             <Select
-              v-if="viewMode === 'models'"
               v-model="groupScopeFilter"
               :options="groupScopeFilterOptions"
               class="w-full sm:w-44"
             />
 
             <Select
-              v-if="viewMode === 'models'"
               v-model="priceStatusFilter"
               :options="priceStatusFilterOptions"
               class="w-full sm:w-40"
@@ -46,19 +43,21 @@
             <div class="segmented-control">
               <button
                 type="button"
-                class="segmented-option"
-                :class="viewMode === 'channels' ? 'segmented-option-active' : 'segmented-option-muted'"
-                @click="viewMode = 'channels'"
+                class="segmented-option inline-flex items-center gap-1.5"
+                :class="viewMode === 'cards' ? 'segmented-option-active' : 'segmented-option-muted'"
+                @click="viewMode = 'cards'"
               >
-                {{ t('availableChannels.viewMode.channels') }}
+                <Icon name="grid" size="sm" />
+                {{ t('availableChannels.viewMode.marketplace') }}
               </button>
               <button
                 type="button"
-                class="segmented-option"
-                :class="viewMode === 'models' ? 'segmented-option-active' : 'segmented-option-muted'"
-                @click="viewMode = 'models'"
+                class="segmented-option inline-flex items-center gap-1.5"
+                :class="viewMode === 'table' ? 'segmented-option-active' : 'segmented-option-muted'"
+                @click="viewMode = 'table'"
               >
-                {{ t('availableChannels.viewMode.models') }}
+                <Icon name="menu" size="sm" />
+                {{ t('availableChannels.viewMode.table') }}
               </button>
             </div>
 
@@ -88,15 +87,12 @@
       </template>
 
       <template #table>
-        <AvailableChannelsTable
-          v-if="viewMode === 'channels'"
-          :columns="columnLabels"
-          :rows="filteredChannels"
+        <AvailableModelMarketplace
+          v-if="viewMode === 'cards'"
+          :cards="marketplaceCards"
           :loading="loading"
+          :pricing-labels="pricingLabels"
           :user-group-rates="userGroupRates"
-          pricing-key-prefix="availableChannels.pricing"
-          :no-pricing-label="t('availableChannels.noPricing')"
-          :no-models-label="t('availableChannels.noModels')"
           :empty-label="t('availableChannels.empty')"
         />
         <AvailableChannelModelsTable
@@ -169,7 +165,7 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
-import AvailableChannelsTable from '@/components/channels/AvailableChannelsTable.vue'
+import AvailableModelMarketplace from '@/components/channels/AvailableModelMarketplace.vue'
 import AvailableChannelModelsTable from '@/components/channels/AvailableChannelModelsTable.vue'
 import adminChannelsAPI, { type AdminAvailableChannel } from '@/api/admin/channels'
 import userChannelsAPI, { type UserAvailableChannel } from '@/api/channels'
@@ -194,6 +190,7 @@ import {
   type AvailableChannelSortOrder,
   type AvailableChannelStatusScope,
 } from '@/utils/availableChannelsCatalog'
+import { buildAvailableModelMarketplaceCards } from '@/utils/availableModelMarketplace'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -218,15 +215,7 @@ const exportGroupScope = ref<AvailableChannelGroupScope>('public_exclusive')
 const exportStatusScope = ref<AvailableChannelStatusScope>('all')
 const sortBy = ref<AvailableChannelSortKey>('model')
 const sortOrder = ref<AvailableChannelSortOrder>('asc')
-const viewMode = ref<'channels' | 'models'>('channels')
-
-const columnLabels = computed(() => ({
-  name: t('availableChannels.columns.name'),
-  description: t('availableChannels.columns.description'),
-  platform: t('availableChannels.columns.platform'),
-  groups: t('availableChannels.columns.groups'),
-  supportedModels: t('availableChannels.columns.supportedModels'),
-}))
+const viewMode = ref<'cards' | 'table'>('cards')
 
 const modelColumnLabels = computed(() => ({
   model: t('availableChannels.modelTable.columns.model'),
@@ -361,6 +350,14 @@ const exportButtonDisabled = computed(() => loading.value || exporting.value || 
 const filteredChannels = computed(() => filterChannelsForSearch(displayCatalogChannels.value))
 const filteredExportChannels = computed(() => filterChannelsForSearch(exportCatalogChannels.value))
 
+const marketplaceCards = computed(() =>
+  buildAvailableModelMarketplaceCards(filteredChannels.value, {
+    billingMode: billingModeFilter.value,
+    groupScope: groupScopeFilter.value,
+    priceStatus: priceStatusFilter.value,
+  }),
+)
+
 const modelRows = computed(() =>
   buildAvailableChannelCatalogRows(filteredChannels.value, {
     billingMode: billingModeFilter.value,
@@ -395,18 +392,26 @@ function filterChannelsForSearch(source: UserAvailableChannel[]): UserAvailableC
       const nameHit = ch.name.toLowerCase().includes(q)
       const descHit = (ch.description || '').toLowerCase().includes(q)
       const sections = Array.isArray(ch.platforms) ? ch.platforms : []
-      const matchingSections = sections.filter((p) => {
+      const matchingSections = sections.map((p) => {
         const groups = Array.isArray(p.groups) ? p.groups : []
         const supportedModels = Array.isArray(p.supported_models) ? p.supported_models : []
-        if (selectedPlatform && p.platform !== selectedPlatform) return false
-        if (!q) return true
-        if (nameHit || descHit) return true
-        return (
-          p.platform.toLowerCase().includes(q) ||
-          groups.some((g) => g.name.toLowerCase().includes(q)) ||
-          supportedModels.some((m) => m.name.toLowerCase().includes(q))
+        if (selectedPlatform && p.platform !== selectedPlatform) return null
+        if (!q || nameHit || descHit) return p
+
+        if (p.platform.toLowerCase().includes(q)) return p
+
+        const matchingGroups = groups.filter((group) => group.name.toLowerCase().includes(q))
+        if (matchingGroups.length > 0) return { ...p, groups: matchingGroups }
+
+        const matchingModels = supportedModels.filter((model) =>
+          model.name.toLowerCase().includes(q) ||
+          (model.supported_endpoints ?? []).some((endpoint) =>
+            endpoint.protocol.toLowerCase().includes(q) || endpoint.path.toLowerCase().includes(q),
+          ),
         )
-      })
+        if (matchingModels.length === 0) return null
+        return { ...p, supported_models: matchingModels }
+      }).filter((section): section is UserAvailableChannel['platforms'][number] => section !== null)
       if (matchingSections.length === 0) return null
       return { ...ch, platforms: matchingSections }
     })

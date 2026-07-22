@@ -182,7 +182,7 @@ func openAIStreamEventIsTerminal(data string) bool {
 }
 
 func anthropicStreamEventIsTerminal(eventName, data string) bool {
-	if strings.EqualFold(strings.TrimSpace(eventName), "message_stop") {
+	if strings.EqualFold(strings.TrimSpace(eventName), "message_stop") || anthropicStreamEventIsError(eventName, data) {
 		return true
 	}
 	trimmed := strings.TrimSpace(data)
@@ -193,6 +193,14 @@ func anthropicStreamEventIsTerminal(eventName, data string) bool {
 		return true
 	}
 	return gjson.Get(trimmed, "type").String() == "message_stop"
+}
+
+func anthropicStreamEventIsError(eventName, data string) bool {
+	if strings.EqualFold(strings.TrimSpace(eventName), "error") {
+		return true
+	}
+	trimmed := strings.TrimSpace(data)
+	return trimmed != "" && strings.EqualFold(gjson.Get(trimmed, "type").String(), "error")
 }
 
 func cloneStringSlice(src []string) []string {

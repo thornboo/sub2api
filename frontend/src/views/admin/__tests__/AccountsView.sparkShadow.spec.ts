@@ -14,6 +14,7 @@ const {
   listWithEtag,
   getBatchTodayStats,
   listUpstreamCostPools,
+  listUpstreamSuppliers,
   listUpstreamCostPoolAccounts,
   getAllProxies,
   getAllGroups,
@@ -26,6 +27,7 @@ const {
   listWithEtag: vi.fn(),
   getBatchTodayStats: vi.fn(),
   listUpstreamCostPools: vi.fn(),
+  listUpstreamSuppliers: vi.fn(),
   listUpstreamCostPoolAccounts: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
@@ -42,6 +44,7 @@ vi.mock('@/api/admin', () => ({
       listWithEtag,
       getBatchTodayStats,
       listUpstreamCostPools,
+      listUpstreamSuppliers,
       listUpstreamCostPoolAccounts,
       duplicate: duplicateAccount,
       getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 30 }),
@@ -87,6 +90,10 @@ const mountView = () =>
         AccountTableFilters: { template: '<div></div>' },
         AccountBulkActionsBar: true,
         AccountActionMenu: true,
+        ModelProtocolCapabilitiesModal: {
+          props: ['show', 'account'],
+          template: '<div v-if="show" data-test="model-protocol-modal">{{ account?.name }}</div>'
+        },
         ImportDataModal: true,
         ReAuthAccountModal: true,
         AccountTestModal: true,
@@ -115,7 +122,7 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     localStorage.clear()
     for (const fn of [
       listAccounts, listWithEtag, getBatchTodayStats, listUpstreamCostPools,
-      listUpstreamCostPoolAccounts, getAllProxies, getAllGroups, duplicateAccount, createSparkShadow,
+      listUpstreamSuppliers, listUpstreamCostPoolAccounts, getAllProxies, getAllGroups, duplicateAccount, createSparkShadow,
       showSuccess, showError
     ]) {
       fn.mockReset()
@@ -124,6 +131,7 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     listWithEtag.mockResolvedValue({ notModified: true, etag: null, data: null })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     listUpstreamCostPools.mockResolvedValue([])
+    listUpstreamSuppliers.mockResolvedValue([])
     listUpstreamCostPoolAccounts.mockResolvedValue([])
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
@@ -236,6 +244,7 @@ const mountViewWithRow = () =>
             <div v-for="(row, idx) in (data || [])" :key="idx">
               <slot name="cell-name" :row="row" :value="row.name" />
               <slot name="cell-platform_type" :row="row" />
+              <slot name="cell-actions" :row="row" />
             </div>
           </div>`
         },
@@ -245,6 +254,11 @@ const mountViewWithRow = () =>
         AccountTableFilters: { template: '<div></div>' },
         AccountBulkActionsBar: true,
         AccountActionMenu: true,
+        ModelProtocolCapabilitiesModal: {
+          props: ['show', 'account'],
+          template: '<div v-if="show" data-test="model-protocol-modal">{{ account?.name }}</div>'
+        },
+        UpstreamCostComparison: true,
         ImportDataModal: true,
         ReAuthAccountModal: true,
         AccountTestModal: true,
@@ -273,7 +287,7 @@ describe('admin AccountsView — 账号行展示', () => {
     localStorage.clear()
     for (const fn of [
       listAccounts, listWithEtag, getBatchTodayStats, listUpstreamCostPools,
-      listUpstreamCostPoolAccounts, getAllProxies, getAllGroups, duplicateAccount, createSparkShadow,
+      listUpstreamSuppliers, listUpstreamCostPoolAccounts, getAllProxies, getAllGroups, duplicateAccount, createSparkShadow,
       showSuccess, showError
     ]) {
       fn.mockReset()
@@ -281,6 +295,7 @@ describe('admin AccountsView — 账号行展示', () => {
     listWithEtag.mockResolvedValue({ notModified: true, etag: null, data: null })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     listUpstreamCostPools.mockResolvedValue([])
+    listUpstreamSuppliers.mockResolvedValue([])
     listUpstreamCostPoolAccounts.mockResolvedValue([])
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
@@ -361,6 +376,56 @@ describe('admin AccountsView — 账号行展示', () => {
     expect(wrapper.text()).toContain('oauth-account')
     expect(wrapper.text()).toContain('invalid-url')
 
+    wrapper.unmount()
+  })
+
+  it('在 OpenAI API Key 账号行直接显示协议能力入口并打开对应弹窗', async () => {
+    listAccounts.mockResolvedValue({
+      items: [
+        { id: 301, name: 'new-api-relay', platform: 'openai', type: 'apikey' },
+        { id: 302, name: 'anthropic-key', platform: 'anthropic', type: 'apikey' }
+      ],
+      total: 2,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+
+    const wrapper = mountViewWithRow()
+    await flushPromises()
+
+    const protocolButtons = wrapper.findAll('button').filter(button => (
+      button.text().trim() === 'admin.accounts.modelProtocol.shortAction'
+    ))
+    expect(protocolButtons).toHaveLength(1)
+
+    await protocolButtons[0].trigger('click')
+
+    expect(wrapper.get('[data-test="model-protocol-modal"]').text()).toBe('new-api-relay')
+    wrapper.unmount()
+  })
+
+  it('供应商页说明协议能力属于账号并可返回账号列表', async () => {
+    listAccounts.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
+    const wrapper = mountViewWithRow()
+    await flushPromises()
+
+    const supplierTab = wrapper.findAll('button').find(button => (
+      button.text().trim() === 'admin.accounts.views.upstreamCost'
+    ))
+    expect(supplierTab).toBeTruthy()
+    await supplierTab!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.accounts.modelProtocol.supplierHint')
+    const goToAccounts = wrapper.findAll('button').find(button => (
+      button.text().trim() === 'admin.accounts.modelProtocol.goToAccountList'
+    ))
+    expect(goToAccounts).toBeTruthy()
+    await goToAccounts!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('admin.accounts.modelProtocol.supplierHint')
     wrapper.unmount()
   })
 

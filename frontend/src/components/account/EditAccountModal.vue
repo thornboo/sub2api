@@ -78,6 +78,23 @@
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
         </div>
 
+        <div
+          v-if="supportsModelProtocolCapabilities(account)"
+          class="flex flex-col gap-3 rounded-xl border border-cyan-200 bg-cyan-50/70 p-4 dark:border-cyan-500/25 dark:bg-cyan-500/10 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div>
+            <p class="text-sm font-semibold text-cyan-900 dark:text-cyan-100">{{ t('admin.accounts.modelProtocol.title') }}</p>
+            <p class="mt-1 text-xs leading-5 text-cyan-700 dark:text-cyan-200/80">{{ t('admin.accounts.modelProtocol.description') }}</p>
+          </div>
+          <button
+            type="button"
+            class="btn btn-secondary shrink-0"
+            @click="emit('model-protocols', account)"
+          >
+            {{ t('admin.accounts.modelProtocol.action') }}
+          </button>
+        </div>
+
         <!-- Model Restriction Section (不适用于 Antigravity) -->
         <div v-if="account.platform !== 'antigravity'" class="border-t border-stone-200/80 pt-4 dark:border-white/10">
           <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
@@ -3024,6 +3041,7 @@ import {
 } from '@/composables/useModelWhitelist'
 import type { Channel } from '@/api/admin/channels'
 import { buildChannelModelRecommendations } from '@/components/account/channelModelRecommendations'
+import { supportsModelProtocolCapabilities } from '@/utils/modelProtocolCapabilities'
 
 interface Props {
   show: boolean
@@ -3036,6 +3054,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   close: []
   updated: [account: Account]
+  'model-protocols': [account: Account]
 }>()
 
 const { t } = useI18n()

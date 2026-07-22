@@ -129,6 +129,77 @@ func TestExtractUpstreamModelIDs(t *testing.T) {
 	}
 }
 
+func TestExtractUpstreamModelCatalogMergesDuplicateEndpointDeclarations(t *testing.T) {
+	t.Parallel()
+
+	catalog, err := extractUpstreamModelCatalog([]byte(`{
+		"data": [
+			{"id":"MiniMax-M3","supported_endpoint_types":["anthropic"]},
+			{"id":"MiniMax-M3","supported_endpoint_types":["openai","anthropic"]},
+			{"id":"Kimi-K2"}
+		]
+	}`))
+	require.NoError(t, err)
+	require.Equal(t, []UpstreamModelDescriptor{
+		{
+			ID:                     "Kimi-K2",
+			SupportedEndpointTypes: []string{},
+			EndpointTypesPresent:   false,
+			EndpointTypesComplete:  false,
+		},
+		{
+			ID:                     "MiniMax-M3",
+			SupportedEndpointTypes: []string{"anthropic", "openai"},
+			EndpointTypesPresent:   true,
+			EndpointTypesComplete:  true,
+		},
+	}, catalog)
+}
+
+func TestExtractUpstreamModelCatalogDuplicateMissingFieldIsNotComplete(t *testing.T) {
+	t.Parallel()
+
+	catalog, err := extractUpstreamModelCatalog([]byte(`[
+		{"id":"MiniMax-M3","supported_endpoint_types":["anthropic"]},
+		{"id":"MiniMax-M3"}
+	]`))
+	require.NoError(t, err)
+	require.Len(t, catalog, 1)
+	require.True(t, catalog[0].EndpointTypesPresent)
+	require.False(t, catalog[0].EndpointTypesComplete)
+}
+
+func TestExtractUpstreamModelCatalogEmptyEndpointTypesIsUnknown(t *testing.T) {
+	t.Parallel()
+
+	catalog, err := extractUpstreamModelCatalog([]byte(`[
+		{"id":"MiniMax-M3","supported_endpoint_types":[]}
+	]`))
+	require.NoError(t, err)
+	require.Equal(t, []UpstreamModelDescriptor{
+		{
+			ID:                     "MiniMax-M3",
+			SupportedEndpointTypes: []string{},
+			EndpointTypesPresent:   true,
+			EndpointTypesComplete:  false,
+		},
+	}, catalog)
+}
+
+func TestExtractUpstreamModelCatalogDuplicateEmptyDeclarationIsNotComplete(t *testing.T) {
+	t.Parallel()
+
+	catalog, err := extractUpstreamModelCatalog([]byte(`[
+		{"id":"MiniMax-M3","supported_endpoint_types":["anthropic"]},
+		{"id":"MiniMax-M3","supported_endpoint_types":[]}
+	]`))
+	require.NoError(t, err)
+	require.Len(t, catalog, 1)
+	require.Equal(t, []string{"anthropic"}, catalog[0].SupportedEndpointTypes)
+	require.True(t, catalog[0].EndpointTypesPresent)
+	require.False(t, catalog[0].EndpointTypesComplete)
+}
+
 func TestBuildUpstreamModelsRequestsForAPIKeyAccounts(t *testing.T) {
 	t.Parallel()
 

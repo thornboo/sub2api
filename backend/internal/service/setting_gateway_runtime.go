@@ -44,6 +44,26 @@ type cachedBackendMode struct {
 	expiresAt int64 // unix nano
 }
 
+// NativeModelProtocolRoutingRuntime is the effective global gate consumed by
+// the catalog projection and request-routing paths. Source is "settings" when
+// explicitly overridden in the database, otherwise "config".
+type NativeModelProtocolRoutingRuntime struct {
+	Enabled bool
+	Source  string
+}
+
+type cachedNativeModelProtocolRouting struct {
+	enabled   bool
+	source    string
+	expiresAt int64
+}
+
+const (
+	nativeModelProtocolRoutingCacheTTL  = 5 * time.Second
+	nativeModelProtocolRoutingErrorTTL  = 5 * time.Second
+	nativeModelProtocolRoutingDBTimeout = 5 * time.Second
+)
+
 var backendModeCache atomic.Value // *cachedBackendMode
 var backendModeSF singleflight.Group
 
@@ -584,6 +604,85 @@ func (s *SettingService) IsBackendModeEnabled(ctx context.Context) bool {
 		return val
 	}
 	return false
+}
+
+func (s *SettingService) nativeModelProtocolRoutingConfigDefault() bool {
+	return s != nil && s.cfg != nil && s.cfg.Gateway.NativeModelProtocolRoutingEnabled
+}
+
+// GetNativeModelProtocolRoutingRuntime returns the single effective switch used
+// by every native model-protocol consumer. A missing DB key deliberately
+// inherits the deployment config, preserving existing YAML/environment setups.
+// Successful admin writes refresh the local cache immediately; other instances
+// converge within the short cache TTL through the shared settings table.
+func (s *SettingService) GetNativeModelProtocolRoutingRuntime(ctx context.Context) NativeModelProtocolRoutingRuntime {
+	fallback := NativeModelProtocolRoutingRuntime{
+		Enabled: s.nativeModelProtocolRoutingConfigDefault(),
+		Source:  "config",
+	}
+	if s == nil || s.settingRepo == nil {
+		return fallback
+	}
+	if cached, ok := s.nativeModelProtocolRoutingCache.Load().(*cachedNativeModelProtocolRouting); ok && cached != nil {
+		if time.Now().UnixNano() < cached.expiresAt {
+			return NativeModelProtocolRoutingRuntime{Enabled: cached.enabled, Source: cached.source}
+		}
+	}
+
+	value, _, _ := s.nativeModelProtocolRoutingSF.Do("native_model_protocol_routing", func() (any, error) {
+		var stale *cachedNativeModelProtocolRouting
+		if cached, ok := s.nativeModelProtocolRoutingCache.Load().(*cachedNativeModelProtocolRouting); ok && cached != nil {
+			if time.Now().UnixNano() < cached.expiresAt {
+				return NativeModelProtocolRoutingRuntime{Enabled: cached.enabled, Source: cached.source}, nil
+			}
+			stale = cached
+		}
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), nativeModelProtocolRoutingDBTimeout)
+		defer cancel()
+
+		raw, err := s.settingRepo.GetValue(dbCtx, SettingKeyNativeModelProtocolRoutingEnabled)
+		runtime := fallback
+		ttl := nativeModelProtocolRoutingCacheTTL
+		switch {
+		case err == nil:
+			runtime.Enabled = strings.TrimSpace(raw) == "true"
+			runtime.Source = "settings"
+		case errors.Is(err, ErrSettingNotFound):
+			// Deliberately inherit the deployment default until an administrator
+			// explicitly saves an override.
+		default:
+			slog.Warn("failed to get native model protocol routing setting", "error", err)
+			// A database-backed false value is an operational kill switch. Never
+			// re-enable routing from a true config fallback merely because that
+			// override is temporarily unreadable. Preserve the last known state;
+			// without one, fail closed until settings can be read again.
+			if stale != nil {
+				runtime.Enabled = stale.enabled
+				runtime.Source = stale.source
+			} else {
+				runtime.Enabled = false
+				runtime.Source = "error_fallback"
+			}
+			ttl = nativeModelProtocolRoutingErrorTTL
+		}
+		s.nativeModelProtocolRoutingCache.Store(&cachedNativeModelProtocolRouting{
+			enabled:   runtime.Enabled,
+			source:    runtime.Source,
+			expiresAt: time.Now().Add(ttl).UnixNano(),
+		})
+		return runtime, nil
+	})
+	if runtime, ok := value.(NativeModelProtocolRoutingRuntime); ok {
+		return runtime
+	}
+	return fallback
+}
+
+func (s *SettingService) IsNativeModelProtocolRoutingEnabled(ctx context.Context) bool {
+	return s.GetNativeModelProtocolRoutingRuntime(ctx).Enabled
 }
 
 type gatewayForwardingSettingsResult struct {

@@ -212,6 +212,7 @@ func TestSettingHandler_UpdateSettings_PreservesOmittedDevZZOperationalSettings(
 		values: map[string]string{
 			service.SettingKeyPromoCodeEnabled:                     "true",
 			service.SettingKeyScheduleStrategy:                     service.ScheduleStrategyCostFirst,
+			service.SettingKeyNativeModelProtocolRoutingEnabled:    "true",
 			service.SettingKeyModelSelfCheckEnabled:                "true",
 			service.SettingKeyModelSelfCheckDefaultIntervalSeconds: "900",
 			service.SettingKeyModelSelfCheckMaxConcurrency:         "12",
@@ -238,6 +239,7 @@ func TestSettingHandler_UpdateSettings_PreservesOmittedDevZZOperationalSettings(
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, service.ScheduleStrategyCostFirst, repo.values[service.SettingKeyScheduleStrategy])
+	require.Equal(t, "true", repo.values[service.SettingKeyNativeModelProtocolRoutingEnabled])
 	require.Equal(t, "true", repo.values[service.SettingKeyModelSelfCheckEnabled])
 	require.Equal(t, "900", repo.values[service.SettingKeyModelSelfCheckDefaultIntervalSeconds])
 	require.Equal(t, "12", repo.values[service.SettingKeyModelSelfCheckMaxConcurrency])
@@ -250,12 +252,60 @@ func TestSettingHandler_UpdateSettings_PreservesOmittedDevZZOperationalSettings(
 	data, ok := resp.Data.(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, service.ScheduleStrategyCostFirst, data["schedule_strategy"])
+	require.Equal(t, true, data["native_model_protocol_routing_enabled"])
+	require.Equal(t, "settings", data["native_model_protocol_routing_source"])
 	require.Equal(t, true, data["model_self_check_enabled"])
 	require.Equal(t, float64(900), data["self_check_default_interval_seconds"])
 	require.Equal(t, float64(12), data["self_check_max_concurrency"])
 	require.Equal(t, float64(1200), data["self_check_max_tasks_per_round"])
 	require.Equal(t, float64(180), data["model_self_check_status_snapshot_retention_days"])
 	require.Equal(t, true, data["disable_keys_on_rate_change"])
+}
+
+func TestSettingHandler_UpdateSettings_OmittedNativeRoutingKeepsConfigFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &settingHandlerRepoStub{values: map[string]string{
+		service.SettingKeyPromoCodeEnabled: "true",
+	}}
+	cfg := &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}}
+	cfg.Gateway.NativeModelProtocolRoutingEnabled = true
+	svc := service.NewSettingService(repo, cfg)
+	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+
+	rawBody, err := json.Marshal(map[string]any{"promo_code_enabled": true})
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.UpdateSettings(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	_, persisted := repo.lastUpdates[service.SettingKeyNativeModelProtocolRoutingEnabled]
+	require.False(t, persisted)
+
+	var resp response.Response
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	data, ok := resp.Data.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, true, data["native_model_protocol_routing_enabled"])
+	require.Equal(t, "config", data["native_model_protocol_routing_source"])
+}
+
+func TestDiffSettings_TracksNativeRoutingOverrideSourceChange(t *testing.T) {
+	before := &service.SystemSettings{
+		NativeModelProtocolRoutingEnabled: true,
+		NativeModelProtocolRoutingSource:  "config",
+	}
+	after := &service.SystemSettings{
+		NativeModelProtocolRoutingEnabled: true,
+		NativeModelProtocolRoutingSource:  "settings",
+	}
+
+	changed := diffSettings(before, after, nil, nil, UpdateSettingsRequest{})
+
+	require.Contains(t, changed, service.SettingKeyNativeModelProtocolRoutingEnabled)
 }
 
 func TestSettingHandler_UpdateSettings_InvalidOpenAIFastPolicyDoesNotPersistPartialSettings(t *testing.T) {

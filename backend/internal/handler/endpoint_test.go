@@ -199,6 +199,61 @@ func TestResolveOpenAIUpstreamEndpointPrefersForwardResult(t *testing.T) {
 	}
 }
 
+func TestOpenAIModelProtocolFromEndpoint(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		endpoint string
+		want     service.ModelProtocol
+	}{
+		{endpoint: "/v1/chat/completions", want: service.ModelProtocolOpenAIChat},
+		{endpoint: "https://upstream.example/v1/responses", want: service.ModelProtocolOpenAIResponses},
+		{endpoint: "/v1/responses/compact", want: service.ModelProtocolOpenAIResponses},
+		{endpoint: "/v1/messages", want: service.ModelProtocolAnthropicMessages},
+		{endpoint: "", want: ""},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.endpoint, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, openAIModelProtocolFromEndpoint(tt.endpoint))
+		})
+	}
+}
+
+func TestProtocolDeliveryUsageScheduleMetaUsesActualEndpoint(t *testing.T) {
+	t.Parallel()
+	meta := protocolDeliveryUsageScheduleMeta(
+		service.OpenAIAccountScheduleDecision{Layer: "priority"},
+		service.ModelProtocolOpenAIResponses,
+		service.ModelDeliveryDecision{
+			UpstreamProtocol: service.ModelProtocolOpenAIResponses,
+			Mode:             service.ModelDeliveryModeNative,
+			CapabilitySource: "admin_override",
+		},
+		EndpointChatCompletions,
+	)
+	require.Equal(t, string(service.ModelProtocolOpenAIResponses), meta.InboundProtocol)
+	require.Equal(t, string(service.ModelProtocolOpenAIChat), meta.UpstreamProtocol)
+	require.Equal(t, string(service.ModelDeliveryModeCompatibility), meta.ProtocolDeliveryMode)
+	require.Equal(t, "admin_override", meta.CapabilitySource)
+}
+
+func TestOpenAIScheduleResultModelUsesCanonicalThenActualUpstreamModel(t *testing.T) {
+	t.Parallel()
+	account := &service.Account{
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"channel-alias": "account-upstream"},
+		},
+	}
+	delivery := service.ModelDeliveryDecision{UpstreamModel: "canonical-upstream"}
+
+	require.Equal(t, "canonical-upstream", openAIScheduleResultModel(account, delivery, "channel-alias", nil))
+	require.Equal(t, "actual-upstream", openAIScheduleResultModel(account, delivery, "channel-alias", &service.OpenAIForwardResult{
+		UpstreamModel: "actual-upstream",
+	}))
+	require.Equal(t, "account-upstream", openAIScheduleResultModel(account, service.ModelDeliveryDecision{}, "channel-alias", nil))
+}
+
 // ──────────────────────────────────────────────────────────
 // responsesSubpathSuffix
 // ──────────────────────────────────────────────────────────

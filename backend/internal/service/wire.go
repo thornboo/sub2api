@@ -67,6 +67,87 @@ func ProvideOpenAIOAuthService(
 	return svc
 }
 
+func ProvideModelProtocolCapabilityService(
+	repo ModelProtocolCapabilityRepository,
+	accountRepo AccountRepository,
+	groupRepo GroupRepository,
+	channel *ChannelService,
+	cfg *config.Config,
+	settingService *SettingService,
+) *ModelProtocolCapabilityService {
+	svc := NewModelProtocolCapabilityService(repo, accountRepo, groupRepo, channel, cfg)
+	svc.SetNativeModelProtocolRoutingSettingReader(settingService)
+	return svc
+}
+
+func ProvideModelDeliveryService(
+	accountRepo AccountRepository,
+	groupRepo GroupRepository,
+	channel *ChannelService,
+	capability *ModelProtocolCapabilityService,
+	cfg *config.Config,
+	settingService *SettingService,
+) *ModelDeliveryService {
+	svc := NewModelDeliveryService(accountRepo, groupRepo, channel, capability, cfg)
+	svc.SetNativeModelProtocolRoutingSettingReader(settingService)
+	return svc
+}
+
+// ProvideOpenAIGatewayService injects additive protocol capability routing while
+// preserving NewOpenAIGatewayService for focused unit tests.
+func ProvideOpenAIGatewayService(
+	accountRepo AccountRepository,
+	usageLogRepo UsageLogRepository,
+	usageBillingRepo UsageBillingRepository,
+	userRepo UserRepository,
+	userSubRepo UserSubscriptionRepository,
+	userGroupRateRepo UserGroupRateRepository,
+	cache GatewayCache,
+	cfg *config.Config,
+	schedulerSnapshot *SchedulerSnapshotService,
+	concurrencyService *ConcurrencyService,
+	billingService *BillingService,
+	rateLimitService *RateLimitService,
+	billingCacheService *BillingCacheService,
+	httpUpstream HTTPUpstream,
+	deferredService *DeferredService,
+	openAITokenProvider *OpenAITokenProvider,
+	grokTokenProvider *GrokTokenProvider,
+	resolver *ModelPricingResolver,
+	channelService *ChannelService,
+	balanceNotifyService *BalanceNotifyService,
+	settingService *SettingService,
+	userPlatformQuotaRepo UserPlatformQuotaRepository,
+	modelProtocolCapability *ModelProtocolCapabilityService,
+) *OpenAIGatewayService {
+	svc := NewOpenAIGatewayService(
+		accountRepo,
+		usageLogRepo,
+		usageBillingRepo,
+		userRepo,
+		userSubRepo,
+		userGroupRateRepo,
+		cache,
+		cfg,
+		schedulerSnapshot,
+		concurrencyService,
+		billingService,
+		rateLimitService,
+		billingCacheService,
+		httpUpstream,
+		deferredService,
+		openAITokenProvider,
+		grokTokenProvider,
+		resolver,
+		channelService,
+		balanceNotifyService,
+		settingService,
+		userPlatformQuotaRepo,
+	)
+	svc.SetModelProtocolCapabilityService(modelProtocolCapability)
+	return svc
+}
+
 // ProvideTokenRefreshService creates and starts TokenRefreshService
 func ProvideTokenRefreshService(
 	accountRepo AccountRepository,
@@ -696,6 +777,8 @@ var ProviderSet = wire.NewSet(
 	ProvideAuthCacheInvalidationWorker,
 	NewGroupService,
 	NewAccountService,
+	ProvideModelProtocolCapabilityService,
+	ProvideModelDeliveryService,
 	NewProxyService,
 	NewRedeemService,
 	NewPromoService,
@@ -707,7 +790,7 @@ var ProviderSet = wire.NewSet(
 	NewAnnouncementService,
 	NewAdminService,
 	NewGatewayService,
-	NewOpenAIGatewayService,
+	ProvideOpenAIGatewayService,
 	ProvideImageStorageSettingService,
 	ProvideImageTaskService,
 	ProvideBatchImageModelPricingResolver,

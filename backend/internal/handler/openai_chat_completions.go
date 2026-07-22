@@ -101,6 +101,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	deliveryRoutingModel := reqModel
+	if channelMapping.Mapped && strings.TrimSpace(channelMapping.MappedModel) != "" {
+		deliveryRoutingModel = strings.TrimSpace(channelMapping.MappedModel)
+	}
 
 	if h.errorPassthroughService != nil {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)
@@ -145,20 +149,39 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			return
 		}
 		reqLog.Debug("openai_chat_completions.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
-		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			c.Request.Context(),
-			apiKey.GroupID,
-			"",
-			sessionHash,
-			reqModel,
-			failedAccountIDs,
-			service.OpenAIUpstreamTransportAny,
-			service.OpenAIEndpointCapabilityChatCompletions,
-			false,
-			false,
-			true,
-			requestPlatform,
+		selection, scheduleDecision, deliveryDecision, deliveryErr := h.gatewayService.SelectAccountWithSchedulerForProtocolDelivery(
+			c.Request.Context(), apiKey.GroupID, "", sessionHash, reqModel, deliveryRoutingModel, failedAccountIDs,
+			service.OpenAIUpstreamTransportAny, service.OpenAIEndpointCapabilityChatCompletions,
+			false, false, true, service.ModelProtocolOpenAIChat, requestPlatform,
 		)
+		var err error
+		if deliveryErr == nil && selection != nil && selection.Account != nil {
+			reqLog.Debug("openai_chat_completions.delivery_decision",
+				zap.String("mode", string(deliveryDecision.Mode)),
+				zap.String("upstream_protocol", string(deliveryDecision.UpstreamProtocol)),
+				zap.String("capability_source", deliveryDecision.CapabilitySource),
+			)
+		} else if service.ShouldUseLegacyProtocolDeliverySelector(deliveryErr, deliveryDecision) {
+			if errors.Is(deliveryErr, service.ErrModelProtocolCapabilityUnavailable) {
+				reqLog.Warn("openai_chat_completions.delivery_capability_unavailable_using_legacy", zap.Error(deliveryErr))
+			}
+			selection, scheduleDecision, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
+				c.Request.Context(),
+				apiKey.GroupID,
+				"",
+				sessionHash,
+				reqModel,
+				failedAccountIDs,
+				service.OpenAIUpstreamTransportAny,
+				service.OpenAIEndpointCapabilityChatCompletions,
+				false,
+				false,
+				true,
+				requestPlatform,
+			)
+		} else {
+			err = deliveryErr
+		}
 		if err != nil {
 			if failoverClientGone(c) {
 				reqLog.Info("openai_chat_completions.account_select_aborted_client_disconnected", zap.Error(err))
@@ -216,7 +239,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, promptCacheKey, "")
+			return h.gatewayService.ForwardAsChatCompletionsWithSelectedProtocol(
+				c.Request.Context(), c, account, forwardBody, promptCacheKey, "", deliveryDecision.UpstreamProtocol,
+			)
 		}()
 		cyberBlockKeyChat := ""
 		if service.GetOpsCyberPolicy(c) != nil {
@@ -256,7 +281,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 						return
 					}
 					if failoverErr.ShouldReportAccountScheduleFailure() {
-						h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), false, nil)
+						h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, openAIScheduleResultModel(account, deliveryDecision, deliveryRoutingModel, result), false, nil)
 					}
 					if !failoverErr.ShouldRetryNextAccount() {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
@@ -301,7 +326,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					)
 					continue
 				}
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), false, nil)
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, openAIScheduleResultModel(account, deliveryDecision, deliveryRoutingModel, result), false, nil)
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
 				wroteFallback := false
 				if !upstreamErrorAlreadyCommunicated {
@@ -320,9 +345,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			}
 		}
 		if result != nil {
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), true, result.FirstTokenMs)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, openAIScheduleResultModel(account, deliveryDecision, deliveryRoutingModel, result), true, result.FirstTokenMs)
 		} else {
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), true, nil)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, openAIScheduleResultModel(account, deliveryDecision, deliveryRoutingModel, result), true, nil)
 		}
 
 		userAgent := c.GetHeader("User-Agent")
@@ -334,14 +359,19 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		cyberBlocked := service.GetOpsCyberPolicy(c) != nil
 		h.submitOpenAIUsageRecordTask(c, c.Request.Context(), result, apiKey, func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
-				Result:             result,
-				APIKey:             apiKey,
-				User:               apiKey.User,
-				Account:            account,
-				Subscription:       subscription,
-				InboundEndpoint:    inboundEndpoint,
-				UpstreamEndpoint:   upstreamEndpoint,
-				ScheduleMeta:       service.UsageScheduleMetaFromOpenAIDecision(scheduleDecision),
+				Result:           result,
+				APIKey:           apiKey,
+				User:             apiKey.User,
+				Account:          account,
+				Subscription:     subscription,
+				InboundEndpoint:  inboundEndpoint,
+				UpstreamEndpoint: upstreamEndpoint,
+				ScheduleMeta: protocolDeliveryUsageScheduleMeta(
+					scheduleDecision,
+					service.ModelProtocolOpenAIChat,
+					deliveryDecision,
+					upstreamEndpoint,
+				),
 				UserAgent:          userAgent,
 				IPAddress:          clientIP,
 				APIKeyService:      h.apiKeyService,
@@ -388,4 +418,65 @@ func resolveOpenAIUpstreamEndpoint(c *gin.Context, account *service.Account, res
 		return EndpointChatCompletions
 	}
 	return GetUpstreamEndpoint(c, account.Platform)
+}
+
+func protocolDeliveryUsageScheduleMeta(
+	scheduleDecision service.OpenAIAccountScheduleDecision,
+	inboundProtocol service.ModelProtocol,
+	deliveryDecision service.ModelDeliveryDecision,
+	upstreamEndpoint string,
+) *service.UsageScheduleMeta {
+	actualUpstreamProtocol := openAIModelProtocolFromEndpoint(upstreamEndpoint)
+	upstreamProtocol := actualUpstreamProtocol
+	if upstreamProtocol == "" {
+		upstreamProtocol = deliveryDecision.UpstreamProtocol
+	}
+	deliveryMode := deliveryDecision.Mode
+	if actualUpstreamProtocol != "" || deliveryMode == "" {
+		deliveryMode = service.ModelDeliveryModeCompatibility
+		if inboundProtocol == upstreamProtocol {
+			deliveryMode = service.ModelDeliveryModeNative
+		}
+	}
+	return service.UsageScheduleMetaWithProtocol(
+		service.UsageScheduleMetaFromOpenAIDecision(scheduleDecision),
+		inboundProtocol,
+		upstreamProtocol,
+		string(deliveryMode),
+		deliveryDecision.CapabilitySource,
+	)
+}
+
+func openAIModelProtocolFromEndpoint(endpoint string) service.ModelProtocol {
+	normalized := strings.ToLower(strings.TrimSpace(endpoint))
+	switch {
+	case strings.Contains(normalized, "/chat/completions"):
+		return service.ModelProtocolOpenAIChat
+	case strings.Contains(normalized, "/responses"):
+		return service.ModelProtocolOpenAIResponses
+	case strings.Contains(normalized, "/messages"):
+		return service.ModelProtocolAnthropicMessages
+	default:
+		return ""
+	}
+}
+
+func openAIScheduleResultModel(
+	account *service.Account,
+	deliveryDecision service.ModelDeliveryDecision,
+	fallbackModel string,
+	result *service.OpenAIForwardResult,
+) string {
+	if result != nil {
+		if upstreamModel := strings.TrimSpace(result.UpstreamModel); upstreamModel != "" {
+			return upstreamModel
+		}
+	}
+	if upstreamModel := strings.TrimSpace(deliveryDecision.UpstreamModel); upstreamModel != "" {
+		return upstreamModel
+	}
+	if account != nil {
+		return account.GetMappedModel(strings.TrimSpace(fallbackModel))
+	}
+	return strings.TrimSpace(fallbackModel)
 }

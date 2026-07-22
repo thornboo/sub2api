@@ -562,6 +562,8 @@ export interface SystemSettings {
   schedule_strategy: ScheduleStrategy;
 
   // Gateway forwarding behavior
+  native_model_protocol_routing_enabled: boolean;
+  native_model_protocol_routing_source: "settings" | "config" | string;
   enable_fingerprint_unification: boolean;
   enable_metadata_passthrough: boolean;
   enable_cch_signing: boolean;
@@ -854,6 +856,7 @@ export interface UpdateSettingsRequest {
   max_claude_code_version?: string;
   allow_ungrouped_key_scheduling?: boolean;
   schedule_strategy?: ScheduleStrategy;
+  native_model_protocol_routing_enabled?: boolean;
   enable_fingerprint_unification?: boolean;
   enable_metadata_passthrough?: boolean;
   enable_cch_signing?: boolean;

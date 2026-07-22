@@ -4560,6 +4560,64 @@
               </p>
             </div>
             <div class="space-y-5 p-6">
+              <div
+                id="gateway-model-protocol-routing"
+                class="relative overflow-hidden rounded-2xl border p-4 transition-colors sm:p-5"
+                :class="
+                  form.native_model_protocol_routing_enabled
+                    ? 'border-emerald-200 bg-emerald-50/70 dark:border-emerald-500/25 dark:bg-emerald-500/[0.08]'
+                    : 'border-amber-200 bg-amber-50/65 dark:border-amber-500/25 dark:bg-amber-500/[0.07]'
+                "
+              >
+                <div
+                  class="pointer-events-none absolute -right-10 -top-12 h-32 w-32 rounded-full blur-2xl"
+                  :class="
+                    form.native_model_protocol_routing_enabled
+                      ? 'bg-emerald-300/25 dark:bg-emerald-400/10'
+                      : 'bg-amber-300/25 dark:bg-amber-400/10'
+                  "
+                />
+                <div class="relative flex items-start justify-between gap-5">
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+                        {{ t("admin.settings.gatewayForwarding.nativeModelProtocolRouting") }}
+                      </h3>
+                      <span
+                        class="rounded-full border px-2 py-0.5 text-[11px] font-semibold"
+                        :class="
+                          form.native_model_protocol_routing_enabled
+                            ? 'border-emerald-200 bg-white/80 text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-950/30 dark:text-emerald-300'
+                            : 'border-amber-200 bg-white/80 text-amber-700 dark:border-amber-500/25 dark:bg-amber-950/30 dark:text-amber-300'
+                        "
+                      >
+                        {{
+                          form.native_model_protocol_routing_enabled
+                            ? t("admin.settings.gatewayForwarding.routingEnabled")
+                            : t("admin.settings.gatewayForwarding.routingDisabled")
+                        }}
+                      </span>
+                      <span class="text-[11px] text-gray-500 dark:text-gray-400">
+                        {{
+                          form.native_model_protocol_routing_source === "settings"
+                            ? t("admin.settings.gatewayForwarding.sourceSettings")
+                            : t("admin.settings.gatewayForwarding.sourceConfig")
+                        }}
+                      </span>
+                    </div>
+                    <p class="mt-1.5 max-w-3xl text-xs leading-5 text-gray-600 dark:text-gray-300">
+                      {{ t("admin.settings.gatewayForwarding.nativeModelProtocolRoutingHint") }}
+                    </p>
+                    <div class="mt-3 flex flex-wrap gap-1.5 font-mono text-[11px]">
+                      <span class="rounded-md border border-current/10 bg-white/70 px-2 py-1 text-gray-600 dark:bg-black/20 dark:text-gray-300">/v1/messages</span>
+                      <span class="rounded-md border border-current/10 bg-white/70 px-2 py-1 text-gray-600 dark:bg-black/20 dark:text-gray-300">/v1/chat/completions</span>
+                      <span class="rounded-md border border-current/10 bg-white/70 px-2 py-1 text-gray-600 dark:bg-black/20 dark:text-gray-300">/v1/responses</span>
+                    </div>
+                  </div>
+                  <Toggle v-model="nativeModelProtocolRoutingToggle" class="relative shrink-0" />
+                </div>
+              </div>
+
               <!-- Fingerprint Unification -->
               <div class="flex items-center justify-between">
                 <div>
@@ -7903,6 +7961,14 @@
         @confirm="handleAffiliateConfirm"
         @cancel="cancelAffiliateConfirm"
       />
+      <ConfirmDialog
+        :show="nativeModelProtocolRoutingConfirmOpen"
+        :title="t('admin.settings.gatewayForwarding.enableRoutingConfirmTitle')"
+        :message="t('admin.settings.gatewayForwarding.enableRoutingConfirmMessage')"
+        :confirm-text="t('admin.settings.gatewayForwarding.enableRoutingConfirmAction')"
+        @confirm="confirmNativeModelProtocolRouting"
+        @cancel="cancelNativeModelProtocolRouting"
+      />
       <!-- 关闭 step-up 开关等敏感保存操作触发的 TOTP 二次验证 -->
       <TotpStepUpDialog :controller="settingsStepUp" />
     </div>
@@ -7912,6 +7978,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { useRoute } from "vue-router";
 import { adminAPI } from "@/api";
 import {
   appendAuthSourceDefaultsToUpdateRequest,
@@ -7984,6 +8051,7 @@ import {
 } from "./codexFingerprintSignals";
 
 const { t, locale } = useI18n();
+const route = useRoute();
 const appStore = useAppStore();
 // 关闭 step-up 开关是敏感操作：后端返回 STEP_UP_REQUIRED 时弹 TOTP 码重试
 const settingsStepUp = useStepUp();
@@ -8028,6 +8096,19 @@ const settingsTabs = [
   { key: "email" as SettingsTab, icon: "mail" as const },
   { key: "backup" as SettingsTab, icon: "database" as const },
 ];
+
+watch(
+  () => route.query.tab,
+  (tab) => {
+    if (
+      typeof tab === "string" &&
+      settingsTabs.some((candidate) => candidate.key === tab)
+    ) {
+      activeTab.value = tab as SettingsTab;
+    }
+  },
+  { immediate: true },
+);
 
 const settingsTabKeyboardActions = {
   ArrowLeft: -1,
@@ -8877,6 +8958,8 @@ const form = reactive<SettingsForm>({
   openai_advanced_scheduler_weight_previous_response: "",
   openai_advanced_scheduler_weight_session_sticky: "",
   // Gateway forwarding behavior
+  native_model_protocol_routing_enabled: false,
+  native_model_protocol_routing_source: "config",
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
   enable_cch_signing: false,
@@ -8918,6 +9001,30 @@ const form = reactive<SettingsForm>({
   // Allow user view error requests
   allow_user_view_error_requests: false,
 });
+
+const nativeModelProtocolRoutingConfirmOpen = ref(false);
+const nativeModelProtocolRoutingTouched = ref(false);
+const nativeModelProtocolRoutingToggle = computed({
+  get: () => form.native_model_protocol_routing_enabled,
+  set: (enabled: boolean) => {
+    if (enabled && !form.native_model_protocol_routing_enabled) {
+      nativeModelProtocolRoutingConfirmOpen.value = true;
+      return;
+    }
+    form.native_model_protocol_routing_enabled = enabled;
+    nativeModelProtocolRoutingTouched.value = true;
+  },
+});
+
+function confirmNativeModelProtocolRouting(): void {
+  form.native_model_protocol_routing_enabled = true;
+  nativeModelProtocolRoutingTouched.value = true;
+  nativeModelProtocolRoutingConfirmOpen.value = false;
+}
+
+function cancelNativeModelProtocolRouting(): void {
+  nativeModelProtocolRoutingConfirmOpen.value = false;
+}
 
 type OpenAIAdvancedSchedulerOverrideKey =
   | "openai_advanced_scheduler_lb_top_k"
@@ -9826,6 +9933,7 @@ async function loadSettings() {
         (form as Record<string, unknown>)[key] = value;
       }
     }
+    nativeModelProtocolRoutingTouched.value = false;
     form.schedule_strategy = normalizeScheduleStrategy(form.schedule_strategy);
     if (!form.claude_oauth_system_prompt_blocks?.trim()) {
       form.claude_oauth_system_prompt_blocks =
@@ -10542,6 +10650,14 @@ async function saveSettings() {
       };
     }
 
+    if (
+      form.native_model_protocol_routing_source === "settings" ||
+      nativeModelProtocolRoutingTouched.value
+    ) {
+      payload.native_model_protocol_routing_enabled =
+        form.native_model_protocol_routing_enabled;
+    }
+
     payload.default_platform_quotas = sanitizePlatformQuotasMap(form.default_platform_quotas);
     appendAuthSourceDefaultsToUpdateRequest(payload, authSourceDefaults);
 
@@ -10554,6 +10670,7 @@ async function saveSettings() {
         (form as Record<string, unknown>)[key] = value;
       }
     }
+    nativeModelProtocolRoutingTouched.value = false;
     Object.assign(authSourceDefaults, buildAuthSourceDefaultsState(updated));
     form.default_platform_quotas = normalizePlatformQuotasMap(updated.default_platform_quotas);
     registrationEmailSuffixWhitelistTags.value =

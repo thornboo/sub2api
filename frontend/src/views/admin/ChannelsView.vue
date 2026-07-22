@@ -434,6 +434,12 @@
                 </div>
               </div>
               <div
+                v-if="deliveryError || deliveryWarnings.length"
+                class="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300"
+              >
+                {{ deliveryError || t('admin.channels.form.deliveryEvidenceWarning') }}
+              </div>
+              <div
                 v-if="section.model_pricing.length === 0"
                 class="rounded border border-dashed border-stone-300 p-2 text-center text-xs text-stone-400 dark:border-white/10"
               >
@@ -445,8 +451,11 @@
                   :key="idx"
                   :entry="entry"
                   :platform="section.platform"
+                  :model-delivery="deliveryLoaded ? modelDeliveryForPlatform(section.platform) : undefined"
+                  :delivery-loading="deliveryLoading"
                   @update="updatePricingEntry(sIdx, idx, $event)"
                   @remove="removePricingEntry(sIdx, idx)"
+                  @inspect-delivery="openDeliveryDialog"
                 />
               </div>
             </div>
@@ -613,6 +622,12 @@
       </template>
     </BaseDialog>
 
+    <ChannelModelDeliveryDialog
+      :show="showDeliveryDialog"
+      :model="selectedDeliveryModel"
+      @close="closeDeliveryDialog"
+    />
+
     <!-- Delete Confirmation -->
     <ConfirmDialog
       :show="showDeleteDialog"
@@ -633,7 +648,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
-import type { Channel, ChannelModelPricing, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule } from '@/api/admin/channels'
+import type { Channel, ChannelModelDelivery, ChannelModelPricing, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule } from '@/api/admin/channels'
 import type { PricingFormEntry } from '@/components/admin/channel/types'
 import { mTokToPerToken, perTokenToMTok, apiIntervalsToForm, formIntervalsToAPI, findModelConflict, validateIntervals } from '@/components/admin/channel/types'
 import type { AdminGroup, GroupPlatform } from '@/types'
@@ -652,6 +667,7 @@ import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import PricingEntryCard from '@/components/admin/channel/PricingEntryCard.vue'
+import ChannelModelDeliveryDialog from '@/components/admin/channel/ChannelModelDeliveryDialog.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useKeyedDebouncedSearch } from '@/composables/useKeyedDebouncedSearch'
 
@@ -742,6 +758,13 @@ const submitting = ref(false)
 const showDeleteDialog = ref(false)
 const deletingChannel = ref<Channel | null>(null)
 const activeTab = ref<string>('basic')
+const deliveryLoading = ref(false)
+const deliveryLoaded = ref(false)
+const deliveryError = ref('')
+const deliveryWarnings = ref<string[]>([])
+const channelModelDelivery = ref<ChannelModelDelivery[]>([])
+const showDeliveryDialog = ref(false)
+const selectedDeliveryModel = ref<ChannelModelDelivery | null>(null)
 
 // Groups
 const allGroups = ref<AdminGroup[]>([])
@@ -774,6 +797,30 @@ function formatDate(value: string): string {
 
 // ── Platform section helpers ──
 const activePlatforms = computed(() => form.platforms.filter(s => s.enabled).map(s => s.platform))
+
+const deliveryByPlatform = computed(() => {
+  const result: Record<string, Record<string, ChannelModelDelivery>> = {}
+  for (const delivery of channelModelDelivery.value) {
+    const platform = delivery.platform || ''
+    if (!result[platform]) result[platform] = {}
+    result[platform][delivery.name.trim().toLowerCase()] = delivery
+  }
+  return result
+})
+
+function modelDeliveryForPlatform(platform: string): Record<string, ChannelModelDelivery> {
+  return deliveryByPlatform.value[platform] || {}
+}
+
+function openDeliveryDialog(delivery: ChannelModelDelivery) {
+  selectedDeliveryModel.value = delivery
+  showDeliveryDialog.value = true
+}
+
+function closeDeliveryDialog() {
+  showDeliveryDialog.value = false
+  selectedDeliveryModel.value = null
+}
 
 function addPlatformSection(platform: GroupPlatform) {
   form.platforms.push({
@@ -1357,6 +1404,12 @@ function resetForm() {
   ruleAccountSearchRunner.clearAll()
   clearAllRuleAccountSearchState()
   ruleAccountNameCache.value = {}
+  deliveryLoading.value = false
+  deliveryLoaded.value = false
+  deliveryError.value = ''
+  deliveryWarnings.value = []
+  channelModelDelivery.value = []
+  closeDeliveryDialog()
 }
 
 async function openCreateDialog() {
@@ -1375,7 +1428,7 @@ async function openEditDialog(channel: Channel) {
   form.billing_model_source = channel.billing_model_source || 'channel_mapped'
   form.apply_pricing_to_account_stats = channel.apply_pricing_to_account_stats || false
   // Must load groups first so apiToForm can map groupID → platform
-  await Promise.all([loadGroups(), loadAllChannelsForConflict()])
+  await Promise.all([loadGroups(), loadAllChannelsForConflict(), loadChannelModelDelivery(channel.id)])
   form.platforms = apiToForm(channel)
 
   // Distribute channel-level rules into per-platform sections
@@ -1385,6 +1438,26 @@ async function openEditDialog(channel: Channel) {
   await populateRuleAccountNameCache()
 
   showDialog.value = true
+}
+
+async function loadChannelModelDelivery(channelId: number) {
+  deliveryLoading.value = true
+  deliveryLoaded.value = false
+  deliveryError.value = ''
+  deliveryWarnings.value = []
+  try {
+    const result = await adminAPI.channels.getModelDelivery(channelId)
+    if (editingChannel.value?.id !== channelId) return
+    channelModelDelivery.value = result.models || []
+    deliveryWarnings.value = result.warnings || []
+    deliveryLoaded.value = true
+  } catch (error) {
+    if (editingChannel.value?.id !== channelId) return
+    channelModelDelivery.value = []
+    deliveryError.value = extractApiErrorMessage(error, t('admin.channels.form.deliveryLoadFailed'))
+  } finally {
+    if (editingChannel.value?.id === channelId) deliveryLoading.value = false
+  }
 }
 
 /** Distribute flat channel-level rules into the matching platform section based on group_ids */

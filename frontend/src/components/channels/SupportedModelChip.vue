@@ -1,9 +1,9 @@
 <template>
-  <div class="relative inline-block">
+  <div class="relative inline-flex max-w-full">
     <span
       ref="triggerEl"
       :class="[
-        'inline-flex cursor-help items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium transition-colors',
+        'inline-flex max-w-full cursor-help items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium transition-colors',
         effectivePlatform
           ? platformBadgeClass(effectivePlatform)
           : 'border-gray-200 bg-gray-50 text-gray-700 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300',
@@ -21,11 +21,24 @@
       />
       <span
         v-if="showPlatform && model.platform"
-        class="rounded bg-gray-200/60 px-1 text-[10px] uppercase text-gray-600 dark:bg-dark-700 dark:text-gray-400"
+        class="shrink-0 rounded bg-gray-200/60 px-1 text-[10px] uppercase text-gray-600 dark:bg-dark-700 dark:text-gray-400"
       >
         {{ model.platform }}
       </span>
-      {{ model.name }}
+      <span data-testid="supported-model-name" class="min-w-0 truncate" :title="model.name">
+        {{ model.name }}
+      </span>
+      <button
+        v-for="endpoint in supportedEndpoints"
+        :key="`${endpoint.protocol}:${endpoint.path}`"
+        type="button"
+        class="shrink-0 rounded border border-current/20 bg-white/70 px-1 py-0.5 font-mono text-[9px] leading-none opacity-80 transition hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current focus-visible:ring-offset-1 dark:bg-dark-900/50"
+        :aria-label="t('availableChannels.endpoints.copyHint', { path: endpoint.path })"
+        :title="t('availableChannels.endpoints.copyHint', { path: endpoint.path })"
+        @click.stop="copyEndpoint(endpoint.path)"
+      >
+        {{ endpointLabel(endpoint.protocol) }}
+      </button>
     </span>
 
     <!-- Teleport to body so the popover is not clipped by card/overflow-hidden
@@ -151,6 +164,15 @@
               </div>
             </div>
           </div>
+          <div v-if="supportedEndpoints.length" class="mt-3 border-t pt-3" :class="[popoverBorderClass]">
+            <div class="mb-2 font-medium text-gray-600 dark:text-gray-300">{{ t('availableChannels.endpoints.title') }}</div>
+            <div class="space-y-1.5">
+              <div v-for="endpoint in supportedEndpoints" :key="endpoint.protocol" class="flex items-center justify-between gap-3">
+                <span class="text-gray-500 dark:text-gray-400">{{ endpointLabel(endpoint.protocol) }}</span>
+                <span class="font-mono text-[11px] text-gray-700 dark:text-gray-200">{{ endpoint.path }}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </Teleport>
@@ -174,6 +196,7 @@ import type { UserPricingInterval, UserSupportedModel } from '@/api/channels'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import type { GroupPlatform } from '@/types'
 import { platformBadgeClass, platformBorderClass, platformBadgeLightClass } from '@/utils/platformColors'
+import { useAppStore } from '@/stores/app'
 
 const props = withDefaults(
   defineProps<{
@@ -199,6 +222,25 @@ const props = withDefaults(
 const effectivePlatform = computed<string>(() => props.model.platform || props.platformHint || '')
 
 const { t } = useI18n()
+const appStore = useAppStore()
+const supportedEndpoints = computed(() => props.model.supported_endpoints || [])
+
+function endpointLabel(protocol: NonNullable<UserSupportedModel['supported_endpoints']>[number]['protocol']): string {
+  switch (protocol) {
+    case 'anthropic_messages': return 'Messages'
+    case 'openai_chat_completions': return 'Chat'
+    case 'openai_responses': return 'Responses'
+  }
+}
+
+async function copyEndpoint(path: string) {
+  try {
+    await navigator.clipboard.writeText(path)
+    appStore.showSuccess(t('availableChannels.endpoints.copied'))
+  } catch {
+    appStore.showError(t('availableChannels.endpoints.copyFailed'))
+  }
+}
 
 /** 按 token 定价展示时的换算单位：每百万 token。 */
 const perMillionScale = 1_000_000

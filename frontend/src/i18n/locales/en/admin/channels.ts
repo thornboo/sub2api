@@ -165,6 +165,20 @@ export default {
         mappingCount: 'mappings',
         pricingEntry: 'Pricing Entry',
         noModels: 'No models added',
+        modelDelivery: 'API Endpoint Readiness',
+        deliverySavedConfig: 'Saved configuration',
+        deliverySummary: '{delivered}/{total} models callable',
+        deliveryNotChecked: 'Save the channel to inspect API endpoints',
+        deliveryRouteSummary: '{endpoints}/{totalEndpoints} API endpoints · {routes} stable routes',
+        deliveryLoadFailed: 'Failed to load API endpoint readiness',
+        deliveryEvidenceWarning: 'Upstream protocol evidence is temporarily unavailable; only provable compatibility endpoints are shown',
+        deliveryStatus: {
+          deliverable: 'Callable',
+          partial: 'Some endpoints available',
+          no_endpoint: 'No callable endpoint',
+          no_route: 'No account route',
+          unknown: 'Not checked'
+        },
         applyPricingToAccountStats: 'Apply Pricing to Account Stats',
         applyPricingToAccountStatsDesc: 'When enabled, requests not matched by custom rules will use standard model pricing for account stats calculation',
         accountStatsPricingRules: 'Custom Account Stats Pricing Rules',
@@ -183,7 +197,41 @@ export default {
          syncModelsSuccess: 'Synced {count} new model(s)',
          syncModelsAlreadyUpToDate: 'Models already up to date',
          syncModelsError: 'Failed to sync models'
-       }
+       },
+      deliveryDialog: {
+        title: 'Model API Endpoints and Routes',
+        summary: '{delivered}/{total} groups are callable through {routes} stable account routes',
+        publicEndpoints: 'Customer-callable API endpoints',
+        groupsUnit: 'groups',
+        noEndpoints: 'No API endpoint can currently be advertised to customers',
+        groupRouteCount: '{count} stable account routes',
+        accountId: 'Account #{id}',
+        channelMappedModel: 'Channel mapping',
+        upstreamModel: 'Final upstream model',
+        actualUpstream: 'Actual upstream',
+        noPublicEndpointOnRoute: 'The account can serve the model, but no public endpoint can currently be advertised',
+        noStableRoute: 'No active, schedulable account in this group supports the model',
+        protocolStatus: {
+          available: 'Callable',
+          blocked: 'Blocked'
+        },
+        reason: {
+          no_stable_route: 'No stable account route',
+          platform_mismatch: 'Account platform does not match the group',
+          model_unsupported: 'Account does not support the final mapped model',
+          group_protocol_disabled: 'The group has not enabled this API endpoint',
+          global_routing_disabled: 'Global multi-endpoint routing is disabled',
+          account_transport_unavailable: 'The upstream transport selected by account policy is unavailable',
+          protocol_capability_unknown: 'Protocol support for the final upstream model is not confirmed',
+          protocol_capability_unsupported: 'The final upstream model explicitly does not support the required upstream protocol',
+          unknown: 'No explainable delivery evidence is available'
+        },
+        mode: {
+          native: 'Native',
+          compatibility: 'Compatibility',
+          mixed: 'Mixed'
+        }
+      }
      },
 
     riskControl: {

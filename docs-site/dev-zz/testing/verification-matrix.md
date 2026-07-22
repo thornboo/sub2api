@@ -140,6 +140,28 @@
 - `allowed_tools` 与有损 custom grammar 只在账号 extra 明确启用时发送，不根据第三方 base URL 猜测。
 - 原始载荷预检必须拒绝关键对象的重复 JSON key，把 `tool_choice.allowed_tools.tools` 与声明/动态工具计入同一资源预算，并拒绝超过 64 个字段的关键/part/嵌套 image URL 对象，或超过 16384 项的 input/content/summary part 数组；历史 identity 必须来自 replay cache，不能在消息转换阶段按 item 回扫全部工具，part 和上游 custom arguments 转换也不得把未知字段解码为通用 map。流式工具 arguments 必须线性累积并执行单调用 16 MiB / 单响应 32 MiB 上限；Responses 超限发 `response.failed`，Messages 超限发 Anthropic `event: error`，两者都停止读取且不生成不完整 done/completed/message_stop。fallback 内其他客户端 400 不得上报账号调度失败。
 
+## 模型原生多协议能力
+
+| 场景 | 推荐命令 |
+| --- | --- |
+| new-api 模型列表解析、覆盖优先级、统一交付投影与原生 Messages 请求 | `cd backend && go test ./internal/service -run 'Test(ExtractUpstreamModelCatalog\|ModelProtocolCapability\|ModelDelivery\|MergeModelDeliveryMode\|ResolveAccountImpacts\|SanitizeUnknownEndpointTypes\|ResolveNativeProtocolsForGroups\|SelectAccountWithSchedulerForNativeProtocol\|ForwardNativeAnthropicMessages\|RewriteNativeAnthropicSSEModel)' -count=1` |
+| 观察/覆盖列隔离的仓储写入 | `cd backend && go test ./internal/repository -run 'TestModelProtocolCapabilityRepository' -count=1` |
+| 模型目录与可用渠道 handler 回归 | `cd backend && go test ./internal/handler -run 'TestGatewayModels\|TestUserAvailableChannel\|TestAttachSupportedEndpoints' -count=1` |
+| 管理端能力矩阵、公开模型影响、用户端点 DTO 和文案 | `pnpm --dir frontend typecheck && pnpm --dir frontend lint:check && pnpm --dir frontend test:run src/components/admin/account/__tests__/ModelProtocolCapabilitiesModal.spec.ts src/api/__tests__/channels.modelProtocols.spec.ts src/i18n/__tests__/localesMessageCompile.spec.ts` |
+
+必要人工核对：
+
+- 开关关闭时，存量 `/v1/messages` 仍走原兼容路径，模型目录不宣称原生端点。
+- 字段缺失、未知枚举和重复模型不得把未声明协议写成不支持；手动覆盖永远优先于同步观察。
+- 模型映射后必须按最终上游模型查能力；有原生候选时不能被高优先级旧兼容账号遮住。
+- 原生 `/v1/messages` 返回 404/405 时只退出该协议尝试；同一健康账号仍可进入旧兼容路径，且能力表不得被运行时错误自动改写。
+- `supported_endpoint_types` 只聚合当前 Key 可见且实际可形成的原生路由；`supported_endpoints` 可额外包含可证明的 Messages 兼容路径。两者都不得泄露账号、供应商、base URL、成本或余额。
+- 渠道中只有价格、没有稳定账号路由的模型不得进入用户模型广场；仍可走存量兼容合同但协议能力证据未知的模型可以保留，不过不得发布未经证明的新端点。管理员仍能看到“无路由”和“有路由但无端点”的区别。
+- `route_group_ids` 必须只包含当前用户可见且仍可调用的分组，`supported_endpoints[].group_ids` 只能包含已确认能交付对应端点的分组；任一分组不得借用其他分组的路由或能力证据。
+- 能力明确为不支持时，旧选择器不得把同一模型重新纳入；即使后续账号的能力仓储读取失败，也不得绕过该显式否定。
+- 普通、批量旧调度与高级调度模式都必须等统一交付判定通过后再写入 sticky；能力不匹配的候选不得新建、刷新或清理会话绑定。
+- 未配置能力时保留可证明的默认 Messages 兼容路径；模型级 Chat 明确不支持时必须同时退出依赖 Chat 的 Messages 兼容路径。
+
 ## 可用渠道和账号模型
 
 | 场景 | 推荐命令 |

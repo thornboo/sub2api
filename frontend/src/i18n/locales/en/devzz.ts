@@ -430,11 +430,33 @@ export default {
     },
     // Available Channels (user-facing)
     availableChannels: {
+        searchPlaceholder: 'Search models, channels, or API endpoints...',
+        empty: 'No available models',
+        endpoints: {
+            title: 'API endpoints',
+            copyHint: 'Copy {path}',
+            copied: 'API endpoint copied',
+            copyFailed: 'Failed to copy API endpoint'
+        },
         exportExcel: 'Export Excel',
         exporting: 'Exporting...',
         viewMode: {
-            channels: 'Channel View',
-            models: 'Table View'
+            marketplace: 'Model Marketplace',
+            table: 'Pricing Table'
+        },
+        modelMarketplace: {
+            groupCardLabel: 'Model {name} in group {group}',
+            copyModel: 'Copy model name {name}',
+            modelCopied: 'Model name copied',
+            groupModelCount: '{count} models',
+            channelCount: '{count} channels',
+            availableChannels: 'Available channels',
+            apiEndpoints: 'API endpoints',
+            copyEndpointHint: 'Click to copy endpoint',
+            endpointUnavailable: 'Using the legacy compatibility route; endpoint metadata is not published',
+            priceVariants: '{count} price variants',
+            priceVariantsHint: 'Channel prices differ. Switch to the pricing table for an exact comparison.',
+            tieredPricing: 'Tiered pricing'
         },
         platformFilter: {
             label: 'Platform Filter',

@@ -506,6 +506,11 @@ const (
 	SettingKeyBackendModeEnabled = "backend_mode_enabled"
 
 	// Gateway Forwarding Behavior
+	// SettingKeyNativeModelProtocolRoutingEnabled controls whether confirmed per-model
+	// protocol capabilities participate in the public endpoint catalog and native routing.
+	// When the DB value is absent, runtime behavior falls back to
+	// gateway.native_model_protocol_routing_enabled from the process configuration.
+	SettingKeyNativeModelProtocolRoutingEnabled = "native_model_protocol_routing_enabled"
 	// SettingKeyEnableFingerprintUnification 是否统一 OAuth 账号的 X-Stainless-* 指纹头（默认 true）
 	SettingKeyEnableFingerprintUnification = "enable_fingerprint_unification"
 	// SettingKeyEnableMetadataPassthrough 是否透传客户端原始 metadata.user_id（默认 false）

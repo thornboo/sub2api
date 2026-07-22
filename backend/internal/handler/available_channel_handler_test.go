@@ -3,11 +3,13 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -30,7 +32,7 @@ func TestUserAvailableChannel_Unauthenticated401(t *testing.T) {
 func TestFilterUserVisibleGroups_IntersectionOnly(t *testing.T) {
 	// 渠道挂在 {g1, g2, g3}，用户只允许 {g1, g3} —— 响应必须仅含 g1/g3。
 	groups := []service.AvailableGroupRef{
-		{ID: 1, Name: "g1", Platform: "anthropic"},
+		{ID: 1, Name: "g1", Platform: "anthropic", AllowMessagesDispatch: true},
 		{ID: 2, Name: "g2", Platform: "anthropic"},
 		{ID: 3, Name: "g3", Platform: "openai"},
 	}
@@ -40,6 +42,7 @@ func TestFilterUserVisibleGroups_IntersectionOnly(t *testing.T) {
 	require.Len(t, visible, 2)
 	ids := []int64{visible[0].ID, visible[1].ID}
 	require.ElementsMatch(t, []int64{1, 3}, ids)
+	require.True(t, visible[0].AllowMessagesDispatch)
 }
 
 func TestToUserSupportedModels_FiltersByAllowedPlatforms(t *testing.T) {
@@ -111,6 +114,8 @@ func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 		_, exists := groupDecoded[key]
 		require.Truef(t, exists, "group DTO must expose %q", key)
 	}
+	_, exposesDispatchPolicy := groupDecoded["allow_messages_dispatch"]
+	require.False(t, exposesDispatchPolicy, "group DTO must not expose internal endpoint policy fields")
 
 	// pricing interval 白名单：不应暴露 id / sort_order。
 	pricing := toUserPricing(&service.ChannelModelPricing{
@@ -154,4 +159,241 @@ func TestBuildPlatformSections_GroupsByPlatform(t *testing.T) {
 	require.Equal(t, int64(2), sections[0].Groups[0].ID)
 	require.Len(t, sections[0].SupportedModels, 1)
 	require.Equal(t, "claude-sonnet-4-6", sections[0].SupportedModels[0].Name)
+}
+
+type availableDeliveryAccountRepoStub struct {
+	service.AccountRepository
+	accounts []*service.Account
+}
+
+func (r *availableDeliveryAccountRepoStub) GetByIDs(_ context.Context, _ []int64) ([]*service.Account, error) {
+	return r.accounts, nil
+}
+
+type availableDeliveryGroupRepoStub struct {
+	service.GroupRepository
+	groups     []service.Group
+	accountIDs []int64
+}
+
+type availableDeliveryCapabilityRepoStub struct {
+	itemsByAccount map[int64][]service.AccountModelProtocolCapability
+}
+
+func (r *availableDeliveryCapabilityRepoStub) ListByAccount(_ context.Context, accountID int64) ([]service.AccountModelProtocolCapability, error) {
+	return append([]service.AccountModelProtocolCapability(nil), r.itemsByAccount[accountID]...), nil
+}
+
+func (r *availableDeliveryCapabilityRepoStub) ListByAccountIDs(_ context.Context, accountIDs []int64) (map[int64][]service.AccountModelProtocolCapability, error) {
+	result := make(map[int64][]service.AccountModelProtocolCapability, len(accountIDs))
+	for _, accountID := range accountIDs {
+		result[accountID] = append([]service.AccountModelProtocolCapability(nil), r.itemsByAccount[accountID]...)
+	}
+	return result, nil
+}
+
+func (r *availableDeliveryCapabilityRepoStub) SyncObserved(_ context.Context, _ int64, _ []service.ModelProtocolObservation) error {
+	return nil
+}
+
+func (r *availableDeliveryCapabilityRepoStub) UpdateOverrides(_ context.Context, _ int64, _ []service.ModelProtocolOverride) error {
+	return nil
+}
+
+func (r *availableDeliveryGroupRepoStub) ListActive(_ context.Context) ([]service.Group, error) {
+	return r.groups, nil
+}
+
+func (r *availableDeliveryGroupRepoStub) GetAccountIDsByGroupIDs(_ context.Context, _ []int64) ([]int64, error) {
+	return r.accountIDs, nil
+}
+
+func TestAttachSupportedEndpoints_PreservesMessagesOnlyForStableRoutes(t *testing.T) {
+	channels := []userAvailableChannel{
+		{
+			Name: "legacy-contract",
+			Platforms: []userChannelPlatformSection{
+				{
+					Platform: service.PlatformAnthropic,
+					Groups: []userAvailableGroup{
+						{ID: 3, Platform: service.PlatformAnthropic},
+					},
+					SupportedModels: []userSupportedModel{{Name: "claude-fable-5", Platform: service.PlatformAnthropic}},
+				},
+				{
+					Platform: service.PlatformOpenAI,
+					Groups: []userAvailableGroup{
+						{ID: 7, Platform: service.PlatformOpenAI, AllowMessagesDispatch: true},
+						{ID: 8, Platform: service.PlatformOpenAI, AllowMessagesDispatch: false},
+					},
+					SupportedModels: []userSupportedModel{{Name: "MiniMax-M3", Platform: service.PlatformOpenAI}},
+				},
+			},
+		},
+	}
+	groupRepo := &availableDeliveryGroupRepoStub{
+		groups: []service.Group{
+			{ID: 3, Name: "Anthropic", Platform: service.PlatformAnthropic, Status: service.StatusActive},
+			{ID: 7, Name: "OpenAI enabled", Platform: service.PlatformOpenAI, Status: service.StatusActive, AllowMessagesDispatch: true},
+			{ID: 8, Name: "OpenAI disabled", Platform: service.PlatformOpenAI, Status: service.StatusActive, AllowMessagesDispatch: false},
+		},
+		accountIDs: []int64{30, 70},
+	}
+	accountRepo := &availableDeliveryAccountRepoStub{accounts: []*service.Account{
+		{ID: 30, Platform: service.PlatformAnthropic, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, GroupIDs: []int64{3}},
+		{ID: 70, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, GroupIDs: []int64{7, 8}},
+	}}
+	delivery := service.NewModelDeliveryService(accountRepo, groupRepo, nil, nil, &config.Config{})
+
+	err := (&AvailableChannelHandler{modelDelivery: delivery}).attachSupportedEndpoints(context.Background(), channels)
+	require.NoError(t, err)
+
+	category := channels[0].Platforms
+	require.Equal(t, []userSupportedEndpoint{{
+		Protocol: string(service.ModelProtocolAnthropicMessages),
+		Path:     "/v1/messages",
+		GroupIDs: []int64{3},
+	}}, category[0].SupportedModels[0].SupportedEndpoints)
+	require.Equal(t, []int64{3}, category[0].SupportedModels[0].RouteGroupIDs)
+	require.Equal(t, []userSupportedEndpoint{{
+		Protocol: string(service.ModelProtocolAnthropicMessages),
+		Path:     "/v1/messages",
+		GroupIDs: []int64{7},
+	}}, category[1].SupportedModels[0].SupportedEndpoints)
+	require.Equal(t, []int64{7, 8}, category[1].SupportedModels[0].RouteGroupIDs)
+}
+
+func TestAttachSupportedEndpoints_RemovesPricingOnlyModelWithoutStableRoute(t *testing.T) {
+	channels := []userAvailableChannel{{
+		Name: "pricing-only",
+		Platforms: []userChannelPlatformSection{{
+			Platform:        service.PlatformOpenAI,
+			Groups:          []userAvailableGroup{{ID: 7, Platform: service.PlatformOpenAI, AllowMessagesDispatch: true}},
+			SupportedModels: []userSupportedModel{{Name: "orphan-model", Platform: service.PlatformOpenAI}},
+		}},
+	}}
+	groupRepo := &availableDeliveryGroupRepoStub{
+		groups: []service.Group{{ID: 7, Platform: service.PlatformOpenAI, Status: service.StatusActive, AllowMessagesDispatch: true}},
+	}
+	delivery := service.NewModelDeliveryService(&availableDeliveryAccountRepoStub{}, groupRepo, nil, nil, &config.Config{})
+
+	require.NoError(t, (&AvailableChannelHandler{modelDelivery: delivery}).attachSupportedEndpoints(context.Background(), channels))
+	require.Empty(t, channels[0].Platforms[0].SupportedModels)
+	require.Empty(t, pruneUndeliverableChannels(channels))
+}
+
+func TestAttachSupportedEndpoints_KeepsStableLegacyRouteWhenNativeRoutingDisabled(t *testing.T) {
+	channels := []userAvailableChannel{{
+		Name: "route-without-endpoint",
+		Platforms: []userChannelPlatformSection{{
+			Platform:        service.PlatformOpenAI,
+			Groups:          []userAvailableGroup{{ID: 7, Platform: service.PlatformOpenAI}},
+			SupportedModels: []userSupportedModel{{Name: "MiniMax-M3", Platform: service.PlatformOpenAI}},
+		}},
+	}}
+	groupRepo := &availableDeliveryGroupRepoStub{
+		groups:     []service.Group{{ID: 7, Platform: service.PlatformOpenAI, Status: service.StatusActive}},
+		accountIDs: []int64{70},
+	}
+	accountRepo := &availableDeliveryAccountRepoStub{accounts: []*service.Account{{
+		ID: 70, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true, GroupIDs: []int64{7},
+	}}}
+	delivery := service.NewModelDeliveryService(accountRepo, groupRepo, nil, nil, &config.Config{})
+
+	require.NoError(t, (&AvailableChannelHandler{modelDelivery: delivery}).attachSupportedEndpoints(context.Background(), channels))
+	require.Len(t, channels[0].Platforms[0].SupportedModels, 1)
+	require.Equal(t, []int64{7}, channels[0].Platforms[0].SupportedModels[0].RouteGroupIDs)
+	require.Nil(t, channels[0].Platforms[0].SupportedModels[0].SupportedEndpoints)
+}
+
+func TestAttachSupportedEndpoints_KeepsUnknownLegacyRouteWithoutPublishingEndpoint(t *testing.T) {
+	channels := []userAvailableChannel{{
+		Name: "unknown-capability",
+		Platforms: []userChannelPlatformSection{{
+			Platform:        service.PlatformOpenAI,
+			Groups:          []userAvailableGroup{{ID: 7, Platform: service.PlatformOpenAI}},
+			SupportedModels: []userSupportedModel{{Name: "MiniMax-M3", Platform: service.PlatformOpenAI}},
+		}},
+	}}
+	groupRepo := &availableDeliveryGroupRepoStub{
+		groups:     []service.Group{{ID: 7, Platform: service.PlatformOpenAI, Status: service.StatusActive}},
+		accountIDs: []int64{70},
+	}
+	accountRepo := &availableDeliveryAccountRepoStub{accounts: []*service.Account{{
+		ID: 70, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true, GroupIDs: []int64{7},
+	}}}
+	cfg := &config.Config{}
+	cfg.Gateway.NativeModelProtocolRoutingEnabled = true
+	capability := service.NewModelProtocolCapabilityService(
+		&availableDeliveryCapabilityRepoStub{}, accountRepo, groupRepo, nil, cfg,
+	)
+	delivery := service.NewModelDeliveryService(accountRepo, groupRepo, nil, capability, cfg)
+
+	require.NoError(t, (&AvailableChannelHandler{modelDelivery: delivery}).attachSupportedEndpoints(context.Background(), channels))
+	require.Len(t, channels[0].Platforms[0].SupportedModels, 1)
+	model := channels[0].Platforms[0].SupportedModels[0]
+	require.Equal(t, []int64{7}, model.RouteGroupIDs)
+	require.Empty(t, model.SupportedEndpoints, "unknown evidence must not be advertised as a proven endpoint")
+}
+
+func TestAttachSupportedEndpoints_RemovesRouteWhenAllProtocolsExplicitlyUnsupported(t *testing.T) {
+	channels := []userAvailableChannel{{
+		Name: "explicitly-unsupported",
+		Platforms: []userChannelPlatformSection{{
+			Platform: service.PlatformOpenAI,
+			Groups: []userAvailableGroup{{
+				ID: 7, Platform: service.PlatformOpenAI, AllowMessagesDispatch: true,
+			}},
+			SupportedModels: []userSupportedModel{{Name: "MiniMax-M3", Platform: service.PlatformOpenAI}},
+		}},
+	}}
+	groupRepo := &availableDeliveryGroupRepoStub{
+		groups: []service.Group{{
+			ID: 7, Platform: service.PlatformOpenAI, Status: service.StatusActive, AllowMessagesDispatch: true,
+		}},
+		accountIDs: []int64{70},
+	}
+	accountRepo := &availableDeliveryAccountRepoStub{accounts: []*service.Account{{
+		ID: 70, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true, GroupIDs: []int64{7},
+	}}}
+	items := make([]service.AccountModelProtocolCapability, 0, len(service.AllModelProtocols))
+	for _, protocol := range service.AllModelProtocols {
+		items = append(items, service.AccountModelProtocolCapability{
+			UpstreamModel: "MiniMax-M3",
+			Protocol:      protocol,
+			OverrideState: service.ModelProtocolStateUnsupported,
+		})
+	}
+	cfg := &config.Config{}
+	cfg.Gateway.NativeModelProtocolRoutingEnabled = true
+	capability := service.NewModelProtocolCapabilityService(
+		&availableDeliveryCapabilityRepoStub{itemsByAccount: map[int64][]service.AccountModelProtocolCapability{70: items}},
+		accountRepo, groupRepo, nil, cfg,
+	)
+	delivery := service.NewModelDeliveryService(accountRepo, groupRepo, nil, capability, cfg)
+
+	require.NoError(t, (&AvailableChannelHandler{modelDelivery: delivery}).attachSupportedEndpoints(context.Background(), channels))
+	require.Empty(t, channels[0].Platforms[0].SupportedModels)
+}
+
+func TestUpsertUserSupportedEndpoint_MergesDefaultAndConfirmedGroups(t *testing.T) {
+	model := userSupportedModel{
+		Name: "MiniMax-M3",
+		SupportedEndpoints: []userSupportedEndpoint{{
+			Protocol: string(service.ModelProtocolAnthropicMessages),
+			Path:     "/v1/messages",
+			GroupIDs: []int64{9, 3},
+		}},
+	}
+
+	upsertUserSupportedEndpoint(&model, service.ModelProtocolAnthropicMessages, []int64{7, 3})
+	upsertUserSupportedEndpoint(&model, service.ModelProtocolOpenAIChat, []int64{7})
+
+	require.Equal(t, []userSupportedEndpoint{
+		{Protocol: string(service.ModelProtocolAnthropicMessages), Path: "/v1/messages", GroupIDs: []int64{3, 7, 9}},
+		{Protocol: string(service.ModelProtocolOpenAIChat), Path: "/v1/chat/completions", GroupIDs: []int64{7}},
+	}, model.SupportedEndpoints)
 }

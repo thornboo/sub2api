@@ -38,6 +38,25 @@ func TestGroupResolveMessagesDispatchModel_GrokMapsClaudeFamilyToGrok(t *testing
 	require.Empty(t, group.ResolveMessagesDispatchModel("gpt-5.3-codex"))
 }
 
+func TestResolveOpenAIMessagesDeliveryModelPrefersExplicitChannelMapping(t *testing.T) {
+	t.Parallel()
+	group := &Group{
+		Platform: PlatformOpenAI,
+		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
+			SonnetMappedModel: "group-sonnet",
+		},
+	}
+
+	require.Equal(t, "channel-sonnet", ResolveOpenAIMessagesDeliveryModel(group, "claude-sonnet-4-5", ChannelMappingResult{
+		Mapped:      true,
+		MappedModel: "channel-sonnet",
+	}))
+	require.Equal(t, "group-sonnet", ResolveOpenAIMessagesDeliveryModel(group, "claude-sonnet-4-5", ChannelMappingResult{
+		MappedModel: "claude-sonnet-4-5",
+	}))
+	require.Equal(t, "gpt-5.4", ResolveOpenAIMessagesDeliveryModel(group, "gpt-5.4", ChannelMappingResult{}))
+}
+
 func TestSanitizeGroupMessagesDispatchFields_ClearsNonOpenAIPlatform(t *testing.T) {
 	t.Parallel()
 

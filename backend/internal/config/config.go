@@ -870,6 +870,9 @@ const (
 
 // GatewayConfig API网关相关配置
 type GatewayConfig struct {
+	// NativeModelProtocolRoutingEnabled lets confirmed per-model protocol facts
+	// select a native upstream before the existing compatibility routes.
+	NativeModelProtocolRoutingEnabled bool `mapstructure:"native_model_protocol_routing_enabled"`
 	// 等待上游响应头的超时时间（秒），0表示无超时
 	// 注意：这不影响流式数据传输，只控制等待响应头的时间
 	ResponseHeaderTimeout int `mapstructure:"response_header_timeout"`
@@ -2179,6 +2182,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.log_upstream_error_body", true)
 	viper.SetDefault("gateway.log_upstream_error_body_max_bytes", 2048)
 	viper.SetDefault("gateway.inject_beta_for_apikey", false)
+	viper.SetDefault("gateway.native_model_protocol_routing_enabled", false)
 	viper.SetDefault("gateway.failover_on_400", false)
 	viper.SetDefault("gateway.max_account_switches", 10)
 	viper.SetDefault("gateway.max_account_switches_gemini", 3)

@@ -8,12 +8,13 @@ import (
 
 // Model represents an OpenAI model
 type Model struct {
-	ID          string `json:"id"`
-	Object      string `json:"object"`
-	Created     int64  `json:"created"`
-	OwnedBy     string `json:"owned_by"`
-	Type        string `json:"type"`
-	DisplayName string `json:"display_name"`
+	ID                     string   `json:"id"`
+	Object                 string   `json:"object"`
+	Created                int64    `json:"created"`
+	OwnedBy                string   `json:"owned_by"`
+	Type                   string   `json:"type"`
+	DisplayName            string   `json:"display_name"`
+	SupportedEndpointTypes []string `json:"supported_endpoint_types,omitempty"`
 }
 
 // DefaultModels OpenAI models list

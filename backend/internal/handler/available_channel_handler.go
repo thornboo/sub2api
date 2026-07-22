@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"sort"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -24,6 +25,7 @@ type AvailableChannelHandler struct {
 	channelService *service.ChannelService
 	apiKeyService  *service.APIKeyService
 	settingService *service.SettingService
+	modelDelivery  *service.ModelDeliveryService
 }
 
 // NewAvailableChannelHandler 创建用户侧可用渠道 handler。
@@ -31,11 +33,13 @@ func NewAvailableChannelHandler(
 	channelService *service.ChannelService,
 	apiKeyService *service.APIKeyService,
 	settingService *service.SettingService,
+	modelDelivery *service.ModelDeliveryService,
 ) *AvailableChannelHandler {
 	return &AvailableChannelHandler{
 		channelService: channelService,
 		apiKeyService:  apiKeyService,
 		settingService: settingService,
+		modelDelivery:  modelDelivery,
 	}
 }
 
@@ -63,6 +67,9 @@ type userAvailableGroup struct {
 	PeakEnd            string  `json:"peak_end"`
 	PeakRateMultiplier float64 `json:"peak_rate_multiplier"`
 	IsExclusive        bool    `json:"is_exclusive"`
+	// AllowMessagesDispatch participates in the user-callable endpoint contract
+	// for OpenAI groups, but is not exposed as channel-directory metadata.
+	AllowMessagesDispatch bool `json:"-"`
 }
 
 // userSupportedModelPricing 用户可见的定价字段白名单。
@@ -92,9 +99,17 @@ type userPricingIntervalDTO struct {
 
 // userSupportedModel 用户可见的支持模型条目。
 type userSupportedModel struct {
-	Name     string                     `json:"name"`
-	Platform string                     `json:"platform"`
-	Pricing  *userSupportedModelPricing `json:"pricing"`
+	Name               string                     `json:"name"`
+	Platform           string                     `json:"platform"`
+	Pricing            *userSupportedModelPricing `json:"pricing"`
+	RouteGroupIDs      []int64                    `json:"route_group_ids,omitempty"`
+	SupportedEndpoints []userSupportedEndpoint    `json:"supported_endpoints,omitempty"`
+}
+
+type userSupportedEndpoint struct {
+	Protocol string  `json:"protocol"`
+	Path     string  `json:"path"`
+	GroupIDs []int64 `json:"group_ids"`
 }
 
 // userChannelPlatformSection 单渠道内某个平台的子视图：用户可见的分组 + 该平台
@@ -167,8 +182,177 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 			Platforms:   sections,
 		})
 	}
+	if err := h.attachSupportedEndpoints(c.Request.Context(), out); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	out = pruneUndeliverableChannels(out)
 
 	response.Success(c, out)
+}
+
+func (h *AvailableChannelHandler) attachSupportedEndpoints(ctx context.Context, channels []userAvailableChannel) error {
+	if len(channels) == 0 {
+		return nil
+	}
+
+	if h == nil || h.modelDelivery == nil {
+		return nil
+	}
+	groupSet := make(map[int64]struct{})
+	modelSet := make(map[string]struct{})
+	for i := range channels {
+		for j := range channels[i].Platforms {
+			section := &channels[i].Platforms[j]
+			for _, group := range section.Groups {
+				groupSet[group.ID] = struct{}{}
+			}
+			for _, model := range section.SupportedModels {
+				modelSet[model.Name] = struct{}{}
+			}
+		}
+	}
+	groupIDs := make([]int64, 0, len(groupSet))
+	for groupID := range groupSet {
+		groupIDs = append(groupIDs, groupID)
+	}
+	models := make([]string, 0, len(modelSet))
+	for model := range modelSet {
+		models = append(models, model)
+	}
+	delivery, err := h.modelDelivery.ResolveForGroups(ctx, groupIDs, models)
+	if err != nil {
+		return err
+	}
+	protocolOrder := []service.ModelProtocol{
+		service.ModelProtocolAnthropicMessages,
+		service.ModelProtocolOpenAIChat,
+		service.ModelProtocolOpenAIResponses,
+	}
+	for i := range channels {
+		for j := range channels[i].Platforms {
+			section := &channels[i].Platforms[j]
+			visible := make(map[int64]struct{}, len(section.Groups))
+			for _, group := range section.Groups {
+				visible[group.ID] = struct{}{}
+			}
+			for k := range section.SupportedModels {
+				model := &section.SupportedModels[k]
+				model.RouteGroupIDs = intersectVisibleGroupIDs(delivery.CallableGroupIDs(model.Name), visible)
+				for _, protocol := range protocolOrder {
+					ids := intersectVisibleGroupIDs(delivery.EndpointGroupIDs(model.Name, protocol), visible)
+					if len(ids) == 0 {
+						continue
+					}
+					upsertUserSupportedEndpoint(model, protocol, ids)
+				}
+			}
+		}
+	}
+	filterUndeliverableModels(channels, delivery)
+	return nil
+}
+
+func filterUndeliverableModels(channels []userAvailableChannel, delivery *service.ModelDeliveryProjection) {
+	for i := range channels {
+		for j := range channels[i].Platforms {
+			section := &channels[i].Platforms[j]
+			visible := make(map[int64]struct{}, len(section.Groups))
+			for _, group := range section.Groups {
+				visible[group.ID] = struct{}{}
+			}
+			filtered := section.SupportedModels[:0]
+			for _, model := range section.SupportedModels {
+				eligibleGroupIDs := delivery.CallableGroupIDs(model.Name)
+				if len(intersectVisibleGroupIDs(eligibleGroupIDs, visible)) == 0 {
+					continue
+				}
+				filtered = append(filtered, model)
+			}
+			section.SupportedModels = filtered
+		}
+	}
+}
+
+func pruneUndeliverableChannels(channels []userAvailableChannel) []userAvailableChannel {
+	filteredChannels := channels[:0]
+	for i := range channels {
+		channel := &channels[i]
+		filteredSections := channel.Platforms[:0]
+		for _, section := range channel.Platforms {
+			if len(section.SupportedModels) > 0 {
+				filteredSections = append(filteredSections, section)
+			}
+		}
+		channel.Platforms = filteredSections
+		if len(channel.Platforms) > 0 {
+			filteredChannels = append(filteredChannels, *channel)
+		}
+	}
+	return filteredChannels
+}
+
+func upsertUserSupportedEndpoint(model *userSupportedModel, protocol service.ModelProtocol, groupIDs []int64) {
+	if model == nil || len(groupIDs) == 0 {
+		return
+	}
+	path := modelProtocolPath(protocol)
+	if path == "" {
+		return
+	}
+	for i := range model.SupportedEndpoints {
+		endpoint := &model.SupportedEndpoints[i]
+		if endpoint.Protocol != string(protocol) || endpoint.Path != path {
+			continue
+		}
+		endpoint.GroupIDs = mergeEndpointGroupIDs(endpoint.GroupIDs, groupIDs)
+		return
+	}
+	model.SupportedEndpoints = append(model.SupportedEndpoints, userSupportedEndpoint{
+		Protocol: string(protocol),
+		Path:     path,
+		GroupIDs: mergeEndpointGroupIDs(nil, groupIDs),
+	})
+}
+
+func mergeEndpointGroupIDs(existing, additions []int64) []int64 {
+	seen := make(map[int64]struct{}, len(existing)+len(additions))
+	for _, ids := range [][]int64{existing, additions} {
+		for _, id := range ids {
+			if id > 0 {
+				seen[id] = struct{}{}
+			}
+		}
+	}
+	merged := make([]int64, 0, len(seen))
+	for id := range seen {
+		merged = append(merged, id)
+	}
+	sort.Slice(merged, func(i, j int) bool { return merged[i] < merged[j] })
+	return merged
+}
+
+func modelProtocolPath(protocol service.ModelProtocol) string {
+	switch protocol {
+	case service.ModelProtocolAnthropicMessages:
+		return "/v1/messages"
+	case service.ModelProtocolOpenAIChat:
+		return "/v1/chat/completions"
+	case service.ModelProtocolOpenAIResponses:
+		return "/v1/responses"
+	default:
+		return ""
+	}
+}
+
+func intersectVisibleGroupIDs(ids []int64, visible map[int64]struct{}) []int64 {
+	result := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := visible[id]; ok {
+			result = append(result, id)
+		}
+	}
+	return result
 }
 
 // buildPlatformSections 把一个渠道按 visibleGroups 的平台集合拆成有序的 section 列表：
@@ -218,16 +402,17 @@ func filterUserVisibleGroups(
 			continue
 		}
 		visible = append(visible, userAvailableGroup{
-			ID:                 g.ID,
-			Name:               g.Name,
-			Platform:           g.Platform,
-			SubscriptionType:   g.SubscriptionType,
-			RateMultiplier:     g.RateMultiplier,
-			PeakRateEnabled:    g.PeakRateEnabled,
-			PeakStart:          g.PeakStart,
-			PeakEnd:            g.PeakEnd,
-			PeakRateMultiplier: g.PeakRateMultiplier,
-			IsExclusive:        g.IsExclusive,
+			ID:                    g.ID,
+			Name:                  g.Name,
+			Platform:              g.Platform,
+			SubscriptionType:      g.SubscriptionType,
+			RateMultiplier:        g.RateMultiplier,
+			PeakRateEnabled:       g.PeakRateEnabled,
+			PeakStart:             g.PeakStart,
+			PeakEnd:               g.PeakEnd,
+			PeakRateMultiplier:    g.PeakRateMultiplier,
+			IsExclusive:           g.IsExclusive,
+			AllowMessagesDispatch: g.AllowMessagesDispatch,
 		})
 	}
 	return visible

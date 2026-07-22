@@ -222,6 +222,7 @@ type UpdateSettingsRequest struct {
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
+	NativeModelProtocolRoutingEnabled      *bool   `json:"native_model_protocol_routing_enabled"`
 	EnableFingerprintUnification           *bool   `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough              *bool   `json:"enable_metadata_passthrough"`
 	EnableCCHSigning                       *bool   `json:"enable_cch_signing"`
@@ -1432,6 +1433,18 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.OpsMetricsIntervalSeconds
 		}(),
+		NativeModelProtocolRoutingEnabled: func() bool {
+			if req.NativeModelProtocolRoutingEnabled != nil {
+				return *req.NativeModelProtocolRoutingEnabled
+			}
+			return previousSettings.NativeModelProtocolRoutingEnabled
+		}(),
+		NativeModelProtocolRoutingSource: func() string {
+			if req.NativeModelProtocolRoutingEnabled != nil {
+				return "settings"
+			}
+			return previousSettings.NativeModelProtocolRoutingSource
+		}(),
 		EnableFingerprintUnification: func() bool {
 			if req.EnableFingerprintUnification != nil {
 				return *req.EnableFingerprintUnification
@@ -1972,6 +1985,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AllowUngroupedKeyScheduling:                            updatedSettings.AllowUngroupedKeyScheduling,
 		ScheduleStrategy:                                       updatedSettings.ScheduleStrategy,
 		BackendModeEnabled:                                     updatedSettings.BackendModeEnabled,
+		NativeModelProtocolRoutingEnabled:                      updatedSettings.NativeModelProtocolRoutingEnabled,
+		NativeModelProtocolRoutingSource:                       updatedSettings.NativeModelProtocolRoutingSource,
 		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       updatedSettings.EnableCCHSigning,

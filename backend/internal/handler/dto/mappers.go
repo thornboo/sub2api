@@ -719,16 +719,20 @@ func UsageScheduleMetaFromService(meta *service.UsageScheduleMeta) *UsageSchedul
 		return nil
 	}
 	return &UsageScheduleMeta{
-		Provider:            meta.Provider,
-		Layer:               meta.Layer,
-		StickyPreviousHit:   meta.StickyPreviousHit,
-		StickySessionHit:    meta.StickySessionHit,
-		CandidateCount:      meta.CandidateCount,
-		TopK:                meta.TopK,
-		LatencyMs:           meta.LatencyMs,
-		LoadSkew:            meta.LoadSkew,
-		SelectedAccountID:   meta.SelectedAccountID,
-		SelectedAccountType: meta.SelectedAccountType,
+		Provider:             meta.Provider,
+		Layer:                meta.Layer,
+		StickyPreviousHit:    meta.StickyPreviousHit,
+		StickySessionHit:     meta.StickySessionHit,
+		CandidateCount:       meta.CandidateCount,
+		TopK:                 meta.TopK,
+		LatencyMs:            meta.LatencyMs,
+		LoadSkew:             meta.LoadSkew,
+		SelectedAccountID:    meta.SelectedAccountID,
+		SelectedAccountType:  meta.SelectedAccountType,
+		InboundProtocol:      meta.InboundProtocol,
+		UpstreamProtocol:     meta.UpstreamProtocol,
+		ProtocolDeliveryMode: meta.ProtocolDeliveryMode,
+		CapabilitySource:     meta.CapabilitySource,
 	}
 }
 

@@ -522,6 +522,16 @@
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
                 <span class="text-xs">{{ t('common.edit') }}</span>
               </button>
+              <button
+                v-if="activeAccountView === 'list' && supportsModelProtocolCapabilities(row)"
+                type="button"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-cyan-600 transition-colors hover:bg-cyan-50 hover:text-cyan-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 dark:text-cyan-300 dark:hover:bg-cyan-900/20 dark:hover:text-cyan-200"
+                :title="t('admin.accounts.modelProtocol.action')"
+                @click="handleModelProtocols(row)"
+              >
+                <Icon name="link" size="sm" />
+                <span class="text-xs">{{ t('admin.accounts.modelProtocol.shortAction') }}</span>
+              </button>
               <button v-if="activeAccountView === 'list'" @click="handleDelete(row)" :disabled="!canArchiveAccount(row)" :title="!canArchiveAccount(row) ? t('admin.accounts.archiveRequiresDisabled') : undefined" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-amber-50 hover:text-amber-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-amber-900/20 dark:hover:text-amber-300">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
                 <span class="text-xs">{{ t('admin.accounts.archiveAccount') }}</span>
@@ -535,16 +545,26 @@
           </DataTable>
           </div>
         </template>
-        <UpstreamCostComparison
-          v-else
-          :suppliers="upstreamSuppliers"
-          :cost-pools="upstreamCostPools"
-          :loading="costComparisonLoading"
-          :error="costComparisonError"
-          @refresh="loadSupplierCostView"
-          @edit-supplier="openSupplierEdit"
-          @recharge-records="openSupplierRechargeRecords"
-        />
+        <div v-else class="space-y-3">
+          <div class="flex flex-col gap-3 rounded-xl border border-cyan-200 bg-cyan-50/70 px-4 py-3 text-sm text-cyan-900 dark:border-cyan-500/25 dark:bg-cyan-500/10 dark:text-cyan-100 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p class="font-medium">{{ t('admin.accounts.modelProtocol.supplierHintTitle') }}</p>
+              <p class="mt-1 text-cyan-700 dark:text-cyan-200/80">{{ t('admin.accounts.modelProtocol.supplierHint') }}</p>
+            </div>
+            <button type="button" class="btn btn-secondary shrink-0" @click="setAccountView('list')">
+              {{ t('admin.accounts.modelProtocol.goToAccountList') }}
+            </button>
+          </div>
+          <UpstreamCostComparison
+            :suppliers="upstreamSuppliers"
+            :cost-pools="upstreamCostPools"
+            :loading="costComparisonLoading"
+            :error="costComparisonError"
+            @refresh="loadSupplierCostView"
+            @edit-supplier="openSupplierEdit"
+            @recharge-records="openSupplierRechargeRecords"
+          />
+        </div>
       </template>
       <template #pagination><Pagination v-if="activeAccountView !== 'cost' && pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
@@ -556,10 +576,11 @@
       @close="closeSupplierModal"
       @saved="handleSupplierSaved"
     />
-    <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
+    <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" @model-protocols="handleModelProtocolsFromEdit" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
+    <ModelProtocolCapabilitiesModal :show="showModelProtocols" :account="modelProtocolsAcc" @close="closeModelProtocolsModal" />
     <UpstreamRechargeRecordsModal
       :show="showRechargeRecords"
       :account="rechargeRecordsAcc"
@@ -569,7 +590,7 @@
       @pool-updated="handleSupplierRechargeUpdated"
     />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @model-protocols="handleModelProtocols" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal
@@ -628,6 +649,7 @@ import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
+import ModelProtocolCapabilitiesModal from '@/components/admin/account/ModelProtocolCapabilitiesModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
@@ -652,6 +674,7 @@ import {
 import { tableSelectionCheckboxClasses as selectionCheckboxClasses, tableSelectionLabel as selectionLabel } from '@/utils/tableSelectionCheckbox'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
+import { supportsModelProtocolCapabilities } from '@/utils/modelProtocolCapabilities'
 import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
 import type { UpstreamAccountCostBinding, UpstreamCostPool, UpstreamSupplier } from '@/api/admin/accounts'
 
@@ -716,6 +739,7 @@ const showCreateShadowDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
 const showStats = ref(false)
+const showModelProtocols = ref(false)
 const showRechargeRecords = ref(false)
 const showSupplierModal = ref(false)
 const editingUpstreamSupplierID = ref<number | null>(null)
@@ -728,6 +752,7 @@ const creatingShadowAcc = ref<Account | null>(null)
 const reAuthAcc = ref<Account | null>(null)
 const testingAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
+const modelProtocolsAcc = ref<Account | null>(null)
 const rechargeRecordsAcc = ref<Account | null>(null)
 const rechargeRecordsPool = ref<UpstreamCostPool | null>(null)
 const showSchedulePanel = ref(false)
@@ -1398,6 +1423,7 @@ const isAnyModalOpen = computed(() => {
     showReAuth.value ||
     showTest.value ||
     showStats.value ||
+    showModelProtocols.value ||
     showRechargeRecords.value ||
     showSupplierModal.value ||
     showSchedulePanel.value ||
@@ -2411,9 +2437,15 @@ const handleExportData = async () => {
 const accountExportStepUp = useStepUp()
 const closeTestModal = () => { showTest.value = false; testingAcc.value = null }
 const closeStatsModal = () => { showStats.value = false; statsAcc.value = null }
+const closeModelProtocolsModal = () => { showModelProtocols.value = false; modelProtocolsAcc.value = null }
 const closeReAuthModal = () => { showReAuth.value = false; reAuthAcc.value = null }
 const handleTest = (a: Account) => { testingAcc.value = a; showTest.value = true }
 const handleViewStats = (a: Account) => { statsAcc.value = a; showStats.value = true }
+const handleModelProtocols = (a: Account) => { modelProtocolsAcc.value = a; showModelProtocols.value = true }
+const handleModelProtocolsFromEdit = (a: Account) => {
+  showEdit.value = false
+  handleModelProtocols(a)
+}
 const openSupplierRechargeRecords = (pool: UpstreamCostPool) => {
   rechargeRecordsAcc.value = null
   rechargeRecordsPool.value = pool

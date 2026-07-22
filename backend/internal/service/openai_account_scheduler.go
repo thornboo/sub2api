@@ -404,7 +404,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 			decision.StickyPreviousHit = true
 			decision.SelectedAccountID = selection.Account.ID
 			decision.SelectedAccountType = selection.Account.Type
-			if req.SessionHash != "" {
+			if req.SessionHash != "" && !req.PreserveStickyBinding {
 				_ = s.service.BindStickySession(ctx, req.GroupID, req.SessionHash, selection.Account.ID)
 			}
 			return selection, decision, nil
@@ -459,6 +459,11 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	if sessionHash == "" || s == nil || s.service == nil || s.service.cache == nil {
 		return nil, false, nil
 	}
+	deleteSticky := func() {
+		if !req.PreserveStickyBinding {
+			_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		}
+	}
 
 	accountID := req.StickyAccountID
 	if accountID <= 0 {
@@ -479,23 +484,23 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 
 	account, err := s.service.getSchedulableAccount(ctx, accountID)
 	if err != nil || account == nil {
-		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		deleteSticky()
 		return nil, false, nil
 	}
 	if shouldClearStickySession(account, req.RequestedModel) || account.Platform != normalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() || !account.IsSchedulable() {
-		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		deleteSticky()
 		return nil, false, nil
 	}
 	if !s.isAccountRequestCompatible(ctx, account, req) {
 		return nil, false, nil
 	}
 	if !s.isAccountTransportCompatible(account, req.RequiredTransport) {
-		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		deleteSticky()
 		return nil, false, nil
 	}
 	account = s.service.recheckSelectedOpenAIAccountFromDB(ctx, account, req.GroupID, req.Platform, req.RequestedModel, req.RequireCompact, req.RequiredCapability)
 	if account == nil || !s.service.openAIAccountMatchesSchedulingGroup(account, req.GroupID) || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
-		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		deleteSticky()
 		return nil, false, nil
 	}
 	escapeCfg := s.service.openAIStickyEscapeConfig()
@@ -510,7 +515,9 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	}
 	result, acquireErr := s.service.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
 	if acquireErr == nil && result != nil && result.Acquired {
-		_ = s.service.refreshStickySessionTTL(ctx, req.GroupID, sessionHash, s.service.openAIWSSessionStickyTTL())
+		if !req.PreserveStickyBinding {
+			_ = s.service.refreshStickySessionTTL(ctx, req.GroupID, sessionHash, s.service.openAIWSSessionStickyTTL())
+		}
 		return &AccountSelectionResult{
 			Account:     account,
 			Acquired:    true,
@@ -1223,13 +1230,13 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 		}
 		account = s.service.recheckSelectedOpenAIAccountFromDB(ctx, account, req.GroupID, req.Platform, req.RequestedModel, req.RequireCompact, req.RequiredCapability)
 		if account == nil {
-			if accountID == req.StickyAccountID && strings.TrimSpace(req.SessionHash) != "" {
+			if accountID == req.StickyAccountID && strings.TrimSpace(req.SessionHash) != "" && !req.PreserveStickyBinding {
 				_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, req.SessionHash)
 			}
 			continue
 		}
 		if !s.service.openAIAccountMatchesSchedulingGroup(account, req.GroupID) {
-			if accountID == req.StickyAccountID && strings.TrimSpace(req.SessionHash) != "" {
+			if accountID == req.StickyAccountID && strings.TrimSpace(req.SessionHash) != "" && !req.PreserveStickyBinding {
 				_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, req.SessionHash)
 			}
 			continue
@@ -1911,7 +1918,7 @@ func (s *OpenAIGatewayService) SelectAccountWithScheduler(
 	requiredTransport OpenAIUpstreamTransport,
 	requireCompact bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
-	return s.selectAccountWithScheduler(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, "", "", requireCompact, PlatformOpenAI, false, true)
+	return s.selectAccountWithScheduler(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, "", "", requireCompact, PlatformOpenAI, false, true, false)
 }
 
 // SelectAccountWithSchedulerForCapability 按能力要求调度账号。
@@ -1935,7 +1942,53 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForCapability(
 	if len(platformOverride) > 0 {
 		platform = platformOverride[0]
 	}
-	return s.selectAccountWithScheduler(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, "", requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
+	return s.selectAccountWithScheduler(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, "", requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost, false)
+}
+
+// selectAccountWithSchedulerForResolvedModel keeps channel publication checks
+// on the client-requested model while applying account model eligibility to the
+// channel-mapped model that will actually enter account-level mapping.
+func (s *OpenAIGatewayService) selectAccountWithSchedulerForResolvedModel(
+	ctx context.Context,
+	groupID *int64,
+	previousResponseID string,
+	sessionHash string,
+	requestedModel string,
+	channelMappedModel string,
+	excludedIDs map[int64]struct{},
+	requiredTransport OpenAIUpstreamTransport,
+	requiredCapability OpenAIEndpointCapability,
+	requireCompact bool,
+	previousResponseCanMove bool,
+	useUpstreamTokenCost bool,
+	platform string,
+) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
+		slog.Warn("channel pricing restriction blocked request",
+			"group_id", derefGroupID(groupID),
+			"model", requestedModel)
+		return nil, OpenAIAccountScheduleDecision{}, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
+	}
+	if strings.TrimSpace(channelMappedModel) == "" {
+		channelMappedModel = requestedModel
+	}
+	return s.selectAccountWithScheduler(
+		ctx,
+		groupID,
+		previousResponseID,
+		sessionHash,
+		channelMappedModel,
+		excludedIDs,
+		requiredTransport,
+		requiredCapability,
+		"",
+		requireCompact,
+		platform,
+		previousResponseCanMove,
+		useUpstreamTokenCost,
+		true,
+		true,
+	)
 }
 
 func (s *OpenAIGatewayService) SelectAccountWithSchedulerForImages(
@@ -1946,13 +1999,13 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForImages(
 	excludedIDs map[int64]struct{},
 	requiredCapability OpenAIImagesCapability,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
-	selection, decision, err := s.selectAccountWithScheduler(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", requiredCapability, false, PlatformOpenAI, false, false)
+	selection, decision, err := s.selectAccountWithScheduler(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", requiredCapability, false, PlatformOpenAI, false, false, false)
 	if err == nil && selection != nil && selection.Account != nil {
 		return selection, decision, nil
 	}
 	// 如果要求 native 能力（如指定了模型）但没有可用的 APIKey 账号，回退到 basic（OAuth 账号）
 	if requiredCapability == OpenAIImagesCapabilityNative {
-		return s.selectAccountWithScheduler(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", OpenAIImagesCapabilityBasic, false, PlatformOpenAI, false, false)
+		return s.selectAccountWithScheduler(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", OpenAIImagesCapabilityBasic, false, PlatformOpenAI, false, false, false)
 	}
 	return selection, decision, err
 }
@@ -1971,17 +2024,20 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	platform string,
 	previousResponseCanMove bool,
 	useUpstreamTokenCost bool,
+	skipChannelPricingRestriction bool,
+	preserveStickyBinding ...bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	decision := OpenAIAccountScheduleDecision{}
 	scheduler := s.getOpenAIAccountScheduler(ctx)
 	if scheduler == nil {
+		preserveSticky := len(preserveStickyBinding) > 0 && preserveStickyBinding[0]
 		decision.Layer = openAIAccountScheduleLayerLoadBalance
 		if requiredTransport == OpenAIUpstreamTransportAny || requiredTransport == OpenAIUpstreamTransportHTTPSSE {
 			effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
 			for {
-				selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, platform, sessionHash, requestedModel, effectiveExcludedIDs, requireCompact, requiredCapability, useUpstreamTokenCost)
+				selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, platform, sessionHash, requestedModel, effectiveExcludedIDs, requireCompact, requiredCapability, useUpstreamTokenCost, preserveSticky)
 				if err != nil {
 					return nil, decision, err
 				}
@@ -2006,7 +2062,7 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 
 		effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
 		for {
-			selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, platform, sessionHash, requestedModel, effectiveExcludedIDs, requireCompact, requiredCapability, useUpstreamTokenCost)
+			selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, platform, sessionHash, requestedModel, effectiveExcludedIDs, requireCompact, requiredCapability, useUpstreamTokenCost, preserveSticky)
 			if err != nil {
 				return nil, decision, err
 			}
@@ -2030,7 +2086,7 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 		}
 	}
 
-	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
+	if !skipChannelPricingRestriction && s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)
@@ -2050,6 +2106,7 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 		stickyPreviousAccountID = s.ResolveAccountIDByPreviousResponseIDForScheduler(ctx, groupID, previousResponseID, requestedModel, excludedIDs, requiredCapability, requireCompact)
 	}
 
+	preserveSticky := len(preserveStickyBinding) > 0 && preserveStickyBinding[0]
 	return scheduler.Select(ctx, OpenAIAccountScheduleRequest{
 		GroupID:                 groupID,
 		Platform:                platform,
@@ -2060,6 +2117,7 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 		SubscriptionPriority:    subscriptionPriority,
 		PreviousResponseID:      previousResponseID,
 		PreviousResponseCanMove: previousResponseCanMove,
+		PreserveStickyBinding:   preserveSticky,
 		UseUpstreamTokenCost:    useUpstreamTokenCost,
 		RequestedModel:          requestedModel,
 		RequiredTransport:       requiredTransport,

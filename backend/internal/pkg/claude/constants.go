@@ -109,10 +109,11 @@ var DefaultHeaders = map[string]string{
 
 // Model 表示一个 Claude 模型
 type Model struct {
-	ID          string `json:"id"`
-	Type        string `json:"type"`
-	DisplayName string `json:"display_name"`
-	CreatedAt   string `json:"created_at"`
+	ID                     string   `json:"id"`
+	Type                   string   `json:"type"`
+	DisplayName            string   `json:"display_name"`
+	CreatedAt              string   `json:"created_at"`
+	SupportedEndpointTypes []string `json:"supported_endpoint_types,omitempty"`
 }
 
 // DefaultModels Claude Code 客户端支持的默认模型列表

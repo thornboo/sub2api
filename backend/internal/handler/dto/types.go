@@ -573,16 +573,20 @@ type AdminUsageLog struct {
 }
 
 type UsageScheduleMeta struct {
-	Provider            string  `json:"provider,omitempty"`
-	Layer               string  `json:"layer,omitempty"`
-	StickyPreviousHit   bool    `json:"sticky_previous_hit,omitempty"`
-	StickySessionHit    bool    `json:"sticky_session_hit,omitempty"`
-	CandidateCount      int     `json:"candidate_count,omitempty"`
-	TopK                int     `json:"top_k,omitempty"`
-	LatencyMs           int64   `json:"latency_ms,omitempty"`
-	LoadSkew            float64 `json:"load_skew,omitempty"`
-	SelectedAccountID   int64   `json:"selected_account_id,omitempty"`
-	SelectedAccountType string  `json:"selected_account_type,omitempty"`
+	Provider             string  `json:"provider,omitempty"`
+	Layer                string  `json:"layer,omitempty"`
+	StickyPreviousHit    bool    `json:"sticky_previous_hit,omitempty"`
+	StickySessionHit     bool    `json:"sticky_session_hit,omitempty"`
+	CandidateCount       int     `json:"candidate_count,omitempty"`
+	TopK                 int     `json:"top_k,omitempty"`
+	LatencyMs            int64   `json:"latency_ms,omitempty"`
+	LoadSkew             float64 `json:"load_skew,omitempty"`
+	SelectedAccountID    int64   `json:"selected_account_id,omitempty"`
+	SelectedAccountType  string  `json:"selected_account_type,omitempty"`
+	InboundProtocol      string  `json:"inbound_protocol,omitempty"`
+	UpstreamProtocol     string  `json:"upstream_protocol,omitempty"`
+	ProtocolDeliveryMode string  `json:"protocol_delivery_mode,omitempty"`
+	CapabilitySource     string  `json:"capability_source,omitempty"`
 }
 
 type UsageCleanupFilters struct {

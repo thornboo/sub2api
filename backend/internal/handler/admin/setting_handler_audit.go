@@ -438,6 +438,10 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.EnableFingerprintUnification != after.EnableFingerprintUnification {
 		changed = append(changed, "enable_fingerprint_unification")
 	}
+	if before.NativeModelProtocolRoutingEnabled != after.NativeModelProtocolRoutingEnabled ||
+		before.NativeModelProtocolRoutingSource != after.NativeModelProtocolRoutingSource {
+		changed = append(changed, service.SettingKeyNativeModelProtocolRoutingEnabled)
+	}
 	if before.EnableMetadataPassthrough != after.EnableMetadataPassthrough {
 		changed = append(changed, "enable_metadata_passthrough")
 	}

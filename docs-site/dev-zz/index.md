@@ -32,6 +32,7 @@
 | 状态 | 文档 | 当前口径 |
 | --- | --- | --- |
 | 已落地 | [可用渠道模型广场与报价导出](./features/available-channels-model-marketplace.md) | 用户侧模型表格、当前可见报价导出和管理员全量目录导出已实现。 |
+| 目标设计 | [模型级原生多协议能力与路由](./features/model-multi-protocol-capabilities-and-routing.md) | 第一阶段聚焦一个上游账号、一个模型支持多个原生文本协议；原生候选优先，存量转换路径保持兼容兜底。 |
 | 已落地 | [API Key 用量下钻](./features/api-key-usage-drilldown.md) | 用户侧单 Key 趋势、模型分布和请求记录下钻已实现。 |
 | 已落地 | [管理员用量分析下钻](./features/admin-usage-profile-drilldown.md) | 管理员侧用户 / API Key 下钻入口、日期回写和月粒度趋势已实现。 |
 | 已落地 + 目标设计 | [企业用量分析中心](./features/enterprise-usage-analytics.md) | 现有 owner Key analytics 已落地；成员 → Key → 实际分组的完整分析合同已确认、待实现。 |

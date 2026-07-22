@@ -338,6 +338,26 @@ describe('EditAccountModal', () => {
     updateAccountUpstreamSupplierBindingMock.mockResolvedValue({})
   })
 
+  it('在 OpenAI API Key 编辑表单中提供模型协议能力入口', async () => {
+    const account = buildAccount()
+    const wrapper = mountModal(account)
+
+    const button = wrapper.findAll('button').find(candidate => (
+      candidate.text().trim() === 'admin.accounts.modelProtocol.action'
+    ))
+    expect(button).toBeTruthy()
+
+    await button!.trigger('click')
+
+    expect(wrapper.emitted('model-protocols')?.[0]?.[0]).toMatchObject({
+      id: account.id,
+      name: account.name,
+      platform: 'openai',
+      type: 'apikey'
+    })
+    wrapper.unmount()
+  })
+
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {
     const account = buildAccount()
     updateAccountMock.mockReset()

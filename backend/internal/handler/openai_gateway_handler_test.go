@@ -683,6 +683,22 @@ func TestOpenAIGatewayMessagesDispatchGateAllowsGrokGroups(t *testing.T) {
 	})
 }
 
+func TestConsumeNativeProtocolSwitchBudget(t *testing.T) {
+	t.Parallel()
+
+	next, exhausted := consumeNativeProtocolSwitchBudget(0, 1)
+	require.Equal(t, 1, next)
+	require.False(t, exhausted)
+
+	next, exhausted = consumeNativeProtocolSwitchBudget(next, 1)
+	require.Equal(t, 1, next)
+	require.True(t, exhausted)
+
+	next, exhausted = consumeNativeProtocolSwitchBudget(0, 0)
+	require.Zero(t, next)
+	require.True(t, exhausted)
+}
+
 func TestOpenAIModelMappedBody(t *testing.T) {
 	body := []byte(`{"model":"alias","input":"hello"}`)
 	calls := 0

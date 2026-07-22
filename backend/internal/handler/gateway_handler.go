@@ -1012,7 +1012,13 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	if apiKey != nil && apiKey.MemberID != nil {
 		groups := middleware2.GetEnterpriseMemberCandidateGroups(c)
 		if len(groups) > 0 {
-			writeModelsList(c, "", h.enterpriseMemberAvailableModels(c.Request.Context(), groups))
+			models := h.enterpriseMemberAvailableModels(c.Request.Context(), groups)
+			groupIDs := make([]int64, 0, len(groups))
+			for i := range groups {
+				groupIDs = append(groupIDs, groups[i].ID)
+			}
+			endpointTypes := h.supportedEndpointTypesForGroups(c.Request.Context(), groupIDs, models)
+			writeModelsList(c, "", models, endpointTypes)
 			return
 		}
 	}
@@ -1030,24 +1036,29 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	// Get available models from account configurations for the selected group platform.
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+	groupIDs := make([]int64, 0, 1)
+	if groupID != nil {
+		groupIDs = append(groupIDs, *groupID)
+	}
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 		fallbackModels := defaultModelIDsForPlatform(platform)
 		availableModels = filterModelsByCustomList(customModelsListSource(platform, availableModels, fallbackModels), fallbackModels, apiKey.Group.ModelsListConfig.Models)
-		writeCustomModelsList(c, platform, availableModels)
+		endpointTypes := h.supportedEndpointTypesForGroups(c.Request.Context(), groupIDs, availableModels)
+		writeCustomModelsList(c, platform, availableModels, endpointTypes)
 		return
 	}
 
 	if len(availableModels) > 0 {
-		writeModelsList(c, platform, availableModels)
+		endpointTypes := h.supportedEndpointTypesForGroups(c.Request.Context(), groupIDs, availableModels)
+		writeModelsList(c, platform, availableModels, endpointTypes)
 		return
 	}
 
 	// Fallback to default models
 	if platform == service.PlatformOpenAI {
-		c.JSON(http.StatusOK, gin.H{
-			"object": "list",
-			"data":   openai.DefaultModels,
-		})
+		models := openai.DefaultModelIDs()
+		endpointTypes := h.supportedEndpointTypesForGroups(c.Request.Context(), groupIDs, models)
+		writeOpenAIModelsList(c, models, endpointTypes)
 		return
 	}
 
@@ -1067,6 +1078,18 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		"object": "list",
 		"data":   claude.DefaultModels,
 	})
+}
+
+func (h *GatewayHandler) supportedEndpointTypesForGroups(ctx context.Context, groupIDs []int64, models []string) map[string][]string {
+	if h == nil || h.openAIGatewayService == nil {
+		return nil
+	}
+	endpointTypes, err := h.openAIGatewayService.SupportedEndpointTypesForGroups(ctx, groupIDs, models)
+	if err != nil {
+		logger.FromContext(ctx).Warn("gateway.model_protocol_metadata_failed", zap.Error(err))
+		return nil
+	}
+	return endpointTypes
 }
 
 func (h *GatewayHandler) enterpriseMemberAvailableModels(ctx context.Context, groups []service.Group) []string {
@@ -1098,7 +1121,7 @@ func (h *GatewayHandler) enterpriseMemberAvailableModels(ctx context.Context, gr
 	return models
 }
 
-func writeModelsList(c *gin.Context, platform string, modelIDs []string) {
+func writeModelsList(c *gin.Context, platform string, modelIDs []string, endpointTypes map[string][]string) {
 	if platform == service.PlatformGrok {
 		writeGrokModelsList(c, modelIDs)
 		return
@@ -1106,10 +1129,11 @@ func writeModelsList(c *gin.Context, platform string, modelIDs []string) {
 	models := make([]claude.Model, 0, len(modelIDs))
 	for _, modelID := range modelIDs {
 		models = append(models, claude.Model{
-			ID:          modelID,
-			Type:        "model",
-			DisplayName: modelID,
-			CreatedAt:   "2024-01-01T00:00:00Z",
+			ID:                     modelID,
+			Type:                   "model",
+			DisplayName:            modelID,
+			CreatedAt:              "2024-01-01T00:00:00Z",
+			SupportedEndpointTypes: endpointTypes[modelID],
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -1118,12 +1142,12 @@ func writeModelsList(c *gin.Context, platform string, modelIDs []string) {
 	})
 }
 
-func writeCustomModelsList(c *gin.Context, platform string, modelIDs []string) {
+func writeCustomModelsList(c *gin.Context, platform string, modelIDs []string, endpointTypes map[string][]string) {
 	if platform == service.PlatformOpenAI {
-		writeOpenAIModelsList(c, modelIDs)
+		writeOpenAIModelsList(c, modelIDs, endpointTypes)
 		return
 	}
-	writeModelsList(c, platform, modelIDs)
+	writeModelsList(c, platform, modelIDs, endpointTypes)
 }
 
 type grokReasoningEffortOption struct {
@@ -1185,7 +1209,7 @@ func grokModelSupportsConfigurableReasoning(modelID string) bool {
 	}
 }
 
-func writeOpenAIModelsList(c *gin.Context, modelIDs []string) {
+func writeOpenAIModelsList(c *gin.Context, modelIDs []string, endpointTypes map[string][]string) {
 	defaultsByID := make(map[string]openai.Model, len(openai.DefaultModels))
 	for _, model := range openai.DefaultModels {
 		defaultsByID[model.ID] = model
@@ -1194,16 +1218,18 @@ func writeOpenAIModelsList(c *gin.Context, modelIDs []string) {
 	models := make([]openai.Model, 0, len(modelIDs))
 	for _, modelID := range modelIDs {
 		if model, ok := defaultsByID[modelID]; ok {
+			model.SupportedEndpointTypes = endpointTypes[modelID]
 			models = append(models, model)
 			continue
 		}
 		models = append(models, openai.Model{
-			ID:          modelID,
-			Object:      "model",
-			Created:     1704067200,
-			OwnedBy:     "openai",
-			Type:        "model",
-			DisplayName: modelID,
+			ID:                     modelID,
+			Object:                 "model",
+			Created:                1704067200,
+			OwnedBy:                "openai",
+			Type:                   "model",
+			DisplayName:            modelID,
+			SupportedEndpointTypes: endpointTypes[modelID],
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{

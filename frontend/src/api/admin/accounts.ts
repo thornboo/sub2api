@@ -1232,6 +1232,79 @@ export async function probeUpstreamBillingBatch(accountIds: number[]): Promise<U
   return data.results
 }
 
+export type ModelProtocol = 'anthropic_messages' | 'openai_chat_completions' | 'openai_responses'
+export type ModelProtocolState = 'auto' | 'unknown' | 'supported' | 'unsupported'
+
+export interface AccountModelProtocolCapability {
+  id: number
+  account_id: number
+  upstream_model: string
+  protocol: ModelProtocol
+  override_state: Exclude<ModelProtocolState, 'unknown'>
+  observed_state: Exclude<ModelProtocolState, 'auto'>
+  effective_state: Exclude<ModelProtocolState, 'auto'>
+  effective_source?: string
+  observed_source?: string
+  observed_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AccountModelProtocolCapabilitiesResponse {
+  account_id: number
+  items: AccountModelProtocolCapability[]
+  warnings: string[]
+  models?: string[]
+  public_model_impacts: Record<string, AccountPublicModelImpact[]>
+  orphan_upstream_models: string[]
+}
+
+export interface AccountPublicModelImpact {
+  upstream_model: string
+  public_model: string
+  channel_id: number
+  channel_name: string
+  group_id: number
+  group_name: string
+  platform: string
+}
+
+export interface ModelProtocolOverrideInput {
+  upstream_model: string
+  protocol: ModelProtocol
+  state: 'auto' | 'supported' | 'unsupported'
+}
+
+export async function getModelProtocolCapabilities(id: number): Promise<AccountModelProtocolCapabilitiesResponse> {
+  const { data } = await apiClient.get<AccountModelProtocolCapabilitiesResponse>(
+    `/admin/accounts/${id}/model-protocol-capabilities`
+  )
+  return data
+}
+
+export async function updateModelProtocolCapabilityOverrides(
+  id: number,
+  items: ModelProtocolOverrideInput[]
+): Promise<AccountModelProtocolCapabilitiesResponse> {
+  const overrides = items.map(({ upstream_model, protocol, state }) => ({
+    upstream_model,
+    protocol,
+    state
+  }))
+  const { data } = await apiClient.put<AccountModelProtocolCapabilitiesResponse>(
+    `/admin/accounts/${id}/model-protocol-capabilities/overrides`,
+    { items: overrides }
+  )
+  return data
+}
+
+export async function syncModelProtocolCapabilities(id: number): Promise<AccountModelProtocolCapabilitiesResponse> {
+  const { data } = await apiClient.post<AccountModelProtocolCapabilitiesResponse>(
+    `/admin/accounts/${id}/model-protocol-capabilities/sync`
+  )
+  return data
+}
+
 export const accountsAPI = {
   list,
   listWithEtag,
@@ -1306,7 +1379,10 @@ export const accountsAPI = {
   updateUpstreamBillingProbeSettings,
   setUpstreamBillingProbeEnabled,
   probeUpstreamBilling,
-  probeUpstreamBillingBatch
+  probeUpstreamBillingBatch,
+  getModelProtocolCapabilities,
+  updateModelProtocolCapabilityOverrides,
+  syncModelProtocolCapabilities
 }
 
 export default accountsAPI

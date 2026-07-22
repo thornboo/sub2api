@@ -49,6 +49,14 @@ export interface UserSupportedModel {
   name: string
   platform: string
   pricing: UserSupportedModelPricing | null
+  route_group_ids?: number[]
+  supported_endpoints?: UserSupportedEndpoint[]
+}
+
+export interface UserSupportedEndpoint {
+  protocol: 'anthropic_messages' | 'openai_chat_completions' | 'openai_responses'
+  path: string
+  group_ids: number[]
 }
 
 /**
@@ -81,15 +89,27 @@ export function normalizeAvailableChannels<T extends UserAvailableChannel>(
     platforms: arrayOrEmpty(channel.platforms).map((section) => ({
       ...section,
       groups: arrayOrEmpty(section.groups),
-      supported_models: arrayOrEmpty(section.supported_models).map((model) => ({
-        ...model,
-        pricing: model.pricing
-          ? {
-              ...model.pricing,
-              intervals: arrayOrEmpty(model.pricing.intervals),
-            }
-          : null,
-      })),
+      supported_models: arrayOrEmpty(section.supported_models).map((model) => {
+        const normalized = {
+          ...model,
+          pricing: model.pricing
+            ? {
+                ...model.pricing,
+                intervals: arrayOrEmpty(model.pricing.intervals),
+              }
+            : null,
+        }
+        if (Array.isArray(model.route_group_ids)) {
+          normalized.route_group_ids = arrayOrEmpty(model.route_group_ids)
+        }
+        if (Array.isArray(model.supported_endpoints)) {
+          normalized.supported_endpoints = model.supported_endpoints.map((endpoint) => ({
+            ...endpoint,
+            group_ids: arrayOrEmpty(endpoint.group_ids),
+          }))
+        }
+        return normalized
+      }),
     })),
   }))
 }

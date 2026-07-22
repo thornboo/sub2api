@@ -3,7 +3,7 @@
 ## Source of truth
 
 - Status: Active
-- Last refreshed: 2026-07-19
+- Last refreshed: 2026-07-22
 - Primary product surfaces:
   - User console: `frontend/src/views/user/**`
   - User API Key management: `frontend/src/views/user/KeysView.vue`, `frontend/src/components/keys/**`
@@ -12,6 +12,9 @@
   - Public Key self-service: `frontend/src/views/KeyUsageView.vue`, route `/key-usage`
   - Admin usage and dashboard: `frontend/src/views/admin/UsageView.vue`, `frontend/src/api/admin/dashboard.ts`
   - Admin operations monitoring: `frontend/src/views/admin/ops/**`, `frontend/src/components/admin/ops/**`
+  - User model marketplace: `frontend/src/views/user/AvailableChannelsView.vue`, `frontend/src/components/channels/**`
+  - Admin channel pricing and model delivery: `frontend/src/views/admin/ChannelsView.vue`, `frontend/src/components/admin/channel/**`
+  - Admin upstream model capabilities: `frontend/src/components/admin/account/ModelProtocolCapabilitiesModal.vue`
   - dev-zz product records: `docs-site/dev-zz/**`
 - Evidence reviewed:
   - `docs-site/dev-zz/decisions/adr-0002-key-as-enterprise-member.md`
@@ -22,11 +25,15 @@
   - `docs-site/dev-zz/features/ops-customer-visible-error-triage.md`
   - `docs-site/dev-zz/features/ops-failure-classification-redesign.md`
   - `docs-site/dev-zz/decisions/adr-0004-ops-failure-taxonomy-and-sla.md`
+  - `docs-site/dev-zz/features/available-channels-model-marketplace.md`
+  - `docs-site/dev-zz/features/model-multi-protocol-capabilities-and-routing.md`
   - `backend/ent/schema/api_key.go`
   - `backend/ent/schema/group.go`
   - `backend/ent/schema/usage_log.go`
   - `backend/internal/service/user.go`
   - `backend/internal/service/api_key_auth_cache.go`
+  - `backend/internal/service/channel_available.go`
+  - `backend/internal/service/model_protocol_capability.go`
   - `backend/internal/handler/ops_error_logger.go`
   - `backend/internal/repository/ops_repo_dashboard.go`
   - `frontend/src/views/admin/UsageView.vue`
@@ -51,6 +58,8 @@
   - Give each member one shared set of 5h, 1d, 7d, and calendar-month spending limits across all assigned Keys.
   - Let enterprise owners apply shared member policy changes in one atomic batch without overwriting fields they did not explicitly select.
   - Preserve platform administrator-only visibility into upstream account cost, routing, and operational internals.
+  - Keep public model publication, stable delivery eligibility, upstream protocol capability, and customer-facing API endpoints as separate facts joined by one deterministic `DeliveryDecision` shared by catalog projection and runtime candidate filtering.
+  - Keep model callability separate from endpoint publication: unknown capability evidence may retain an established compatibility route, but only proven delivery decisions may publish endpoint metadata.
   - Separate customer-visible failures, failure ownership, and platform SLA impact so operators can distinguish customer configuration, enterprise policy, client interruption, platform capacity, and final upstream failures.
   - Keep future feature work grounded in small, reviewable slices that fit the dev-zz branch discipline.
 - Non-goals:
@@ -62,6 +71,8 @@
   - An owner can answer "which employee Key spent the most, on which models, in which period?"
   - A platform admin can answer "which user, group, account, and route is driving operational cost?"
   - A platform admin can answer "what is failing now, whether it affects SLA, who should act, and whether retries recovered the request?"
+  - A platform admin can start from a channel-priced public model and see whether any stable account route can deliver it, which public endpoints are available, and which upstream capabilities produce that result.
+  - A user never sees a model or endpoint described as available solely because a price row or disconnected upstream capability exists.
   - Reviewers can tell from DTO names and routes whether a field is user-safe or admin-only.
 
 ## Personas and jobs
@@ -72,6 +83,7 @@
   - Employee or user with a Key only: has no site account and can inspect that Key's status, effective access, own usage evidence, and applicable Key/member limits without gaining owner-console authority.
 - User jobs:
   - Platform administrator: troubleshoot global usage, cost, routing, failed requests, and user behavior.
+  - Platform administrator: publish channel models, verify stable delivery routes, inspect per-account upstream protocol evidence, and resolve orphan pricing or capability configuration.
   - Enterprise owner: create members, issue multiple Keys per member, delegate accessible groups, set aggregate limits, correct consumed projections with immutable audit evidence, and inspect usage evidence.
   - Employee or user with a Key only: confirm whether the Key is active, expired, rate limited, or out of quota; understand the effective groups/models; distinguish current-Key usage from shared member budget; inspect and export only that Key's redacted request evidence.
 - Key contexts of use:
@@ -93,6 +105,9 @@
   - Admin Usage remains the platform-wide request-log and analytics surface.
   - Admin Dashboard remains the platform-wide aggregate surface.
   - Admin Ops remains the platform health, customer-visible failure, SLA, attribution, alert, and error-evidence surface.
+  - Channel pricing is the primary public-model management surface. Each model exposes a delivery summary and drilldown from group to candidate account to final upstream model.
+  - Account "upstream model protocol capabilities" is an advanced evidence/override surface. It must show which public channel models consume each upstream capability and flag capabilities with no public-model route.
+  - `/available-channels` is a customer-safe projection of published models that have at least one stable delivery route; it never exposes account identity, upstream URL, cost, or failover topology.
 - Content hierarchy:
   - Summary cards first, then filters, then charts/rankings, then table drilldown.
   - Rank and anomaly panels must always link to the underlying Key/user/group/request details.
@@ -127,6 +142,15 @@
   - A request may be customer-visible while being excluded from platform SLA, and a final upstream failure may affect platform SLA while retaining upstream as the technical cause.
   - Platform-managed routing capacity failures count against platform SLA; enterprise-managed pool exhaustion remains enterprise-owned and is excluded by default.
   - Selected-range history and a fixed recent current-state window must be labeled separately; changing a historical range must not silently redefine what "current" means.
+- Principle 9: A configured product is not automatically a deliverable product.
+  - Channel mapping and pricing define the public catalog and commercial contract.
+  - Group/account eligibility and final model mapping define stable delivery routes.
+  - Account/model protocol records describe upstream-native facts; public API endpoints are derived from native or compatibility delivery plans, never copied into pricing.
+  - Account `openai_responses_mode` selects the actual Chat or Responses upstream transport; it is not another endpoint switch and must not disable an independent native Messages capability.
+  - Channel delivery UI is a read-only projection, not another configuration surface. It must explain blocked protocols with stable reason codes and show per-route upstream transport only where deterministic.
+  - Public model identity and channel-mapped model identity remain separate inputs: publication/pricing checks use the public model, while account eligibility and protocol capability checks use the mapped/final upstream model.
+  - Messages-specific group dispatch mapping is a protocol fallback below explicit channel mapping and above account mapping; control-plane diagnostics and runtime forwarding must resolve the same chain.
+  - Short-lived health, concurrency, and rate-limit state must not make catalog metadata flicker, but inactive, unschedulable, or model-ineligible accounts do not prove delivery.
 - Tradeoffs:
   - First versions may use raw `usage_logs` with strict date limits.
   - Add pre-aggregation only when a measured query path needs it.
@@ -148,6 +172,9 @@
   - Public Key query orchestration currently stays in `KeyUsageView.vue`; its API transport remains isolated in `frontend/src/api/publicKeyUsage.ts` so the signed-in JWT client cannot overwrite the one-time Key credential.
   - Owner analytics dashboard components should live under `frontend/src/components/keys` or a future `frontend/src/components/enterprise-usage`.
   - Admin-only analytics components should stay under `frontend/src/components/admin`.
+  - Channel pricing model rows own the primary "delivery capability" summary and route drilldown.
+  - `ModelProtocolCapabilitiesModal` is labeled as upstream capability management and remains the advanced account-level override surface.
+  - `AvailableModelMarketplace` shows customer-callable API paths only; native/compatibility route mode stays admin-only.
 - Variants and states:
   - Every analytics panel needs loading, empty, error, and stale-data states.
   - Ops overview separates fixed-window current state from selected-range totals, and shows whether the selected period is normal, actively failing, or recovered after a prior spike.
@@ -160,6 +187,8 @@
   - Bulk usage adjustment applies signed deltas to the selected members' current month and rate-limit windows. It never rewrites request logs, cannot reduce any projection below zero, and displays the aggregate adjustment before confirmation.
   - Archived members are read-only but provide two explicit exits: restore as disabled, or permanently remove. Destructive confirmation explains that historical billing/audit evidence can remain even though the member disappears from management.
   - Tables need compact numeric formatting with full values available in tooltip/title.
+  - A channel model delivery summary distinguishes deliverable, partially deliverable, stable route without a callable endpoint, and no stable route. Warning and unavailable states include text and icons, not color alone.
+  - Orphan upstream capabilities explicitly say that no channel public model currently resolves to that account/final upstream model.
 - Token/component ownership:
   - Extend existing Tailwind utility style and local component patterns.
   - Do not add chart or UI dependencies unless the existing stack cannot represent the required view.
@@ -220,6 +249,9 @@
   - "失败请求次数（包含客户端重试）" for raw customer-visible terminal failures; never label this as a unique incident count.
   - "平台路由容量" for platform-managed account/routing exhaustion; never hide it under "客户侧限制".
   - "平台 SLA 失败" only for failures whose structured `sla_impact` is true; use "未归类" when historical or ambiguous evidence cannot support a deterministic decision.
+  - "渠道模型" or "公开模型" for the customer-requested, priced model identity.
+  - "上游模型协议能力" for account plus final-upstream-model native protocol evidence; never shorten this to a customer-facing "API endpoint".
+  - "API 端点" for a path the customer can call on sub2api. Admin route details may additionally say "原生交付" or "兼容交付".
 - Microcopy rules:
   - Avoid explaining the UI in visible product copy.
   - Do use short permission copy where a field is intentionally hidden.
@@ -234,7 +266,12 @@
   - Owner analytics must enforce backend date-range limits.
   - Avoid loading full per-Key time series for every Key in a list.
   - Use pre-aggregation only after the raw query path is measured or clearly bounded.
+  - Model delivery projections batch-load groups, accounts, mappings, and protocol records; no channel-by-model-by-account query loop is allowed.
 - Compatibility constraints:
+  - Preserve the existing `/v1/messages` compatibility contract only when at least one stable route can serve the public model through the account's selected Chat or Responses transport. Native Messages evidence is not required, but an explicit unsupported fact for that selected transport disables the compatibility path.
+  - User catalog `route_group_ids` describes per-group runtime callability; `supported_endpoints[].group_ids` is the stricter set with publishable endpoint evidence. Neither field may expose account topology.
+  - Channel pricing remains the publication source, but pricing alone cannot prove deliverability. Existing capability records remain account-scoped and are not duplicated into channel pricing.
+  - Public delivery metadata may ignore transient runtime saturation and cooldown, but must exclude inactive, unschedulable, platform-incompatible, and model-ineligible accounts.
   - Preserve ADR 0003: enterprise members are non-login entities; member Keys inherit the member's ordered group delegation.
   - `member_code` is immutable while a member exists and remains unique across current and archived members. Irreversible owner-facing removal replaces historical tombstones with a server-only code, allowing the original code to be reused without reassigning old facts.
   - Restore clears archive state but leaves the member disabled so group access and Keys cannot resume without an explicit owner enable action.

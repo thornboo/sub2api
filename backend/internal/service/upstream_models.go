@@ -72,8 +72,21 @@ func newUpstreamModelSyncUpstreamError(message string, err error) error {
 	return &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorUpstream, Message: message, Err: err}
 }
 
-// FetchUpstreamSupportedModels fetches the live model list from the account's upstream API format.
+// FetchUpstreamSupportedModels fetches model IDs while preserving the legacy API.
 func (s *AccountTestService) FetchUpstreamSupportedModels(ctx context.Context, account *Account) ([]string, error) {
+	catalog, err := s.FetchUpstreamModelCatalog(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	models := make([]string, 0, len(catalog))
+	for _, descriptor := range catalog {
+		models = append(models, descriptor.ID)
+	}
+	return dedupeAndSortModelIDs(models), nil
+}
+
+// FetchUpstreamModelCatalog fetches model IDs and optional new-api protocol declarations.
+func (s *AccountTestService) FetchUpstreamModelCatalog(ctx context.Context, account *Account) ([]UpstreamModelDescriptor, error) {
 	if s == nil {
 		return nil, newUpstreamModelSyncConfigError("Account test service is not configured", nil)
 	}
@@ -82,7 +95,15 @@ func (s *AccountTestService) FetchUpstreamSupportedModels(ctx context.Context, a
 	}
 
 	if account.Platform == PlatformAntigravity && account.Type != AccountTypeAPIKey {
-		return s.fetchAntigravityOAuthUpstreamModels(ctx, account)
+		models, err := s.fetchAntigravityOAuthUpstreamModels(ctx, account)
+		if err != nil {
+			return nil, err
+		}
+		catalog := make([]UpstreamModelDescriptor, 0, len(models))
+		for _, model := range models {
+			catalog = append(catalog, UpstreamModelDescriptor{ID: model})
+		}
+		return catalog, nil
 	}
 
 	if s.httpUpstream == nil {
@@ -116,15 +137,15 @@ func (s *AccountTestService) FetchUpstreamSupportedModels(ctx context.Context, a
 		)
 	}
 
-	models, err := extractUpstreamModelIDs(body)
+	catalog, err := extractUpstreamModelCatalog(body)
 	if err != nil {
 		return nil, newUpstreamModelSyncUpstreamError("Upstream model list response was not valid JSON", err)
 	}
-	if len(models) == 0 {
+	if len(catalog) == 0 {
 		return nil, newUpstreamModelSyncUpstreamError("Upstream returned no supported models", nil)
 	}
 
-	return models, nil
+	return catalog, nil
 }
 
 func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
@@ -438,46 +459,85 @@ func buildGeminiModelsURL(base string) string {
 }
 
 type upstreamModelEntry struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID                     string    `json:"id"`
+	Name                   string    `json:"name"`
+	SupportedEndpointTypes *[]string `json:"supported_endpoint_types"`
 }
 
-func extractUpstreamModelIDs(body []byte) ([]string, error) {
+// UpstreamModelDescriptor preserves optional protocol metadata from upstream model lists.
+type UpstreamModelDescriptor struct {
+	ID                     string   `json:"id"`
+	SupportedEndpointTypes []string `json:"supported_endpoint_types,omitempty"`
+	EndpointTypesPresent   bool     `json:"-"`
+	EndpointTypesComplete  bool     `json:"-"`
+}
+
+func extractUpstreamModelCatalog(body []byte) ([]UpstreamModelDescriptor, error) {
 	var response struct {
 		Data   []upstreamModelEntry `json:"data"`
 		Models []upstreamModelEntry `json:"models"`
 	}
+	entries := make([]upstreamModelEntry, 0)
 	if err := json.Unmarshal(body, &response); err != nil {
-		var arrayResponse []upstreamModelEntry
-		if arrayErr := json.Unmarshal(body, &arrayResponse); arrayErr != nil {
+		if arrayErr := json.Unmarshal(body, &entries); arrayErr != nil {
 			return nil, fmt.Errorf("parse upstream model list: %w", err)
 		}
-
-		models := make([]string, 0, len(arrayResponse))
-		for _, entry := range arrayResponse {
-			models = append(models, upstreamModelEntryID(entry))
-		}
-		return dedupeAndSortModelIDs(models), nil
-	}
-
-	models := make([]string, 0, len(response.Data)+len(response.Models))
-	for _, entry := range response.Data {
-		models = append(models, upstreamModelEntryID(entry))
-	}
-	for _, entry := range response.Models {
-		models = append(models, upstreamModelEntryID(entry))
-	}
-
-	if len(models) == 0 {
-		var arrayResponse []upstreamModelEntry
-		if err := json.Unmarshal(body, &arrayResponse); err == nil {
-			for _, entry := range arrayResponse {
-				models = append(models, upstreamModelEntryID(entry))
-			}
+	} else {
+		entries = append(entries, response.Data...)
+		entries = append(entries, response.Models...)
+		if len(entries) == 0 {
+			_ = json.Unmarshal(body, &entries)
 		}
 	}
 
-	return dedupeAndSortModelIDs(models), nil
+	type aggregate struct {
+		descriptor  UpstreamModelDescriptor
+		allComplete bool
+	}
+	byID := make(map[string]*aggregate, len(entries))
+	for _, entry := range entries {
+		id := upstreamModelEntryID(entry)
+		if id == "" {
+			continue
+		}
+		current := byID[id]
+		if current == nil {
+			current = &aggregate{descriptor: UpstreamModelDescriptor{ID: id}, allComplete: true}
+			byID[id] = current
+		}
+		if entry.SupportedEndpointTypes == nil {
+			current.allComplete = false
+			continue
+		}
+		current.descriptor.EndpointTypesPresent = true
+		if len(*entry.SupportedEndpointTypes) == 0 {
+			// An empty array is treated as undeclared metadata, not as a complete
+			// negative claim for every protocol in this gateway's contract.
+			current.allComplete = false
+		}
+		current.descriptor.SupportedEndpointTypes = append(current.descriptor.SupportedEndpointTypes, (*entry.SupportedEndpointTypes)...)
+	}
+
+	result := make([]UpstreamModelDescriptor, 0, len(byID))
+	for _, current := range byID {
+		current.descriptor.SupportedEndpointTypes = dedupeAndSortModelIDs(current.descriptor.SupportedEndpointTypes)
+		current.descriptor.EndpointTypesComplete = current.descriptor.EndpointTypesPresent && current.allComplete
+		result = append(result, current.descriptor)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result, nil
+}
+
+func extractUpstreamModelIDs(body []byte) ([]string, error) {
+	catalog, err := extractUpstreamModelCatalog(body)
+	if err != nil {
+		return nil, err
+	}
+	models := make([]string, 0, len(catalog))
+	for _, descriptor := range catalog {
+		models = append(models, descriptor.ID)
+	}
+	return models, nil
 }
 
 func upstreamModelEntryID(entry upstreamModelEntry) string {

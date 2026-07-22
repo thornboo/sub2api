@@ -6,6 +6,7 @@
 import { apiClient } from '../client'
 import type { BillingMode, ChannelStatus, BillingModelSource } from '@/constants/channel'
 import { normalizeAvailableChannels, type UserAvailableChannel } from '@/api/channels'
+import type { GroupPlatform } from '@/types'
 
 export type { BillingMode } from '@/constants/channel'
 
@@ -66,6 +67,75 @@ export interface Channel {
 export interface AdminAvailableChannel extends UserAvailableChannel {
   id: number
   status: ChannelStatus
+}
+
+export type ModelDeliveryStatus = 'deliverable' | 'partial' | 'no_endpoint' | 'no_route'
+export type ModelDeliveryMode = 'native' | 'compatibility' | 'mixed'
+export type ModelDeliveryProtocolStatus = 'available' | 'blocked'
+
+export interface ChannelModelDeliveryEndpoint {
+  protocol: string
+  path: string
+  mode: ModelDeliveryMode
+  group_ids: number[]
+}
+
+export interface ChannelModelDeliveryRouteEndpoint {
+  protocol: string
+  path: string
+  mode: ModelDeliveryMode
+  source?: string
+}
+
+export interface ChannelModelDeliveryProtocolDecision {
+  protocol: string
+  path: string
+  status: ModelDeliveryProtocolStatus
+  mode?: ModelDeliveryMode
+  channel_mapped_model?: string
+  upstream_model?: string
+  upstream_protocol?: string
+  source?: string
+  reason_codes: string[]
+  group_ids?: number[]
+}
+
+export interface ChannelModelDeliveryRoute {
+  account_id: number
+  account_name: string
+  channel_mapped_model: string
+  upstream_model: string
+  endpoints: ChannelModelDeliveryRouteEndpoint[]
+  protocols: ChannelModelDeliveryProtocolDecision[]
+}
+
+export interface ChannelModelDeliveryGroup {
+  id: number
+  name: string
+  platform: GroupPlatform
+  status: Exclude<ModelDeliveryStatus, 'partial'>
+  route_count: number
+  routes: ChannelModelDeliveryRoute[]
+  protocols: ChannelModelDeliveryProtocolDecision[]
+}
+
+export interface ChannelModelDelivery {
+  name: string
+  platform: GroupPlatform
+  status: ModelDeliveryStatus
+  deliverable_group_count: number
+  total_group_count: number
+  route_count: number
+  endpoints: ChannelModelDeliveryEndpoint[]
+  protocols: ChannelModelDeliveryProtocolDecision[]
+  groups: ChannelModelDeliveryGroup[]
+}
+
+export interface ChannelModelDeliveryResponse {
+  channel_id: number
+  channel_name: string
+  models: ChannelModelDelivery[]
+  warnings: string[]
 }
 
 export interface CreateChannelRequest {
@@ -130,6 +200,11 @@ export async function list(
  */
 export async function getById(id: number): Promise<Channel> {
   const { data } = await apiClient.get<Channel>(`/admin/channels/${id}`)
+  return data
+}
+
+export async function getModelDelivery(id: number): Promise<ChannelModelDeliveryResponse> {
+  const { data } = await apiClient.get<ChannelModelDeliveryResponse>(`/admin/channels/${id}/model-delivery`)
   return data
 }
 
@@ -200,6 +275,7 @@ export async function syncPricingModels(platform: string): Promise<SyncPricingMo
 const channelsAPI = {
   list,
   getById,
+  getModelDelivery,
   create,
   update,
   remove,

@@ -119,6 +119,10 @@ vi.mock("@/utils/apiError", () => ({
   extractApiErrorMessage: () => "error",
 }));
 
+vi.mock("vue-router", () => ({
+  useRoute: () => ({ query: {} }),
+}));
+
 vi.mock("vue-i18n", async () => {
   const actual = await vi.importActual<typeof import("vue-i18n")>("vue-i18n");
   const translations: Record<string, string> = {
@@ -419,6 +423,8 @@ const baseSettingsResponse = {
   fallback_model_antigravity: "",
   enable_identity_patch: false,
   identity_patch_prompt: "",
+  native_model_protocol_routing_enabled: false,
+  native_model_protocol_routing_source: "config",
   ops_monitoring_enabled: false,
   ops_realtime_monitoring_enabled: false,
   ops_query_mode_default: "auto",
@@ -523,6 +529,7 @@ function mountView() {
         ProxySelector: true,
         ImageUpload: ImageUploadStub,
         BackupSettings: true,
+        RouterLink: true,
       },
     },
   });
@@ -862,6 +869,46 @@ describe("admin SettingsView payment visible method controls", () => {
       expect.objectContaining({
         enable_anthropic_cache_ttl_1h_injection: true,
       }),
+    );
+  });
+
+  it("submits the effective native model protocol routing override", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      native_model_protocol_routing_enabled: true,
+      native_model_protocol_routing_source: "settings",
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        native_model_protocol_routing_enabled: true,
+      }),
+    );
+  });
+
+  it("does not solidify an untouched config-sourced routing default", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      native_model_protocol_routing_enabled: true,
+      native_model_protocol_routing_source: "config",
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings.mock.calls[0]?.[0]).not.toHaveProperty(
+      "native_model_protocol_routing_enabled",
     );
   });
 

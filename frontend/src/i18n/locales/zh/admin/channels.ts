@@ -165,6 +165,20 @@ export default {
         mappingCount: '条映射',
         pricingEntry: '定价配置',
         noModels: '未添加模型',
+        modelDelivery: 'API 端点就绪度',
+        deliverySavedConfig: '基于已保存配置',
+        deliverySummary: '{delivered}/{total} 个模型可调用',
+        deliveryNotChecked: '保存渠道后检查 API 端点',
+        deliveryRouteSummary: '{endpoints}/{totalEndpoints} 个 API 端点 · {routes} 条稳定路由',
+        deliveryLoadFailed: 'API 端点就绪状态加载失败',
+        deliveryEvidenceWarning: '上游协议证据暂时不可用；当前仅展示仍可确认的兼容端点',
+        deliveryStatus: {
+          deliverable: '可调用',
+          partial: '部分端点可用',
+          no_endpoint: '无可用端点',
+          no_route: '无账号路由',
+          unknown: '未检查'
+        },
         applyPricingToAccountStats: '应用模型定价到账号统计',
         applyPricingToAccountStatsDesc: '启用后，未被自定义规则匹配的请求将使用模型定价文件中的标准价格计算账号统计费用',
         accountStatsPricingRules: '自定义账号统计定价规则',
@@ -183,6 +197,40 @@ export default {
         syncModelsSuccess: '已同步 {count} 个新模型',
         syncModelsAlreadyUpToDate: '模型列表已是最新',
         syncModelsError: '同步模型失败'
+      },
+      deliveryDialog: {
+        title: '模型 API 端点与路由',
+        summary: '{delivered}/{total} 个分组可调用，共 {routes} 条稳定账号路由',
+        publicEndpoints: '用户可调用的 API 端点',
+        groupsUnit: '个分组',
+        noEndpoints: '当前没有可向用户声明的 API 端点',
+        groupRouteCount: '{count} 条稳定账号路由',
+        accountId: '账号 #{id}',
+        channelMappedModel: '渠道映射',
+        upstreamModel: '最终上游模型',
+        actualUpstream: '实际上游',
+        noPublicEndpointOnRoute: '账号可承接模型，但当前没有可声明的公共端点',
+        noStableRoute: '该分组没有 active、可调度且支持此模型的账号',
+        protocolStatus: {
+          available: '可调用',
+          blocked: '受阻'
+        },
+        reason: {
+          no_stable_route: '没有稳定账号路由',
+          platform_mismatch: '账号平台与分组不匹配',
+          model_unsupported: '账号不支持最终映射模型',
+          group_protocol_disabled: '分组未开放该 API 端点',
+          global_routing_disabled: '全局多端点路由未启用',
+          account_transport_unavailable: '账号路由策略选择的上游传输不可用',
+          protocol_capability_unknown: '最终上游模型的协议能力尚未确认',
+          protocol_capability_unsupported: '最终上游模型明确不支持所需上游协议',
+          unknown: '暂无可解释的路由证据'
+        },
+        mode: {
+          native: '原生转发',
+          compatibility: '协议转换',
+          mixed: '混合路由'
+        }
       }
     },
 

@@ -12,13 +12,35 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
+	return s.forwardWithSelectedProtocol(ctx, c, account, body, "")
+}
+
+// ForwardWithSelectedProtocol forwards a Responses request using the protocol
+// selected by the canonical delivery decision. An empty protocol preserves the
+// legacy account-derived behavior for disabled/unavailable capability control.
+func (s *OpenAIGatewayService) ForwardWithSelectedProtocol(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	selectedProtocol ModelProtocol,
+) (*OpenAIForwardResult, error) {
+	return s.forwardWithSelectedProtocol(ctx, c, account, body, selectedProtocol)
+}
+
+func (s *OpenAIGatewayService) forwardWithSelectedProtocol(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	selectedProtocol ModelProtocol,
+) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
 	// 固定渠道映射后的请求级 canonical body；账号 normalize/strip 不得改写跨 failover hint。
 	canonicalImageIntentBody := body
@@ -81,7 +103,11 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return s.forwardGrokResponses(ctx, c, account, body, originalModel, reqStream, startTime)
 	}
 
-	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
+	useResponsesAPI, protocolErr := useOpenAIResponsesForSelectedDelivery(account, selectedProtocol)
+	if protocolErr != nil {
+		return nil, protocolErr
+	}
+	if !useResponsesAPI {
 		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
 	}
 

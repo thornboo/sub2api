@@ -430,11 +430,33 @@ export default {
     },
     // Available Channels (user-facing)
     availableChannels: {
+        searchPlaceholder: '搜索模型、渠道或 API 端点...',
+        empty: '暂无可用模型',
+        endpoints: {
+            title: 'API 端点',
+            copyHint: '复制 {path}',
+            copied: 'API 端点已复制',
+            copyFailed: '复制 API 端点失败'
+        },
         exportExcel: '导出 Excel',
         exporting: '导出中...',
         viewMode: {
-            channels: '渠道视图',
-            models: '表格视图'
+            marketplace: '模型广场',
+            table: '价格表格'
+        },
+        modelMarketplace: {
+            groupCardLabel: '{group}中的模型 {name}',
+            copyModel: '复制模型名 {name}',
+            modelCopied: '模型名已复制',
+            groupModelCount: '{count} 个模型',
+            channelCount: '{count} 个渠道',
+            availableChannels: '可用渠道',
+            apiEndpoints: 'API端点',
+            copyEndpointHint: '点击复制端点',
+            endpointUnavailable: '沿用原有兼容路由，未发布端点信息',
+            priceVariants: '{count} 种报价',
+            priceVariantsHint: '不同渠道的价格配置不同，请切换价格表格精确比较。',
+            tieredPricing: '阶梯计费'
         },
         platformFilter: {
             label: '平台筛选',

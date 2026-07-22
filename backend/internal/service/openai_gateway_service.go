@@ -381,31 +381,32 @@ var ErrNoAvailableCompactAccounts = errors.New("no available OpenAI accounts sup
 
 // OpenAIGatewayService handles OpenAI API gateway operations
 type OpenAIGatewayService struct {
-	accountRepo           AccountRepository
-	usageLogRepo          UsageLogRepository
-	usageBillingRepo      UsageBillingRepository
-	userRepo              UserRepository
-	userSubRepo           UserSubscriptionRepository
-	cache                 GatewayCache
-	cfg                   *config.Config
-	codexDetector         CodexClientRestrictionDetector
-	schedulerSnapshot     *SchedulerSnapshotService
-	concurrencyService    *ConcurrencyService
-	billingService        *BillingService
-	rateLimitService      *RateLimitService
-	billingCacheService   *BillingCacheService
-	userGroupRateResolver *userGroupRateResolver
-	httpUpstream          HTTPUpstream
-	deferredService       *DeferredService
-	openAITokenProvider   *OpenAITokenProvider
-	grokTokenProvider     *GrokTokenProvider
-	toolCorrector         *CodexToolCorrector
-	openaiWSResolver      OpenAIWSProtocolResolver
-	resolver              *ModelPricingResolver
-	channelService        *ChannelService
-	balanceNotifyService  *BalanceNotifyService
-	settingService        *SettingService
-	userPlatformQuotaRepo UserPlatformQuotaRepository
+	accountRepo             AccountRepository
+	usageLogRepo            UsageLogRepository
+	usageBillingRepo        UsageBillingRepository
+	userRepo                UserRepository
+	userSubRepo             UserSubscriptionRepository
+	cache                   GatewayCache
+	cfg                     *config.Config
+	codexDetector           CodexClientRestrictionDetector
+	schedulerSnapshot       *SchedulerSnapshotService
+	concurrencyService      *ConcurrencyService
+	billingService          *BillingService
+	rateLimitService        *RateLimitService
+	billingCacheService     *BillingCacheService
+	userGroupRateResolver   *userGroupRateResolver
+	httpUpstream            HTTPUpstream
+	deferredService         *DeferredService
+	openAITokenProvider     *OpenAITokenProvider
+	grokTokenProvider       *GrokTokenProvider
+	toolCorrector           *CodexToolCorrector
+	openaiWSResolver        OpenAIWSProtocolResolver
+	resolver                *ModelPricingResolver
+	channelService          *ChannelService
+	balanceNotifyService    *BalanceNotifyService
+	settingService          *SettingService
+	userPlatformQuotaRepo   UserPlatformQuotaRepository
+	modelProtocolCapability *ModelProtocolCapabilityService
 
 	openaiWSPoolOnce              sync.Once
 	openaiWSStateStoreOnce        sync.Once
@@ -434,6 +435,39 @@ type OpenAIGatewayService struct {
 	codexModelsManifestCache            codexModelsManifestCache
 	openaiCompatSessionResponses        sync.Map
 	openaiCompatAnthropicDigestSessions sync.Map
+}
+
+// SetModelProtocolCapabilityService attaches optional native protocol routing.
+// The constructor remains unchanged so focused service tests keep a small setup surface.
+func (s *OpenAIGatewayService) SetModelProtocolCapabilityService(capability *ModelProtocolCapabilityService) {
+	if s != nil {
+		s.modelProtocolCapability = capability
+	}
+}
+
+// SupportedEndpointTypesForGroups returns new-api compatible endpoint labels
+// for confirmed native routes, keyed by public model ID.
+func (s *OpenAIGatewayService) SupportedEndpointTypesForGroups(ctx context.Context, groupIDs []int64, models []string) (map[string][]string, error) {
+	result := make(map[string][]string)
+	if s == nil || s.modelProtocolCapability == nil {
+		return result, nil
+	}
+	capabilities, err := s.modelProtocolCapability.ResolveNativeProtocolsForGroups(ctx, groupIDs, models)
+	if err != nil {
+		return nil, err
+	}
+	for _, model := range models {
+		for _, protocol := range AllModelProtocols {
+			if len(capabilities[model][protocol]) == 0 {
+				continue
+			}
+			endpointType, ok := UpstreamEndpointTypeForModelProtocol(protocol)
+			if ok {
+				result[model] = append(result[model], endpointType)
+			}
+		}
+	}
+	return result, nil
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService

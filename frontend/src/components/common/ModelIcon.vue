@@ -5,7 +5,7 @@
     :height="size"
     viewBox="0 0 24 24"
     xmlns="http://www.w3.org/2000/svg"
-    class="model-icon"
+    :class="['model-icon', isDarkMonochrome ? 'dark:invert' : '']"
     fill="currentColor"
     fill-rule="evenodd"
   >
@@ -259,6 +259,10 @@ const iconKey = computed(() => {
 })
 
 const iconInfo = computed(() => iconKey.value ? iconData[iconKey.value] : null)
+const isDarkMonochrome = computed(() => {
+  const color = iconInfo.value?.color.toUpperCase()
+  return color === '#000000' || color === '#16191E'
+})
 </script>
 
 <style scoped>

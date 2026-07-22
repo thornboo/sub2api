@@ -183,6 +183,8 @@ func ProvideAccountHandler(
 	rpmCache service.RPMCache,
 	tokenCacheInvalidator service.TokenCacheInvalidator,
 	grokQuotaService *service.GrokQuotaService,
+	modelProtocolCapability *service.ModelProtocolCapabilityService,
+	modelDelivery *service.ModelDeliveryService,
 ) *AccountHandler {
 	handler := NewAccountHandler(
 		adminService,
@@ -201,5 +203,7 @@ func ProvideAccountHandler(
 		tokenCacheInvalidator,
 	)
 	handler.grokImportProber = grokQuotaService
+	handler.SetModelProtocolCapabilityService(modelProtocolCapability)
+	handler.SetModelDeliveryService(modelDelivery)
 	return handler
 }

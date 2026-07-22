@@ -101,6 +101,23 @@ func (g *Group) ResolveMessagesDispatchModel(requestedModel string) string {
 	}
 }
 
+// ResolveOpenAIMessagesDeliveryModel applies the group-level Messages dispatch
+// mapping as part of the same public -> delivery -> account model chain used by
+// catalog projection and runtime routing. An explicit channel mapping wins over
+// the legacy family fallback because it is the more specific product mapping.
+func ResolveOpenAIMessagesDeliveryModel(group *Group, requestedModel string, channelMapping ChannelMappingResult) string {
+	if channelMapping.Mapped && strings.TrimSpace(channelMapping.MappedModel) != "" {
+		return NormalizeOpenAICompatRequestedModel(strings.TrimSpace(channelMapping.MappedModel))
+	}
+	if mapped := strings.TrimSpace(group.ResolveMessagesDispatchModel(requestedModel)); mapped != "" {
+		return NormalizeOpenAICompatRequestedModel(mapped)
+	}
+	if mapped := strings.TrimSpace(channelMapping.MappedModel); mapped != "" {
+		return NormalizeOpenAICompatRequestedModel(mapped)
+	}
+	return NormalizeOpenAICompatRequestedModel(strings.TrimSpace(requestedModel))
+}
+
 func sanitizeGroupMessagesDispatchFields(g *Group) {
 	if g == nil || g.Platform == PlatformOpenAI {
 		return
