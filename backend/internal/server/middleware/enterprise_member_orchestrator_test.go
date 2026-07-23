@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -164,6 +165,66 @@ func TestOrchestrateEnterpriseMemberGroupsDoesNotRetryClientError(t *testing.T) 
 	require.Equal(t, 1, calls)
 	require.Equal(t, http.StatusBadRequest, recorder.Code)
 	require.JSONEq(t, `{"error":"invalid request"}`, recorder.Body.String())
+}
+
+func TestOrchestrateEnterpriseMemberGroupsRestoresBodyLengthMetadata(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	const originalBody = `{"model":"short"}`
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(originalBody))
+	c.Request.Header.Set("Content-Length", strconv.Itoa(len(originalBody)))
+	plan := testEnterpriseMemberGroupPlan()
+	c.Set(enterpriseMemberGroupPlanKey, plan)
+	activateEnterpriseMemberGroupCandidate(c, plan, 0, "short")
+
+	calls := 0
+	handler := OrchestrateEnterpriseMemberGroups(func(c *gin.Context) {
+		calls++
+		if calls == 1 {
+			rewritten := `{"model":"a-much-longer-upstream-model"}`
+			restoreRequestBody(c.Request, []byte(rewritten))
+			service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
+			c.JSON(http.StatusNotFound, gin.H{"error": "retry"})
+			return
+		}
+		body, err := io.ReadAll(c.Request.Body)
+		require.NoError(t, err)
+		require.Equal(t, originalBody, string(body))
+		require.Equal(t, int64(len(originalBody)), c.Request.ContentLength)
+		require.Equal(t, strconv.Itoa(len(originalBody)), c.Request.Header.Get("Content-Length"))
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	handler(c)
+
+	require.Equal(t, 2, calls)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.JSONEq(t, `{"ok":true}`, recorder.Body.String())
+}
+
+func TestOrchestrateEnterpriseMemberGroupsDoesNotRetryAmbiguousUpstreamOutcome(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude-test"}`))
+	plan := testEnterpriseMemberGroupPlan()
+	c.Set(enterpriseMemberGroupPlanKey, plan)
+	activateEnterpriseMemberGroupCandidate(c, plan, 0, "claude-test")
+
+	calls := 0
+	handler := OrchestrateEnterpriseMemberGroups(func(c *gin.Context) {
+		calls++
+		service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonTransientUpstream)
+		service.MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "upstream_outcome_unknown")
+		c.JSON(http.StatusBadGateway, gin.H{"error": "unknown upstream outcome"})
+	})
+
+	handler(c)
+
+	require.Equal(t, 1, calls)
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	require.JSONEq(t, `{"error":"unknown upstream outcome"}`, recorder.Body.String())
 }
 
 func testEnterpriseMemberGroupPlan() *enterpriseMemberGroupPlan {

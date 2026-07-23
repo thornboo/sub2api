@@ -15,7 +15,7 @@ const props = withDefaults(defineProps<Props>(), {
       <div class="flex flex-wrap items-center justify-between gap-4 border-b border-stone-200/70 pb-4 dark:border-white/10">
         <div class="space-y-2">
           <div class="h-6 w-44 animate-pulse rounded bg-stone-200 dark:bg-white/10"></div>
-          <div class="h-3 w-80 animate-pulse rounded bg-stone-100 dark:bg-white/[0.08]"></div>
+          <div class="h-3 w-80 max-w-full animate-pulse rounded bg-stone-100 dark:bg-white/[0.08]"></div>
         </div>
         <div v-if="!props.fullscreen" class="flex flex-wrap items-center gap-3">
           <div class="h-9 w-[140px] animate-pulse rounded-xl bg-stone-200 dark:bg-white/10"></div>
@@ -91,8 +91,8 @@ const props = withDefaults(defineProps<Props>(), {
       <div class="mt-6 space-y-3">
         <div v-for="i in 6" :key="i" class="flex items-center justify-between gap-4 rounded-2xl border border-stone-200/70 bg-white/65 p-4 dark:border-white/10 dark:bg-black/25">
           <div class="flex-1 space-y-2">
-            <div class="h-3 w-56 animate-pulse rounded bg-stone-200 dark:bg-white/10"></div>
-            <div class="h-3 w-80 animate-pulse rounded bg-stone-100 dark:bg-white/[0.08]"></div>
+          <div class="h-3 w-56 animate-pulse rounded bg-stone-200 dark:bg-white/10"></div>
+            <div class="h-3 w-80 max-w-full animate-pulse rounded bg-stone-100 dark:bg-white/[0.08]"></div>
           </div>
           <div class="h-7 w-20 animate-pulse rounded-xl bg-stone-200 dark:bg-white/10"></div>
         </div>

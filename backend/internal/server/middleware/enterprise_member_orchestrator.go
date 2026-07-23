@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -42,7 +43,7 @@ func OrchestrateEnterpriseMemberGroups(next gin.HandlerFunc) gin.HandlerFunc {
 			next(c)
 
 			_, retryable := service.OpsGroupRetryReasonFromContext(c)
-			if tx.committed || !retryable || plan.current+1 >= len(plan.candidates) {
+			if tx.committed || !retryable || service.IsEnterpriseMemberBudgetOutcomeAmbiguous(c) || plan.current+1 >= len(plan.candidates) {
 				tx.commitBuffered()
 				c.Writer = originalWriter
 				return
@@ -96,6 +97,7 @@ func restoreRequestBody(r *http.Request, body []byte) {
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength = int64(len(body))
+	r.Header.Set("Content-Length", strconv.Itoa(len(body)))
 }
 
 func cloneGinKeys(src map[string]any) map[string]any {

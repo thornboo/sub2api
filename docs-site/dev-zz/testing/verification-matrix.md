@@ -52,6 +52,12 @@
 | 请求回执、异步 task link/phase、核对元数据与 settlement outbox 迁移合同 | `cd backend && go test ./migrations -run 'TestEnterpriseMember(RequestReceipt\|BudgetReceiptTaskLink\|ReceiptReconciliationMetadata\|UsageSettlementOutbox)Migration' -count=1` |
 | 导入 Token 两位小数解析、JSON/SQL 精度与 migration 191 合同 | `cd backend && go test -tags=unit ./internal/service ./migrations -run 'Test(ParseImportTokenCount\|EnterpriseMemberTokenCount\|EnterpriseMemberImportPreviewPreservesDecimalTokenFormats\|EnterpriseMemberImportXLSXPreservesDecimalNumericCells\|EnterpriseMemberFractionalTokenBaselinesMigration)' -count=1` |
 | WebSocket 上游结果不明时禁止重放并保留成员预算 | `cd backend && go test -tags=unit ./internal/service -run 'TestOpenAIGatewayService_(ProxyResponsesWebSocketFromClient_(WriteOutcomeUnknownDoesNotRetry\|PreviousResponseNotFoundRecoversByDroppingPrevID\|PassthroughUnknownOutcomeMarksBudgetAmbiguous)\|Forward_WSv2(StreamEarlyCloseMarksOutcomeUnknown\|CloseAfterDispatchDoesNotReplay))' -count=1` |
+| 企业成员候选组与 Composite 路由决策隔离 | `cd backend && go test ./internal/server/routes ./internal/server/middleware -run 'TestCompositeRouteIsResolvedAgainForEachEnterpriseMemberCandidate\|TestOrchestrateEnterpriseMemberGroups' -count=1` |
+| WebSocket HTTP bridge 首 turn 安全 failover 与后续 turn 结果不明 | `cd backend && go test ./internal/service -run 'Test(OpenAIWSHTTPBridgeLaterTurnUnknownTransportMarksMemberBudgetAmbiguous\|ProxyOpenAIWSHTTPBridgeTurnTransportErrorFailoverSafety)' -count=1` |
+| Composite 精确别名目录、端点元数据与禁用 / 前缀规则隔离 | `cd backend && go test ./internal/service ./internal/handler -run 'TestCompositeRouteResolver\|TestGatewayModels_CompositeCatalog' -count=1` |
+| WebSocket 连接固定公开 / 上游模型映射且仅首 turn 允许整连接 failover | `cd backend && go test ./internal/service -run 'TestResolveOpenAIWSSessionModels\|TestShouldFailoverOpenAIWSConnection' -count=1` |
+| 企业候选恢复请求元数据且预算结果不明确时禁止重试 | `cd backend && go test ./internal/server/middleware -run 'TestOrchestrateEnterpriseMemberGroups' -count=1` |
+| Gemini 模型目录跳过不匹配 Composite 候选及 Ops 恢复 attempt 精确归因 | `cd backend && go test -tags=unit ./internal/handler -run 'TestGeminiV1BetaListModelsMarksComposite\|TestOpsRecoveredEnterpriseFailover' -count=1` |
 | Batch image 提交结果不明时保留 hold、禁止重提与退款 | `cd backend && go test -tags=unit ./internal/service -run 'Test(GeminiProvider_CreateBatch\|VertexProvider_CreateBatch\|BatchImagePublicService_Submit\|BatchImageBillingRecoveryService_\|CanTransitionBatchImageJob)' -count=1` |
 | 企业成员 zh/en 文案键和页面引用 | `pnpm --dir frontend exec vitest run src/i18n/__tests__/enterpriseMembersLocales.spec.ts` |
 | 企业成员控制台布局和交互入口 | `pnpm --dir frontend exec vitest run src/views/user/__tests__/EnterpriseMembersView.layout.spec.ts` |
@@ -119,6 +125,7 @@
 - Guard token 只允许写入/清除，公开配置和日志不得回显；任务表不得保存完整提示词，完整内容只允许进入最终事件证据。
 - 筛选删除必须先预览并冻结 filter hash、最高事件 ID、管理员和过期时间；确认不得删除预览后新增的事件。
 - WebSocket 首 turn 只审计一次，后续 turn 独立审计；企业成员预算按 turn 创建零金额 receipt，并在阻断/断连路径释放或标记结果不明。
+- Composite 路由决策只属于当前 `ActiveGroup` attempt；候选切换后必须从原始公开模型重新解析，上一组的 `ResolvedTargetPlatform`、`ResolvedUpstreamModel`、公开模型和路由来源都不得泄漏。
 - 前端不得为 Stripe 恢复全局 `manualChunks`；三个支付入口必须继续通过 `@stripe/stripe-js/pure` 动态导入。
 
 ## OpenAI Responses → Chat fallback 工具桥

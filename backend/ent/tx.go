@@ -42,6 +42,8 @@ type Tx struct {
 	ChannelMonitorHistory *ChannelMonitorHistoryClient
 	// ChannelMonitorRequestTemplate is the client for interacting with the ChannelMonitorRequestTemplate builders.
 	ChannelMonitorRequestTemplate *ChannelMonitorRequestTemplateClient
+	// CompositeModelRoute is the client for interacting with the CompositeModelRoute builders.
+	CompositeModelRoute *CompositeModelRouteClient
 	// EnterpriseMember is the client for interacting with the EnterpriseMember builders.
 	EnterpriseMember *EnterpriseMemberClient
 	// EnterpriseMemberBudgetEntry is the client for interacting with the EnterpriseMemberBudgetEntry builders.
@@ -245,6 +247,7 @@ func (tx *Tx) init() {
 	tx.ChannelMonitorDailyRollup = NewChannelMonitorDailyRollupClient(tx.config)
 	tx.ChannelMonitorHistory = NewChannelMonitorHistoryClient(tx.config)
 	tx.ChannelMonitorRequestTemplate = NewChannelMonitorRequestTemplateClient(tx.config)
+	tx.CompositeModelRoute = NewCompositeModelRouteClient(tx.config)
 	tx.EnterpriseMember = NewEnterpriseMemberClient(tx.config)
 	tx.EnterpriseMemberBudgetEntry = NewEnterpriseMemberBudgetEntryClient(tx.config)
 	tx.EnterpriseMemberBudgetPeriod = NewEnterpriseMemberBudgetPeriodClient(tx.config)

@@ -137,7 +137,11 @@ func (s *AccountTestService) FetchUpstreamModelCatalog(ctx context.Context, acco
 		)
 	}
 
-	catalog, err := extractUpstreamModelCatalog(body)
+	extractCatalog := extractUpstreamModelCatalog
+	if account.IsGrok() {
+		extractCatalog = extractGrokUpstreamModelCatalog
+	}
+	catalog, err := extractCatalog(body)
 	if err != nil {
 		return nil, newUpstreamModelSyncUpstreamError("Upstream model list response was not valid JSON", err)
 	}
@@ -168,23 +172,57 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 }
 
 func (s *AccountTestService) buildGrokUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
-	if account.Type != AccountTypeAPIKey {
+	if account == nil {
+		return nil, newUpstreamModelSyncConfigError("Account is required", nil)
+	}
+
+	var (
+		authToken         string
+		normalizedBaseURL string
+		isOAuth           = account.IsGrokOAuth()
+	)
+	switch account.Type {
+	case AccountTypeAPIKey:
+		authToken = strings.TrimSpace(account.GetCredential("api_key"))
+		if authToken == "" {
+			return nil, newUpstreamModelSyncConfigError("No Grok API key is available", nil)
+		}
+
+		baseURL := strings.TrimSpace(account.GetCredential("base_url"))
+		if baseURL == "" {
+			baseURL = "https://api.x.ai"
+		}
+		validatedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
+		if err != nil {
+			return nil, newUpstreamModelSyncConfigError("Invalid Grok base URL", err)
+		}
+		normalizedBaseURL = validatedBaseURL
+	case AccountTypeOAuth:
+		if s.grokTokenProvider == nil {
+			return nil, newUpstreamModelSyncConfigError("Grok token provider is not configured", nil)
+		}
+		accessToken, err := s.grokTokenProvider.GetAccessTokenForManualTest(ctx, account)
+		if err != nil {
+			return nil, newUpstreamModelSyncUpstreamError("Failed to get Grok access token", err)
+		}
+		authToken = strings.TrimSpace(accessToken)
+		if authToken == "" {
+			return nil, newUpstreamModelSyncConfigError("No Grok access token is available", nil)
+		}
+
+		validator, err := grokBaseURLValidator(account, s.cfg)
+		if err != nil {
+			return nil, newUpstreamModelSyncConfigError("Invalid Grok base URL", err)
+		}
+		validatedBaseURL, err := validator(account.GetGrokBaseURL())
+		if err != nil {
+			return nil, newUpstreamModelSyncConfigError("Invalid Grok base URL", err)
+		}
+		normalizedBaseURL = validatedBaseURL
+	default:
 		return nil, newUpstreamModelSyncUnsupportedError(
 			fmt.Sprintf("Unsupported Grok account type for upstream model sync: %s", account.Type), nil,
 		)
-	}
-	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
-	if apiKey == "" {
-		return nil, newUpstreamModelSyncConfigError("No Grok API key is available", nil)
-	}
-
-	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
-	if baseURL == "" {
-		baseURL = "https://api.x.ai"
-	}
-	normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
-	if err != nil {
-		return nil, newUpstreamModelSyncConfigError("Invalid Grok base URL", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, buildOpenAIModelsURL(normalizedBaseURL), nil)
@@ -192,7 +230,21 @@ func (s *AccountTestService) buildGrokUpstreamModelsRequest(ctx context.Context,
 		return nil, newUpstreamModelSyncConfigError("Invalid Grok model list URL", err)
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Authorization", "Bearer "+authToken)
+	if isOAuth {
+		// The shared HTTP transport adds the official CLI marker/version for the
+		// exact proxy host. Keep the request builder aligned with the other Grok
+		// probes and only forward account identity headers to that trusted host.
+		applyGrokCLIHeaders(req.Header)
+		if isGrokCLIProxyTarget(req.URL.String()) {
+			if userID := strings.TrimSpace(account.GetCredential("sub")); userID != "" {
+				req.Header.Set("X-UserID", userID)
+			}
+			if email := strings.TrimSpace(account.GetCredential("email")); email != "" {
+				req.Header.Set("X-Email", email)
+			}
+		}
+	}
 	account.ApplyHeaderOverrides(req.Header)
 	return req, nil
 }
@@ -459,9 +511,13 @@ func buildGeminiModelsURL(base string) string {
 }
 
 type upstreamModelEntry struct {
-	ID                     string    `json:"id"`
-	Name                   string    `json:"name"`
-	SupportedEndpointTypes *[]string `json:"supported_endpoint_types"`
+	ID                     string          `json:"id"`
+	Model                  string          `json:"model"`
+	ModelID                string          `json:"modelId"`
+	ModelIDSnake           string          `json:"model_id"`
+	Name                   string          `json:"name"`
+	Meta                   json.RawMessage `json:"_meta"`
+	SupportedEndpointTypes *[]string       `json:"supported_endpoint_types"`
 }
 
 // UpstreamModelDescriptor preserves optional protocol metadata from upstream model lists.
@@ -473,6 +529,38 @@ type UpstreamModelDescriptor struct {
 }
 
 func extractUpstreamModelCatalog(body []byte) ([]UpstreamModelDescriptor, error) {
+	return extractUpstreamModelCatalogWithSelector(body, upstreamModelEntryID)
+}
+
+type upstreamModelEntryMetadata struct {
+	ID           string `json:"id"`
+	Model        string `json:"model"`
+	ModelID      string `json:"modelId"`
+	ModelIDSnake string `json:"model_id"`
+	Name         string `json:"name"`
+}
+
+func extractUpstreamModelIDs(body []byte) ([]string, error) {
+	catalog, err := extractUpstreamModelCatalog(body)
+	if err != nil {
+		return nil, err
+	}
+	return upstreamModelCatalogIDs(catalog), nil
+}
+
+func extractGrokUpstreamModelIDs(body []byte) ([]string, error) {
+	catalog, err := extractGrokUpstreamModelCatalog(body)
+	if err != nil {
+		return nil, err
+	}
+	return upstreamModelCatalogIDs(catalog), nil
+}
+
+func extractGrokUpstreamModelCatalog(body []byte) ([]UpstreamModelDescriptor, error) {
+	return extractUpstreamModelCatalogWithSelector(body, grokUpstreamModelEntryID)
+}
+
+func extractUpstreamModelCatalogWithSelector(body []byte, selectID func(upstreamModelEntry) string) ([]UpstreamModelDescriptor, error) {
 	var response struct {
 		Data   []upstreamModelEntry `json:"data"`
 		Models []upstreamModelEntry `json:"models"`
@@ -496,7 +584,7 @@ func extractUpstreamModelCatalog(body []byte) ([]UpstreamModelDescriptor, error)
 	}
 	byID := make(map[string]*aggregate, len(entries))
 	for _, entry := range entries {
-		id := upstreamModelEntryID(entry)
+		id := selectID(entry)
 		if id == "" {
 			continue
 		}
@@ -528,16 +616,12 @@ func extractUpstreamModelCatalog(body []byte) ([]UpstreamModelDescriptor, error)
 	return result, nil
 }
 
-func extractUpstreamModelIDs(body []byte) ([]string, error) {
-	catalog, err := extractUpstreamModelCatalog(body)
-	if err != nil {
-		return nil, err
-	}
+func upstreamModelCatalogIDs(catalog []UpstreamModelDescriptor) []string {
 	models := make([]string, 0, len(catalog))
 	for _, descriptor := range catalog {
 		models = append(models, descriptor.ID)
 	}
-	return models, nil
+	return dedupeAndSortModelIDs(models)
 }
 
 func upstreamModelEntryID(entry upstreamModelEntry) string {
@@ -546,6 +630,37 @@ func upstreamModelEntryID(entry upstreamModelEntry) string {
 		modelID = strings.TrimSpace(entry.Name)
 	}
 	return strings.TrimPrefix(modelID, "models/")
+}
+
+func grokUpstreamModelEntryID(entry upstreamModelEntry) string {
+	candidates := []string{
+		entry.Model,
+		entry.ModelID,
+		entry.ModelIDSnake,
+		entry.ID,
+	}
+	if len(entry.Meta) > 0 {
+		var meta upstreamModelEntryMetadata
+		if err := json.Unmarshal(entry.Meta, &meta); err == nil {
+			candidates = append(candidates,
+				meta.Model,
+				meta.ModelID,
+				meta.ModelIDSnake,
+				meta.ID,
+				meta.Name,
+			)
+		}
+	}
+	// `name` is a display label in the Grok catalog, so keep it as the final
+	// compatibility fallback rather than preferring it over protocol model IDs.
+	candidates = append(candidates, entry.Name)
+	for _, candidate := range candidates {
+		modelID := strings.TrimSpace(candidate)
+		if modelID != "" {
+			return strings.TrimPrefix(modelID, "models/")
+		}
+	}
+	return ""
 }
 
 func dedupeAndSortModelIDs(models []string) []string {

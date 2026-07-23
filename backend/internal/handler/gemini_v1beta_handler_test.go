@@ -4,11 +4,33 @@ package handler
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	middleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGeminiV1BetaListModelsMarksCompositeCandidateForEnterpriseFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
+	groupID := int64(11)
+	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
+		GroupID: &groupID,
+		Group:   &service.Group{ID: groupID, Platform: service.PlatformComposite},
+	})
+
+	(&GatewayHandler{}).GeminiV1BetaListModels(c)
+
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	reason, ok := service.OpsGroupRetryReasonFromContext(c)
+	require.True(t, ok)
+	require.Equal(t, service.OpsGroupRetryReasonCapabilityMismatch, reason)
+}
 
 // TestGeminiV1BetaHandler_PlatformRoutingInvariant 文档化并验证 Handler 层的平台路由逻辑不变量
 // 该测试确保 gemini 和 antigravity 平台的路由逻辑符合预期

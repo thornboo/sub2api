@@ -26,6 +26,19 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+func TestOpenAIWSSchedulingModelUsesCompositeUpstreamModel(t *testing.T) {
+	t.Parallel()
+
+	ctx := service.WithCompositeRouteDecision(context.Background(), service.CompositeRouteDecision{
+		Matched:        true,
+		PublicModel:    "all/gpt",
+		TargetPlatform: service.PlatformOpenAI,
+		UpstreamModel:  "gpt-5",
+	})
+	require.Equal(t, "gpt-5", openAIWSSchedulingModel(ctx, "all/gpt"))
+	require.Equal(t, "all/gpt", openAIWSSchedulingModel(context.Background(), "all/gpt"))
+}
+
 func TestOpenAIHandleStreamingAwareError_JSONEscaping(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -136,6 +149,39 @@ func TestOpenAIForwardSucceededForScheduling(t *testing.T) {
 		OpenAIWSMode:          true,
 		UpstreamTerminalEvent: "response.failed",
 	}))
+}
+
+func TestOpenAIResponsesRequiredCapability(t *testing.T) {
+	tests := []struct {
+		name        string
+		imageIntent bool
+		platform    string
+		want        service.OpenAIEndpointCapability
+	}{
+		{
+			name:        "OpenAI explicit image intent requires Responses",
+			imageIntent: true,
+			platform:    service.PlatformOpenAI,
+			want:        service.OpenAIEndpointCapabilityResponses,
+		},
+		{
+			name:        "Grok explicit image intent keeps chat capability",
+			imageIntent: true,
+			platform:    service.PlatformGrok,
+			want:        service.OpenAIEndpointCapabilityChatCompletions,
+		},
+		{
+			name:     "non-image intent keeps chat capability",
+			platform: service.PlatformOpenAI,
+			want:     service.OpenAIEndpointCapabilityChatCompletions,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, openAIResponsesRequiredCapability(tt.imageIntent, tt.platform))
+		})
+	}
 }
 
 func TestResolveOpenAIMessagesMetadataSession_DoesNotDerivePromptCacheKey(t *testing.T) {

@@ -74,6 +74,7 @@ var ProviderSet = wire.NewSet(
 	NewGrokMediaTaskRepository,
 	NewGroupRepository,
 	NewAdminGroupRepository,
+	NewCompositeModelRouteRepository,
 	NewAccountRepository,
 	NewAdminAccountRepository,
 	NewModelProtocolCapabilityRepository,

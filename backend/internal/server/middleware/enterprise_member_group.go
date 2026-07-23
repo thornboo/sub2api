@@ -148,7 +148,8 @@ func activateEnterpriseMemberGroupCandidate(c *gin.Context, plan *enterpriseMemb
 		CandidateIndex:   candidate.memberIndex,
 		AttemptNumber:    candidateIndex + 1,
 	}
-	ctx := context.WithValue(c.Request.Context(), ctxkey.ActiveGroup, active)
+	ctx := service.WithoutCompositeRouteDecision(c.Request.Context())
+	ctx = context.WithValue(ctx, ctxkey.ActiveGroup, active)
 	c.Request = c.Request.WithContext(ctx)
 }
 
@@ -182,31 +183,31 @@ func enterpriseMemberGroupEligible(c *gin.Context, user *service.User, group *se
 	requestPath := c.Request.URL.Path
 	switch {
 	case strings.Contains(requestPath, "/backend-api/codex/") || (strings.HasSuffix(requestPath, "/models") && c.Query("client_version") != ""):
-		if group.Platform != service.PlatformOpenAI {
+		if group.Platform != service.PlatformOpenAI && group.Platform != service.PlatformComposite {
 			return false
 		}
 	case strings.Contains(requestPath, "/v1beta/"):
-		if group.Platform != service.PlatformGemini && group.Platform != service.PlatformAntigravity {
+		if group.Platform != service.PlatformGemini && group.Platform != service.PlatformAntigravity && group.Platform != service.PlatformComposite {
 			return false
 		}
 	case strings.HasSuffix(requestPath, "/embeddings"):
-		if group.Platform != service.PlatformOpenAI {
+		if group.Platform != service.PlatformOpenAI && group.Platform != service.PlatformComposite {
 			return false
 		}
 	case strings.HasSuffix(requestPath, "/alpha/search"):
-		if group.Platform != service.PlatformOpenAI {
+		if group.Platform != service.PlatformOpenAI && group.Platform != service.PlatformComposite {
 			return false
 		}
 	case strings.Contains(requestPath, "/videos/"):
-		if group.Platform != service.PlatformGrok || !service.GroupAllowsImageGeneration(group) {
+		if group.Platform != service.PlatformComposite && (group.Platform != service.PlatformGrok || !service.GroupAllowsImageGeneration(group)) {
 			return false
 		}
 	case strings.Contains(requestPath, "/images/batches"):
-		if group.Platform != service.PlatformGemini || !group.AllowImageGeneration || !group.AllowBatchImageGeneration {
+		if group.Platform != service.PlatformComposite && (group.Platform != service.PlatformGemini || !group.AllowImageGeneration || !group.AllowBatchImageGeneration) {
 			return false
 		}
 	case strings.Contains(requestPath, "/images/"):
-		if (group.Platform != service.PlatformOpenAI && group.Platform != service.PlatformGrok) || !service.GroupAllowsImageGeneration(group) {
+		if group.Platform != service.PlatformComposite && ((group.Platform != service.PlatformOpenAI && group.Platform != service.PlatformGrok) || !service.GroupAllowsImageGeneration(group)) {
 			return false
 		}
 	case strings.HasSuffix(requestPath, "/messages"):
@@ -214,7 +215,7 @@ func enterpriseMemberGroupEligible(c *gin.Context, user *service.User, group *se
 			return false
 		}
 	case c.Request.Method == http.MethodGet && strings.HasSuffix(requestPath, "/responses"):
-		if group.Platform != service.PlatformOpenAI && group.Platform != service.PlatformGrok {
+		if group.Platform != service.PlatformOpenAI && group.Platform != service.PlatformGrok && group.Platform != service.PlatformComposite {
 			return false
 		}
 	}

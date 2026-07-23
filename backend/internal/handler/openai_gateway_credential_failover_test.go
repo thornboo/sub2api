@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -212,4 +213,46 @@ func TestOpsRecoveredCredentialFailoverUsesAccountAuthAttribution(t *testing.T) 
 	require.NoError(t, err)
 	require.Len(t, events, 2)
 	require.Equal(t, http.StatusForbidden, events[0].UpstreamStatusCode)
+}
+
+func TestOpsRecoveredEnterpriseFailoverUsesFailedAttemptRoutingAttribution(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 2)
+	gin.SetMode(gin.TestMode)
+	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := gin.New()
+	router.Use(OpsErrorLoggerMiddleware(ops))
+	memberID := int64(7)
+	router.GET("/openai/v1/responses", func(c *gin.Context) {
+		successGroupID := int64(22)
+		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+			ID:       9,
+			GroupID:  &successGroupID,
+			Group:    &service.Group{ID: successGroupID, Platform: service.PlatformGrok},
+			MemberID: &memberID,
+		})
+		c.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{
+			{
+				Platform:           service.PlatformOpenAI,
+				GroupID:            11,
+				GroupAttempt:       1,
+				AccountID:          101,
+				UpstreamStatusCode: http.StatusTooManyRequests,
+				Message:            "first candidate rate limited",
+			},
+		})
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/openai/v1/responses", nil))
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	job := <-opsErrorLogQueue
+	require.NotNil(t, job.entry.AccountID)
+	require.Equal(t, int64(101), *job.entry.AccountID)
+	require.NotNil(t, job.entry.GroupID)
+	require.Equal(t, int64(11), *job.entry.GroupID)
+	require.Equal(t, service.PlatformOpenAI, job.entry.Platform)
+	require.NotNil(t, job.entry.MemberID)
+	require.Equal(t, memberID, *job.entry.MemberID)
 }

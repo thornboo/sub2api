@@ -18,6 +18,37 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+func resolveOpenAIWSSessionModels(hooks *OpenAIWSIngressHooks, receivedModel string) (publicModel, routingModel string, err error) {
+	receivedModel = strings.TrimSpace(receivedModel)
+	publicModel = receivedModel
+	routingModel = receivedModel
+	if hooks == nil {
+		return publicModel, routingModel, nil
+	}
+	sessionPublicModel := strings.TrimSpace(hooks.SessionPublicModel)
+	sessionUpstreamModel := strings.TrimSpace(hooks.SessionUpstreamModel)
+	if sessionPublicModel == "" {
+		return publicModel, routingModel, nil
+	}
+	if receivedModel != sessionPublicModel && (sessionUpstreamModel == "" || receivedModel != sessionUpstreamModel) {
+		return "", "", NewOpenAIWSClientCloseError(
+			coderws.StatusPolicyViolation,
+			"model cannot change within an active websocket connection; reconnect to use another model",
+			nil,
+		)
+	}
+	publicModel = sessionPublicModel
+	routingModel = sessionPublicModel
+	if sessionUpstreamModel != "" {
+		routingModel = sessionUpstreamModel
+	}
+	return publicModel, routingModel, nil
+}
+
+func shouldFailoverOpenAIWSConnection(turn int) bool {
+	return turn == 1
+}
+
 func (s *OpenAIGatewayService) openAIWSIngressInterTurnIdleTimeout() time.Duration {
 	if s == nil || s.cfg == nil || s.cfg.Gateway.OpenAIWS.IngressInterTurnIdleTimeoutSeconds <= 0 {
 		return 0
@@ -197,6 +228,11 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				nil,
 			)
 		}
+		if hooks != nil && (hooks.MaxReasoningEffort != "" || len(hooks.ReasoningEffortMappings) > 0) {
+			if capped, changed := ApplyOpenAIReasoningEffortPolicy(normalized, hooks.MaxReasoningEffort, hooks.ReasoningEffortMappings); changed {
+				normalized = capped
+			}
+		}
 
 		originalModel := strings.TrimSpace(values[1].String())
 		modelMissing := originalModel == ""
@@ -214,6 +250,10 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					nil,
 				)
 			}
+		}
+		originalModel, routingModel, sessionModelErr := resolveOpenAIWSSessionModels(hooks, originalModel)
+		if sessionModelErr != nil {
+			return openAIWSClientPayload{}, sessionModelErr
 		}
 		promptCacheKey := strings.TrimSpace(values[2].String())
 		previousResponseID := strings.TrimSpace(values[3].String())
@@ -283,7 +323,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				normalized = rebuilt
 			}
 		}
-		upstreamModel := normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
+		upstreamModel := normalizeOpenAIModelForUpstream(account, account.GetMappedModel(routingModel))
 		if modelMissing || upstreamModel != originalModel {
 			next, setErr := applyPayloadMutation(normalized, "model", upstreamModel)
 			if setErr != nil {
@@ -696,10 +736,17 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			var dialErr *openAIWSDialError
 			if errors.As(acquireErr, &dialErr) && dialErr != nil && dialErr.StatusCode == http.StatusTooManyRequests {
 				s.persistOpenAIWSRateLimitSignal(ctx, account, dialErr.ResponseHeaders, nil, "rate_limit_exceeded", "rate_limit_error", strings.TrimSpace(acquireErr.Error()))
-				return nil, &UpstreamFailoverError{
-					StatusCode:      http.StatusTooManyRequests,
-					ResponseHeaders: cloneHeader(dialErr.ResponseHeaders),
+				if shouldFailoverOpenAIWSConnection(turn) {
+					return nil, &UpstreamFailoverError{
+						StatusCode:      http.StatusTooManyRequests,
+						ResponseHeaders: cloneHeader(dialErr.ResponseHeaders),
+					}
 				}
+				return nil, NewOpenAIWSClientCloseError(
+					coderws.StatusTryAgainLater,
+					"upstream rate limited; reconnect to retry",
+					acquireErr,
+				)
 			}
 			if errors.Is(acquireErr, errOpenAIWSPreferredConnUnavailable) {
 				return nil, NewOpenAIWSClientCloseError(
@@ -886,7 +933,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 						false,
 					)
 				}
-				if !wroteDownstream && isOpenAIWSRateLimitError(errCodeRaw, errTypeRaw, errMsgRaw) {
+				if shouldFailoverOpenAIWSConnection(turn) && !wroteDownstream && isOpenAIWSRateLimitError(errCodeRaw, errTypeRaw, errMsgRaw) {
 					lease.MarkBroken()
 					return nil, &UpstreamFailoverError{
 						StatusCode:      http.StatusTooManyRequests,

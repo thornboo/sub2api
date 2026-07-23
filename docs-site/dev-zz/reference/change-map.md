@@ -4,11 +4,11 @@
 
 | 项 | 值 |
 | --- | --- |
-| dev-zz-develop HEAD | `48f62862` |
-| origin/dev-zz | `738a15be` |
-| origin/main | `945b9b20` |
-| merge-base | `945b9b20` |
-| 差异规模 | 339 个文件，约 34828 行新增、4174 行删除 |
+| dev-zz-develop | 本次合并提交（合并前 `34b41f559`） |
+| origin/dev-zz | `34b41f559` |
+| origin/main | `ba88cc239` |
+| merge-base | `ba88cc239`（本次合并完成后） |
+| 差异规模 | 989 个文件，约 160628 行新增、9425 行删除 |
 
 ## 变更分布
 
@@ -45,6 +45,8 @@
 - 迁移当月开账与真实 usage 分开保存；普通 Key 行为和现有 owner analytics 保持兼容。
 - 当前已落地成员实体、多 Key、有序分组、普通 Key 显式事务迁移、ActiveGroup、同步请求零金额 receipt、异步任务预算 hold、账本/恢复/对账、成员级请求记录、CSV/XLSX 持久化慢导入 job、一次性加密 Key 结果交付、append-only 审计、无高基数标签的 Ops 指标、正式 zh/en i18n 和企业成员控制台；真实 PostgreSQL/Redis 已验证多 worker 唯一领取、心跳续租、租约 fencing、异常 processing 恢复、5000 成员事务、Redis 重启订阅恢复、PostgreSQL 事务中断回滚和跨实例认证 L1 失效，浏览器 E2E、集群指标汇总、混合负载容量与持续性网络故障仍按设计合同继续收口。
 - Grok 异步视频任务在返回上游任务 ID 前持久化 owner/member/Key/实际 group/account；状态查询只回到原任务账号，不重新选择成员候选或跨账号 failover。
+- Composite 分组可以把公开模型按端点映射到 OpenAI、Anthropic、Gemini、Antigravity 或 Grok 的具体上游模型；与企业成员有序分组组合时，路由决策属于单个候选 attempt，切组必须清除并重新解析，不能继承上一组的目标平台或模型改写。
+- HTTP 只在响应完全未提交且失败被显式标记为容量、瞬时上游或能力不匹配时进入下一候选；预算结果不明确是统一的禁止重试条件。Responses WebSocket 在首 turn 固定公开模型到实际上游模型的映射，只在首 turn 尚未产生下游事件时允许安全切换账号/分组；连接内切换模型或平台必须重连，后续 turn 的 429 与未知传输结果禁止整连接重放并进入预算结果不明闭环。
 - 权威设计见 [企业用户成员管理](../features/enterprise-member-management.md) 与 [ADR-0003](../decisions/adr-0003-enterprise-member-entity.md)。
 
 ### 用量分析

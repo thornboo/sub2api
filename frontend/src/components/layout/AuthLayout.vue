@@ -34,7 +34,7 @@
             <span
               class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-emerald-500/30 bg-emerald-500/10"
             >
-              <img :src="siteLogo || '/logo.png'" alt="Logo" class="h-full w-full object-contain" />
+              <img :src="siteLogo || '/logo.svg'" alt="Logo" class="h-full w-full object-contain" />
             </span>
             <span class="truncate text-lg font-bold tracking-tight text-emerald-500">
               {{ siteName }}

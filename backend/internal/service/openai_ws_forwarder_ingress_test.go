@@ -829,6 +829,37 @@ func TestOpenAIWSRawPayloadHasToolCallOutput(t *testing.T) {
 	})
 }
 
+func TestResolveOpenAIWSSessionModelsLocksPublicRouteForConnection(t *testing.T) {
+	t.Parallel()
+
+	hooks := &OpenAIWSIngressHooks{
+		SessionPublicModel:   "all/gpt",
+		SessionUpstreamModel: "gpt-5",
+	}
+	for _, received := range []string{"all/gpt", "gpt-5"} {
+		publicModel, routingModel, err := resolveOpenAIWSSessionModels(hooks, received)
+		require.NoError(t, err)
+		require.Equal(t, "all/gpt", publicModel)
+		require.Equal(t, "gpt-5", routingModel)
+	}
+
+	for _, changed := range []string{"grok-4.5", "all/other-provider", "claude-sonnet-4-6"} {
+		_, _, err := resolveOpenAIWSSessionModels(hooks, changed)
+		var closeErr *OpenAIWSClientCloseError
+		require.ErrorAs(t, err, &closeErr)
+		require.Equal(t, coderws.StatusPolicyViolation, closeErr.StatusCode())
+		require.Contains(t, closeErr.Reason(), "model cannot change")
+	}
+}
+
+func TestShouldFailoverOpenAIWSConnectionOnlyAllowsFirstTurn(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, shouldFailoverOpenAIWSConnection(1))
+	require.False(t, shouldFailoverOpenAIWSConnection(2))
+	require.False(t, shouldFailoverOpenAIWSConnection(99))
+}
+
 func TestSetOpenAIWSPayloadInputSequence(t *testing.T) {
 	t.Parallel()
 

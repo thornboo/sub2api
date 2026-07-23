@@ -2,6 +2,11 @@
 
 ## 2026-07-23
 
+- 同步上游 `main`（`ba88cc239`）到 `dev-zz-develop`：接入 Composite 分组 / 模型路由注册表、分组级 reasoning effort 映射与上限、Grok / OpenAI Responses 与 WebSocket 正确性、系统更新长请求和响应式管理端布局；继续保留企业成员路由 / 预算 / 归因、模型原生多协议、供应商成本、stone / emerald 视觉、fork 镜像和 `1.7.16` 版本线。
+- Composite 与企业成员组合改为“每个候选组独立解析”：候选切换会清除上一组路由决策并从原始公开模型重新解析，HTTP 模型改写不会串组；Responses WebSocket 首帧支持显式别名，切组后同样重新解析。首 turn 未产生下游事件时可以安全 failover，后续 turn 结果不明时继续保留预算并禁止重放。
+- 模型目录合并企业成员跨组并集、Composite 可调度模型和原生协议元数据；Ops 记录使用最终具体平台归因。Ent、Wire 和 pnpm lock 均按合并后的 schema / provider graph / 依赖声明重新生成。
+- Composite 精确公开别名会进入模型目录并携带端点能力，前缀和禁用规则不会误发布；Gemini 模型目录会跳过不匹配的 Composite 候选。Ops 恢复记录固定归因到真实失败 attempt，不会被最终成功分组覆盖。
+- Responses WebSocket 在首 turn 固定公开模型到最终上游模型的映射，连接内切换模型或平台会要求重新建连；只有首 turn 可以做整连接 failover，后续 turn 的 429 / 未知结果禁止重放。成员预算延后到最终分组和账号稳定后预留，任何不明确预算结果都会阻止跨组重试。
 - 多协议链路收敛为统一 `DeliveryDecision`：渠道定价只负责发布和计费，账号能力只记录最终上游模型协议事实，渠道页改为只读“API 端点就绪度”；模型目录与 Chat、Responses、Messages 运行时共享候选判定。`openai_responses_mode` 仅选择 Chat / Responses 上游传输，不再要求统一设为 `auto`，也不会错误禁用独立的原生 Messages 能力。
 - 管理端“系统设置 → 网关 → 请求转发行为”新增“模型多 API 端点路由”全局开关；后台设置可在不重启服务的情况下统一控制用户模型广场端点发布与真实原生协议调度，未保存后台覆盖时继续继承 `gateway.native_model_protocol_routing_enabled` 部署默认值。
 - 账号“模型与协议能力”弹窗会明确显示全局路由是否启用。关闭状态下仍可同步、查看和保存协议能力，但这些能力不会追加到用户目录或参与原生调度，避免管理员把“能力已配置”误解为“路由已生效”。

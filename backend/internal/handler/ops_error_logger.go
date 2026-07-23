@@ -797,14 +797,18 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 				stream = b
 			}
 
-			// Prefer showing the account that experienced the upstream error (if we have events),
-			// otherwise fall back to the final selected account (best-effort).
-			var accountID *int64
+			var lastEvent *service.OpsUpstreamErrorEvent
 			if len(events) > 0 {
-				if last := events[len(events)-1]; last != nil && last.AccountID > 0 {
-					v := last.AccountID
-					accountID = &v
-				}
+				lastEvent = events[len(events)-1]
+			}
+
+			// A recovered row describes the failed upstream attempt, not the
+			// candidate that eventually succeeded. Keep its top-level routing
+			// attribution aligned with the last captured event.
+			var accountID *int64
+			if lastEvent != nil && lastEvent.AccountID > 0 {
+				v := lastEvent.AccountID
+				accountID = &v
 			}
 			if accountID == nil {
 				if v, ok := accountIDV.(int64); ok && v > 0 {
@@ -813,7 +817,15 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			}
 
 			fallbackPlatform := guessPlatformFromPath(c.Request.URL.Path)
-			platform := resolveOpsPlatform(apiKey, fallbackPlatform)
+			platform := resolveOpsPlatform(c.Request.Context(), apiKey, fallbackPlatform)
+			if lastEvent != nil && strings.TrimSpace(lastEvent.Platform) != "" {
+				platform = strings.TrimSpace(lastEvent.Platform)
+			}
+			var failedGroupID *int64
+			if lastEvent != nil && lastEvent.GroupID > 0 {
+				groupID := lastEvent.GroupID
+				failedGroupID = &groupID
+			}
 
 			requestID := c.Writer.Header().Get("X-Request-Id")
 			if requestID == "" {
@@ -825,23 +837,20 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			var upstreamErrorMessage *string
 			var upstreamErrorDetail *string
 			finalAccountAuth := false
-			if len(events) > 0 {
-				last := events[len(events)-1]
-				if last != nil {
-					finalAccountAuth = last.Stage == string(service.GatewayFailureStageAccountAuth)
-					if finalAccountAuth {
-						code := 0
-						upstreamStatusCode = &code
-					} else if last.UpstreamStatusCode > 0 {
-						code := last.UpstreamStatusCode
-						upstreamStatusCode = &code
-					}
-					if msg := strings.TrimSpace(last.Message); msg != "" {
-						upstreamErrorMessage = &msg
-					}
-					if detail := strings.TrimSpace(last.Detail); detail != "" {
-						upstreamErrorDetail = &detail
-					}
+			if lastEvent != nil {
+				finalAccountAuth = lastEvent.Stage == string(service.GatewayFailureStageAccountAuth)
+				if finalAccountAuth {
+					code := 0
+					upstreamStatusCode = &code
+				} else if lastEvent.UpstreamStatusCode > 0 {
+					code := lastEvent.UpstreamStatusCode
+					upstreamStatusCode = &code
+				}
+				if msg := strings.TrimSpace(lastEvent.Message); msg != "" {
+					upstreamErrorMessage = &msg
+				}
+				if detail := strings.TrimSpace(lastEvent.Detail); detail != "" {
+					upstreamErrorDetail = &detail
 				}
 			}
 
@@ -915,6 +924,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 				ClientRequestID: clientRequestID,
 
 				AccountID: accountID,
+				GroupID:   failedGroupID,
 				Platform:  platform,
 				Model:     modelName,
 				RequestPath: func() string {
@@ -980,12 +990,11 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 				if apiKey.User != nil {
 					entry.UserID = &apiKey.User.ID
 				}
-				if apiKey.GroupID != nil {
+				if entry.GroupID == nil && apiKey.GroupID != nil {
 					entry.GroupID = apiKey.GroupID
 				}
-				// Prefer group platform if present (more stable than inferring from path).
-				if apiKey.Group != nil && apiKey.Group.Platform != "" {
-					entry.Platform = apiKey.Group.Platform
+				if strings.TrimSpace(entry.Platform) == "" {
+					entry.Platform = resolveOpsPlatform(c.Request.Context(), apiKey, fallbackPlatform)
 				}
 			}
 			applyOpsMemberAttribution(entry, apiKey)
@@ -1044,7 +1053,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		}
 
 		fallbackPlatform := guessPlatformFromPath(c.Request.URL.Path)
-		platform := resolveOpsPlatform(apiKey, fallbackPlatform)
+		platform := resolveOpsPlatform(c.Request.Context(), apiKey, fallbackPlatform)
 
 		requestID := c.Writer.Header().Get("X-Request-Id")
 		if requestID == "" {
@@ -1132,10 +1141,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			if apiKey.GroupID != nil {
 				entry.GroupID = apiKey.GroupID
 			}
-			// Prefer group platform if present (more stable than inferring from path).
-			if apiKey.Group != nil && apiKey.Group.Platform != "" {
-				entry.Platform = apiKey.Group.Platform
-			}
+			entry.Platform = resolveOpsPlatform(c.Request.Context(), apiKey, entry.Platform)
 		}
 		applyOpsMemberAttribution(entry, apiKey)
 
@@ -1217,7 +1223,7 @@ func logOpsStreamError(c *gin.Context, ops *service.OpsService, wireStatus int) 
 	}
 
 	fallbackPlatform := guessPlatformFromPath(c.Request.URL.Path)
-	platform := resolveOpsPlatform(apiKey, fallbackPlatform)
+	platform := resolveOpsPlatform(c.Request.Context(), apiKey, fallbackPlatform)
 
 	requestID := c.Writer.Header().Get("X-Request-Id")
 	if requestID == "" {
@@ -1290,9 +1296,7 @@ func logOpsStreamError(c *gin.Context, ops *service.OpsService, wireStatus int) 
 		if apiKey.GroupID != nil {
 			entry.GroupID = apiKey.GroupID
 		}
-		if apiKey.Group != nil && apiKey.Group.Platform != "" {
-			entry.Platform = apiKey.Group.Platform
-		}
+		entry.Platform = resolveOpsPlatform(c.Request.Context(), apiKey, entry.Platform)
 	}
 	applyOpsMemberAttribution(entry, apiKey)
 
@@ -1503,7 +1507,10 @@ func applyOpsMemberAttribution(entry *service.OpsInsertErrorLogInput, apiKey *se
 	entry.MemberNameSnapshot = strings.TrimSpace(apiKey.Member.Name)
 }
 
-func resolveOpsPlatform(apiKey *service.APIKey, fallback string) string {
+func resolveOpsPlatform(ctx context.Context, apiKey *service.APIKey, fallback string) string {
+	if platform, ok := service.ResolvedTargetPlatformFromContext(ctx); ok {
+		return platform
+	}
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.Platform != "" {
 		return apiKey.Group.Platform
 	}

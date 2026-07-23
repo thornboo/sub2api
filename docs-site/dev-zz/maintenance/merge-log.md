@@ -1,5 +1,52 @@
 # 上游合并记录
 
+## 2026-07-23 - 将上游 `main` 合并到 `dev-zz-develop`：Composite 路由、推理策略与现有企业交付架构合流
+
+分支：
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`bfabfe60c`
+- 合并前目标：`34b41f559`
+- 上游 head：`ba88cc239`
+- 结果提交：本次合并提交
+
+上游要点：
+- 新增 Composite 分组与模型路由注册表，支持按公开模型、端点和优先级映射到具体平台与上游模型，并补齐 Grok / OpenAI / Gemini、媒体和计费归因。
+- 分组新增 OpenAI reasoning effort 映射与上限策略；OpenAI / Grok Responses、WebSocket、客户端工具、模型目录和上游错误处理继续修正。
+- 管理端订阅套餐、系统更新 / 回滚长请求、移动端 Ops 布局、账号操作浮层、站点 Logo 和部署安装流程更新。
+- axios 与 Go `x/text` 等依赖更新，包含安全修复。
+
+合并策略：
+- 合并前完整读取 `branch-policy.md`、`maintenance/merge-main.md`、历史合并记录、补丁/变更记录、变更地图和验证矩阵；在干净的 `dev-zz-develop@34b41f559` 上执行 `git merge --no-commit origin/main`，实际产生 56 个内容冲突。
+- 接受上游 Composite 路由、推理强度策略、Grok / OpenAI 正确性、安全依赖与响应式布局；继续保留 dev-zz 企业成员有序分组、预算/归因、模型原生多协议、供应商成本、长期留存、stone / emerald 视觉、fork 镜像和 `1.7.16` 版本线。
+- Composite 解析不作为企业成员编排外层的单次中间件：每个候选分组都从原始公开请求重新解析，切换候选前清除上一组的目标平台、上游模型和公开模型决策；只有响应尚未提交且失败被显式分类为可重试时才允许进入下一组。
+- Ent 和 Wire 均从合并后的 schema / provider graph 重新生成；`pnpm-lock.yaml` 从合并后的依赖声明重新计算。
+
+关键冲突：
+- 后端：`gateway.go`、`gateway_handler.go`、`openai_gateway_handler.go`、企业成员中间件、API Key DTO、上游模型目录、Ops 归因、WebSocket HTTP bridge、Ent 生成物和 Wire。
+- 前端：`AccountsView.vue`、`AppHeader.vue`、认证 / 首页、用量图表、Ops 卡片与弹窗、订阅页、`AvailableChannelsTable.vue` 删除冲突、`package.json` 和 `pnpm-lock.yaml`。
+- 部署：`.env.example`、`docker-compose.yml`。
+
+解决说明：
+- HTTP Composite 路由按企业成员候选组内执行；第一组的模型改写不会污染第二组。无匹配路由以 typed capability mismatch 结束当前候选，允许事务响应仍未提交时继续下一个授权组。
+- Responses WebSocket 在读取首个 `response.create` 后解析显式 Composite 路由；切组后重新解析，并把最终上游模型写入首帧。连接在首 turn 固定公开模型到最终上游模型的映射，后续 turn 省略模型或重复同一公开 / 上游模型均可继续，切换模型或平台必须重新建连。
+- WebSocket 仅允许首 turn 在尚未产生下游事件时安全切换账号 / 分组；后续 turn 的 429 或未知传输结果不得触发整连接首帧重放。成员预算只在最终分组、账号和上游模型稳定后预留，未知结果进入结果不明闭环并阻止候选重试。
+- 模型目录同时保留企业成员跨组模型并集、Composite 精确公开别名、可调度平台模型、大小写不敏感去重和 dev-zz `supported_endpoint_types` 元数据；前缀规则和禁用规则不发布为静态目录项。
+- Ops 恢复事件按实际失败 attempt 的账号、分组和具体平台归因，不被最终成功候选覆盖；企业成员身份继续取当前请求身份。Gemini 模型目录遇到不匹配的 Composite 候选时退出当前候选并继续后续 Gemini 分组。
+- 候选请求重放会同步恢复 body、`ContentLength` 和 `Content-Length`；一旦预算结果被标记为不明确，编排器统一禁止跨组重试。
+- API Key 更新继续保留 tags、IP ACL 与状态的“省略即不修改”指针语义；鉴权缓存版本升级并同时覆盖推理策略、Web Search 计费和企业成员限制。
+- 前端继续使用 dev-zz stone / neutral / emerald 主题，吸收上游浮层定位、响应式移动卡片和无障碍状态；已由模型广场替代的 `AvailableChannelsTable.vue` 及上游新增的旧组件测试保持删除。
+- Compose 默认镜像保持 `thornboo/sub2api:latest`，并接受上游 `UPDATE_GITHUB_TOKEN`；`VERSION` 保持 `1.7.16`，不采用上游 `0.1.163`。
+
+验证：
+- Ent / Wire 重生成后无漂移；后端 `make test-unit` 全绿，核心 Handler / Service / Middleware / Routes 包测试全绿，`golangci-lint` 为 `0 issues`，全仓编译检查通过。
+- 前端 typecheck、lint、230 个测试文件 / 1516 个 Vitest 和生产构建全绿；文档构建、Compose 配置、部署脚本语法、冲突标记与 whitespace 检查通过。
+- Composite 精确别名目录、企业候选逐组解析、请求元数据恢复、预算结果不明禁重试、Gemini 候选回退、Ops 失败 attempt 归因、WebSocket 固定模型映射及仅首 turn failover 均有定向回归测试。
+
+未验证：
+- 浏览器人工 smoke。
+- Docker / Testcontainers 运行时集成测试。
+
 ## 2026-07-20 - 将上游 `main` 合并到 `dev-zz`：入口安全、鉴权缓存、运行时对象存储与 Grok 媒体闭环合流
 
 分支：

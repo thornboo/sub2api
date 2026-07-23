@@ -11,7 +11,7 @@
         <tr
           v-for="(user, index) in items"
           :key="user.user_id"
-          class="border-t border-gray-100/50 dark:border-gray-700/50"
+          class="border-t border-gray-100/50 dark:border-dark-700/50"
         >
           <td class="w-10 py-1 pl-6 pr-2 text-left text-[11px] font-semibold text-gray-400 dark:text-gray-500">
             #{{ index + 1 }}
