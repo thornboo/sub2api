@@ -1,5 +1,61 @@
 # 上游合并记录
 
+## 2026-07-23 - 将上游 `main` 合并到 `dev-zz-develop`：Ollama Cloud 用量、支付宝移动唤起与网关修复合流
+
+分支：
+
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`ba88cc239`
+- 合并前目标：`b0f785038`
+- 上游 head：`cd8bb98c4`
+- 结果提交：本次合并提交
+
+上游要点：
+
+- 新增 Ollama Cloud 官方用量读取和定时刷新：管理员为符合条件的 Ollama OpenAI / Anthropic API Key 账号保存 Web session 后，可查看 5 小时、7 天、余额和模型请求窗口；会话使用固定加密密钥保存，API、审计和普通日志不回显明文。
+- 支付宝官方支付新增移动端 `alipay.trade.precreate` + App Scheme 唤起；功能默认关闭，唤起失败时展示动态二维码，桌面端和既有 WAP 流程保持不变。
+- OpenAI passthrough 输入归一化、流式代理隔离、模型限流重置展示、渠道定价模型名归一化、Codex identity 导入索引、Grok 402 冷却和简单模式图片能力继续修正。
+- Ollama 账号仓储读取改为深拷贝，凭据清理边界和审计脱敏收紧；组级图片权限进入 API Key 鉴权缓存失效合同。
+
+合并策略：
+
+- 在干净的 `dev-zz-develop@b0f785038` 上刷新远端并执行 `git merge --no-commit origin/main`，实际产生 9 个内容冲突。
+- 接受上游 Ollama Cloud 用量、支付宝移动唤起和网关正确性修复；继续保留 dev-zz 模型原生多协议、供应商成本、账号归档、企业成员路由/预算/归因、stone / emerald 视觉、fork 镜像和 `1.7.16` 版本线。
+- Ollama 用量是管理员只读观察，不参与账号健康、调度、计费或用户 DTO；Web session 只有配置固定 `TOTP_ENCRYPTION_KEY` 后才能持久化。
+- `186_alipay_mobile_precreate_deep_link.sql`、`186_group_auth_cache_image_generation.sql` 与既有 `186_enterprise_member_removal_lifecycle.sql` 按完整文件名并存，不修改已应用迁移。
+
+冲突文件：
+
+- `backend/cmd/server/wire_gen.go`
+- `backend/internal/handler/admin/account_handler.go`
+- `backend/internal/handler/dto/types.go`
+- `frontend/src/api/admin/accounts.ts`
+- `frontend/src/components/account/AccountStatusIndicator.vue`
+- `frontend/src/components/account/EditAccountModal.vue`
+- `frontend/src/components/common/DataTable.vue`
+- `frontend/src/types/index.ts`
+- `frontend/src/views/admin/AccountsView.vue`
+
+解决说明：
+
+- `AccountHandler` 和前端账号 DTO 同时保留 dev-zz 模型协议能力、供应商成本/归档字段，并接入 Ollama Cloud 用量状态；没有把管理员观察字段扩散到用户目录。
+- 账号列表继续保留供应商成本和协议操作，只增加 Ollama 用量列；状态组件吸收上游统一倒计时格式，同时保留 dev-zz 模型限流清理操作。
+- `DataTable` 接受上游宽度约束，继续使用 dev-zz stone 主题；账号编辑同时保留 OpenAI cache token 用量模式和 Ollama 用量状态。
+- Wire 从合并后的 provider graph 重新生成，模型自检、企业 worker、异步图片和 Ollama 用量后台服务同时存在。
+
+验证：
+
+- 后端目标包测试、`make test-unit`、全仓编译检查和 integration-tagged service / repository 测试二进制编译通过；`golangci-lint` 为 `0 issues`。
+- 前端 typecheck、ESLint、234 个测试文件 / 1547 个 Vitest 和生产构建通过。
+- Ollama Cloud 管理 API、会话加密/脱敏、定时刷新、账号状态 UI，以及支付宝移动唤起、二维码回退和支付流程均有定向回归测试。
+- Wire 重生成无漂移；docs-site 构建、部署脚本语法、Compose 配置、冲突标记和 whitespace 检查通过。
+
+未验证：
+
+- 浏览器人工 smoke。
+- Docker / Testcontainers 运行时集成测试。
+
 ## 2026-07-23 - 将上游 `main` 合并到 `dev-zz-develop`：Composite 路由、推理策略与现有企业交付架构合流
 
 分支：

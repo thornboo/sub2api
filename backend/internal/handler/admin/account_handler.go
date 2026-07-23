@@ -69,6 +69,7 @@ type AccountHandler struct {
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
 	modelProtocolCapability *service.ModelProtocolCapabilityService
 	modelDelivery           *service.ModelDeliveryService
+	ollamaCloudUsage        *service.OllamaCloudUsageService
 }
 
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
@@ -102,6 +103,10 @@ type openAIModelsResponse struct {
 }
 
 const probeModelsResponseLimit = 256 << 10
+
+func (h *AccountHandler) SetOllamaCloudUsageService(usage *service.OllamaCloudUsageService) {
+	h.ollamaCloudUsage = usage
+}
 
 // NewAccountHandler creates a new admin account handler
 func NewAccountHandler(
@@ -262,9 +267,17 @@ type AccountSchedulerGroupScore struct {
 
 const accountListGroupUngroupedQueryValue = "ungrouped"
 
+func (h *AccountHandler) accountResponseFromService(account *service.Account) *dto.Account {
+	out := dto.AccountFromService(account)
+	if h != nil && h.ollamaCloudUsage != nil && out != nil {
+		h.ollamaCloudUsage.EnrichState(out.OllamaCloudUsage)
+	}
+	return out
+}
+
 func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, account *service.Account) AccountWithConcurrency {
 	item := AccountWithConcurrency{
-		Account:            dto.AccountFromService(account),
+		Account:            h.accountResponseFromService(account),
 		CurrentConcurrency: 0,
 	}
 	if account == nil {
@@ -587,6 +600,16 @@ func (h *AccountHandler) List(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	if h.ollamaCloudUsage != nil && len(accounts) > 0 {
+		accountPointers := make([]*service.Account, len(accounts))
+		for index := range accounts {
+			accountPointers[index] = &accounts[index]
+		}
+		if err := h.ollamaCloudUsage.ResolveAccounts(c.Request.Context(), accountPointers); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
 
 	h.respondAccountList(c, q, accounts, total, true)
 }
@@ -728,7 +751,7 @@ func (h *AccountHandler) respondAccountList(c *gin.Context, q accountListQuery, 
 	for i := range accounts {
 		acc := &accounts[i]
 		item := AccountWithConcurrency{
-			Account:            dto.AccountFromService(acc),
+			Account:            h.accountResponseFromService(acc),
 			CurrentConcurrency: concurrencyCounts[acc.ID],
 			SchedulerScore:     schedulerScores[acc.ID],
 			SchedulerScores:    schedulerGroupScores[acc.ID],
@@ -844,6 +867,12 @@ func (h *AccountHandler) GetByID(c *gin.Context) {
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+	if h.ollamaCloudUsage != nil {
+		if err := h.ollamaCloudUsage.ResolveAccounts(c.Request.Context(), []*service.Account{account}); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
 	}
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))

@@ -1,5 +1,33 @@
 # 补丁记录
 
+## 2026-07-23 - 上游 main 同步：Ollama Cloud 用量与支付宝移动唤起
+
+### 目标
+
+- 将 `origin/main@cd8bb98c4` 合入 `dev-zz-develop`，吸收 Ollama Cloud 官方用量观察、支付宝移动端当面付唤起和网关正确性修复。
+- 保持 dev-zz 模型原生多协议、供应商成本、账号归档、企业成员、长期留存、fork 镜像和 stone / emerald 视觉合同不回退。
+
+### 主要变化
+
+- 管理端账号列表为符合条件的 Ollama OpenAI / Anthropic API Key 账号增加官方用量状态；可保存/删除 Web session、手工刷新、开关单账号自动刷新，并通过全局设置控制 runner 和 `15-1440` 分钟刷新间隔。
+- Ollama session 使用现有 secret encryptor 保存；没有固定 `TOTP_ENCRYPTION_KEY` 时拒绝持久化。响应、账号列表 DTO、审计和普通日志只返回是否已配置及脱敏快照，不返回 session 或原始设置页面。
+- 用量刷新只写账号 `extra` 中的观察快照，不修改账号调度健康、可调度状态、计费、额度或用户目录；同一 Ollama 身份的账号共享托管状态，仓储返回独立深拷贝，避免并发修改共享 map。
+- 支付宝官方支付可选择移动端 `precreate` + App Scheme；唤起失败时回退动态二维码，订单轮询和到账确认沿用原合同。环境变量可强制开启，未设置时使用后台设置。
+- 同步 OpenAI passthrough 输入归一化、流式代理隔离、模型限流重置展示、Grok 402 冷却、简单模式 Grok 图片、渠道定价模型名归一化和 Codex identity 导入修复。
+
+### 数据与兼容性
+
+- 新增 `186_alipay_mobile_precreate_deep_link.sql`，只写入默认关闭的 `ALIPAY_MOBILE_PRECREATE_DEEP_LINK` setting。
+- 新增 `186_group_auth_cache_image_generation.sql`，把 `allow_image_generation` 纳入既有组级鉴权缓存失效触发器。
+- 两个迁移与 `186_enterprise_member_removal_lifecycle.sql` 按完整文件名并存；没有重命名、覆盖或修改任何已应用迁移。
+
+### 验证
+
+- 后端目标包、完整 unit、全仓编译和 integration-tagged service / repository 编译通过；`golangci-lint` 为 `0 issues`。
+- 前端 typecheck、ESLint、234 个测试文件 / 1547 条测试和生产构建通过。
+- Wire 重生成、docs-site 构建、部署脚本语法、Compose 配置和最终冲突/whitespace 检查通过。
+- 浏览器人工 smoke 和 Docker / Testcontainers 运行时集成测试未执行。
+
 ## 2026-07-20 - 供应商综合折扣计价基准确认
 
 ### 问题

@@ -169,6 +169,21 @@
 - 普通、批量旧调度与高级调度模式都必须等统一交付判定通过后再写入 sticky；能力不匹配的候选不得新建、刷新或清理会话绑定。
 - 未配置能力时保留可证明的默认 Messages 兼容路径；模型级 Chat 明确不支持时必须同时退出依赖 Chat 的 Messages 兼容路径。
 
+## Ollama Cloud 用量与支付宝移动支付
+
+| 场景 | 推荐命令 |
+| --- | --- |
+| Ollama 设置、session 加密/脱敏、抓取解析、退避和 runner | `mise x -C backend -- go test ./internal/service ./internal/repository ./internal/handler/admin -run 'OllamaCloudUsage' -count=1` |
+| Ollama 管理 API 与账号 UI | `pnpm --dir frontend test:run src/api/__tests__/admin.accounts.ollamaCloudUsage.spec.ts src/components/account/__tests__/OllamaCloudUsageCell.spec.ts src/components/account/__tests__/OllamaCloudUsageSettings.spec.ts` |
+| 支付宝 precreate、配置与订单响应 | `mise x -C backend -- go test ./internal/payment/provider ./internal/service ./internal/handler -run 'Alipay|MobilePrecreate' -count=1` |
+| 支付宝移动唤起、二维码回退与支付流程 | `pnpm --dir frontend test:run src/components/payment/__tests__/alipayDeepLink.spec.ts src/components/payment/__tests__/PaymentStatusPanel.spec.ts src/components/payment/__tests__/paymentFlow.spec.ts` |
+
+必要人工核对：
+
+- API、账号 DTO、审计日志和普通日志不得包含 Ollama session、Cookie 或原始设置页 HTML；没有固定 `TOTP_ENCRYPTION_KEY` 时保存 session 必须失败。
+- Ollama 刷新失败只更新脱敏观察快照和退避，不得降低账号健康、关闭调度、改变计费或影响用户模型目录。
+- 支付宝移动唤起仅作用于官方支付宝实例；App 未成功切后台时必须出现动态二维码回退，桌面和未启用路径不能改变。
+
 ## 可用渠道和账号模型
 
 | 场景 | 推荐命令 |

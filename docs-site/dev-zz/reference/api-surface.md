@@ -22,6 +22,22 @@
 | `PUT` | `/api/v1/admin/accounts/:id/upstream-billing-probe` | 开关单账号探测 | 写入账号 `extra`，关闭时清除旧探测快照 |
 | `POST` | `/api/v1/admin/accounts/:id/upstream-billing-probe` | 立即探测单账号 | 使用账号当前凭据、代理和 TLS 配置；身份变化时 CAS 拒绝旧结果覆盖 |
 
+## 管理端 Ollama Cloud 官方用量
+
+全部路径只允许管理员访问。该能力读取 Ollama 官方设置页的脱敏用量快照，不参与账号健康、调度、计费或用户模型目录。
+
+| 方法 | 路径 | 用途 | 关键语义 |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/admin/accounts/ollama-cloud-usage/settings` | 读取全局 runner 设置 | 默认关闭、默认间隔 60 分钟 |
+| `PUT` | `/api/v1/admin/accounts/ollama-cloud-usage/settings` | 更新 runner 开关与间隔 | `interval_minutes` 限制 `15-1440` |
+| `GET` | `/api/v1/admin/accounts/:id/ollama-cloud-usage` | 读取单账号状态 | 返回资格、是否已配置、自动刷新和脱敏快照 |
+| `PUT` | `/api/v1/admin/accounts/:id/ollama-cloud-usage/session` | 保存 Ollama Web session | 需要固定 `TOTP_ENCRYPTION_KEY`；响应不回显 session |
+| `DELETE` | `/api/v1/admin/accounts/:id/ollama-cloud-usage/session` | 删除 session 与托管状态 | 不删除账号或影响账号凭据 |
+| `PUT` | `/api/v1/admin/accounts/:id/ollama-cloud-usage/auto-refresh` | 开关单账号自动刷新 | 只影响观察 runner |
+| `POST` | `/api/v1/admin/accounts/:id/ollama-cloud-usage/refresh` | 立即刷新 | 单账号手工刷新 30 秒冷却 |
+
+账号必须是指向 `https://ollama.com` 的 OpenAI 或 Anthropic API Key 账号。持久化快照最多包含套餐、5 小时 / 7 天窗口、余额、模型请求数、抓取时间和脱敏错误；原始 HTML、Cookie / session、账号凭据和上游响应头不得进入 DTO、审计或普通日志。
+
 ## 异步图片任务
 
 | 方法 | 路径 | 用途 | 关键语义 |

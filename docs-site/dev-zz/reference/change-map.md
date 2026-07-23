@@ -4,21 +4,21 @@
 
 | 项 | 值 |
 | --- | --- |
-| dev-zz-develop | 本次合并提交（合并前 `34b41f559`） |
-| origin/dev-zz | `34b41f559` |
-| origin/main | `ba88cc239` |
-| merge-base | `ba88cc239`（本次合并完成后） |
-| 差异规模 | 989 个文件，约 160628 行新增、9425 行删除 |
+| dev-zz-develop | 本次合并提交（合并前 `b0f785038`） |
+| origin/dev-zz | `b0f785038` |
+| origin/main | `cd8bb98c4` |
+| merge-base | `cd8bb98c4`（本次合并完成后） |
+| 差异规模 | 997 个文件，约 161362 行新增、9470 行删除 |
 
 ## 变更分布
 
 | 区域 | 文件数 | 说明 |
 | --- | ---: | --- |
-| `frontend/` | 199 | 用户/API Key、owner 用量分析、管理员用量下钻、可用渠道模型、运维弹窗栈、主题与控制台 UI |
-| `backend/` | 80 | API Key 批量/标签/状态、owner analytics、usage 聚合、已删除 Key 证据 hydrate、配置默认值、测试与迁移 |
-| `docs-site/` | 34 | dev-zz 文档中心、功能文档、部署/开发/维护记录 |
+| `frontend/` | 317 | 用户/API Key、企业成员、owner 用量分析、管理员用量下钻、可用渠道模型、运维弹窗栈、主题与控制台 UI |
+| `backend/` | 603 | 企业成员、模型/网关路由、API Key、用量/计费、运维、安全、配置、测试、生成物与迁移 |
+| `docs-site/` | 49 | dev-zz 文档中心、功能文档、部署/开发/维护记录 |
 | `deploy/` | 14 | fork 镜像默认值、源码构建脚本、备份脚本、Compose/安装脚本与部署样例 |
-| `.github/` | 4 | CI、release、security scan 的 Node 24 actions runtime 验证 |
+| `.github/` | 5 | CI、release、security scan 和分支镜像的 Node 24 actions runtime 验证 |
 | 根目录 / README / Dockerfile | 8 | release 镜像、版本号、项目说明、分布式 Dockerfile 与设计索引 |
 
 ## 已落地功能
@@ -65,6 +65,7 @@
 - 账号模型配置支持从上游 `/v1/models` 探测、将探测结果写入白名单或同名映射行。
 - 自定义模型输入可以查询 models.dev 目录。
 - 映射模式支持清空全部模型，并保留映射模式语义。
+- 符合条件的 Ollama Cloud OpenAI / Anthropic API Key 账号支持管理员用量观察：session 加密保存，快照只展示官方 5 小时 / 7 天窗口、余额和模型请求数；该观察不进入调度、计费、账号健康或用户 DTO。
 
 ### UI 与运维体验
 
@@ -74,6 +75,7 @@
 - 运维错误详情和上游响应预览改为阅读型自动换行，降低长 JSON 横向滚动负担。
 - 管理端新增独立提示词输入审计工作台，覆盖 Guard 节点配置、运行态、事件筛选/详情和确认删除；功能、阻断和通过事件保存默认均关闭，Guard token 不从管理 API 回显。
 - `step_up_enabled` 与 `session_binding_enabled` 作为默认关闭的显式安全开关；启用后继续沿用 TOTP、会话绑定和操作审计合同。
+- 支付宝官方移动端可选择当面付 `precreate` + App Scheme 唤起；功能默认关闭，唤起失败回退动态二维码，桌面和旧 WAP 流程保持兼容。
 
 ### 数据保留与运维策略
 

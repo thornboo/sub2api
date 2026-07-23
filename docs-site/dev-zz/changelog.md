@@ -2,6 +2,10 @@
 
 ## 2026-07-23
 
+- 再次同步上游 `main`（`cd8bb98c4`）到 `dev-zz-develop`：新增 Ollama Cloud 官方用量观察与定时刷新、支付宝官方移动端当面付唤起，并吸收 OpenAI passthrough / 流式隔离、模型限流、渠道定价名称、Codex identity 导入和 Grok 调度修复。
+- Ollama Cloud 用量只作为管理员观察：支持符合条件的 OpenAI / Anthropic API Key 账号，展示 5 小时、7 天、余额和模型请求窗口；Web session 使用固定 `TOTP_ENCRYPTION_KEY` 加密保存，不进入用户 DTO、审计明文、账号健康、计费或调度。
+- 支付宝移动端当面付唤起默认关闭。启用后服务端使用 `alipay.trade.precreate` 获取动态二维码，前端先尝试唤起支付宝 App，页面未离开时回退到二维码；桌面端和未启用时的既有流程不变。
+- 新增 `186_alipay_mobile_precreate_deep_link.sql` 和 `186_group_auth_cache_image_generation.sql`；与 dev-zz 既有同号迁移按完整文件名并存，不改写历史迁移。
 - 同步上游 `main`（`ba88cc239`）到 `dev-zz-develop`：接入 Composite 分组 / 模型路由注册表、分组级 reasoning effort 映射与上限、Grok / OpenAI Responses 与 WebSocket 正确性、系统更新长请求和响应式管理端布局；继续保留企业成员路由 / 预算 / 归因、模型原生多协议、供应商成本、stone / emerald 视觉、fork 镜像和 `1.7.16` 版本线。
 - Composite 与企业成员组合改为“每个候选组独立解析”：候选切换会清除上一组路由决策并从原始公开模型重新解析，HTTP 模型改写不会串组；Responses WebSocket 首帧支持显式别名，切组后同样重新解析。首 turn 未产生下游事件时可以安全 failover，后续 turn 结果不明时继续保留预算并禁止重放。
 - 模型目录合并企业成员跨组并集、Composite 可调度模型和原生协议元数据；Ops 记录使用最终具体平台归因。Ent、Wire 和 pnpm lock 均按合并后的 schema / provider graph / 依赖声明重新生成。
