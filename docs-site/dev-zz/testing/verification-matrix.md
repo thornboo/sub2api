@@ -169,6 +169,24 @@
 - 普通、批量旧调度与高级调度模式都必须等统一交付判定通过后再写入 sticky；能力不匹配的候选不得新建、刷新或清理会话绑定。
 - 未配置能力时保留可证明的默认 Messages 兼容路径；模型级 Chat 明确不支持时必须同时退出依赖 Chat 的 Messages 兼容路径。
 
+## OpenAI Live、Session ID 与公告预览
+
+| 场景 | 推荐命令 |
+| --- | --- |
+| Live handler、service 生命周期、路由与租约 | `mise x -C backend -- go test ./internal/handler ./internal/service ./internal/server/routes -run 'Live' -count=1` |
+| Session ID 提取、usage / batch image 持久化与企业归因 | `mise x -C backend -- go test -tags unit ./internal/handler ./internal/service ./internal/repository -run 'SessionID\|UsageLogSession\|BatchImagePublicService_Submit' -count=1` |
+| 新迁移 schema、Session ID 与邮箱别名并发索引 | `mise x -C backend -- go test ./internal/repository -run 'MigrationSchema\|EmailAlias' -count=1`；真实 PostgreSQL 另跑 `DOCKER_HOST=unix:///Users/thornboo/.colima/default/docker.sock TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock mise x -C backend -- go test -tags=integration ./internal/repository -run 'TestMigration\|TestUsageLog.*Session' -count=1` |
+| 公告预览、共享 Markdown 样式与关闭行为 | `pnpm --dir frontend test:run src/components/common/__tests__/AnnouncementPopup.spec.ts` |
+| 前端静态验证 | `pnpm --dir frontend typecheck && pnpm --dir frontend lint:check` |
+
+必要人工核对：
+
+- `allow_live=false` 或当前实例不支持 DeviceCheck 时不能创建 Live 调用；开启 gate 后仍必须受原 API Key、分组、账号和用户并发限制。
+- Live sideband 只能复用原 call 的用户、Key、分组和加密 attestation；分组 gate、租约或最长会话时长失效后必须终止，不能切换账号继续。
+- Session ID 只接受显式头，非法 UTF-8、控制字符和超过 255 字符的值保持空；不得从请求内容、`prompt_cache_key` 或 request ID 推导。
+- 企业成员 usage 继续同步持久化最终 `ActiveGroup`、成员快照与预算回执；Session ID 不得把 `GroupID` 回退到 Key 静态分组。
+- 公告预览必须使用传入内容，不读取 / 写入当前公告已读状态；Bell 与 Popup 共享样式后仍保持 stone / neutral / emerald 视觉。
+
 ## Ollama Cloud 用量与支付宝移动支付
 
 | 场景 | 推荐命令 |

@@ -1,5 +1,14 @@
 # 变更记录
 
+## 2026-07-26
+
+- 同步上游 `main`（`2730c1c43`）到 `dev-zz-develop`：新增 OpenAI Live HTTP / sideband 网关、macOS attestation 和分组级 `allow_live`，并吸收 Session ID 请求证据、注册邮箱别名安全、Ollama Cloud 刷新、公告预览、postcss 安全升级及 OpenAI / Grok / Gemini 正确性修复。
+- Live 默认关闭，只允许管理员在 OpenAI 分组显式开启；管理端会先探测当前服务端 attestation 能力，unsupported 环境仍需二次确认。既有 Responses、Alpha Search、WebSocket、Composite 和企业成员候选编排保持不变。
+- 企业成员与 Composite Live create 复用有序候选编排，只在最终解析到 OpenAI 且 `allow_live=true` 时创建；sideband 绑定原 call 身份。Live 最终 usage 保留成员与实际分组证据，仓储失败会记录结构化错误而不是静默忽略。
+- usage 与 batch image 新增经过清洗的显式客户端 `session_id`；该字段只用于当前 owner / 管理员请求证据关联，不改变 sticky、调度、计费、request ID 或 prompt cache。企业成员同步落账、预算结果不明、最终 `ActiveGroup` 与成员快照继续作为权威归因。
+- 公告管理新增预览动作，Bell 与 Popup 共用 Markdown 样式；功能修复合流后继续使用 dev-zz stone / neutral / emerald 主题。
+- 新增同号迁移 `187_add_usage_log_session_id.sql`、`188_allow_live_usage_request_type.sql`、`189_add_group_allow_live.sql`、`190_add_users_email_alias_dedup_index_notx.sql`；与既有企业成员迁移按完整文件名并存，不修改历史迁移。版本保持 `1.7.17`。
+
 ## 2026-07-23
 
 - 再次同步上游 `main`（`cd8bb98c4`）到 `dev-zz-develop`：新增 Ollama Cloud 官方用量观察与定时刷新、支付宝官方移动端当面付唤起，并吸收 OpenAI passthrough / 流式隔离、模型限流、渠道定价名称、Codex identity 导入和 Grok 调度修复。

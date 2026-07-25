@@ -226,6 +226,142 @@ func TestCompositeRouteIsResolvedAgainForEachEnterpriseMemberCandidate(t *testin
 	require.JSONEq(t, `{"model":"grok-second","messages":[]}`, bodies[1])
 }
 
+func TestCompositeLiveRouteIsResolvedAgainForEachEnterpriseMemberCandidate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	memberID := int64(8)
+	user := &service.User{
+		ID:          3,
+		Role:        service.RoleUser,
+		AccountType: service.UserAccountTypeEnterprise,
+		Status:      service.StatusActive,
+		Balance:     10,
+	}
+	apiKey := &service.APIKey{
+		ID:       17,
+		UserID:   user.ID,
+		MemberID: &memberID,
+		User:     user,
+		Member: &service.EnterpriseMember{
+			ID:               memberID,
+			EnterpriseUserID: user.ID,
+			Status:           service.EnterpriseMemberStatusActive,
+			Groups: []service.Group{
+				{ID: 1, Platform: service.PlatformComposite, Status: service.StatusActive, Hydrated: true, AllowLive: true},
+				{ID: 2, Platform: service.PlatformComposite, Status: service.StatusActive, Hydrated: true, AllowLive: true},
+			},
+		},
+	}
+	resolver := service.NewCompositeRouteResolver(compositeRouteRepoStub{
+		routes: []service.CompositeModelRoute{
+			{
+				ID: 1, GroupID: 1, PublicModel: "live-public", MatchType: service.CompositeRouteMatchExact,
+				TargetPlatform: service.PlatformGrok, UpstreamModel: "grok-live",
+				Endpoint: service.CompositeRouteEndpointAny, Enabled: true,
+			},
+			{
+				ID: 2, GroupID: 2, PublicModel: "live-public", MatchType: service.CompositeRouteMatchExact,
+				TargetPlatform: service.PlatformOpenAI, UpstreamModel: "gpt-live",
+				Endpoint: service.CompositeRouteEndpointAny, Enabled: true,
+			},
+		},
+	})
+	router.Use(func(c *gin.Context) {
+		c.Set(string(servermiddleware.ContextKeyAPIKey), apiKey)
+		c.Next()
+	})
+	router.Use(servermiddleware.ResolveEnterpriseMemberGroup(
+		nil,
+		&config.Config{RunMode: config.RunModeSimple},
+		servermiddleware.AnthropicErrorWriter,
+	))
+
+	var groupIDs []int64
+	var platforms []string
+	var models []string
+	next := func(c *gin.Context) {
+		current, ok := servermiddleware.GetAPIKeyFromContext(c)
+		require.True(t, ok)
+		require.NotNil(t, current.GroupID)
+		groupIDs = append(groupIDs, *current.GroupID)
+		platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context())
+		require.True(t, ok)
+		platforms = append(platforms, platform)
+		body, err := io.ReadAll(c.Request.Body)
+		require.NoError(t, err)
+		model, err := service.ExtractLiveCallRequestModel(c.GetHeader("Content-Type"), body)
+		require.NoError(t, err)
+		models = append(models, model)
+		if platform != service.PlatformOpenAI {
+			service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
+			c.JSON(http.StatusNotFound, gin.H{"error": "try next group"})
+			return
+		}
+		require.True(t, current.Group.AllowLive)
+		c.Status(http.StatusNoContent)
+	}
+	router.POST(
+		"/v1/live",
+		servermiddleware.OrchestrateEnterpriseMemberGroups(compositeLiveTargetPlatformHandler(resolver, next)),
+	)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/live",
+		strings.NewReader(`{"sdp":"v=0\r\n","session":{"model":"live-public","instructions":"test"}}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, req)
+
+	require.Equal(t, http.StatusNoContent, response.Code)
+	require.Equal(t, []int64{1, 2}, groupIDs)
+	require.Equal(t, []string{service.PlatformGrok, service.PlatformOpenAI}, platforms)
+	require.Equal(t, []string{"grok-live", "gpt-live"}, models)
+}
+
+func TestCompositeLiveTargetPlatformRewritesMultipartSessionModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	groupID := int64(1)
+	resolver := service.NewCompositeRouteResolver(compositeRouteRepoStub{
+		routes: []service.CompositeModelRoute{
+			{
+				ID: 1, GroupID: groupID, PublicModel: "live-public", MatchType: service.CompositeRouteMatchExact,
+				TargetPlatform: service.PlatformOpenAI, UpstreamModel: "gpt-live",
+				Endpoint: service.CompositeRouteEndpointAny, Enabled: true,
+			},
+		},
+	})
+	router.Use(func(c *gin.Context) {
+		c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{
+			GroupID: &groupID,
+			Group:   &service.Group{ID: groupID, Platform: service.PlatformComposite, AllowLive: true},
+		})
+		c.Next()
+	})
+	router.POST("/v1/live", compositeLiveTargetPlatformHandler(resolver, func(c *gin.Context) {
+		body, err := io.ReadAll(c.Request.Body)
+		require.NoError(t, err)
+		model, err := service.ExtractLiveCallRequestModel(c.GetHeader("Content-Type"), body)
+		require.NoError(t, err)
+		require.Equal(t, "gpt-live", model)
+		c.Status(http.StatusNoContent)
+	}))
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	require.NoError(t, writer.WriteField("sdp", "v=0\r\n"))
+	require.NoError(t, writer.WriteField("session", `{"model":"live-public","instructions":"test"}`))
+	require.NoError(t, writer.Close())
+	req := httptest.NewRequest(http.MethodPost, "/v1/live", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, req)
+
+	require.Equal(t, http.StatusNoContent, response.Code)
+}
+
 func TestCompositeTargetPlatformMiddlewareUsesExplicitRouteForMultipartImages(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

@@ -1,5 +1,33 @@
 # 补丁记录
 
+## 2026-07-26 - 上游 main 同步：OpenAI Live、会话证据与注册安全
+
+### 目标
+
+- 将 `origin/main@2730c1c43` 合入 `dev-zz-develop`，吸收 OpenAI Live、客户端会话证据、注册邮箱别名安全、Ollama Cloud 刷新、公告预览和网关正确性修复。
+- 保持 dev-zz 企业成员同步落账、预算结果不明、请求级实际分组归因、Composite / 原生多协议、长期证据、fork 发布、stone / emerald 视觉和 `1.7.17` 版本线不回退。
+
+### 主要变化
+
+- OpenAI 分组新增默认关闭的 `allow_live`；支持 `/v1/live`、`/backend-api/codex/realtime/calls` 及 sideband 查询，Live usage 使用独立请求类型，租约失效会终止会话并补齐可证明的 usage 记录。macOS attestation 只在当前运行环境具备能力时生成，管理端开启前可以探测并确认。
+- 企业成员 Live create 会按有序候选逐组解析，Composite 分组从 JSON / multipart 的 `session.model` 解析并重写最终 OpenAI 模型；非 OpenAI 或未开启 Live 的候选只在响应尚未提交时安全切换。sideband 不重新创建调用，只按当前授权候选匹配已持久化的 call 身份。
+- Live 调用和最终 usage 证据保留成员 ID、成员编号 / 名称快照与实际 group；usage 仓储失败会记录不含原始 call ID、凭据或 attestation 的结构化错误，不再静默形成证据缺口。
+- Gateway、OpenAI、Gemini、图片和 batch image 路径统一提取显式客户端会话头，经 UTF-8、控制字符和 255 字符上限校验后写入 `usage_logs.session_id`；该证据不参与 sticky、调度、计费、请求幂等或上游 prompt cache。
+- session 证据与企业成员 `member_id` / 名称快照、最终 `ActiveGroup`、`schedule_meta`、请求载荷指纹和预算请求 ID 同时保存；企业成员与图片用量的同步 / mandatory 持久化合同不因上游异步写入改动而回退。
+- Ollama Cloud 按模型请求活动刷新、debounce、公平候选与 PostgreSQL 16 due 判断修复合流；注册邮箱别名查重增加规范化、并发保护和表达式索引。
+- 公告管理增加预览动作；Bell 与 Popup 共用富文本样式，同时继续采用 dev-zz stone / emerald 主题。同步 postcss 安全升级、移动端返佣复制和 OpenAI / Grok / Gemini 兼容修复。
+
+### 数据与兼容性
+
+- 新增 `187_add_usage_log_session_id.sql`、`188_allow_live_usage_request_type.sql`、`189_add_group_allow_live.sql` 和 `190_add_users_email_alias_dedup_index_notx.sql`。
+- 四个迁移与 dev-zz 既有同号企业成员迁移按完整文件名并存，不改写已应用迁移；`session_id` 和 batch image session 均为 nullable，Live 与分组开关默认关闭。
+- `VERSION` 保持 `1.7.17`，不采用上游 `0.1.165`。
+
+### 验证
+
+- 冲突标记、whitespace、Go 格式与生成物、后端 Handler / Repository / Service / Routes、迁移 schema、前端公告 / 分组 / 用量回归、typecheck、lint、生产构建和 docs-site 构建纳入本轮合并验证。
+- 浏览器人工 smoke 和 Docker / Testcontainers 运行时集成测试未执行；若本机容器可用，迁移 schema 另以真实 PostgreSQL 集成测试确认。
+
 ## 2026-07-23 - 上游 main 同步：Ollama Cloud 用量与支付宝移动唤起
 
 ### 目标

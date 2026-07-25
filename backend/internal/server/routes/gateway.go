@@ -90,6 +90,33 @@ func RegisterGatewayRoutes(
 		h.Gateway.Models(c)
 	}
 	memberModelsHandler := orchestrateMemberGroups(modelsHandler)
+	liveCreateHandler := func(c *gin.Context) {
+		if getGroupPlatform(c) != service.PlatformOpenAI {
+			service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": gin.H{
+					"type":    "not_found_error",
+					"message": "Live is not supported for this platform",
+				},
+			})
+			return
+		}
+		apiKey, ok := middleware.GetAPIKeyFromContext(c)
+		if ok && apiKey != nil && apiKey.Group != nil && !apiKey.Group.AllowLive {
+			service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": gin.H{
+					"type":    "permission_error",
+					"message": "Live is not enabled for this group",
+				},
+			})
+			return
+		}
+		h.OpenAIGateway.Live(c)
+	}
+	withCompositeLiveMemberGroups := func(next gin.HandlerFunc) gin.HandlerFunc {
+		return orchestrateMemberGroups(compositeLiveTargetPlatformHandler(compositeResolver, next))
+	}
 	isOpenAIOnlyEndpointGatewayPlatform := func(c *gin.Context) bool {
 		return getGroupPlatform(c) == service.PlatformOpenAI
 	}
@@ -208,6 +235,8 @@ func RegisterGatewayRoutes(
 		// Codex manifest format; other clients keep the OpenAI-style list.
 		gateway.GET("/models", memberModelsHandler)
 		gateway.GET("/usage", h.Gateway.Usage)
+		gateway.POST("/live", withCompositeLiveMemberGroups(liveCreateHandler))
+		gateway.GET("/live/:call_id", h.OpenAIGateway.LiveSideband)
 		// OpenAI Responses API: auto-route based on group platform
 		gateway.POST("/responses", withCompositeMemberGroups(func(c *gin.Context) {
 			if isOpenAIResponsesCompatibleGatewayPlatform(c) {
@@ -317,6 +346,8 @@ func RegisterGatewayRoutes(
 	codexDirect := r.Group("/backend-api/codex")
 	codexDirect.Use(commonDirect...)
 	{
+		codexDirect.POST("/realtime/calls", withCompositeLiveMemberGroups(liveCreateHandler))
+		codexDirect.GET("/:call_id", h.OpenAIGateway.LiveSideband)
 		codexDirect.POST("/responses", withCompositeMemberGroups(responsesHandler))
 		codexDirect.POST("/responses/*subpath", withCompositeMemberGroups(responsesHandler))
 		codexDirect.POST("/alpha/search", textBodyLimit, withCompositeMemberGroups(h.OpenAIGateway.AlphaSearch))
@@ -428,6 +459,73 @@ func compositeTargetPlatformHandler(resolver *service.CompositeRouteResolver, ne
 	}
 }
 
+func compositeLiveTargetPlatformHandler(resolver *service.CompositeRouteResolver, next gin.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !resolveCompositeLiveTargetPlatform(c, resolver) {
+			return
+		}
+		next(c)
+	}
+}
+
+func resolveCompositeLiveTargetPlatform(c *gin.Context, resolver *service.CompositeRouteResolver) bool {
+	if resolver == nil {
+		resolver = service.NewCompositeRouteResolver(nil)
+	}
+	apiKey, ok := middleware.GetAPIKeyFromContext(c)
+	if !ok || apiKey == nil || apiKey.Group == nil || apiKey.Group.Platform != service.PlatformComposite {
+		return true
+	}
+	if c.Request == nil || c.Request.Method != http.MethodPost {
+		return true
+	}
+
+	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+	if err != nil {
+		status := http.StatusBadRequest
+		message := "Failed to read request body"
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			status = http.StatusRequestEntityTooLarge
+			message = "Request body is too large"
+		}
+		c.JSON(status, gin.H{"error": gin.H{"type": "invalid_request_error", "message": message}})
+		c.Abort()
+		return false
+	}
+
+	model, modelErr := service.ExtractLiveCallRequestModel(c.GetHeader("Content-Type"), body)
+	if modelErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "Unable to parse Live session model"}})
+		c.Abort()
+		return false
+	}
+	if model != "" {
+		decision, resolveErr := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, service.CompositeRouteEndpointAny)
+		if resolveErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "server_error", "message": "Failed to resolve composite model route"}})
+			c.Abort()
+			return false
+		}
+		if !decision.Matched {
+			service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
+			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "No composite route matches this Live model"}})
+			return false
+		}
+		c.Request = c.Request.WithContext(service.WithCompositeRouteDecision(c.Request.Context(), decision))
+		if upstreamModel := strings.TrimSpace(decision.UpstreamModel); upstreamModel != "" && upstreamModel != model {
+			if rewritten, rewrittenContentType, ok := rewriteLiveRequestModel(c.GetHeader("Content-Type"), body, upstreamModel); ok {
+				body = rewritten
+				if rewrittenContentType != "" {
+					c.Request.Header.Set("Content-Type", rewrittenContentType)
+				}
+			}
+		}
+	}
+	resetRequestBody(c, body)
+	return true
+}
+
 func resolveCompositeTargetPlatform(c *gin.Context, resolver *service.CompositeRouteResolver) bool {
 	if resolver == nil {
 		resolver = service.NewCompositeRouteResolver(nil)
@@ -512,6 +610,65 @@ func compositeMultipartModelFromBody(contentType string, body []byte) string {
 		}
 		return strings.TrimSpace(string(data))
 	}
+}
+
+func rewriteLiveRequestModel(contentType string, body []byte, upstreamModel string) ([]byte, string, bool) {
+	upstreamModel = strings.TrimSpace(upstreamModel)
+	if upstreamModel == "" {
+		return body, "", false
+	}
+	if gjson.ValidBytes(body) {
+		rewritten, err := sjson.SetBytes(body, "session.model", upstreamModel)
+		return rewritten, "", err == nil
+	}
+	mediaType, params, err := mime.ParseMediaType(strings.TrimSpace(contentType))
+	if err != nil || !strings.EqualFold(mediaType, "multipart/form-data") {
+		return body, "", false
+	}
+	boundary := strings.TrimSpace(params["boundary"])
+	if boundary == "" {
+		return body, "", false
+	}
+	reader := multipart.NewReader(bytes.NewReader(body), boundary)
+	var out bytes.Buffer
+	writer := multipart.NewWriter(&out)
+	rewrote := false
+	for {
+		part, nextErr := reader.NextPart()
+		if errors.Is(nextErr, io.EOF) {
+			break
+		}
+		if nextErr != nil {
+			_ = writer.Close()
+			return body, "", false
+		}
+		data, readErr := io.ReadAll(part)
+		if readErr != nil {
+			_ = part.Close()
+			_ = writer.Close()
+			return body, "", false
+		}
+		if strings.EqualFold(strings.TrimSpace(part.FormName()), "session") && part.FileName() == "" && gjson.ValidBytes(data) {
+			if rewrittenSession, rewriteErr := sjson.SetBytes(data, "model", upstreamModel); rewriteErr == nil {
+				data = rewrittenSession
+				rewrote = true
+			}
+		}
+		target, createErr := writer.CreatePart(part.Header)
+		_ = part.Close()
+		if createErr != nil {
+			_ = writer.Close()
+			return body, "", false
+		}
+		if _, writeErr := target.Write(data); writeErr != nil {
+			_ = writer.Close()
+			return body, "", false
+		}
+	}
+	if closeErr := writer.Close(); closeErr != nil || !rewrote {
+		return body, "", false
+	}
+	return out.Bytes(), writer.FormDataContentType(), true
 }
 
 func compositeGeminiTargetPlatformMiddleware(resolver *service.CompositeRouteResolver) gin.HandlerFunc {

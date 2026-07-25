@@ -1,0 +1,113 @@
+/* Shared rich-text styles for announcement popup and bell detail content. */
+.markdown-body {
+  @apply text-[15px] leading-[1.75];
+  @apply text-stone-700 dark:text-stone-300;
+}
+
+.markdown-body h1 {
+  @apply mb-6 mt-8 border-b border-stone-200/80 pb-3 text-3xl font-bold text-stone-950 dark:border-white/10 dark:text-white;
+}
+
+.markdown-body h2 {
+  @apply mb-4 mt-7 border-b border-stone-200/70 pb-2 text-2xl font-bold text-stone-950 dark:border-white/10 dark:text-white;
+}
+
+.markdown-body h3 {
+  @apply mb-3 mt-6 text-xl font-semibold text-stone-950 dark:text-white;
+}
+
+.markdown-body h4 {
+  @apply mb-2 mt-5 text-lg font-semibold text-stone-950 dark:text-white;
+}
+
+.markdown-body p {
+  @apply mb-4 leading-relaxed;
+}
+
+.markdown-body a {
+  @apply font-medium text-emerald-600 underline decoration-emerald-600/30 decoration-2 underline-offset-2 transition-all hover:decoration-emerald-600 dark:text-emerald-300 dark:decoration-emerald-300/30 dark:hover:decoration-emerald-300;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  @apply mb-4 ml-6 space-y-2;
+}
+
+.markdown-body ul {
+  @apply list-disc;
+}
+
+.markdown-body ol {
+  @apply list-decimal;
+}
+
+.markdown-body li {
+  @apply pl-2 leading-relaxed;
+}
+
+.markdown-body li::marker {
+  @apply text-emerald-600 dark:text-emerald-300;
+}
+
+.markdown-body blockquote {
+  @apply relative my-5 border-l-4 border-emerald-500 bg-emerald-50/40 py-3 pl-5 pr-4 italic text-stone-700 dark:border-emerald-400 dark:bg-emerald-500/10 dark:text-stone-300;
+}
+
+.markdown-body blockquote::before {
+  content: '"';
+  @apply absolute -left-1 top-0 font-serif text-5xl text-emerald-500/20 dark:text-emerald-300/20;
+}
+
+.markdown-body code {
+  @apply rounded-lg bg-stone-100 px-2 py-1 font-mono text-[13px] text-pink-600 dark:bg-white/[0.06] dark:text-pink-400;
+}
+
+.markdown-body pre {
+  @apply my-5 overflow-x-auto rounded-xl border border-stone-200/80 bg-stone-50/80 p-5 dark:border-white/10 dark:bg-black/40;
+}
+
+.markdown-body pre code {
+  @apply bg-transparent p-0 text-[13px] text-stone-800 dark:text-stone-200;
+}
+
+.markdown-body hr {
+  @apply my-8 border-0 border-t-2 border-stone-200/80 dark:border-white/10;
+}
+
+.markdown-body table {
+  @apply mb-5 w-full overflow-hidden rounded-lg border border-stone-200/80 dark:border-white/10;
+}
+
+.markdown-body th,
+.markdown-body td {
+  @apply border-b border-r border-stone-200/80 px-4 py-3 text-left dark:border-white/10;
+}
+
+.markdown-body th:last-child,
+.markdown-body td:last-child {
+  @apply border-r-0;
+}
+
+.markdown-body tr:last-child td {
+  @apply border-b-0;
+}
+
+.markdown-body th {
+  @apply bg-gradient-to-br from-stone-50 to-white font-semibold text-stone-950 dark:from-white/5 dark:to-white/[0.03] dark:text-white;
+}
+
+.markdown-body tbody tr {
+  @apply transition-colors hover:bg-stone-50/80 dark:hover:bg-white/[0.06];
+}
+
+.markdown-body img {
+  @apply my-5 max-w-full rounded-xl border border-stone-200/80 shadow-md dark:border-white/10;
+}
+
+.markdown-body strong {
+  @apply font-semibold text-stone-950 dark:text-white;
+}
+
+.markdown-body em {
+  @apply italic text-stone-600 dark:text-stone-400;
+}

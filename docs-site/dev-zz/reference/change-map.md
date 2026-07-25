@@ -4,19 +4,20 @@
 
 | 项 | 值 |
 | --- | --- |
-| dev-zz-develop | 本次合并提交（合并前 `b0f785038`） |
-| origin/dev-zz | `b0f785038` |
-| origin/main | `cd8bb98c4` |
-| merge-base | `cd8bb98c4`（本次合并完成后） |
-| 差异规模 | 997 个文件，约 161362 行新增、9470 行删除 |
+| dev-zz-develop | 本次合并提交（合并前 `135720a6b`） |
+| origin/dev-zz | `135720a6b` |
+| origin/main | `2730c1c43` |
+| merge-base | `2730c1c43`（本次合并完成后） |
+| 差异规模 | 1008 个文件，约 162330 行新增、9542 行删除 |
 
 ## 变更分布
 
 | 区域 | 文件数 | 说明 |
 | --- | ---: | --- |
-| `frontend/` | 317 | 用户/API Key、企业成员、owner 用量分析、管理员用量下钻、可用渠道模型、运维弹窗栈、主题与控制台 UI |
-| `backend/` | 603 | 企业成员、模型/网关路由、API Key、用量/计费、运维、安全、配置、测试、生成物与迁移 |
+| `frontend/` | 320 | 用户/API Key、企业成员、owner 用量分析、管理员用量下钻、可用渠道模型、运维弹窗栈、主题与控制台 UI |
+| `backend/` | 611 | 企业成员、模型/网关路由、API Key、用量/计费、运维、安全、配置、测试、生成物与迁移 |
 | `docs-site/` | 49 | dev-zz 文档中心、功能文档、部署/开发/维护记录 |
+| `docs/` | 1 | 上游通用协议文档 |
 | `deploy/` | 14 | fork 镜像默认值、源码构建脚本、备份脚本、Compose/安装脚本与部署样例 |
 | `.github/` | 5 | CI、release、security scan 和分支镜像的 Node 24 actions runtime 验证 |
 | 根目录 / README / Dockerfile | 8 | release 镜像、版本号、项目说明、分布式 Dockerfile 与设计索引 |
@@ -52,6 +53,7 @@
 ### 用量分析
 
 - 用户侧单 Key 下钻已落地：趋势、模型分布、请求记录三块功能。
+- Gateway、OpenAI、Gemini、图片和异步 batch image 会把经过统一清洗的显式客户端 `session_id` 保存为请求证据；该字段与企业成员快照、最终 `ActiveGroup`、调度证据和预算请求 ID 并存，但不参与 sticky、调度、计费、幂等或 prompt cache。
 - 企业 owner 级用量分析已落地在用户 Usage 页的分析 Tab，包括 summary、leaderboard、models、groups、tags、trend。
 - owner analytics 接口在 `/api/v1/usage/analytics/*`，所有查询绑定当前登录用户，不接收外部 `user_id`。
 - owner DTO 不返回 `account_cost`、上游账号、渠道、`upstream_model` 等管理员字段。
@@ -66,10 +68,12 @@
 - 自定义模型输入可以查询 models.dev 目录。
 - 映射模式支持清空全部模型，并保留映射模式语义。
 - 符合条件的 Ollama Cloud OpenAI / Anthropic API Key 账号支持管理员用量观察：session 加密保存，快照只展示官方 5 小时 / 7 天窗口、余额和模型请求数；该观察不进入调度、计费、账号健康或用户 DTO。
+- OpenAI 分组支持默认关闭的 Live gate；macOS DeviceCheck attestation、Live HTTP / sideband 路由、并发租约、最长会话时间和独立 usage 类型已接入，管理员可先探测当前实例能力再决定是否开启。
 
 ### UI 与运维体验
 
 - 首页、认证页、控制台布局、通用表单/表格/弹窗、管理端/用户端页面统一到当前 stone / neutral / emerald 视觉方向。
+- 公告管理支持直接预览尚未发布的内容；Bell 与 Popup 共用富文本样式和滚动锁生命周期，预览不会写公告已读状态，共享样式继续使用 stone / neutral / emerald 规则。
 - 前端隐藏 LinuxDo / 微信登录、注册、资料绑定和管理端认证显示入口；后端 OAuth 能力保留。
 - 运维明细弹窗支持父子层叠，Escape、遮罩和滚动锁只作用于最上层弹窗。
 - 运维错误详情和上游响应预览改为阅读型自动换行，降低长 JSON 横向滚动负担。

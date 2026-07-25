@@ -18,9 +18,12 @@ func TestBatchImageSettlementService_SettlesAndChargesSuccessfulImagesOnly(t *te
 	job.SuccessCount = 3
 	job.FailCount = 2
 	job.ItemCount = 5
+	job.SessionID = batchImageStringPtr("batch-settlement-session")
 	repo.jobs[job.BatchID] = job
 	billing := &fakeBatchImageBillingRepo{}
-	svc := &BatchImageSettlementService{Repo: repo, BillingRepo: billing, Pricing: &fakeBatchImagePricingResolver{unitPrice: 0.25}}
+	svc := &BatchImageSettlementService{
+		Repo: repo, BillingRepo: billing, Pricing: &fakeBatchImagePricingResolver{unitPrice: 0.25},
+	}
 
 	result, err := svc.Settle(context.Background(), job.BatchID)
 	require.NoError(t, err)
@@ -41,6 +44,7 @@ func TestBatchImageSettlementService_SettlesAndChargesSuccessfulImagesOnly(t *te
 	require.NotNil(t, billing.captures[0].UsageLog)
 	require.Equal(t, BatchImageCaptureRequestID(job.BatchID), billing.captures[0].UsageLog.RequestID)
 	require.Equal(t, job.MemberID, billing.captures[0].UsageLog.MemberID)
+	require.Equal(t, "batch-settlement-session", batchImageDerefString(billing.captures[0].UsageLog.SessionID))
 	require.NotContains(t, fmt.Sprintf("%+v", billing.captures[0]), batchImageTestData)
 	require.NotContains(t, fmt.Sprintf("%+v", billing.captures[0]), "gs://")
 	require.NotContains(t, fmt.Sprintf("%+v", billing.captures[0]), "prompt")

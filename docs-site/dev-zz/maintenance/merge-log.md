@@ -1,5 +1,75 @@
 # 上游合并记录
 
+## 2026-07-26 - 将上游 `main` 合并到 `dev-zz-develop`：OpenAI Live、会话证据与网关正确性合流
+
+分支：
+
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`cd8bb98c4`
+- 合并前目标：`135720a6b`
+- 上游 head：`2730c1c43`
+- 结果提交：本次合并提交
+
+上游要点：
+
+- 新增 OpenAI Live HTTP / sideband 网关、分组级 `allow_live`、Live usage 类型、租约失效收口和 macOS attestation；管理员可以先探测当前运行环境能力，再决定是否开启分组。
+- usage 与异步 batch image 新增经过统一清洗的客户端 `session_id` 请求证据；该字段只来自显式会话头，不从 `prompt_cache_key` 或内容哈希派生，也不改变 sticky、调度、计费或 request ID 语义。
+- Ollama Cloud 用量刷新增加按模型请求活动、抓取 debounce、公平候选和 PostgreSQL 16 兼容修复；仍只作为管理员观察，不进入账号健康、调度或计费。
+- 注册邮箱别名查重收紧根点、加号和并发边界，新增表达式并发索引；公告管理增加预览动作并共享富文本样式，前端依赖同时吸收 postcss 安全升级。
+- 同步 OpenAI Responses item ID / namespace、同账号重试、Grok / Gemini 媒体、图片请求证据、远端定价和移动端返佣文案等正确性修复。
+
+合并策略：
+
+- 在干净且与 `origin/dev-zz` 对齐的 `dev-zz-develop@135720a6b` 上刷新远端，先用 `git merge-tree --write-tree --messages --name-only` 预演，再执行 `git merge --no-commit origin/main`；预演和真实合并均得到 20 个内容冲突。
+- 接受上游 OpenAI Live、客户端会话证据、Ollama Cloud、注册安全、公告预览与网关正确性修复；继续保留 dev-zz 企业成员同步落账、预算结果不明、请求级 `ActiveGroup` 归因、Composite / 原生多协议、长期证据、stone / emerald 视觉和 `1.7.17` 版本线。
+- `session_id` 与 `request_payload_hash`、企业成员快照、`schedule_meta`、`member_budget_request_id` 并存；普通请求继续走有界 worker，企业成员请求同步持久化，图片用量在队列丢弃时继续走 mandatory 同步回退。
+- `187`–`190` 的上游迁移与 dev-zz 既有企业成员迁移按完整文件名并存，不重命名、覆盖或修改任何已应用迁移。
+
+冲突文件：
+
+- `backend/cmd/server/VERSION`
+- `backend/internal/handler/gateway_handler.go`
+- `backend/internal/handler/gateway_handler_chat_completions.go`
+- `backend/internal/handler/gateway_handler_responses.go`
+- `backend/internal/handler/gemini_v1beta_handler.go`
+- `backend/internal/handler/openai_chat_completions.go`
+- `backend/internal/handler/openai_embeddings.go`
+- `backend/internal/handler/openai_images.go`
+- `backend/internal/repository/batch_image_repo.go`
+- `backend/internal/repository/usage_log_repo_insert.go`
+- `backend/internal/repository/usage_log_repo_query.go`
+- `backend/internal/server/routes/gateway.go`
+- `backend/internal/service/api_key_auth_cache_impl.go`
+- `backend/internal/service/batch_image_public_test.go`
+- `backend/internal/service/gateway_usage_billing.go`
+- `backend/internal/service/openai_gateway_service.go`
+- `backend/internal/service/openai_gateway_usage.go`
+- `backend/internal/service/openai_upstream_transport_error.go`
+- `frontend/src/components/common/AnnouncementBell.vue`
+- `frontend/src/components/common/AnnouncementPopup.vue`
+
+解决说明：
+
+- 所有 Gateway / OpenAI / Gemini 用量入口都保留企业成员感知的提交 helper，并加入上游清洗后的 `SessionID`；OpenAI Chat / Embeddings 同时保留请求载荷指纹，图片继续保留企业成员同步落账和 mandatory fallback。
+- usage / batch image SQL 按最终字段并集重新对齐列、占位符、参数、扫描顺序和批量容量；`GroupID` 继续取请求上下文中的最终 `ActiveGroup`，不回退到 Key 的静态分组。
+- Live create 路由加入专用的企业成员候选与 Composite `session.model` 解析：只有最终目标为 OpenAI 且候选分组 `allow_live=true` 才创建调用；sideband 不重放创建请求，而是用当前仍授权的候选分组逐一匹配持久化 call 身份。Responses、Alpha Search、WebSocket 和模型目录的既有 Composite / 企业成员编排保持不变。
+- Live 调用记录和最终零用量证据同时保存企业成员 ID、编号 / 名称快照与实际 group；usage 写入失败不再静默丢弃，会用 call hash 和内部数字 ID 记录结构化错误。鉴权缓存使用包含 dev-zz v19 与 Live gate 的新快照版本。
+- `OpenAIGatewayService` 同时保留模型原生协议能力和 Live attestation；传输错误处理复用一次分类结果，并补充 Ollama Cloud 活动刷新。
+- 公告预览接受上游 `displayedAnnouncement`、关闭生命周期和共享 CSS；共享样式使用 dev-zz stone / emerald 规则，未采用上游 gray / blue / amber 视觉。
+
+验证：
+
+- `mise x -C backend -- make generate` 通过且生成物无漂移；`go test -tags=unit ./... -count=1` 与 `go test ./... -count=1` 全绿，Live / Session ID / batch image 结算回归包含在内。
+- `golangci-lint run ./...` 返回 `0 issues`；冲突标记、Go 格式和 staged / unstaged whitespace 检查通过。
+- Colima / PostgreSQL 上的 repository integration-tagged 迁移与 `session_id` 测试通过，证明 `187`–`190` 上游迁移能与 dev-zz 既有完整文件名迁移共同执行。
+- 前端 typecheck、ESLint、236 个测试文件 / 1560 个 Vitest 和生产构建通过；公告预览、分组 Live 能力 mock 与用量展示包含在回归内。
+- docs-site 生产构建通过。
+
+未验证：
+
+- 浏览器人工 smoke。
+
 ## 2026-07-23 - 将上游 `main` 合并到 `dev-zz-develop`：Ollama Cloud 用量、支付宝移动唤起与网关修复合流
 
 分支：

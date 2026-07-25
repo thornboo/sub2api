@@ -2,6 +2,22 @@
 
 这页只记录 dev-zz 新增或语义有差异的接口。上游通用接口仍以项目源码和 `docs/` 兼容文档为准。
 
+## OpenAI Live 与客户端会话证据
+
+OpenAI Live 默认关闭。只有分组显式设置 `allow_live=true`、当前服务端可生成 macOS DeviceCheck attestation，且请求命中符合条件的 OpenAI OAuth 账号时才可创建会话。sideband 会话受普通用户 / 账号并发租约、最长会话时长和原始调用身份约束；分组开关或租约失效后不能继续复用。
+
+| 方法 | 路径 | 用途 | 关键语义 |
+| --- | --- | --- | --- |
+| `POST` | `/v1/live` | 创建 OpenAI Live WebRTC 调用 | 走 API Key、分组 Live gate、调度和并发租约；返回上游 SDP 与 call ID |
+| `GET` | `/v1/live/:call_id` | 建立 Live sideband WebSocket | 只能使用创建调用时的用户、Key 和分组身份；复用加密保存的 attestation |
+| `POST` | `/backend-api/codex/realtime/calls` | Codex 客户端创建 Live 调用 | 与 `/v1/live` 共用同一服务和权限边界 |
+| `GET` | `/backend-api/codex/:call_id` | Codex 客户端建立 sideband | 与 `/v1/live/:call_id` 共用同一调用身份和租约 |
+| `GET` | `/api/v1/admin/groups/live-capability` | 探测当前服务端 Live 能力 | 只返回 `supported` 和可选脱敏原因；管理员开启分组前用于环境确认 |
+
+Gateway、OpenAI、Gemini、图片和异步 batch image 会从显式客户端头提取请求证据：`session_id`、`conversation_id`、`X-Session-Affinity`、`X-Session-Id`、`X-OpenCode-Session`、`X-Conversation-ID`、`X-Claude-Code-Session-Id`，以及 Grok 请求中的 `X-Grok-Conv-Id`。值必须是有效 UTF-8，trim 后非空、不含控制字符且不超过 255 个 Unicode 字符；不合法时保持空值。
+
+`session_id` 只用于当前 owner / 管理员可见的 usage 与 batch image 请求关联。它不参与 sticky、账号 / 分组调度、计费、request ID、幂等键或上游 prompt cache，也不会从请求内容哈希或 `prompt_cache_key` 派生。企业成员的最终 `ActiveGroup`、成员快照、预算回执和 `request_payload_hash` 继续独立保存。
+
 ## 管理端账号复制与 Grok OAuth 对账
 
 | 方法 | 路径 | 用途 | 关键语义 |

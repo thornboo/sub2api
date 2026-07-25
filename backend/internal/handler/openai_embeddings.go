@@ -244,6 +244,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		inboundEndpoint := GetInboundEndpoint(c)
 		upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
+		sessionID := service.ExtractClientSessionID(c)
 
 		h.submitOpenAIUsageRecordTask(c, c.Request.Context(), result, apiKey, func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
@@ -260,6 +261,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 				APIKeyService:      h.apiKeyService,
 				QuotaPlatform:      quotaPlatform,
 				RequestPayloadHash: requestPayloadHash,
+				SessionID:          sessionID,
 				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
 			}); err != nil {
 				markEnterpriseMemberUsagePersistenceFailure(c, apiKey)

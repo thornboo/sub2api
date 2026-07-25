@@ -182,6 +182,10 @@ func enterpriseMemberGroupEligible(c *gin.Context, user *service.User, group *se
 	}
 	requestPath := c.Request.URL.Path
 	switch {
+	case enterpriseMemberLiveEndpoint(c.Request.Method, requestPath):
+		if !group.AllowLive || (group.Platform != service.PlatformOpenAI && group.Platform != service.PlatformComposite) {
+			return false
+		}
 	case strings.Contains(requestPath, "/backend-api/codex/") || (strings.HasSuffix(requestPath, "/models") && c.Query("client_version") != ""):
 		if group.Platform != service.PlatformOpenAI && group.Platform != service.PlatformComposite {
 			return false
@@ -220,6 +224,21 @@ func enterpriseMemberGroupEligible(c *gin.Context, user *service.User, group *se
 		}
 	}
 	return true
+}
+
+func enterpriseMemberLiveEndpoint(method, requestPath string) bool {
+	method = strings.ToUpper(strings.TrimSpace(method))
+	requestPath = strings.ToLower(strings.TrimSpace(requestPath))
+	if method == http.MethodPost && (strings.HasSuffix(requestPath, "/live") || strings.HasSuffix(requestPath, "/realtime/calls")) {
+		return true
+	}
+	if method == http.MethodGet && strings.Contains(requestPath, "/live/") {
+		return true
+	}
+	if method == http.MethodGet && strings.HasPrefix(requestPath, "/backend-api/codex/") {
+		return !strings.HasSuffix(requestPath, "/responses") && !strings.HasSuffix(requestPath, "/models")
+	}
+	return false
 }
 
 // ActivateEnterpriseMemberGroupForModel selects the first already-authorized
@@ -304,6 +323,9 @@ func extractEnterpriseMemberRequestedModel(c *gin.Context) (string, error) {
 	c.Request.Body = io.NopCloser(bytes.NewReader(body))
 	if len(bytes.TrimSpace(body)) == 0 {
 		return "", nil
+	}
+	if enterpriseMemberLiveEndpoint(c.Request.Method, requestPath) {
+		return service.ExtractLiveCallRequestModel(contentType, body)
 	}
 	return service.ExtractEnterpriseMemberBudgetRequestModel(contentType, body)
 }

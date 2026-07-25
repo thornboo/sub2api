@@ -54,6 +54,17 @@ HTTP 首输出超时包含等待响应头的时间，只用于 native Responses�
 
 第一阶段只新增 OpenAI APIKey 账号的原生 Anthropic Messages 传输。`openai_responses_mode` 继续是账号级路由偏好，不迁入能力表；`AllowMessagesDispatch` 继续是分组是否允许 `/v1/messages` 的真相源。
 
+## OpenAI Live
+
+| 配置 / 字段 | 默认值 | 说明 |
+| --- | ---: | --- |
+| `gateway.live.max_session_duration_seconds` | `3600` | 单个 Live 调用及 sideband 租约的最长存活时间；无效值运行时回退到 1 小时 |
+| `groups.allow_live` | `false` | 分组级 Live gate；只有管理员显式开启后，该分组才能创建 Live 调用 |
+
+Live 当前依赖 macOS DeviceCheck provider；管理端通过 `/api/v1/admin/groups/live-capability` 探测当前实例是否支持，unsupported 环境即使保存分组开关也不能创建调用。生成的 attestation 会以 `jwt.secret` 派生的独立 AES-GCM 密钥加密后写入短生命周期调用记录，供 sideband 在同一部署密钥下复用；`jwt.secret` 仍必须显式配置且至少 32 字节，滚动升级时各实例必须共享同一值。
+
+Live 调度仍受普通 API Key 鉴权、分组能力、账号 / 用户并发与缓存失效合同约束。`allow_live` 进入鉴权快照，合并后的快照版本必须高于既有 enterprise / pricing 版本，不能通过回退缓存版本绕过新 gate。
+
 ## Token refresh 池保护
 
 | 配置 | 默认值 | 说明 |
@@ -176,9 +187,13 @@ runner 每分钟检查到期账号，单轮最多 20 个、并发 4、单请求�
 | `backend/migrations/186_alipay_mobile_precreate_deep_link.sql` | 新增默认关闭的支付宝移动端当面付唤起 setting，不改变既有支付流程 |
 | `backend/migrations/186_enterprise_member_removal_lifecycle.sql` | 增加成员永久删除/审计墓碑生命周期字段和约束，使存在历史事实的成员可从 owner 管理面移除而不破坏账本证据 |
 | `backend/migrations/186_group_auth_cache_image_generation.sql` | 将分组 `allow_image_generation` 变化纳入 API Key 鉴权缓存 outbox 失效触发器 |
+| `backend/migrations/187_add_usage_log_session_id.sql` | 给 `usage_logs` 和异步 `batch_image_jobs` 增加 nullable `session_id`，只保存经过清洗的显式客户端会话证据 |
 | `backend/migrations/187_backfill_enterprise_member_usage_attribution.sql` | 只根据不可变成员预算账本回填可证明归属的历史 usage，并把预算事实补链到对应 usage log |
+| `backend/migrations/188_allow_live_usage_request_type.sql` | 扩展 usage request type 检查约束，允许独立的 OpenAI Live 请求类型 |
 | `backend/migrations/188_enterprise_member_request_receipts.sql` | 将成员预算预留扩展为持久化请求回执，保存结果不明状态、原因和恢复核对元数据 |
+| `backend/migrations/189_add_group_allow_live.sql` | 给分组增加默认关闭的 `allow_live` gate |
 | `backend/migrations/189_enterprise_member_receipt_reconciliation_metadata.sql` | 为结果不明回执增加显式核对版本与时间，支持带版本校验的管理员人工释放和审计 |
+| `backend/migrations/190_add_users_email_alias_dedup_index_notx.sql` | 以 `_notx` 方式并发建立注册邮箱点号归一表达式索引，支撑别名查重 |
 | `backend/migrations/190_enterprise_member_usage_settlement_outbox.sql` | 在统一计费事务前持久化成员用量结算命令；失败后幂等重放，并用复合外键锁定 Key、成员与 owner 身份一致性 |
 | `backend/migrations/191_enterprise_member_fractional_token_baselines.sql` | 将企业成员外部迁移 Token 基线升级为 `NUMERIC(21,2)`，无损保留来源中的两位小数；真实请求日志 Token 仍保持整数 |
 | `backend/migrations/192_ops_failure_classification_v2.sql` | 给 Ops 错误日志和 hourly/daily 预聚合增加失败分类 v2 字段；在最近 31 天内确定性回填，无法可靠判断的记录保持 unknown |
@@ -188,7 +203,7 @@ runner 每分钟检查到期账号，单轮最多 20 个、并发 4、单请求�
 
 `152` 使用 `CREATE INDEX CONCURRENTLY`，不能放进普通事务迁移。后续合并上游迁移时，需保留 `_notx` 约定，避免长事务锁表。
 
-`158` 当前存在两个文件名不同的迁移：一个来自 dev-zz 调度证据字段，一个来自上游高峰倍率字段。`174`、`175`、`176`、`178`、`179`、`180`、`181`、`182` 和 `186` 也存在上游与 dev-zz 的同号文件。按本分支既有合并口径，迁移以完整文件名为准并存；后续新增迁移时不要仅按数字判断是否可复用编号，也不得为消除视觉上的重复编号而改写已应用迁移。
+`158` 当前存在两个文件名不同的迁移：一个来自 dev-zz 调度证据字段，一个来自上游高峰倍率字段。`174`、`175`、`176`、`178`、`179`、`180`、`181`、`182`、`186`、`187`、`188`、`189` 和 `190` 也存在上游与 dev-zz 的同号文件。按本分支既有合并口径，迁移以完整文件名为准并存；后续新增迁移时不要仅按数字判断是否可复用编号，也不得为消除视觉上的重复编号而改写已应用迁移。
 
 `165` 是账本完整性迁移：它不会扫描已有 `usage_logs` 全表验证历史行，但会约束后续写入和父表物理删除行为。若需要验证历史 orphan 行，应在低峰期单独执行 `VALIDATE CONSTRAINT` 或只读审计查询。
 

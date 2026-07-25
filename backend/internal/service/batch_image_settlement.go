@@ -259,6 +259,7 @@ func buildBatchImageUsageLog(job *BatchImageJob, actualCost float64, requestID s
 		RequestType:           RequestTypeSync,
 		BillingMode:           &billingMode,
 		ImageSize:             &imageSize,
+		SessionID:             job.SessionID,
 		CreatedAt:             createdAt,
 	}
 }
