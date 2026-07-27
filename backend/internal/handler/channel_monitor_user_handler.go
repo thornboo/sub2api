@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -107,6 +108,11 @@ func formatOptionalTime(t *time.Time) *string {
 
 // ListModelStatus GET /api/v1/model-status
 func (h *ChannelMonitorUserHandler) ListModelStatus(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
 	if !h.featureEnabled(c) {
 		response.Success(c, gin.H{
 			"items":      []userModelStatusListItem{},
@@ -121,7 +127,7 @@ func (h *ChannelMonitorUserHandler) ListModelStatus(c *gin.Context) {
 		})
 		return
 	}
-	views, err := h.modelStatusService.ListUserModelStatus(c.Request.Context())
+	views, err := h.modelStatusService.ListUserModelStatus(c.Request.Context(), subject.UserID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -138,6 +144,11 @@ func (h *ChannelMonitorUserHandler) ListModelStatus(c *gin.Context) {
 
 // GetModelStatus GET /api/v1/model-status/detail?group_id=...&model=...
 func (h *ChannelMonitorUserHandler) GetModelStatus(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
 	if !h.featureEnabled(c) {
 		response.ErrorFrom(c, service.ErrChannelMonitorNotFound)
 		return
@@ -152,7 +163,7 @@ func (h *ChannelMonitorUserHandler) GetModelStatus(c *gin.Context) {
 		response.BadRequest(c, "invalid group_id")
 		return
 	}
-	detail, err := h.modelStatusService.GetUserModelStatus(c.Request.Context(), groupID, model)
+	detail, err := h.modelStatusService.GetUserModelStatus(c.Request.Context(), subject.UserID, groupID, model)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

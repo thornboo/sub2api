@@ -181,7 +181,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	announcementService := service.NewAnnouncementService(announcementRepository, announcementReadRepository, userRepository, userSubscriptionRepository)
 	announcementHandler := handler.NewAnnouncementHandler(announcementService)
 	modelSelfCheckRepository := repository.NewModelSelfCheckRepository(db)
-	modelSelfCheckService := service.ProvideModelSelfCheckService(modelSelfCheckRepository, accountRepository, gatewayService, openAIGatewayService, geminiMessagesCompatService, antigravityGatewayService)
+	modelSelfCheckService := service.ProvideModelSelfCheckService(modelSelfCheckRepository, accountRepository, apiKeyService, gatewayService, openAIGatewayService, geminiMessagesCompatService, antigravityGatewayService)
 	channelMonitorUserHandler := handler.NewChannelMonitorUserHandler(modelSelfCheckService, settingService)
 	dashboardAggregationRepository := repository.NewDashboardAggregationRepository(db)
 	dashboardStatsCache := repository.NewDashboardCache(redisClient, configConfig)

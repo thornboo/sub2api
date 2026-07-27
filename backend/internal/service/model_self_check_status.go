@@ -49,6 +49,10 @@ type ModelSelfCheckAccountRepository interface {
 	GetByIDs(ctx context.Context, ids []int64) ([]*Account, error)
 }
 
+type ModelSelfCheckUserGroupProvider interface {
+	GetAvailableGroups(ctx context.Context, userID int64) ([]Group, error)
+}
+
 type ModelSelfCheckTarget struct {
 	GroupID       int64
 	GroupName     string
@@ -135,10 +139,11 @@ type UserModelTimelinePoint struct {
 }
 
 type ModelSelfCheckService struct {
-	repo          ModelSelfCheckRepository
-	accountRepo   ModelSelfCheckAccountRepository
-	probeExecutor ModelSelfCheckProbeExecutor
-	now           func() time.Time
+	repo              ModelSelfCheckRepository
+	accountRepo       ModelSelfCheckAccountRepository
+	userGroupProvider ModelSelfCheckUserGroupProvider
+	probeExecutor     ModelSelfCheckProbeExecutor
+	now               func() time.Time
 }
 
 func NewModelSelfCheckService(repo ModelSelfCheckRepository) *ModelSelfCheckService {
@@ -154,6 +159,13 @@ func (s *ModelSelfCheckService) SetProbeDependencies(accountRepo ModelSelfCheckA
 	}
 	s.accountRepo = accountRepo
 	s.probeExecutor = executor
+}
+
+func (s *ModelSelfCheckService) SetUserGroupProvider(provider ModelSelfCheckUserGroupProvider) {
+	if s == nil {
+		return
+	}
+	s.userGroupProvider = provider
 }
 
 func (s *ModelSelfCheckService) RecordHistory(ctx context.Context, history *ModelSelfCheckHistory) error {
@@ -248,10 +260,11 @@ type modelSelfCheckAvailabilityAggregate struct {
 	DegradedRatio *float64
 }
 
-// ListUserModelStatus returns a global, user-safe model status list. This is a
-// site-level public health surface; it is not filtered per current user.
-func (s *ModelSelfCheckService) ListUserModelStatus(ctx context.Context) ([]*UserModelStatusView, error) {
-	data, err := s.loadStatusData(ctx)
+// ListUserModelStatus returns model status only for groups the current user can
+// access. Group visibility follows the same public/exclusive/subscription rules
+// as API key group binding and the user-facing available-channel catalog.
+func (s *ModelSelfCheckService) ListUserModelStatus(ctx context.Context, userID int64) ([]*UserModelStatusView, error) {
+	data, err := s.loadUserStatusData(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -266,15 +279,15 @@ func (s *ModelSelfCheckService) ListUserModelStatus(ctx context.Context) ([]*Use
 	return out, nil
 }
 
-// GetUserModelStatus returns public status detail for a single (group, model).
-// groupID may be 0 for compatibility; in that case the first matching model is
-// returned after the normal sorted target order.
-func (s *ModelSelfCheckService) GetUserModelStatus(ctx context.Context, groupID int64, model string) (*UserModelStatusDetail, error) {
+// GetUserModelStatus returns public status detail for a single visible
+// (group, model). groupID may be 0 for compatibility; in that case the first
+// matching model in the current user's visible groups is returned.
+func (s *ModelSelfCheckService) GetUserModelStatus(ctx context.Context, userID, groupID int64, model string) (*UserModelStatusDetail, error) {
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return nil, ErrChannelMonitorNotFound
 	}
-	data, err := s.loadStatusData(ctx)
+	data, err := s.loadUserStatusData(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -298,19 +311,40 @@ func (s *ModelSelfCheckService) GetUserModelStatus(ctx context.Context, groupID 
 	return &UserModelStatusDetail{UserModelStatusView: *view}, nil
 }
 
-func (s *ModelSelfCheckService) loadStatusData(ctx context.Context) (*modelSelfCheckStatusData, error) {
-	return s.loadStatusDataWithHistory(ctx, true)
+func (s *ModelSelfCheckService) loadUserStatusData(ctx context.Context, userID int64) (*modelSelfCheckStatusData, error) {
+	if userID <= 0 {
+		return nil, fmt.Errorf("list user model status: invalid user id")
+	}
+	if s == nil || s.userGroupProvider == nil {
+		return nil, fmt.Errorf("list user model status: user group provider is not configured")
+	}
+	groups, err := s.userGroupProvider.GetAvailableGroups(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list user model status groups: %w", err)
+	}
+	allowedGroupIDs := make(map[int64]struct{}, len(groups))
+	for i := range groups {
+		allowedGroupIDs[groups[i].ID] = struct{}{}
+	}
+	return s.loadStatusDataWithHistory(ctx, true, allowedGroupIDs)
 }
 
 func (s *ModelSelfCheckService) loadStatusSnapshotData(ctx context.Context) (*modelSelfCheckStatusData, error) {
-	return s.loadStatusDataWithHistory(ctx, false)
+	return s.loadStatusDataWithHistory(ctx, false, nil)
 }
 
-func (s *ModelSelfCheckService) loadStatusDataWithHistory(ctx context.Context, includeHistory bool) (*modelSelfCheckStatusData, error) {
+func (s *ModelSelfCheckService) loadStatusDataWithHistory(
+	ctx context.Context,
+	includeHistory bool,
+	allowedGroupIDs map[int64]struct{},
+) (*modelSelfCheckStatusData, error) {
 	now := s.now().UTC()
 	targets, err := s.repo.ListStatusTargets(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list model self check targets: %w", err)
+	}
+	if allowedGroupIDs != nil {
+		targets = filterSelfCheckTargetsByGroupIDs(targets, allowedGroupIDs)
 	}
 	sortSelfCheckTargets(targets)
 	data := &modelSelfCheckStatusData{
@@ -374,6 +408,19 @@ func (s *ModelSelfCheckService) loadStatusDataWithHistory(ctx context.Context, i
 		data.historyByModel[row.Model][row.AccountID] = append(data.historyByModel[row.Model][row.AccountID], row)
 	}
 	return data, nil
+}
+
+func filterSelfCheckTargetsByGroupIDs(
+	targets []ModelSelfCheckTarget,
+	allowedGroupIDs map[int64]struct{},
+) []ModelSelfCheckTarget {
+	filtered := make([]ModelSelfCheckTarget, 0, len(targets))
+	for _, target := range targets {
+		if _, ok := allowedGroupIDs[target.GroupID]; ok {
+			filtered = append(filtered, target)
+		}
+	}
+	return filtered
 }
 
 func (s *ModelSelfCheckService) buildStatusView(

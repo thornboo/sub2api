@@ -946,12 +946,14 @@ func ProvideChannelMonitorRunner(svc *ChannelMonitorService, settingService *Set
 func ProvideModelSelfCheckService(
 	repo ModelSelfCheckRepository,
 	accountRepo AccountRepository,
+	apiKeyService *APIKeyService,
 	gatewayService *GatewayService,
 	openAIGatewayService *OpenAIGatewayService,
 	geminiCompatService *GeminiMessagesCompatService,
 	antigravityGatewayService *AntigravityGatewayService,
 ) *ModelSelfCheckService {
 	svc := NewModelSelfCheckService(repo)
+	svc.SetUserGroupProvider(apiKeyService)
 	svc.SetProbeDependencies(accountRepo, NewGatewayModelSelfCheckProbeExecutor(
 		gatewayService,
 		openAIGatewayService,

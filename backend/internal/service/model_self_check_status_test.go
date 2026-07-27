@@ -216,6 +216,29 @@ func (s *modelSelfCheckProbeExecutorStub) Probe(ctx context.Context, account *Ac
 	return s.result
 }
 
+type modelSelfCheckUserGroupProviderStub struct {
+	groups     []Group
+	err        error
+	lastUserID int64
+}
+
+func (s *modelSelfCheckUserGroupProviderStub) GetAvailableGroups(_ context.Context, userID int64) ([]Group, error) {
+	s.lastUserID = userID
+	return append([]Group(nil), s.groups...), s.err
+}
+
+const modelSelfCheckTestUserID int64 = 42
+
+func setModelSelfCheckVisibleGroups(svc *ModelSelfCheckService, groupIDs ...int64) *modelSelfCheckUserGroupProviderStub {
+	groups := make([]Group, 0, len(groupIDs))
+	for _, groupID := range groupIDs {
+		groups = append(groups, Group{ID: groupID})
+	}
+	provider := &modelSelfCheckUserGroupProviderStub{groups: groups}
+	svc.SetUserGroupProvider(provider)
+	return provider
+}
+
 func TestListUserModelStatusAggregatesSelfCheckByGroupModel(t *testing.T) {
 	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
 	repo := &modelSelfCheckRepoStub{
@@ -243,9 +266,10 @@ func TestListUserModelStatusAggregatesSelfCheckByGroupModel(t *testing.T) {
 		},
 	}
 	svc := NewModelSelfCheckService(repo)
+	setModelSelfCheckVisibleGroups(svc, 10)
 	svc.now = func() time.Time { return now }
 
-	rows, err := svc.ListUserModelStatus(context.Background())
+	rows, err := svc.ListUserModelStatus(context.Background(), modelSelfCheckTestUserID)
 	if err != nil {
 		t.Fatalf("ListUserModelStatus() error = %v", err)
 	}
@@ -265,6 +289,67 @@ func TestListUserModelStatusAggregatesSelfCheckByGroupModel(t *testing.T) {
 	}
 	assertFloatNear(t, row.Availability24h, 66.6666667)
 	assertFloatNear(t, row.DegradedRatio24h, 33.3333333)
+}
+
+func TestListUserModelStatusFiltersTargetsByCurrentUserGroups(t *testing.T) {
+	repo := &modelSelfCheckRepoStub{
+		targets: []ModelSelfCheckTarget{
+			{GroupID: 10, GroupName: "Public", GroupPlatform: PlatformOpenAI, Model: "gpt-4o"},
+			{GroupID: 20, GroupName: "Exclusive", GroupPlatform: PlatformOpenAI, Model: "private-model"},
+			{GroupID: 30, GroupName: "Subscription", GroupPlatform: PlatformOpenAI, Model: "subscription-model"},
+		},
+	}
+	svc := NewModelSelfCheckService(repo)
+	provider := setModelSelfCheckVisibleGroups(svc, 10)
+
+	rows, err := svc.ListUserModelStatus(context.Background(), modelSelfCheckTestUserID)
+	if err != nil {
+		t.Fatalf("ListUserModelStatus() error = %v", err)
+	}
+	if provider.lastUserID != modelSelfCheckTestUserID {
+		t.Fatalf("group provider user id = %d, want %d", provider.lastUserID, modelSelfCheckTestUserID)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %#v, want only the current user's visible group", rows)
+	}
+	if rows[0].GroupID != 10 || rows[0].Model != "gpt-4o" {
+		t.Fatalf("row = %#v, want public group 10 model gpt-4o", rows[0])
+	}
+}
+
+func TestListUserModelStatusFailsClosedWhenGroupLookupFails(t *testing.T) {
+	repo := &modelSelfCheckRepoStub{
+		targets: []ModelSelfCheckTarget{
+			{GroupID: 20, GroupName: "Exclusive", GroupPlatform: PlatformOpenAI, Model: "private-model"},
+		},
+	}
+	groupLookupErr := errors.New("group lookup failed")
+	svc := NewModelSelfCheckService(repo)
+	svc.SetUserGroupProvider(&modelSelfCheckUserGroupProviderStub{err: groupLookupErr})
+
+	rows, err := svc.ListUserModelStatus(context.Background(), modelSelfCheckTestUserID)
+	if !errors.Is(err, groupLookupErr) {
+		t.Fatalf("ListUserModelStatus() error = %v, want group lookup failure", err)
+	}
+	if rows != nil {
+		t.Fatalf("rows = %#v, want nil on authorization lookup failure", rows)
+	}
+}
+
+func TestGetUserModelStatusRejectsGroupOutsideCurrentUserScope(t *testing.T) {
+	repo := &modelSelfCheckRepoStub{
+		targets: []ModelSelfCheckTarget{
+			{GroupID: 10, GroupName: "Public", GroupPlatform: PlatformOpenAI, Model: "gpt-4o"},
+			{GroupID: 20, GroupName: "Exclusive", GroupPlatform: PlatformOpenAI, Model: "private-model"},
+		},
+	}
+	svc := NewModelSelfCheckService(repo)
+	setModelSelfCheckVisibleGroups(svc, 10)
+
+	_, err := svc.GetUserModelStatus(context.Background(), modelSelfCheckTestUserID, 20, "private-model")
+	if !errors.Is(err, ErrChannelMonitorNotFound) {
+		t.Fatalf("GetUserModelStatus() error = %v, want ErrChannelMonitorNotFound", err)
+	}
 }
 
 func TestListUserModelStatusIncludesRecentTimeline(t *testing.T) {
@@ -288,9 +373,10 @@ func TestListUserModelStatusIncludesRecentTimeline(t *testing.T) {
 		},
 	}
 	svc := NewModelSelfCheckService(repo)
+	setModelSelfCheckVisibleGroups(svc, 10)
 	svc.now = func() time.Time { return now }
 
-	rows, err := svc.ListUserModelStatus(context.Background())
+	rows, err := svc.ListUserModelStatus(context.Background(), modelSelfCheckTestUserID)
 	if err != nil {
 		t.Fatalf("ListUserModelStatus() error = %v", err)
 	}
@@ -316,9 +402,10 @@ func TestListUserModelStatusMarksUnknownWhenLatestIsStale(t *testing.T) {
 		},
 	}
 	svc := NewModelSelfCheckService(repo)
+	setModelSelfCheckVisibleGroups(svc, 10)
 	svc.now = func() time.Time { return now }
 
-	rows, err := svc.ListUserModelStatus(context.Background())
+	rows, err := svc.ListUserModelStatus(context.Background(), modelSelfCheckTestUserID)
 	if err != nil {
 		t.Fatalf("ListUserModelStatus() error = %v", err)
 	}
@@ -340,9 +427,10 @@ func TestListUserModelStatusMarksFailedWhenNoAccountCanServeGroup(t *testing.T) 
 		targets: []ModelSelfCheckTarget{{GroupID: 10, GroupName: "Pro", GroupPlatform: "openai", Model: "gpt-4o"}},
 	}
 	svc := NewModelSelfCheckService(repo)
+	setModelSelfCheckVisibleGroups(svc, 10)
 	svc.now = func() time.Time { return now }
 
-	rows, err := svc.ListUserModelStatus(context.Background())
+	rows, err := svc.ListUserModelStatus(context.Background(), modelSelfCheckTestUserID)
 	if err != nil {
 		t.Fatalf("ListUserModelStatus() error = %v", err)
 	}
@@ -376,9 +464,10 @@ func TestGetUserModelStatusKeepsSameModelSeparatedByGroup(t *testing.T) {
 		},
 	}
 	svc := NewModelSelfCheckService(repo)
+	setModelSelfCheckVisibleGroups(svc, 10, 20)
 	svc.now = func() time.Time { return now }
 
-	detail, err := svc.GetUserModelStatus(context.Background(), 20, "gpt-4o")
+	detail, err := svc.GetUserModelStatus(context.Background(), modelSelfCheckTestUserID, 20, "gpt-4o")
 	if err != nil {
 		t.Fatalf("GetUserModelStatus() error = %v", err)
 	}
@@ -443,9 +532,10 @@ func TestGetUserModelStatusUsesSnapshotsForTimelineAndDetailMetrics(t *testing.T
 		},
 	}
 	svc := NewModelSelfCheckService(repo)
+	setModelSelfCheckVisibleGroups(svc, 10)
 	svc.now = func() time.Time { return now }
 
-	detail, err := svc.GetUserModelStatus(context.Background(), 10, "gpt-4o")
+	detail, err := svc.GetUserModelStatus(context.Background(), modelSelfCheckTestUserID, 10, "gpt-4o")
 	if err != nil {
 		t.Fatalf("GetUserModelStatus() error = %v", err)
 	}
@@ -495,9 +585,10 @@ func TestGetUserModelStatusSupplementsShortSnapshotTimelineFromLegacyHistory(t *
 		},
 	}
 	svc := NewModelSelfCheckService(repo)
+	setModelSelfCheckVisibleGroups(svc, 10)
 	svc.now = func() time.Time { return now }
 
-	detail, err := svc.GetUserModelStatus(context.Background(), 10, "gpt-4o")
+	detail, err := svc.GetUserModelStatus(context.Background(), modelSelfCheckTestUserID, 10, "gpt-4o")
 	if err != nil {
 		t.Fatalf("GetUserModelStatus() error = %v", err)
 	}
