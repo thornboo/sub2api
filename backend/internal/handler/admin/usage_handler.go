@@ -111,6 +111,7 @@ func (h *UsageHandler) List(c *gin.Context) {
 	}
 
 	model := c.Query("model")
+	requestID := strings.TrimSpace(c.Query("request_id"))
 	billingMode := strings.TrimSpace(c.Query("billing_mode"))
 
 	var requestType *int16
@@ -188,6 +189,7 @@ func (h *UsageHandler) List(c *gin.Context) {
 		APIKeyID:          apiKeyID,
 		AccountID:         accountID,
 		GroupID:           groupID,
+		RequestID:         requestID,
 		Model:             model,
 		ModelFilterSource: usagestats.ModelSourceRequested,
 		RequestType:       requestType,

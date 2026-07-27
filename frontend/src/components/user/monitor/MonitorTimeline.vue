@@ -17,10 +17,10 @@
       <div
         v-for="(bar, idx) in displayBars"
         :key="idx"
-        class="timeline-bar relative flex h-full min-w-[3px] flex-1 items-end"
+        class="timeline-bar relative flex h-full min-w-0 flex-1 items-end"
       >
         <div
-          class="w-full rounded-sm"
+          class="min-w-[3px] w-full rounded-sm"
           :class="bar.colorClass"
           :style="{ height: bar.heightPct + '%' }"
           :aria-label="bar.title || undefined"

@@ -294,6 +294,7 @@ type UsageLogFilters struct {
 	// Admin and audit callers leave this false to retain historical visibility.
 	OwnerVisibleMembers bool
 	Model               string
+	RequestID           string
 	// ModelFilterSource controls how Model is matched. Empty preserves raw usage_logs.model semantics.
 	ModelFilterSource string
 	RequestType       *int16

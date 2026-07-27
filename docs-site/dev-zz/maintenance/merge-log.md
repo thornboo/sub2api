@@ -1,5 +1,66 @@
 # 上游合并记录
 
+## 2026-07-27 - 将上游 `main` 合并到 `dev-zz-develop`：设置局部更新、用量筛选、协议兼容与支付统计合流
+
+分支：
+
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`eb6e3d1f1`
+- 合并前目标：`d35a45d2c`
+- 上游 head：`95590b553`
+- 结果提交：本次合并提交
+
+上游要点：
+
+- 系统设置 PUT 只保留请求实际携带字段，避免局部表单把未提交设置写成零值；`CONFIG_FILE` 显式路径继续优先生效。
+- 管理员用量记录支持按 `request_id` 精确筛选，并补充 mapped/final upstream model 统计修正。
+- OpenAI Responses 与 Anthropic 兼容层吸收 reasoning、tool output、prompt cache 和 Claude Code 伪装流量识别修复；跨账号 failover 会移除不适合目标账号的外部 reasoning。
+- 支付统计按币种分组，后台支付看板、图表和排行榜增加币种维度；渠道定价补充 Antigravity Gemini 3.6 Flash。
+- 用户模型状态时间线在窄卡片下不再横向溢出。
+
+合并策略：
+
+- 合并前读取 `docs-site/dev-zz` 分支策略、上游合并流程、补丁记录、历史合并记录、变更记录、变更地图和验证矩阵；在 `dev-zz-develop@d35a45d2c` 上继续未完成的 `origin/main` 合并。
+- 接受上游设置局部更新、用量 `request_id` 筛选、Responses / Anthropic 正确性、CONFIG_FILE、支付统计和监控时间线修复。
+- 继续保留 dev-zz 的 OpenAI Fast/Flex 策略原子保存、企业成员使用记录可见性、模型多协议调度、stone / neutral / emerald 视觉和账号行操作密度调整。
+
+冲突文件：
+
+- `backend/go.sum`
+- `backend/internal/handler/admin/setting_handler_update.go`
+- `backend/internal/handler/openai_gateway_handler.go`
+- `backend/internal/pkg/apicompat/types.go`
+- `backend/internal/pkg/usagestats/usage_log_types.go`
+- `backend/internal/repository/usage_log_repo_query.go`
+- `backend/internal/service/setting_update.go`
+- `frontend/src/components/user/monitor/MonitorTimeline.vue`
+
+解决说明：
+
+- `SettingService` 新增合并后的 `UpdateSettingsWithAuthSourceDefaultsAndOpenAIFastPolicyOmitting`，让局部 payload 的 omitted keys 与 OpenAI Fast/Flex 策略校验、序列化和单次 repository 写入并存；缓存刷新在局部更新后回读存储值。
+- 管理员设置 handler 改为调用带 omitted keys 的 Fast/Flex 方法，保留策略变更审计和支付配置后续处理。
+- usage filters 同时保留企业成员 `MemberID` / `MemberScope` / owner visible member 边界和上游 `RequestID` 精确筛选；SQL where 先追加成员可见性约束，再追加 `request_id` 条件。
+- Responses handler 的协议选择与上游 passthrough failover body 派生合流，使用每次尝试派生后的 `attemptBody` 进入 `ForwardWithSelectedProtocol`。
+- `apicompat` 类型同时保留 dev-zz 的 Responses tool 大小限制 / raw definition 比较和上游 function_call_output JSON / string 兼容解析。
+- 监控时间线保留 dev-zz 自定义 tooltip、i18n 和无障碍语义，同时把外层条目改为 `min-w-0`，内层柱体保留最小可见宽度，避免窄卡片撑宽。
+
+验证：
+
+- `corepack pnpm@11.17.0 --dir frontend install --frozen-lockfile` 通过，确认 GitHub Actions pnpm 版本修正后不再触发 lockfile overrides mismatch。
+- 后端冲突相关包定向测试通过：`mise x -C backend -- go test ./internal/handler/admin ./internal/repository ./internal/service ./internal/pkg/apicompat ./internal/config -run 'Test(Settings|OpenAIFastPolicy|Usage|Payment|Responses|Anthropic|Reasoning|Probe|RequestType|Partial|Composite|Pricing|ConfigFile|FinalUpstream|Mapped)' -count=1`。
+- 后端主要包测试通过：`mise x -C backend -- go test ./internal/handler ./internal/repository ./internal/service ./internal/pkg/apicompat ./internal/config -count=1`。
+- 后端 unit 全包通过：`mise x -C backend -- go test -tags=unit ./... -count=1`。
+- `mise x -C backend -- golangci-lint run ./...` 返回 `0 issues`。
+- 前端 `pnpm --dir frontend typecheck`、`pnpm --dir frontend lint:check`、支付相关定向 Vitest 和 `pnpm --dir frontend build` 通过。
+- docs-site `pnpm --dir docs-site docs:build` 通过；仅出现既有大 chunk 警告。
+- `git diff --check`、`git diff --cached --check` 和冲突路径检查通过；未发现剩余 unmerged path。
+
+未验证：
+
+- 浏览器人工 smoke。
+- Docker / Testcontainers 运行时集成测试。
+
 ## 2026-07-27 - 将上游 `main` 合并到 `dev-zz-develop`：WebSocket 轮次计费、审计配置与管理端筛选正确性合流
 
 分支：

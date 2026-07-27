@@ -1,5 +1,32 @@
 # 补丁记录
 
+## 2026-07-27 - 上游 main 同步：设置局部更新、协议兼容与支付统计
+
+### 目标
+
+- 将 `origin/main@95590b553` 合入 `dev-zz-develop`，吸收设置局部更新保护、显式 `CONFIG_FILE`、管理员用量 `request_id` 筛选、Responses / Anthropic 兼容修复、支付统计分币种和监控时间线窄卡片修复。
+- 保持 dev-zz OpenAI Fast/Flex 策略原子保存、企业成员可见性边界、模型协议能力选择、stone / neutral / emerald 视觉和账号行操作密度调整。
+
+### 主要变化
+
+- 设置保存合并为“omitted keys + auth source defaults + OpenAI Fast/Flex policy”单次写入；局部 payload 不再把未提交字段写成零值，策略变更仍会先校验、规范化并写审计。
+- 管理员用量查询新增 `request_id` 精确筛选，同时继续执行企业成员 `MemberID` / `MemberScope` / owner visible member 约束；mapped model 与最终上游模型统计沿用上游修复。
+- Responses / Anthropic 兼容层接入 function_call_output 的 JSON / string 双形态解析、tool / prompt cache 修复和跨账号 failover 的 reasoning 清理；OpenAI Responses 转发继续通过协议能力选择器决定上游协议。
+- 支付统计接口与后台图表按币种分组展示收入、支付方式和用户排行；监控时间线在保留自定义 tooltip 的同时吸收 `min-w-0` 溢出修复。
+
+### 数据与兼容性
+
+- 本轮没有新增数据库迁移。
+- 依赖更新来自上游 `go.mod` / `go.sum`；版本线不在本轮提升。
+- 局部设置 payload 的 omitted keys 只表示“不修改”，显式传入的 false、0 或空集合仍按原设置语义保存。
+
+### 验证
+
+- pnpm 11.17.0 frozen install、前端 typecheck、ESLint、支付相关定向 Vitest、生产构建和 docs-site 构建通过。
+- 后端冲突相关包定向测试、主要包测试、`go test -tags=unit ./... -count=1` 和 `golangci-lint run ./...` 通过。
+- `git diff --check`、`git diff --cached --check` 和冲突路径检查通过。
+- 浏览器人工 smoke 与 Docker / Testcontainers 运行时集成测试未执行。
+
 ## 2026-07-27 - 渠道映射与定价一致性及显示排序
 
 ### 问题
