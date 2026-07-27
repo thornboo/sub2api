@@ -22,8 +22,8 @@
 
 ### 验证
 
-- pnpm 11.17.0 frozen install、前端 typecheck、ESLint、支付相关定向 Vitest、生产构建和 docs-site 构建通过。
-- 后端冲突相关包定向测试、主要包测试、`go test -tags=unit ./... -count=1` 和 `golangci-lint run ./...` 通过。
+- pnpm 10.34.5 frozen install、前端 typecheck、ESLint、238 个测试文件 / 1574 条 Vitest、生产构建和 docs-site 构建通过；CI 保持 Node 20，并使用能够读取 workspace overrides 的 pnpm 10。
+- 后端冲突相关包定向测试、主要包测试、`go test -tags=unit ./... -count=1`、`go test ./... -count=1`、`go mod tidy -diff` 和 `golangci-lint run ./...` 通过。
 - `git diff --check`、`git diff --cached --check` 和冲突路径检查通过。
 - 浏览器人工 smoke 与 Docker / Testcontainers 运行时集成测试未执行。
 

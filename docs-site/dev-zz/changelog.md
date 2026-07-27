@@ -6,6 +6,7 @@
 - 设置保存继续保留 dev-zz OpenAI Fast/Flex 策略的原子校验、序列化和审计；局部 payload 没有携带的设置键不会被零值覆盖。用量筛选同时保留企业成员 owner 可见性边界和新增请求 ID 精确查询。
 - OpenAI Responses failover 同时保留模型协议能力选择和上游 reasoning 透传边界；跨账号切换前会基于当前账号派生请求体，避免不兼容 reasoning 形态污染后续账号。
 - 支付后台看板按币种展示收入、支付方式和用户排行；前端继续使用 dev-zz stone / neutral / emerald 视觉。用户模型状态时间线保留自定义 tooltip 与无障碍语义，同时在窄卡片中收敛宽度。
+- GitHub Actions 保持 Node 20，并统一固定到 pnpm 10.34.5：既兼容当前 `pnpm-workspace.yaml` overrides / lockfile，又避免 pnpm 11.17 对 Node 22.13 以上版本的运行时要求。
 - 管理员渠道编辑新增“模型映射 → 模型定价”覆盖核对：按计费基准区分请求模型和渠道映射后模型，展示已覆盖、缺失和额外定价。填写或修改映射不会自动生成定价；管理员确认映射后可逐条补定价，或显式点击“快速定价”补齐缺失项。开启“限制模型”时，漏配会在保存前阻止提交，未限制时只提示而不删除合法的独立定价。
 - 模型映射与模型定价均支持拖动调整显示顺序，也可按模型名称或映射顺序整理。定价 `sort_order` 明确为平台内展示顺序，只影响管理端展示，不改变通配符匹配优先级；新增迁移 `198_channel_pricing_display_order.sql` 持久化映射顺序和定价顺序，旧渠道按既有行 ID 与自然模型名获得确定顺序。
 - 同步上游 `main`（`eb6e3d1f1`）到 `dev-zz-develop`：补齐 OpenAI Responses WebSocket 逐 turn 模型、渠道映射、计费和调度证据，并吸收提示词审计配置可用性、Grok `402` 冷却、管理员用量筛选、注册返佣码与 Caddy SSE 修复。

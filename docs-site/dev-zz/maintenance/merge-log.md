@@ -47,12 +47,13 @@
 
 验证：
 
-- `corepack pnpm@11.17.0 --dir frontend install --frozen-lockfile` 通过，确认 GitHub Actions pnpm 版本修正后不再触发 lockfile overrides mismatch。
+- `CI=true corepack pnpm@10.34.5 --dir frontend install --frozen-lockfile` 通过；GitHub Actions 固定到兼容 Node 20 的 pnpm 10，既能读取 `pnpm-workspace.yaml` 中的 overrides，也不会触发 pnpm 11 对 Node `>=22.13` 的运行时要求。
 - 后端冲突相关包定向测试通过：`mise x -C backend -- go test ./internal/handler/admin ./internal/repository ./internal/service ./internal/pkg/apicompat ./internal/config -run 'Test(Settings|OpenAIFastPolicy|Usage|Payment|Responses|Anthropic|Reasoning|Probe|RequestType|Partial|Composite|Pricing|ConfigFile|FinalUpstream|Mapped)' -count=1`。
 - 后端主要包测试通过：`mise x -C backend -- go test ./internal/handler ./internal/repository ./internal/service ./internal/pkg/apicompat ./internal/config -count=1`。
 - 后端 unit 全包通过：`mise x -C backend -- go test -tags=unit ./... -count=1`。
+- 后端默认标签全包通过：`mise x -C backend -- go test ./... -count=1`；`go mod tidy -diff` 无依赖元数据漂移。
 - `mise x -C backend -- golangci-lint run ./...` 返回 `0 issues`。
-- 前端 `pnpm --dir frontend typecheck`、`pnpm --dir frontend lint:check`、支付相关定向 Vitest 和 `pnpm --dir frontend build` 通过。
+- 前端 `pnpm --dir frontend typecheck`、`pnpm --dir frontend lint:check`、238 个测试文件 / 1574 条 Vitest 和 `pnpm --dir frontend build` 通过。
 - docs-site `pnpm --dir docs-site docs:build` 通过；仅出现既有大 chunk 警告。
 - `git diff --check`、`git diff --cached --check` 和冲突路径检查通过；未发现剩余 unmerged path。
 

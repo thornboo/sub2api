@@ -7,9 +7,9 @@
 | 项 | 当前约定 |
 | --- | --- |
 | Go | `backend/go.mod` 声明 `go 1.26.5`，CI 会校验 `go1.26.5` |
-| 前端构建 Node | GitHub Actions 仍使用 `node-version: '20'` |
+| 前端构建 Node | GitHub Actions 使用 `node-version: '20'` |
 | GitHub JavaScript actions runtime | CI 设置 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`，用于验证 actions runtime 兼容性 |
-| pnpm | 前端和 docs-site 独立 lockfile，CI 前端使用 pnpm 9 |
+| pnpm | 前端和 docs-site 独立 lockfile，CI 前端使用 pnpm 10.34.5 |
 | docs-site | VitePress 1.x，命令见 `docs-site/package.json` |
 
 Node 24 runtime 变量只验证 GitHub action 执行环境，不等价于项目构建 Node 升级。升级前端构建 Node 前，需要单独验证依赖兼容。
