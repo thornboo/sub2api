@@ -283,12 +283,59 @@ func (e *gatewayModelSelfCheckProbeExecutor) probeOpenAI(ctx context.Context, ac
 		return 0, 0, modelSelfCheckTokenUsage{}, err
 	}
 	c, recorder := newModelSelfCheckGinContext(ctx, "/v1/chat/completions", body)
-	result, err := e.openAIGatewayService.ForwardAsChatCompletions(ctx, c, account, body, "", "")
+	selectedProtocol := e.openAISelfCheckUpstreamProtocol(ctx, account, model)
+	result, err := e.openAIGatewayService.ForwardAsChatCompletionsWithSelectedProtocol(
+		ctx,
+		c,
+		account,
+		body,
+		"",
+		"",
+		selectedProtocol,
+	)
 	usage := parseModelSelfCheckTokenUsage(recorder)
 	if result != nil && result.Duration > 0 {
 		return modelSelfCheckHTTPStatus(c, recorder, err), result.Duration, usage, modelSelfCheckProbeError(c, err)
 	}
 	return modelSelfCheckHTTPStatus(c, recorder, err), 0, usage, modelSelfCheckProbeError(c, err)
+}
+
+// openAISelfCheckUpstreamProtocol keeps the health probe on the same canonical
+// model-level Chat/Responses decision as live traffic. An empty result retains
+// the historical account-derived path when the capability system is disabled
+// or unavailable.
+func (e *gatewayModelSelfCheckProbeExecutor) openAISelfCheckUpstreamProtocol(
+	ctx context.Context,
+	account *Account,
+	model string,
+) ModelProtocol {
+	if e == nil || e.openAIGatewayService == nil || e.openAIGatewayService.modelProtocolCapability == nil {
+		return ""
+	}
+	var routingSettings NativeModelProtocolRoutingSettingReader
+	if e.openAIGatewayService.settingService != nil {
+		routingSettings = e.openAIGatewayService.settingService
+	}
+	if !nativeModelProtocolRoutingEnabled(ctx, routingSettings, e.openAIGatewayService.cfg) {
+		return ""
+	}
+	capabilities, err := e.openAIGatewayService.modelProtocolCapability.List(ctx, account.ID)
+	if err != nil {
+		return ""
+	}
+	decision := EvaluateModelDeliveryCandidate(ModelDeliveryCandidateInput{
+		Account:              account,
+		PublicModel:          model,
+		ChannelMappedModel:   model,
+		GroupPlatform:        account.Platform,
+		InboundProtocol:      ModelProtocolOpenAIChat,
+		NativeRoutingEnabled: true,
+		Capabilities:         capabilities,
+	})
+	if !decision.Eligible {
+		return ""
+	}
+	return decision.UpstreamProtocol
 }
 
 func (e *gatewayModelSelfCheckProbeExecutor) probeGemini(ctx context.Context, account *Account, model string) (int, time.Duration, modelSelfCheckTokenUsage, error) {

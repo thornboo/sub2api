@@ -117,6 +117,54 @@ func TestGatewayModelSelfCheckProbeExecutorOpenAIForwardPath(t *testing.T) {
 	}
 }
 
+func TestGatewayModelSelfCheckProbeExecutorOpenAIAutoUsesModelCapabilityDecision(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl_self_check","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`,
+		)),
+	}}
+	account := modelSelfCheckOpenAITestAccount()
+	account.Extra = map[string]any{
+		openai_compat.ExtraKeyResponsesMode:      string(openai_compat.ResponsesSupportModeAuto),
+		openai_compat.ExtraKeyResponsesSupported: true,
+	}
+	capabilityRepo := &modelProtocolCapabilityRepoStub{itemsByAccount: map[int64][]AccountModelProtocolCapability{
+		account.ID: {
+			{
+				UpstreamModel:  "deepseek-v4-pro",
+				Protocol:       ModelProtocolOpenAIChat,
+				ObservedState:  ModelProtocolStateSupported,
+				ObservedSource: "upstream_model_list",
+			},
+			{
+				UpstreamModel:  "deepseek-v4-pro",
+				Protocol:       ModelProtocolOpenAIResponses,
+				ObservedState:  ModelProtocolStateUnsupported,
+				ObservedSource: "upstream_model_list",
+			},
+		},
+	}}
+	cfg := modelSelfCheckProbeTestConfig()
+	cfg.Gateway.NativeModelProtocolRoutingEnabled = true
+	executor := &gatewayModelSelfCheckProbeExecutor{
+		openAIGatewayService: &OpenAIGatewayService{
+			cfg:                     cfg,
+			httpUpstream:            upstream,
+			modelProtocolCapability: &ModelProtocolCapabilityService{repo: capabilityRepo},
+		},
+	}
+
+	result := executor.Probe(context.Background(), account, "deepseek-v4-pro")
+
+	require.Equal(t, MonitorStatusOperational, result.Status)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "http://upstream.example/v1/chat/completions", upstream.lastReq.URL.String())
+	require.Equal(t, "deepseek-v4-pro", gjson.GetBytes(upstream.lastBody, "model").String())
+}
+
 func TestParseModelSelfCheckTokenUsageBody(t *testing.T) {
 	tests := []struct {
 		name       string

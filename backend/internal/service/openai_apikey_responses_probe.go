@@ -96,12 +96,12 @@ func selectResponsesProbeModel(account *Account) string {
 // 调用时机：账号创建/更新后，且仅当 platform=openai && type=apikey 时。
 //
 // 探测策略（参见包文档 internal/pkg/openai_compat）：
-//   - 上游 404 / 405 → 端点不存在,写 false
+//   - 上游 404 / 405 / 501 → 端点不存在或未实现,写 false
 //   - 上游 2xx → 端点存在,进一步看工具能力:响应含 function_call 输出项才写 true;
 //     仅 reasoning / 无 function_call(如火山方舟 coding/v3 × kimi-k2.6)写 false
-//   - 其他非 2xx（401/422/400/5xx 等）→ 端点存在但无法判定工具能力,保守写 true
+//   - 其他非 2xx（401/422/400/5xx 等）→ 无法证明端点与工具能力,写 null
+//     表示 unknown，绝不把鉴权、参数或瞬时故障误报成支持
 //   - 网络层失败（连接错误、超时）→ 不写标记，保持 unknown
-//     （后续请求仍按"现状即证据"默认走 Responses）
 //
 // 该方法是幂等的：重复调用会以最新探测结果覆盖标记。
 //
@@ -175,18 +175,27 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Conte
 		return
 	}
 
-	supported := decideResponsesProbeSupport(resp.StatusCode, bodyBytes)
+	support := decideResponsesProbeSupport(resp.StatusCode, bodyBytes)
+	var persistedSupport any
+	switch support {
+	case openai_compat.ResponsesSupportYes:
+		persistedSupport = true
+	case openai_compat.ResponsesSupportNo:
+		persistedSupport = false
+	default:
+		persistedSupport = nil
+	}
 
 	if err := s.accountRepo.UpdateExtra(ctx, accountID, map[string]any{
-		openai_compat.ExtraKeyResponsesSupported: supported,
+		openai_compat.ExtraKeyResponsesSupported: persistedSupport,
 	}); err != nil {
-		logger.LegacyPrintf("service.openai_probe", "probe_persist_failed: account_id=%d supported=%v err=%v", accountID, supported, err)
+		logger.LegacyPrintf("service.openai_probe", "probe_persist_failed: account_id=%d support=%d err=%v", accountID, support, err)
 		return
 	}
 
 	logger.LegacyPrintf("service.openai_probe",
-		"probe_done: account_id=%d base_url=%s probe_model=%s status=%d supported=%v",
-		accountID, normalizedBaseURL, probeModel, resp.StatusCode, supported,
+		"probe_done: account_id=%d base_url=%s probe_model=%s status=%d support=%d",
+		accountID, normalizedBaseURL, probeModel, resp.StatusCode, support,
 	)
 }
 
@@ -197,12 +206,13 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Conte
 // 或 405；而 OpenAI 官方/有 Responses 实现的上游会因为请求体最简（缺字段）
 // 返回 400/422 等业务错误，但端点本身存在。
 //
-// 因此：仅 404 和 405 视为"端点不存在"，其他 status 视为"端点存在"。
+// 因此：404、405 和 501 视为"端点不存在或未实现"，其他 status 不能仅凭
+// 状态码断言端点存在。
 //
-// 5xx 也视为"端点存在"——上游偶发故障不应误判为不支持。
+// 该函数用于请求期的明确端点缺失回落；普通 5xx 仍交给故障切换处理。
 func isResponsesEndpointSupportedByStatus(status int) bool {
 	switch status {
-	case http.StatusNotFound, http.StatusMethodNotAllowed:
+	case http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusNotImplemented:
 		return false
 	}
 	return true
@@ -211,20 +221,23 @@ func isResponsesEndpointSupportedByStatus(status int) bool {
 // decideResponsesProbeSupport 依据探测响应判定上游 /v1/responses 是否真正可用于
 // 携带工具的请求。
 //
-//   - 404 / 405：端点不存在 → false
-//   - 其他非 2xx（401/403/422/5xx 等）：端点存在,但本次无法判定工具能力
-//     （鉴权/校验/瞬时故障）→ 保守按 true,保持既有"端点存在即支持"行为
+//   - 404 / 405 / 501：端点不存在或未实现 → unsupported
+//   - 其他非 2xx（401/403/422/5xx 等）：鉴权、校验或瞬时故障既不能证明
+//     支持，也不能证明不支持 → unknown
 //   - 2xx：探测以 tool_choice=required 强制工具调用,响应必须含 function_call
 //     输出项才算真正可用;否则(如火山方舟 coding/v3 × kimi-k2.6 仅回 reasoning)
-//     判为 false,使网关改走 /v1/chat/completions 直转路径。
-func decideResponsesProbeSupport(status int, body []byte) bool {
-	if status == http.StatusNotFound || status == http.StatusMethodNotAllowed {
-		return false
+//     判为 unsupported,使网关改走 /v1/chat/completions 直转路径。
+func decideResponsesProbeSupport(status int, body []byte) openai_compat.AccountResponsesSupport {
+	if status == http.StatusNotFound || status == http.StatusMethodNotAllowed || status == http.StatusNotImplemented {
+		return openai_compat.ResponsesSupportNo
 	}
 	if status < 200 || status >= 300 {
-		return true
+		return openai_compat.ResponsesSupportUnknown
 	}
-	return responsesProbeBodyHasFunctionCall(body)
+	if responsesProbeBodyHasFunctionCall(body) {
+		return openai_compat.ResponsesSupportYes
+	}
+	return openai_compat.ResponsesSupportNo
 }
 
 // responsesProbeBodyHasFunctionCall 判断非流式 Responses 响应体的 output 数组里

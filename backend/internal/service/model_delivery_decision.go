@@ -89,16 +89,14 @@ func EvaluateModelDeliveryCandidate(input ModelDeliveryCandidateInput) ModelDeli
 		return blockModelDeliveryDecision(decision, ModelDeliveryReasonPlatformMismatch)
 	}
 
-	decision.UpstreamProtocol = openAISelectedUpstreamProtocol(account)
+	decision.UpstreamProtocol, decision.CapabilityState, decision.CapabilitySource = selectOpenAIUpstreamProtocolForModel(
+		account,
+		decision.UpstreamModel,
+		input.Capabilities,
+	)
 	if !accountSupportsOpenAITransport(account, decision.UpstreamProtocol) {
 		return blockModelDeliveryDecision(decision, ModelDeliveryReasonAccountTransportUnavailable)
 	}
-	decision.CapabilityState, decision.CapabilitySource = resolveCapabilityFromItems(
-		input.Capabilities,
-		decision.UpstreamModel,
-		decision.UpstreamProtocol,
-		accountIntrinsicProtocolSupport(account, decision.UpstreamProtocol),
-	)
 	if decision.CapabilityState != ModelProtocolStateSupported {
 		return blockForCapabilityState(decision)
 	}
@@ -143,16 +141,14 @@ func evaluateMessagesDeliveryCandidate(input ModelDeliveryCandidateInput, decisi
 	// Existing Messages compatibility chooses Chat or Responses using the same
 	// account route preference as the forwarding path. Unknown evidence keeps the
 	// legacy bridge available; only explicit unsupported evidence blocks it.
-	decision.UpstreamProtocol = openAISelectedUpstreamProtocol(account)
+	decision.UpstreamProtocol, decision.CapabilityState, decision.CapabilitySource = selectOpenAIUpstreamProtocolForModel(
+		account,
+		decision.UpstreamModel,
+		input.Capabilities,
+	)
 	if !accountSupportsOpenAITransport(account, decision.UpstreamProtocol) {
 		return blockModelDeliveryDecision(decision, ModelDeliveryReasonAccountTransportUnavailable)
 	}
-	decision.CapabilityState, decision.CapabilitySource = resolveCapabilityFromItems(
-		input.Capabilities,
-		decision.UpstreamModel,
-		decision.UpstreamProtocol,
-		accountIntrinsicProtocolSupport(account, decision.UpstreamProtocol),
-	)
 	if decision.CapabilityState == ModelProtocolStateUnsupported {
 		return blockModelDeliveryDecision(decision, ModelDeliveryReasonCapabilityUnsupported)
 	}
@@ -201,6 +197,53 @@ func openAISelectedUpstreamProtocol(account *Account) ModelProtocol {
 		return ModelProtocolOpenAIChat
 	}
 	return ModelProtocolOpenAIResponses
+}
+
+// selectOpenAIUpstreamProtocolForModel applies the account-level route
+// preference without letting an auto-detected, account-wide Responses flag
+// override stronger model-level capability evidence. Forced modes remain
+// authoritative. In auto mode, a supported alternate protocol wins when the
+// preferred protocol is unknown or explicitly unsupported.
+func selectOpenAIUpstreamProtocolForModel(
+	account *Account,
+	upstreamModel string,
+	capabilities []AccountModelProtocolCapability,
+) (ModelProtocol, ModelProtocolState, string) {
+	preferred := openAISelectedUpstreamProtocol(account)
+	preferredState, preferredSource := resolveCapabilityFromItems(
+		capabilities,
+		upstreamModel,
+		preferred,
+		accountIntrinsicProtocolSupport(account, preferred),
+	)
+	if account == nil || account.Type != AccountTypeAPIKey || openAIResponsesSupportMode(account) != openai_compat.ResponsesSupportModeAuto {
+		return preferred, preferredState, preferredSource
+	}
+
+	alternate := ModelProtocolOpenAIChat
+	if preferred == ModelProtocolOpenAIChat {
+		alternate = ModelProtocolOpenAIResponses
+	}
+	alternateState, alternateSource := resolveCapabilityFromItems(
+		capabilities,
+		upstreamModel,
+		alternate,
+		accountIntrinsicProtocolSupport(account, alternate),
+	)
+	if preferredState != ModelProtocolStateSupported &&
+		alternateState == ModelProtocolStateSupported &&
+		accountSupportsOpenAITransport(account, alternate) {
+		return alternate, alternateState, alternateSource
+	}
+	return preferred, preferredState, preferredSource
+}
+
+func openAIResponsesSupportMode(account *Account) openai_compat.ResponsesSupportMode {
+	if account == nil || account.Extra == nil {
+		return openai_compat.ResponsesSupportModeAuto
+	}
+	mode, _ := account.Extra[openai_compat.ExtraKeyResponsesMode].(string)
+	return openai_compat.NormalizeResponsesSupportMode(mode)
 }
 
 func accountSupportsOpenAITransport(account *Account, protocol ModelProtocol) bool {

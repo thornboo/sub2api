@@ -178,6 +178,104 @@ func TestModelProtocolCapabilitySyncCatalogKeepsEmptyEndpointTypesUnknown(t *tes
 	}
 }
 
+func TestEvaluateModelDeliveryCandidateAutoUsesSupportedChatWhenResponsesCapabilityIsUnsupported(t *testing.T) {
+	t.Parallel()
+	account := &Account{
+		ID:          9,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesMode:      string(openai_compat.ResponsesSupportModeAuto),
+			openai_compat.ExtraKeyResponsesSupported: true,
+		},
+	}
+	capabilities := []AccountModelProtocolCapability{
+		{
+			UpstreamModel:  "deepseek-v4-pro",
+			Protocol:       ModelProtocolOpenAIChat,
+			ObservedState:  ModelProtocolStateSupported,
+			ObservedSource: "upstream_model_list",
+		},
+		{
+			UpstreamModel:  "deepseek-v4-pro",
+			Protocol:       ModelProtocolOpenAIResponses,
+			ObservedState:  ModelProtocolStateUnsupported,
+			ObservedSource: "upstream_model_list",
+		},
+	}
+
+	chatDecision := EvaluateModelDeliveryCandidate(ModelDeliveryCandidateInput{
+		Account:              account,
+		PublicModel:          "deepseek-v4-pro",
+		ChannelMappedModel:   "deepseek-v4-pro",
+		GroupPlatform:        PlatformOpenAI,
+		InboundProtocol:      ModelProtocolOpenAIChat,
+		NativeRoutingEnabled: true,
+		Capabilities:         capabilities,
+	})
+	require.True(t, chatDecision.Eligible)
+	require.Equal(t, ModelProtocolOpenAIChat, chatDecision.UpstreamProtocol)
+	require.Equal(t, ModelDeliveryModeNative, chatDecision.Mode)
+	require.Equal(t, "upstream_model_list", chatDecision.CapabilitySource)
+
+	responsesDecision := EvaluateModelDeliveryCandidate(ModelDeliveryCandidateInput{
+		Account:              account,
+		PublicModel:          "deepseek-v4-pro",
+		ChannelMappedModel:   "deepseek-v4-pro",
+		GroupPlatform:        PlatformOpenAI,
+		InboundProtocol:      ModelProtocolOpenAIResponses,
+		NativeRoutingEnabled: true,
+		Capabilities:         capabilities,
+	})
+	require.True(t, responsesDecision.Eligible)
+	require.Equal(t, ModelProtocolOpenAIChat, responsesDecision.UpstreamProtocol)
+	require.Equal(t, ModelDeliveryModeCompatibility, responsesDecision.Mode)
+	require.Equal(t, "upstream_model_list", responsesDecision.CapabilitySource)
+}
+
+func TestEvaluateModelDeliveryCandidateForceResponsesDoesNotFallbackToChat(t *testing.T) {
+	t.Parallel()
+	account := &Account{
+		ID:          10,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceResponses),
+		},
+	}
+	decision := EvaluateModelDeliveryCandidate(ModelDeliveryCandidateInput{
+		Account:              account,
+		PublicModel:          "deepseek-v4-pro",
+		ChannelMappedModel:   "deepseek-v4-pro",
+		GroupPlatform:        PlatformOpenAI,
+		InboundProtocol:      ModelProtocolOpenAIChat,
+		NativeRoutingEnabled: true,
+		Capabilities: []AccountModelProtocolCapability{
+			{
+				UpstreamModel:  "deepseek-v4-pro",
+				Protocol:       ModelProtocolOpenAIChat,
+				ObservedState:  ModelProtocolStateSupported,
+				ObservedSource: "upstream_model_list",
+			},
+			{
+				UpstreamModel:  "deepseek-v4-pro",
+				Protocol:       ModelProtocolOpenAIResponses,
+				ObservedState:  ModelProtocolStateUnsupported,
+				ObservedSource: "upstream_model_list",
+			},
+		},
+	})
+
+	require.False(t, decision.Eligible)
+	require.Equal(t, ModelProtocolOpenAIResponses, decision.UpstreamProtocol)
+	require.Equal(t, ModelProtocolStateUnsupported, decision.CapabilityState)
+	require.Equal(t, []ModelDeliveryReasonCode{ModelDeliveryReasonCapabilityUnsupported}, decision.ReasonCodes)
+}
+
 func TestModelProtocolCapabilityUpdateOverridesRejectsComplexWildcard(t *testing.T) {
 	t.Parallel()
 	repo := &modelProtocolCapabilityRepoStub{}

@@ -257,7 +257,7 @@ DeliveryDecision =
 
 - `force_responses`：继续执行当前强制 Responses 路径。
 - `force_chat_completions`：继续执行当前强制 Chat 路径。
-- `auto`：继续根据账号探测结果选择 Chat 或 Responses。
+- `auto`：账号探测结果只给出初始偏好；最终上游模型若明确不支持或尚未证明该协议、但另一个协议已明确支持，则选择已证明可用的协议。探测收到 400 / 401 / 403 / 422 / 429 / 5xx 等非成功响应时保持 `unknown`，不能据此写成支持 Responses。
 
 这个偏好只决定该账号的 Chat / Responses 实际上游传输，不是协议能力事实，也不是多端点总开关。例如 `force_chat_completions` 下，入站 Responses 可以通过 Responses → Chat 兼容交付；如果同一模型确认支持 Messages，入站 Messages 仍可原生走 `/v1/messages`。能力表不会因为路由偏好而把另一个协议错误标成“不支持”。
 
