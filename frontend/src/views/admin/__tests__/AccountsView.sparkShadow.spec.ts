@@ -379,7 +379,7 @@ describe('admin AccountsView — 账号行展示', () => {
     wrapper.unmount()
   })
 
-  it('在 OpenAI API Key 账号行直接显示协议能力入口并打开对应弹窗', async () => {
+  it('账号行不直接显示上游协议入口，并由更多菜单打开对应弹窗', async () => {
     listAccounts.mockResolvedValue({
       items: [
         { id: 301, name: 'new-api-relay', platform: 'openai', type: 'apikey' },
@@ -394,12 +394,15 @@ describe('admin AccountsView — 账号行展示', () => {
     const wrapper = mountViewWithRow()
     await flushPromises()
 
-    const protocolButtons = wrapper.findAll('button').filter(button => (
-      button.text().trim() === 'admin.accounts.modelProtocol.shortAction'
-    ))
-    expect(protocolButtons).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('admin.accounts.modelProtocol.shortAction')
 
-    await protocolButtons[0].trigger('click')
+    wrapper.findComponent(AccountActionMenu).vm.$emit('model-protocols', {
+      id: 301,
+      name: 'new-api-relay',
+      platform: 'openai',
+      type: 'apikey'
+    })
+    await flushPromises()
 
     expect(wrapper.get('[data-test="model-protocol-modal"]').text()).toBe('new-api-relay')
     wrapper.unmount()

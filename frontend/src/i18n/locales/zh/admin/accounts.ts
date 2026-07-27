@@ -1330,7 +1330,6 @@ export default {
       viewStats: '查看统计',
       modelProtocol: {
         action: '上游模型协议能力',
-        shortAction: '上游协议',
         title: '上游模型协议能力',
         description: '这里记录账号最终上游模型可原生接收的协议；用户可调用的 API 端点由渠道模型的实际交付路由聚合得出。',
         globalRoutingEnabled: '全局多端点路由已启用',

@@ -1288,7 +1288,6 @@ export default {
       viewStats: 'View Stats',
       modelProtocol: {
         action: 'Upstream Model Protocols',
-        shortAction: 'Upstream Protocols',
         title: 'Upstream Model Protocol Capabilities',
         description: 'This records protocols accepted natively by the final upstream model. Customer API endpoints are derived from actual channel delivery routes.',
         globalRoutingEnabled: 'Global multi-endpoint routing is enabled',
