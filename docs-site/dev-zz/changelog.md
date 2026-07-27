@@ -2,6 +2,10 @@
 
 ## 2026-07-27
 
+- 同步上游 `main`（`dc893dd0b`）到 `dev-zz-develop`：新增可由管理员热配置的面板 API 限流，认证接口按用户 ID、重查询接口按更严格档位、公开设置接口按安全客户端 IP 计数，降低高频面板请求拖垮数据库的风险。
+- 面板限流默认启用，默认每用户 240 RPM、重查询 60 RPM、公开 IP 300 RPM，并默认豁免管理员；阈值设为 `0` 可单独关闭对应档位。Redis 异常时 fail-open，运行配置使用 60 秒进程缓存，当前节点保存后立即生效。
+- 合并继续保留 dev-zz 企业成员预算服务、API Key 自助查询、模型级限流和 owner 用量分析；Key 日/趋势/模型统计及 `/usage` 聚合查询统一叠加 Heavy 限流，不把新增分析端点留在保护范围之外。
+- 管理端“系统设置”同时展示模型级限流与面板 API 限流，沿用 dev-zz 现有设置保存合同和 stone / neutral / emerald 视觉。本轮没有数据库迁移、依赖声明、版本号或 GitHub Actions workflow 变化；上游同时更新了 README 赞助商列表和对应静态资源。
 - 同步上游 `main`（`d96b6a31f`）到 `dev-zz-develop`：补齐 Antigravity OAuth 账号对 OpenAI Chat Completions / Responses 请求的原生 `v1internal:streamGenerateContent` 兼容转发，并吸收 Gemini Hermes Web Search 判定、分组说明排版和通用下拉框视口边界修复。
 - Antigravity 兼容层会在请求进入原生 Gemini 链路前转换 OpenAI 请求，在流式与非流式响应返回时恢复 OpenAI 语义；仅收到 usage、没有任何可交付内容的响应会按失败处理并进入既有账号切换机制，组内账号耗尽且响应尚未提交时会继续尝试企业成员的下一候选组，避免把空结果或单组容量问题直接返回给用户。
 - 账号失败与冷却继续使用真正尝试过的上游 endpoint 作为证据；凭据拒绝信息保持脱敏。网关仍通过 dev-zz 的 `DeliveryDecision` 选择最终上游协议，企业成员路由、预算和最终分组归因边界不变。

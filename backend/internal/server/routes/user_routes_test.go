@@ -38,6 +38,7 @@ func newUserRoutesTestRouter() *gin.Engine {
 			c.Next()
 		}),
 		nil,
+		nil,
 	)
 
 	return router

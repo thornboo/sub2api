@@ -1,5 +1,34 @@
 # 补丁记录
 
+## 2026-07-27 - 上游 main 同步：面板 API 分层限流
+
+### 目标
+
+- 将 `origin/main@dc893dd0b` 合入 `dev-zz-develop`，吸收按用户和公开客户端 IP 保护面板 API 的可配置限流，避免高频列表、用量和仪表盘查询持续占用数据库。
+- 保持 dev-zz 企业成员预算与候选组编排、API Key 自助查询、模型级限流、owner 用量分析、设置保存边界和管理端视觉不回退。
+
+### 主要变化
+
+- 认证面板接口使用用户 ID 作为全局限流主体，不按反向代理或共享出口 IP 合并不同用户；usage 等聚合查询在全局档位之外叠加 Heavy 档位。管理员默认豁免，可在设置中关闭豁免。
+- 无需认证的公开设置接口只对安全解析后的公网单播 IP 计数；回环、内网、链路本地和未指定地址跳过，避免把反向代理内部地址当成所有访问者的共同限流主体。
+- 默认配置为启用、每用户 240 RPM、Heavy 60 RPM、公开 IP 300 RPM、管理员豁免。任一 RPM 设为 `0` 可关闭对应档位，非法负数或超过 100000 的保存请求会被拒绝。
+- Redis 限流错误 fail-open；配置通过 60 秒进程缓存和 singleflight 避免热路径逐请求访问数据库，读取失败保留最近成功值并用 5 秒短 TTL 重试，当前节点保存后立即刷新缓存。
+- 冲突合并后同时保留模型级限流和面板 API 限流设置；API Key 日、趋势、模型统计与 owner `/usage` 聚合查询都进入 Heavy 档位，企业成员预算服务继续传入 Gateway 路由。
+- 独立注册的 `/admin/payment` 路由组也接入 Global 档，关闭管理员豁免后不会形成绕过路径。
+
+### 数据与兼容性
+
+- 配置保存在 DB setting `panel_rate_limit_settings`，不需要数据库迁移；缺失、空值或无效 JSON 回退到安全默认值。
+- API Key 网关请求不进入面板限流；`/api/v1/key/*` 自助查询继续使用原有 fail-close 专用限流，不改成用户 ID 桶。
+- 本轮没有依赖声明、版本号或 GitHub Actions workflow 变化；上游 README 赞助商列表与静态 logo 同步更新。
+
+### 验证
+
+- 面板限流 middleware、设置 service、handler 和 route 定向测试通过；dev-zz 路由测试已适配新的显式 limiter 参数。
+- 后端 `go test -tags=unit ./... -count=1`、`go test ./... -count=1`、`go mod tidy -diff` 和 `golangci-lint run ./...` 通过。
+- 前端 SettingsView 定向测试、typecheck、ESLint、全量 Vitest 和生产构建通过；docs-site 生产构建通过。
+- `git diff --check`、冲突路径和冲突标记检查通过。浏览器人工限流 smoke、真实 Redis 压测和 Docker / Testcontainers 运行时集成测试未执行。
+
 ## 2026-07-27 - 上游 main 同步：Antigravity 原生兼容与下拉边界
 
 ### 目标

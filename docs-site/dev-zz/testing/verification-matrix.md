@@ -109,6 +109,24 @@
 - WebSocket 会话使用建连时的策略快照；设置变更只影响新连接，已有连接重连后生效。
 - 策略变更的审计只记录设置键，不记录完整用户 ID 列表或规则内容。
 
+## 面板 API 限流
+
+| 场景 | 推荐命令 |
+| --- | --- |
+| Redis 原语、按用户/Heavy/管理员豁免/PublicIP/fail-open | `mise x -C backend -- go test ./internal/middleware ./internal/server/middleware -run 'RateLimit\|PanelRate' -count=1` |
+| 设置默认值、规范化、缓存和 handler | `mise x -C backend -- go test ./internal/service ./internal/handler/admin -run 'PanelRateLimit' -count=1` |
+| Auth/User/Admin/Payment 路由与 dev-zz 扩展路由 | `mise x -C backend -- go test ./internal/server/routes -run 'RateLimit\|UserRoutes\|ChannelModelDelivery' -count=1` |
+| 管理端配置卡片和保存 | `corepack pnpm@10.34.5 --dir frontend test:run src/views/admin/__tests__/SettingsView.spec.ts` |
+
+必要人工核对：
+
+- 认证面板接口按用户 ID 而不是 IP 计数；Global 与 Heavy 使用独立桶，重查询同时消耗两档额度。
+- `exempt_admin=true` 时管理员不受用户桶限制；关闭豁免后管理员与普通用户遵守相同阈值。
+- 公开设置只对安全解析出的公网单播 IP 计数；反向代理内部地址不得把所有访问者合并进同一个桶。
+- Redis 异常必须 fail-open；设置数据库异常保留最近成功值，不能因为保护组件故障造成面板全站不可用。
+- `/api/v1/key/*` 继续使用原有凭完整 Key 的 fail-close 专用限流；普通 API Key 网关请求不进入面板限流。
+- 企业成员预算服务、Key 日/趋势/模型统计与 owner analytics 路由均保持注册；后三类聚合查询进入 Heavy 档位。
+
 ## 提示词审计与安全开关
 
 | 场景 | 推荐命令 |

@@ -1,5 +1,60 @@
 # 上游合并记录
 
+## 2026-07-27 - 将上游 `main` 合并到 `dev-zz-develop`：面板 API 分层限流与 dev-zz 路由合同合流
+
+分支：
+
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`d96b6a31f`
+- 合并前目标：`255eebdcd`
+- 上游 head：`dc893dd0b`
+- 结果提交：本次合并提交
+
+上游要点：
+
+- 新增面板 API 限流：认证接口按用户 ID、重查询按 Heavy 档位、公开设置按公网客户端 IP 计数，管理员默认豁免。
+- 管理端可以热配置总开关、每用户 RPM、Heavy RPM、管理员豁免和公开 IP RPM；配置有进程缓存，Redis 错误 fail-open。
+- 系统设置页面新增面板限流卡片、双语文案和保存回归测试；README 赞助商列表移除 BytePlus / 火山引擎条目和对应 logo。
+
+合并策略：
+
+- 合并前重新读取 `branch-policy.md`、`maintenance/merge-main.md`、最新补丁/合并/变更记录、变更地图和验证矩阵；发现工作区位于 `dev-zz` 后先切回与正式线完全对齐的 `dev-zz-develop@255eebdcd`。
+- `git fetch --prune origin` 后确认 `origin/main@dc893dd0b` 比上一轮上游增加 3 个提交；先用 `git merge-tree --write-tree --messages --name-only` 预演，再执行 `git merge --no-commit origin/main`，预演与真实合并均得到 7 个内容冲突。
+- 接受上游面板限流和赞助商列表更新；继续保留 dev-zz 企业成员预算、Key 自助查询、模型级限流、owner 用量分析、设置保存合同和现有视觉。
+
+冲突文件：
+
+- `backend/internal/handler/dto/settings.go`
+- `backend/internal/server/router.go`
+- `backend/internal/server/routes/admin.go`
+- `backend/internal/server/routes/auth.go`
+- `backend/internal/server/routes/user.go`
+- `frontend/src/api/admin/settings.ts`
+- `frontend/src/views/admin/SettingsView.vue`
+
+解决说明：
+
+- `router.go` 同时传递 dev-zz 的 `memberBudgetService` 和上游 `panelRateLimiter`；Gateway 企业成员预算链路不回退，Auth、User、Admin 和 Payment 路由获得面板 limiter。
+- 语义复核补齐独立注册的 `/admin/payment` 路由组：管理员豁免关闭后，该组也会和常规 `/admin` 路由一样进入 Global 档，不再绕过面板限流。
+- Admin 设置同时注册 `/model-rate-limit` 和 `/panel-rate-limit`，DTO、前端 API、页面状态、加载和保存方法做并集，不删除任何一套限流能力。
+- Auth 路由保留 `/api/v1/key/*` 自助查询的原 fail-close 专用限流，同时为公开设置接入 PublicIP、为登录后接口接入 Global 面板限流。
+- User 路由保留 dev-zz 的 Key 日/趋势/模型统计、企业成员和 owner analytics；三条 Key 统计路由及 `/usage` 聚合组统一叠加 Heavy 档位。
+- dev-zz 独有的 `channel_model_delivery_route_test.go` 和 `user_routes_test.go` 补入新的 limiter 参数，继续在 nil limiter 下验证非限流路由合同。
+
+验证：
+
+- 面板限流 middleware、设置 service/handler、Auth/User/Admin/Payment/Gateway 路由定向测试通过。
+- 后端 `go test -tags=unit ./... -count=1` 与 `go test ./... -count=1` 全包通过；`go mod tidy -diff` 无依赖元数据漂移，`golangci-lint run ./...` 返回 `0 issues`。
+- 前端 SettingsView 定向测试、typecheck、ESLint、全量 Vitest 和生产构建通过。
+- docs-site 生产构建、Go 格式、whitespace、冲突路径和冲突标记检查通过。
+
+未验证：
+
+- 浏览器人工限流 smoke。
+- 真实 Redis 并发/吞吐压测。
+- Docker / Testcontainers 运行时集成测试。
+
 ## 2026-07-27 - 将上游 `main` 合并到 `dev-zz-develop`：Antigravity 原生兼容与下拉边界修复合流
 
 分支：
