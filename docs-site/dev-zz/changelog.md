@@ -1,5 +1,13 @@
 # 变更记录
 
+## 2026-07-27
+
+- 同步上游 `main`（`eb6e3d1f1`）到 `dev-zz-develop`：补齐 OpenAI Responses WebSocket 逐 turn 模型、渠道映射、计费和调度证据，并吸收提示词审计配置可用性、Grok `402` 冷却、管理员用量筛选、注册返佣码与 Caddy SSE 修复。
+- WebSocket 继续遵守 dev-zz 首轮路由锁：连接内可以省略或重复同一公共模型，但切换模型、平台或渠道目标必须重连。企业成员逐 turn 预算、结果不明保护、同步 usage 落账和最终实际分组归因保持不变。
+- 管理员通过带 `user_id` 的用量链接进入时会看到对应用户标签；迟到标签查询不会覆盖新的搜索输入。返佣开启且强制邀请码关闭时，注册页会展示可选邀请码，并继续使用 stone / emerald 视觉。
+- 提示词审计没有可信运行配置时明确返回不可用，不再展示可能误导管理员的默认值；Grok 手工测试收到 `402` 会临时暂停账号。
+- Caddy 压缩明确排除 SSE；旧 `AvailableChannelsTable.vue` 继续保持删除，用户模型广场仍是 dev-zz 的可用模型入口。本轮无数据库迁移和版本提升，版本保持 `1.7.18`。
+
 ## 2026-07-26
 
 - 同步上游 `main`（`2730c1c43`）到 `dev-zz-develop`：新增 OpenAI Live HTTP / sideband 网关、macOS attestation 和分组级 `allow_live`，并吸收 Session ID 请求证据、注册邮箱别名安全、Ollama Cloud 刷新、公告预览、postcss 安全升级及 OpenAI / Grok / Gemini 正确性修复。

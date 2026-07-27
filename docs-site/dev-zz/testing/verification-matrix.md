@@ -55,7 +55,7 @@
 | 企业成员候选组与 Composite 路由决策隔离 | `cd backend && go test ./internal/server/routes ./internal/server/middleware -run 'TestCompositeRouteIsResolvedAgainForEachEnterpriseMemberCandidate\|TestOrchestrateEnterpriseMemberGroups' -count=1` |
 | WebSocket HTTP bridge 首 turn 安全 failover 与后续 turn 结果不明 | `cd backend && go test ./internal/service -run 'Test(OpenAIWSHTTPBridgeLaterTurnUnknownTransportMarksMemberBudgetAmbiguous\|ProxyOpenAIWSHTTPBridgeTurnTransportErrorFailoverSafety)' -count=1` |
 | Composite 精确别名目录、端点元数据与禁用 / 前缀规则隔离 | `cd backend && go test ./internal/service ./internal/handler -run 'TestCompositeRouteResolver\|TestGatewayModels_CompositeCatalog' -count=1` |
-| WebSocket 连接固定公开 / 上游模型映射且仅首 turn 允许整连接 failover | `cd backend && go test ./internal/service -run 'TestResolveOpenAIWSSessionModels\|TestShouldFailoverOpenAIWSConnection' -count=1` |
+| WebSocket 连接固定公开 / 上游模型映射、逐 turn 计费证据且仅首 turn 允许整连接 failover | `cd backend && go test ./internal/handler ./internal/service -run 'TestOpenAIResponsesWebSocket_(PassthroughTracksLockedModelPerTurn\|UnchangedChannelTargetOutsideAccountMappingKeysRemainsValid\|PassthroughKeepsSessionRouteWhenChannelMappingChanges\|CtxPoolTracksLockedMappingAndPreservesRequestedModel)\|TestOpenAIWSTurnBillingModelPreservesImagePricingModel\|TestShouldReportOpenAIWSProxyAccountFailure\|TestResolveOpenAIWSSessionModels\|TestShouldFailoverOpenAIWSConnection' -count=1` |
 | 企业候选恢复请求元数据且预算结果不明确时禁止重试 | `cd backend && go test ./internal/server/middleware -run 'TestOrchestrateEnterpriseMemberGroups' -count=1` |
 | Gemini 模型目录跳过不匹配 Composite 候选及 Ops 恢复 attempt 精确归因 | `cd backend && go test -tags=unit ./internal/handler -run 'TestGeminiV1BetaListModelsMarksComposite\|TestOpsRecoveredEnterpriseFailover' -count=1` |
 | Batch image 提交结果不明时保留 hold、禁止重提与退款 | `cd backend && go test -tags=unit ./internal/service -run 'Test(GeminiProvider_CreateBatch\|VertexProvider_CreateBatch\|BatchImagePublicService_Submit\|BatchImageBillingRecoveryService_\|CanTransitionBatchImageJob)' -count=1` |
@@ -84,6 +84,7 @@
 | 单 Key 趋势 | `mise x -C backend -- go test ./internal/repository -run 'TestUsageLogRepositoryGetAPIKeyUsageTrendForUser' -count=1` |
 | 用户 usage handler | `mise x -C backend -- go test ./internal/handler -run 'Usage' -count=1` |
 | owner analytics | `mise x -C backend -- go test ./internal/repository -run 'OwnerAPIKeyAnalytics|APIKeyUsageTrend' -count=1` |
+| 管理员路由用户标签、迟到响应隔离与现有 query / profile 上下文 | `pnpm --dir frontend exec vitest run src/views/admin/__tests__/UsageView.spec.ts` |
 | 前端 Usage 分析页 | `pnpm --dir frontend typecheck` 和 `pnpm --dir frontend lint:check` |
 
 必要人工核对：
@@ -113,6 +114,7 @@
 | 场景 | 推荐命令 |
 | --- | --- |
 | 配置 CAS、脱敏、节点探测、队列/阻断和删除确认 | `cd backend && go test ./internal/securityaudit -count=1` |
+| 配置快照不可用时明确拒绝管理查询 | `cd backend && go test ./internal/securityaudit -run 'TestConfigManagerPublic' -count=1` |
 | 网关审计顺序、HTTP/WS 错误和媒体提交边界 | `cd backend && go test ./internal/handler -run 'SecurityAudit\|PromptAudit' -count=1` |
 | 管理路由、step-up/session-binding 开关 | `cd backend && go test ./internal/server/routes ./internal/server/middleware ./internal/handler/admin -run 'PromptAudit\|StepUp\|SessionBinding' -count=1` |
 | 迁移与真实 PostgreSQL 证据/删除合同 | `cd backend && go test -tags=integration ./internal/securityaudit -run '^TestPromptAudit' -count=1` |
@@ -207,6 +209,7 @@
 | 场景 | 推荐命令 |
 | --- | --- |
 | 可用渠道模型表格/导出 | `pnpm --dir frontend test:run src/utils/__tests__/availableChannelsCatalog.spec.ts` |
+| 注册可选返佣码与强制邀请码 / Turnstile 互斥 | `pnpm --dir frontend exec vitest run src/views/auth/__tests__/RegisterView.spec.ts` |
 | 模型目录/推荐工具 | `pnpm --dir frontend test:run src/components/account/__tests__/modelCatalog.spec.ts src/components/account/__tests__/channelModelRecommendations.spec.ts` |
 | 账号模型映射弹窗 | `pnpm --dir frontend test:run src/components/account/__tests__/EditAccountModal.spec.ts` |
 | 后端模型探测 | `mise x -C backend -- go test ./internal/handler/admin ./internal/server -run 'ProbeModels|Admin' -count=1` |

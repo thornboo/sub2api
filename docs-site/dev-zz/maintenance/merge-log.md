@@ -1,5 +1,58 @@
 # 上游合并记录
 
+## 2026-07-27 - 将上游 `main` 合并到 `dev-zz-develop`：WebSocket 轮次计费、审计配置与管理端筛选正确性合流
+
+分支：
+
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`2730c1c43`
+- 合并前目标：`2fbaf5a23`
+- 上游 head：`eb6e3d1f1`
+- 结果提交：本次合并提交
+
+上游要点：
+
+- OpenAI Responses WebSocket 补齐每个 turn 的请求模型、上游模型、渠道映射快照、计费模型和调度结果，避免长连接后续 turn 沿用首轮计费证据。
+- 提示词审计配置在运行快照不可用时明确返回服务不可用，不再伪装成默认配置；Grok 管理员手工测试遇到 `402 Payment Required` 时会临时暂停账号。
+- 管理员用量页从路由 `user_id` 进入时回填用户标签，并防止迟到查询覆盖新的筛选输入；注册页在返佣开启、强制邀请码关闭时展示可选邀请码。
+- Caddy 压缩规则排除 `text/event-stream`，避免 SSE 被压缩缓冲；对应检查脚本兼容不同 awk 实现并进入后端 CI。
+- 上游旧版可用渠道表增加移动端卡片，但该组件在 dev-zz 已由模型广场替代。
+
+合并策略：
+
+- 合并前完整读取 `branch-policy.md`、`maintenance/merge-main.md`、历史合并记录、补丁/变更记录、变更地图和验证矩阵；把合并前已有的 `frontend/pnpm-lock.yaml` 修改单独保存后，确认 `dev-zz-develop@2fbaf5a23` 与 `origin/dev-zz` 完全对齐。
+- 刷新远端并先用 `git merge-tree --write-tree --messages --name-only` 预演，再执行 `git merge --no-commit origin/main`；预演和真实合并均得到 6 个冲突。
+- 接受上游 WebSocket turn 级计费证据、提示词审计可用性、Grok `402` 冷却、用量筛选、可选返佣码和 Caddy SSE 修复；继续保留 dev-zz 企业成员同步落账与预算结果不明、Composite 候选路由、WebSocket 首轮路由锁、模型广场、stone / emerald 视觉和 `1.7.18` 版本线。
+
+冲突文件：
+
+- `backend/internal/handler/openai_gateway_handler.go`
+- `backend/internal/service/openai_ws_forwarder_ingress.go`
+- `frontend/src/components/channels/AvailableChannelsTable.vue`
+- `frontend/src/components/channels/__tests__/AvailableChannelsTable.spec.ts`
+- `frontend/src/views/admin/UsageView.vue`
+- `frontend/src/views/admin/__tests__/UsageView.spec.ts`
+
+解决说明：
+
+- WebSocket 同时保留 dev-zz 的连接级公共模型 / 上游路由锁和企业成员逐 turn 预算上下文，并接入上游每轮实际上游模型、渠道证据、计费模型与调度反馈。连接内省略或重复同一模型可以继续，切换模型、平台或更新后的渠道目标仍要求重连；客户端策略拒绝不会误伤账号健康。
+- `recordCyberPolicyIfMarked` 和异步 usage 继续使用对应 turn 的企业预算 context、payload hash 与同步落账失败标记；渠道映射链按该连接真正使用的锁定路由记录，不用连接期间变化的配置改写历史证据。
+- 管理员用量页同时执行 dev-zz 路由 query 清洗 / 顶部对象上下文恢复和上游用户标签回填；异步标签查询以用户 ID 与输入 revision 双重校验，不能覆盖管理员后续输入。
+- 已由模型广场替代的 `AvailableChannelsTable.vue` 及旧测试继续保持删除，不恢复上游旧表移动端实现。注册页可选返佣码使用 dev-zz stone 色板。
+
+验证：
+
+- 后端 `go test -tags=unit ./... -count=1`、受影响的 `handler` / `securityaudit` / `service` / `service/openai_ws_v2` 完整包测试与最终冲突定向回归通过；WebSocket passthrough / ctx-pool 的连接路由锁、逐 turn usage、渠道映射变化、图片计费模型和客户端策略拒绝均包含在内。
+- `golangci-lint run ./...` 返回 `0 issues`；Caddy SSE / 非 SSE 压缩合同脚本通过。
+- 前端 typecheck、ESLint、237 个测试文件 / 1567 条 Vitest 和生产构建通过；路由用户标签、迟到响应隔离、可选返佣码与 Turnstile 互斥均有定向覆盖。
+- docs-site 生产构建、冲突标记、Go 格式和 whitespace 检查通过。
+
+未验证：
+
+- 浏览器人工 smoke。
+- Docker / Testcontainers 运行时集成测试。
+
 ## 2026-07-26 - 将上游 `main` 合并到 `dev-zz-develop`：OpenAI Live、会话证据与网关正确性合流
 
 分支：

@@ -1,5 +1,32 @@
 # 补丁记录
 
+## 2026-07-27 - 上游 main 同步：WebSocket 轮次计费与运行时正确性
+
+### 目标
+
+- 将 `origin/main@eb6e3d1f1` 合入 `dev-zz-develop`，吸收 OpenAI Responses WebSocket 逐 turn 模型 / 计费证据、提示词审计配置可用性、Grok `402` 冷却、管理员用量筛选、注册返佣码和 Caddy SSE 修复。
+- 保持 dev-zz 企业成员同步落账与预算结果不明、Composite 候选路由、WebSocket 首轮路由锁、模型广场、长期证据、fork 发布、stone / emerald 视觉和 `1.7.18` 版本线不回退。
+
+### 主要变化
+
+- OpenAI Responses WebSocket 为每个 turn 记录实际请求模型、上游模型、渠道映射、计费模型和调度结果；图片工具返回的独立计费模型继续优先，渠道可按 requested / upstream / mapped 口径覆盖。
+- dev-zz 继续把一个 WebSocket 连接固定到首轮最终公共模型和上游路由：后续 turn 可以省略或重复同一模型，但模型、平台或渠道目标变化必须重连。逐 turn 统计使用连接真正转发的路由，客户端策略拒绝不计为账号故障。
+- 企业成员每轮预算 context、payload hash、结果不明标记、同步 usage 落账和最终 `ActiveGroup` 归因保持不变，并与新的 turn 级模型证据共同写入。
+- 提示词审计配置没有可信运行快照时返回 `prompt_audit_config_unavailable`；Grok 手工连接测试遇到 `402` 后暂停账号 30 分钟。
+- 管理员用量路由筛选会回填用户邮箱，并以筛选 ID 和搜索 revision 防止迟到响应覆盖新输入。注册页在返佣开启且强制邀请码关闭时展示可选邀请码，沿用 stone 视觉。
+- Caddy 不再压缩 `text/event-stream`，避免 SSE 响应被缓冲；便携检查脚本纳入 CI。旧 `AvailableChannelsTable.vue` 继续保持删除，用户模型广场仍是唯一目录入口。
+
+### 数据与兼容性
+
+- 本轮没有新增数据库迁移、依赖声明或版本号变化。
+- `VERSION` 保持 `1.7.18`；不采用上游旧版可用渠道表，也不放宽 WebSocket 连接内切换模型 / 平台的边界。
+
+### 验证
+
+- 后端完整 unit、Handler / 提示词审计 / Service / WebSocket v2 包测试和 `golangci-lint` 通过；Caddy SSE 合同脚本通过。
+- 前端 typecheck、ESLint、237 个测试文件 / 1567 条 Vitest 和生产构建通过；docs-site 生产构建、冲突标记、Go 格式和 whitespace 检查通过。
+- 浏览器人工 smoke 与 Docker / Testcontainers 运行时集成测试未执行。
+
 ## 2026-07-26 - 上游 main 同步：OpenAI Live、会话证据与注册安全
 
 ### 目标

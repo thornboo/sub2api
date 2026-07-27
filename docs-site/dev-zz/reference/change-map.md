@@ -4,11 +4,11 @@
 
 | 项 | 值 |
 | --- | --- |
-| dev-zz-develop | 本次合并提交（合并前 `135720a6b`） |
-| origin/dev-zz | `135720a6b` |
-| origin/main | `2730c1c43` |
-| merge-base | `2730c1c43`（本次合并完成后） |
-| 差异规模 | 1008 个文件，约 162330 行新增、9542 行删除 |
+| dev-zz-develop | 本次合并提交（合并前 `2fbaf5a23`） |
+| origin/dev-zz | `2fbaf5a23` |
+| origin/main | `eb6e3d1f1` |
+| merge-base | `eb6e3d1f1`（本次合并完成后） |
+| 差异规模 | 1008 个文件，约 162463 行新增、9916 行删除 |
 
 ## 变更分布
 
@@ -47,7 +47,7 @@
 - 当前已落地成员实体、多 Key、有序分组、普通 Key 显式事务迁移、ActiveGroup、同步请求零金额 receipt、异步任务预算 hold、账本/恢复/对账、成员级请求记录、CSV/XLSX 持久化慢导入 job、一次性加密 Key 结果交付、append-only 审计、无高基数标签的 Ops 指标、正式 zh/en i18n 和企业成员控制台；真实 PostgreSQL/Redis 已验证多 worker 唯一领取、心跳续租、租约 fencing、异常 processing 恢复、5000 成员事务、Redis 重启订阅恢复、PostgreSQL 事务中断回滚和跨实例认证 L1 失效，浏览器 E2E、集群指标汇总、混合负载容量与持续性网络故障仍按设计合同继续收口。
 - Grok 异步视频任务在返回上游任务 ID 前持久化 owner/member/Key/实际 group/account；状态查询只回到原任务账号，不重新选择成员候选或跨账号 failover。
 - Composite 分组可以把公开模型按端点映射到 OpenAI、Anthropic、Gemini、Antigravity 或 Grok 的具体上游模型；与企业成员有序分组组合时，路由决策属于单个候选 attempt，切组必须清除并重新解析，不能继承上一组的目标平台或模型改写。
-- HTTP 只在响应完全未提交且失败被显式标记为容量、瞬时上游或能力不匹配时进入下一候选；预算结果不明确是统一的禁止重试条件。Responses WebSocket 在首 turn 固定公开模型到实际上游模型的映射，只在首 turn 尚未产生下游事件时允许安全切换账号/分组；连接内切换模型或平台必须重连，后续 turn 的 429 与未知传输结果禁止整连接重放并进入预算结果不明闭环。
+- HTTP 只在响应完全未提交且失败被显式标记为容量、瞬时上游或能力不匹配时进入下一候选；预算结果不明确是统一的禁止重试条件。Responses WebSocket 在首 turn 固定公开模型到实际上游模型的映射，只在首 turn 尚未产生下游事件时允许安全切换账号/分组；连接内切换模型、平台或更新后的渠道目标必须重连。每个 turn 分别保存实际请求模型、上游模型、渠道映射链、计费模型和调度结果，后续 turn 的 429 与未知传输结果禁止整连接重放并进入预算结果不明闭环。
 - 权威设计见 [企业用户成员管理](../features/enterprise-member-management.md) 与 [ADR-0003](../decisions/adr-0003-enterprise-member-entity.md)。
 
 ### 用量分析
@@ -58,7 +58,7 @@
 - owner analytics 接口在 `/api/v1/usage/analytics/*`，所有查询绑定当前登录用户，不接收外部 `user_id`。
 - owner DTO 不返回 `account_cost`、上游账号、渠道、`upstream_model` 等管理员字段。
 - 标签聚合采用“多标签重复计入”的归因语义，不作为严格财务分摊。
-- 管理员用量下钻已落地：`/admin/usage` 顶部对象选择器、用户/Key 双栏下钻、路由 query 同步（含显式日期范围回写，刷新和分享链接保留时间口径）、趋势月粒度和密集图表展开。
+- 管理员用量下钻已落地：`/admin/usage` 顶部对象选择器、用户/Key 双栏下钻、路由 query 同步（含显式日期范围回写，刷新和分享链接保留时间口径）、路由用户标签回填与迟到响应隔离、趋势月粒度和密集图表展开。
 - 已删除 Key 证据展示阶段 1 已落地：`/admin/usage` 管理员证据视图穿透软删除 hydrate Key 名称与删除状态，DTO 隐藏明文 key，导出保留已删除 Key 的 ID、名称和删除时间；用户侧 `/usage` 和普通 Key 列表仍只解析活跃 Key。
 
 ### 可用渠道模型与账号模型维护
@@ -73,11 +73,13 @@
 ### UI 与运维体验
 
 - 首页、认证页、控制台布局、通用表单/表格/弹窗、管理端/用户端页面统一到当前 stone / neutral / emerald 视觉方向。
+- 返佣开启且强制邀请码关闭时，注册页展示可选邀请码；强制邀请码、推广码、Turnstile 与既有注册禁用边界保持不变。
 - 公告管理支持直接预览尚未发布的内容；Bell 与 Popup 共用富文本样式和滚动锁生命周期，预览不会写公告已读状态，共享样式继续使用 stone / neutral / emerald 规则。
 - 前端隐藏 LinuxDo / 微信登录、注册、资料绑定和管理端认证显示入口；后端 OAuth 能力保留。
 - 运维明细弹窗支持父子层叠，Escape、遮罩和滚动锁只作用于最上层弹窗。
 - 运维错误详情和上游响应预览改为阅读型自动换行，降低长 JSON 横向滚动负担。
 - 管理端新增独立提示词输入审计工作台，覆盖 Guard 节点配置、运行态、事件筛选/详情和确认删除；功能、阻断和通过事件保存默认均关闭，Guard token 不从管理 API 回显。
+- 提示词审计没有可信运行配置快照时，管理接口返回 `prompt_audit_config_unavailable`，不把默认配置伪装成当前生效状态。
 - `step_up_enabled` 与 `session_binding_enabled` 作为默认关闭的显式安全开关；启用后继续沿用 TOTP、会话绑定和操作审计合同。
 - 支付宝官方移动端可选择当面付 `precreate` + App Scheme 唤起；功能默认关闭，唤起失败回退动态二维码，桌面和旧 WAP 流程保持兼容。
 
@@ -95,6 +97,7 @@
 - `deploy/docker-deploy.sh` 默认从 `thornboo/sub2api` 的 `dev-zz` 分支拉取部署文件。
 - `deploy/backup-dev-zz.sh` 作为发布镜像更新前的备份入口；`deploy/build-image-dev-zz.sh` 仅保留为本地源码构建、开发验证和远程镜像不可用时的镜像打包路径。
 - CI 引入 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` 验证 GitHub JavaScript actions runtime；项目构建 Node 版本仍是 20。
+- Caddy 压缩规则明确排除 `text/event-stream`，避免 SSE 被压缩缓冲；便携检查脚本在后端 CI 中验证该合同。
 
 ## 文档归档规则
 
