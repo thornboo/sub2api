@@ -2954,7 +2954,7 @@ func (h *AccountHandler) GetModelProtocolCapabilities(c *gin.Context) {
 		response.InternalError(c, "Failed to list model protocol capabilities")
 		return
 	}
-	response.Success(c, h.modelProtocolCapabilityResponse(c, accountID, items, nil))
+	response.Success(c, h.modelProtocolCapabilityResponse(c, account, items, nil))
 }
 
 // UpdateModelProtocolCapabilityOverrides updates only administrator intent.
@@ -2985,7 +2985,7 @@ func (h *AccountHandler) UpdateModelProtocolCapabilityOverrides(c *gin.Context) 
 		response.InternalError(c, "Model protocol capability service is not configured")
 		return
 	}
-	if err := h.modelProtocolCapability.UpdateOverrides(c.Request.Context(), accountID, req.Items); err != nil {
+	if err := h.modelProtocolCapability.UpdateOverridesForAccount(c.Request.Context(), account, req.Items); err != nil {
 		var validationErr *service.ModelProtocolCapabilityValidationError
 		if errors.As(err, &validationErr) {
 			response.BadRequest(c, validationErr.Error())
@@ -3000,7 +3000,7 @@ func (h *AccountHandler) UpdateModelProtocolCapabilityOverrides(c *gin.Context) 
 		response.InternalError(c, "Overrides were saved but capabilities could not be reloaded")
 		return
 	}
-	response.Success(c, h.modelProtocolCapabilityResponse(c, accountID, items, nil))
+	response.Success(c, h.modelProtocolCapabilityResponse(c, account, items, nil))
 }
 
 // SyncModelProtocolCapabilities refreshes observed facts from the configured upstream model list.
@@ -3038,7 +3038,7 @@ func (h *AccountHandler) SyncModelProtocolCapabilities(c *gin.Context) {
 		response.Error(c, http.StatusBadGateway, "Failed to sync model protocol capabilities")
 		return
 	}
-	result, err := h.modelProtocolCapability.SyncCatalog(c.Request.Context(), accountID, catalog)
+	result, err := h.modelProtocolCapability.SyncCatalogForAccount(c.Request.Context(), account, catalog)
 	if err != nil {
 		slog.Warn("sync_model_protocol_capabilities_failed", "account_id", accountID)
 		response.InternalError(c, "Failed to save model protocol capabilities")
@@ -3049,9 +3049,7 @@ func (h *AccountHandler) SyncModelProtocolCapabilities(c *gin.Context) {
 		response.InternalError(c, "Capabilities were synced but could not be reloaded")
 		return
 	}
-	payload := h.modelProtocolCapabilityResponse(c, accountID, items, result.Warnings)
-	payload["models"] = result.Models
-	response.Success(c, payload)
+	response.Success(c, h.modelProtocolCapabilityResponse(c, account, items, result.Warnings))
 }
 
 func supportsModelProtocolCapabilityManagement(account *service.Account) bool {
@@ -3060,13 +3058,15 @@ func supportsModelProtocolCapabilityManagement(account *service.Account) bool {
 
 func (h *AccountHandler) modelProtocolCapabilityResponse(
 	c *gin.Context,
-	accountID int64,
+	account *service.Account,
 	items []service.AccountModelProtocolCapability,
 	warnings []string,
 ) gin.H {
 	if warnings == nil {
 		warnings = []string{}
 	}
+	accountID := account.ID
+	scopedItems, models, mappingRestricted := service.ScopeAccountModelProtocolCapabilities(account, items)
 	impacts := map[string][]service.AccountPublicModelImpact{}
 	impactsResolved := false
 	if h.modelDelivery != nil {
@@ -3079,13 +3079,37 @@ func (h *AccountHandler) modelProtocolCapabilityResponse(
 			impactsResolved = true
 		}
 	}
+
+	modelSet := make(map[string]struct{}, len(models)+len(impacts))
+	for _, model := range models {
+		modelSet[model] = struct{}{}
+	}
+	if !mappingRestricted {
+		for model := range impacts {
+			modelSet[model] = struct{}{}
+		}
+	}
+	models = models[:0]
+	for model := range modelSet {
+		models = append(models, model)
+	}
+	sort.Strings(models)
+
+	scopedImpacts := make(map[string][]service.AccountPublicModelImpact, len(impacts))
+	for model, entries := range impacts {
+		if _, ok := modelSet[model]; ok {
+			scopedImpacts[model] = entries
+		}
+	}
+	impacts = scopedImpacts
+
 	orphanSet := make(map[string]struct{})
 	if impactsResolved {
-		for _, item := range items {
-			if item.UpstreamModel == service.ModelProtocolWildcardModel || len(impacts[item.UpstreamModel]) > 0 {
+		for _, model := range models {
+			if len(impacts[model]) > 0 {
 				continue
 			}
-			orphanSet[item.UpstreamModel] = struct{}{}
+			orphanSet[model] = struct{}{}
 		}
 	}
 	orphans := make([]string, 0, len(orphanSet))
@@ -3095,7 +3119,9 @@ func (h *AccountHandler) modelProtocolCapabilityResponse(
 	sort.Strings(orphans)
 	return gin.H{
 		"account_id":             accountID,
-		"items":                  items,
+		"items":                  scopedItems,
+		"models":                 models,
+		"mapping_restricted":     mappingRestricted,
 		"warnings":               warnings,
 		"public_model_impacts":   impacts,
 		"orphan_upstream_models": orphans,

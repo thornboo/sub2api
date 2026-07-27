@@ -373,16 +373,16 @@ dev-zz 前端基于该接口构建模型级表格和导出视图。具体展示�
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `POST` | `/api/v1/admin/accounts/probe-models` | 管理员用当前表单凭据探测 OpenAI 兼容 `/v1/models` |
-| `GET` | `/api/v1/admin/accounts/:id/model-protocol-capabilities` | 读取账号的模型协议观察、覆盖和有效状态，并返回其影响的公开渠道模型 |
-| `PUT` | `/api/v1/admin/accounts/:id/model-protocol-capabilities/overrides` | 只更新管理员覆盖；`auto` 恢复跟随观察结果 |
-| `POST` | `/api/v1/admin/accounts/:id/model-protocol-capabilities/sync` | 从账号配置的上游模型列表同步模型和协议观察 |
+| `GET` | `/api/v1/admin/accounts/:id/model-protocol-capabilities` | 读取账号当前路由模型范围内的协议观察、覆盖和有效状态，并返回其影响的公开渠道模型 |
+| `PUT` | `/api/v1/admin/accounts/:id/model-protocol-capabilities/overrides` | 只更新管理员覆盖；`auto` 恢复跟随观察结果，显式映射账号拒绝范围外模型 |
+| `POST` | `/api/v1/admin/accounts/:id/model-protocol-capabilities/sync` | 从账号配置的上游模型列表同步协议观察；显式映射账号只同步映射目标模型 |
 | `GET` | `/api/v1/admin/channels/:id/model-delivery` | 从渠道公开模型反查分组、稳定账号路由、最终上游模型和公共 API 端点 |
 
 该接口不持久化凭据，后端带 SSRF 防护，拒绝解析到本地、私有或链路本地地址的目标主机。前端只把探测结果追加到白名单或同名映射行，管理员仍需保存账号表单。
 
-协议能力同步复用已保存账号的认证、base URL、代理和 SSRF 校验。观察列与管理员覆盖列是两条独立事务写路径；客户端不能写观察来源、观察时间或有效状态。上游无法提供能力元数据时，管理员仍可在独立能力界面手工添加精确上游模型并设置覆盖；模型名只允许 1–255 个字符，不接受 `*` 以外的通配符或控制字符。
+协议能力同步复用已保存账号的认证、base URL、代理和 SSRF 校验。观察列与管理员覆盖列是两条独立事务写路径；客户端不能写观察来源、观察时间或有效状态。账号配置显式 `model_mapping` 时，能力范围由映射右侧的最终上游模型确定，响应通过 `models` 和 `mapping_restricted=true` 表达该范围；上游目录中的其他模型不会进入当前同步或配置矩阵。空映射账号仍按“允许全部模型”处理，上游无法提供能力元数据时可在独立能力界面手工添加精确上游模型并设置覆盖；模型名只允许 1–255 个字符，不接受 `*` 以外的通配符或控制字符。
 
-账号能力响应中的 `public_model_impacts` / `orphan_upstream_models` 和渠道交付接口中的账号、映射、证据来源都属于管理员诊断数据。用户侧 `/channels/available` 只消费其脱敏后的模型与公共端点投影。
+账号能力响应中的 `public_model_impacts` / `orphan_upstream_models` 和渠道交付接口中的账号、映射、证据来源都属于管理员诊断数据。历史上已同步但当前不在账号映射范围内的观察不会被删除，也不会出现在当前能力响应中。用户侧 `/channels/available` 只消费其脱敏后的模型与公共端点投影。
 
 ## 管理端上游成本池
 

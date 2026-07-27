@@ -287,6 +287,30 @@ describe('ModelProtocolCapabilitiesModal', () => {
     unresolved.unmount()
   })
 
+  it('shows only the upstream models scoped by the account mapping', async () => {
+    const wrapper = mountModal(
+      [
+        capability('glm-5', 'anthropic_messages'),
+        capability('kimi-k2.5', 'anthropic_messages'),
+        capability('minimax-m2.5', 'anthropic_messages'),
+        capability('MiniMax-M2.7', 'anthropic_messages')
+      ],
+      {
+        models: ['minimax-m2.5', 'MiniMax-M2.7'],
+        mapping_restricted: true
+      }
+    )
+    await flushPromises()
+
+    expect(rowFor(wrapper, 'minimax-m2.5').exists()).toBe(true)
+    expect(rowFor(wrapper, 'MiniMax-M2.7').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('glm-5')
+    expect(wrapper.text()).not.toContain('kimi-k2.5')
+    expect(wrapper.find('#model-protocol-manual-model').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
   it('saves administrator intent only and never sends observed capability fields', async () => {
     const item = capability('MiniMax-M3', 'anthropic_messages', {
       observed_state: 'supported',
@@ -320,6 +344,24 @@ describe('ModelProtocolCapabilitiesModal', () => {
     for (const override of payload) {
       expect(Object.keys(override).sort()).toEqual(['protocol', 'state', 'upstream_model'])
     }
+    expect(wrapper.emitted('close')).toHaveLength(1)
+
+    wrapper.unmount()
+  })
+
+  it('keeps the modal open when saving overrides fails', async () => {
+    const item = capability('MiniMax-M3', 'anthropic_messages')
+    updateModelProtocolCapabilityOverrides.mockRejectedValueOnce(new Error('save failed'))
+    const wrapper = mountModal([item])
+    await flushPromises()
+
+    const saveButton = wrapper.findAll('button').find(button => button.text() === 'common.save')
+    expect(saveButton).toBeTruthy()
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(wrapper.text()).toContain('save failed')
 
     wrapper.unmount()
   })

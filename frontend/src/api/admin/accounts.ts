@@ -1257,6 +1257,7 @@ export interface AccountModelProtocolCapabilitiesResponse {
   items: AccountModelProtocolCapability[]
   warnings: string[]
   models?: string[]
+  mapping_restricted?: boolean
   public_model_impacts: Record<string, AccountPublicModelImpact[]>
   orphan_upstream_models: string[]
 }

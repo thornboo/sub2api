@@ -178,6 +178,121 @@ func TestModelProtocolCapabilitySyncCatalogKeepsEmptyEndpointTypesUnknown(t *tes
 	}
 }
 
+func TestScopeAccountModelProtocolCapabilitiesUsesMappedUpstreamModels(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"minimax-m2.5": "minimax-m2.5",
+				"minimax-m2.7": "MiniMax-M2.7",
+			},
+		},
+	}
+	items := []AccountModelProtocolCapability{
+		{UpstreamModel: ModelProtocolWildcardModel, Protocol: ModelProtocolAnthropicMessages},
+		{UpstreamModel: "glm-5", Protocol: ModelProtocolAnthropicMessages},
+		{UpstreamModel: "minimax-m2.5", Protocol: ModelProtocolAnthropicMessages},
+		{UpstreamModel: "MiniMax-M2.7", Protocol: ModelProtocolOpenAIChat},
+	}
+
+	scoped, models, restricted := ScopeAccountModelProtocolCapabilities(account, items)
+
+	require.True(t, restricted)
+	require.Equal(t, []string{"MiniMax-M2.7", "minimax-m2.5"}, models)
+	require.Equal(t, []AccountModelProtocolCapability{
+		{UpstreamModel: ModelProtocolWildcardModel, Protocol: ModelProtocolAnthropicMessages},
+		{UpstreamModel: "minimax-m2.5", Protocol: ModelProtocolAnthropicMessages},
+		{UpstreamModel: "MiniMax-M2.7", Protocol: ModelProtocolOpenAIChat},
+	}, scoped)
+}
+
+func TestModelProtocolCapabilitySyncCatalogForAccountIgnoresUnmappedUpstreamModels(t *testing.T) {
+	t.Parallel()
+
+	repo := &modelProtocolCapabilityRepoStub{}
+	svc := &ModelProtocolCapabilityService{repo: repo}
+	account := &Account{
+		ID:       9,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"minimax-m2.5": "minimax-m2.5",
+				"minimax-m2.7": "MiniMax-M2.7",
+			},
+		},
+	}
+
+	result, err := svc.SyncCatalogForAccount(context.Background(), account, []UpstreamModelDescriptor{
+		{ID: "glm-5", SupportedEndpointTypes: []string{"anthropic"}, EndpointTypesPresent: true, EndpointTypesComplete: true},
+		{ID: "minimax-m2.5", SupportedEndpointTypes: []string{"anthropic"}, EndpointTypesPresent: true, EndpointTypesComplete: true},
+		{ID: "MiniMax-M2.7", SupportedEndpointTypes: []string{"anthropic", "openai"}, EndpointTypesPresent: true, EndpointTypesComplete: true},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"MiniMax-M2.7", "minimax-m2.5"}, result.Models)
+	require.NotEmpty(t, repo.observations)
+	for _, observation := range repo.observations {
+		require.NotEqual(t, "glm-5", observation.UpstreamModel)
+		require.Contains(t, result.Models, observation.UpstreamModel)
+	}
+}
+
+func TestModelProtocolCapabilityUpdateOverridesForAccountRejectsUnmappedModel(t *testing.T) {
+	t.Parallel()
+
+	repo := &modelProtocolCapabilityRepoStub{}
+	svc := &ModelProtocolCapabilityService{repo: repo}
+	account := &Account{
+		ID:       9,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"minimax-m2.5": "minimax-m2.5",
+			},
+		},
+	}
+
+	err := svc.UpdateOverridesForAccount(context.Background(), account, []ModelProtocolOverride{
+		{UpstreamModel: "glm-5", Protocol: ModelProtocolAnthropicMessages, State: ModelProtocolStateSupported},
+	})
+
+	var validationErr *ModelProtocolCapabilityValidationError
+	require.ErrorAs(t, err, &validationErr)
+	require.Contains(t, validationErr.Error(), "not configured in account model_mapping")
+	require.Empty(t, repo.overrides)
+}
+
+func TestModelProtocolCapabilityUpdateOverridesForAccountAllowsMappedAndWildcardModels(t *testing.T) {
+	t.Parallel()
+
+	repo := &modelProtocolCapabilityRepoStub{}
+	svc := &ModelProtocolCapabilityService{repo: repo}
+	account := &Account{
+		ID:       9,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"minimax-m2.5": "minimax-m2.5",
+			},
+		},
+	}
+	overrides := []ModelProtocolOverride{
+		{UpstreamModel: ModelProtocolWildcardModel, Protocol: ModelProtocolOpenAIChat, State: ModelProtocolStateSupported},
+		{UpstreamModel: "minimax-m2.5", Protocol: ModelProtocolAnthropicMessages, State: ModelProtocolStateSupported},
+	}
+
+	err := svc.UpdateOverridesForAccount(context.Background(), account, overrides)
+
+	require.NoError(t, err)
+	require.Equal(t, overrides, repo.overrides)
+}
+
 func TestEvaluateModelDeliveryCandidateAutoUsesSupportedChatWhenResponsesCapabilityIsUnsupported(t *testing.T) {
 	t.Parallel()
 	account := &Account{

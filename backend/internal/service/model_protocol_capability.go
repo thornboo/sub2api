@@ -218,6 +218,89 @@ func (s *ModelProtocolCapabilityService) UpdateOverrides(ctx context.Context, ac
 	return nil
 }
 
+func (s *ModelProtocolCapabilityService) UpdateOverridesForAccount(ctx context.Context, account *Account, overrides []ModelProtocolOverride) error {
+	if account == nil {
+		return newModelProtocolValidationError("account is required")
+	}
+	targets, restricted := accountModelProtocolTargetModels(account)
+	if restricted {
+		allowed := make(map[string]struct{}, len(targets))
+		for _, model := range targets {
+			allowed[model] = struct{}{}
+		}
+		for _, item := range overrides {
+			model := strings.TrimSpace(item.UpstreamModel)
+			if model == ModelProtocolWildcardModel {
+				continue
+			}
+			if _, ok := allowed[model]; !ok {
+				return newModelProtocolValidationError(fmt.Sprintf(
+					"upstream model %s is not configured in account model_mapping",
+					warningValue(model),
+				))
+			}
+		}
+	}
+	return s.UpdateOverrides(ctx, account.ID, overrides)
+}
+
+// ScopeAccountModelProtocolCapabilities keeps administrator-facing capability
+// rows aligned with the account's model-routing boundary. When model_mapping is
+// configured, only its final upstream targets (plus the account-wide wildcard)
+// are relevant. An empty mapping retains the established pass-through behavior
+// where every observed upstream model can be configured.
+func ScopeAccountModelProtocolCapabilities(account *Account, items []AccountModelProtocolCapability) ([]AccountModelProtocolCapability, []string, bool) {
+	targets, restricted := accountModelProtocolTargetModels(account)
+	if !restricted {
+		models := make([]string, 0, len(items))
+		for _, item := range items {
+			if item.UpstreamModel != ModelProtocolWildcardModel {
+				models = append(models, item.UpstreamModel)
+			}
+		}
+		return append([]AccountModelProtocolCapability(nil), items...), dedupeAndSortModelIDs(models), false
+	}
+
+	allowed := make(map[string]struct{}, len(targets))
+	for _, model := range targets {
+		allowed[model] = struct{}{}
+	}
+	scoped := make([]AccountModelProtocolCapability, 0, len(items))
+	for _, item := range items {
+		if item.UpstreamModel == ModelProtocolWildcardModel {
+			scoped = append(scoped, item)
+			continue
+		}
+		if _, ok := allowed[item.UpstreamModel]; ok {
+			scoped = append(scoped, item)
+		}
+	}
+	return scoped, targets, true
+}
+
+func accountModelProtocolTargetModels(account *Account) ([]string, bool) {
+	if account == nil {
+		return nil, false
+	}
+	mapping := account.GetModelMapping()
+	if len(mapping) == 0 {
+		return nil, false
+	}
+	targets := make([]string, 0, len(mapping))
+	for _, target := range mapping {
+		target = strings.TrimSpace(target)
+		if target == "" ||
+			target == ModelProtocolWildcardModel ||
+			strings.Contains(target, "*") ||
+			utf8.RuneCountInString(target) > 255 ||
+			strings.IndexFunc(target, unicode.IsControl) >= 0 {
+			continue
+		}
+		targets = append(targets, target)
+	}
+	return dedupeAndSortModelIDs(targets), true
+}
+
 type ModelProtocolCapabilitySyncResult struct {
 	Models   []string `json:"models"`
 	Warnings []string `json:"warnings"`
@@ -368,6 +451,52 @@ func (s *ModelProtocolCapabilityService) SyncCatalog(ctx context.Context, accoun
 	}
 	s.invalidate(accountID)
 	return &ModelProtocolCapabilitySyncResult{Models: models, Warnings: warnings}, nil
+}
+
+// SyncCatalogForAccount limits upstream observations to models that this
+// account can actually receive after its model_mapping is applied. Accounts
+// without an explicit mapping remain pass-through and therefore keep the full
+// upstream catalog.
+func (s *ModelProtocolCapabilityService) SyncCatalogForAccount(ctx context.Context, account *Account, catalog []UpstreamModelDescriptor) (*ModelProtocolCapabilitySyncResult, error) {
+	if account == nil {
+		return nil, errors.New("account is required")
+	}
+	targets, restricted := accountModelProtocolTargetModels(account)
+	if !restricted {
+		return s.SyncCatalog(ctx, account.ID, catalog)
+	}
+
+	allowed := make(map[string]struct{}, len(targets))
+	for _, model := range targets {
+		allowed[model] = struct{}{}
+	}
+	filtered := make([]UpstreamModelDescriptor, 0, len(targets))
+	returned := make(map[string]struct{}, len(targets))
+	for _, descriptor := range catalog {
+		model := strings.TrimSpace(descriptor.ID)
+		if _, ok := allowed[model]; !ok {
+			continue
+		}
+		filtered = append(filtered, descriptor)
+		returned[model] = struct{}{}
+	}
+
+	result, err := s.SyncCatalog(ctx, account.ID, filtered)
+	if err != nil {
+		return nil, err
+	}
+	result.Models = targets
+	for _, model := range targets {
+		if _, ok := returned[model]; ok {
+			continue
+		}
+		result.Warnings = append(result.Warnings, fmt.Sprintf(
+			"configured upstream model %s was not returned by upstream model list",
+			warningValue(model),
+		))
+	}
+	result.Warnings = boundCapabilitySyncWarnings(result.Warnings)
+	return result, nil
 }
 
 func modelProtocolFromUpstreamEndpointType(endpointType string) (ModelProtocol, bool) {

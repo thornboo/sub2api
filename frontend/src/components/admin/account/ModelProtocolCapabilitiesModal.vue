@@ -76,7 +76,10 @@
         </router-link>
       </div>
 
-      <div class="flex flex-col gap-2 rounded-xl border border-stone-200 bg-white p-3 dark:border-white/10 dark:bg-white/[0.025] sm:flex-row sm:items-center">
+      <div
+        v-if="!mappingRestricted"
+        class="flex flex-col gap-2 rounded-xl border border-stone-200 bg-white p-3 dark:border-white/10 dark:bg-white/[0.025] sm:flex-row sm:items-center"
+      >
         <div class="min-w-0 flex-1">
           <label for="model-protocol-manual-model" class="text-xs font-semibold uppercase tracking-wide text-stone-500 dark:text-stone-400">
             {{ t('admin.accounts.modelProtocol.addExactModel') }}
@@ -297,13 +300,20 @@ const warnings = ref<string[]>([])
 const items = ref<AccountModelProtocolCapability[]>([])
 const publicModelImpacts = ref<Record<string, AccountPublicModelImpact[]>>({})
 const orphanUpstreamModels = ref<string[]>([])
+const responseModels = ref<string[] | null>(null)
+const mappingRestricted = ref(false)
 const manualModels = ref<string[]>([])
 const manualModelInput = ref('')
 const draft = reactive<Record<string, ModelProtocolOverrideInput['state']>>({})
 let contextGeneration = 0
 
 const models = computed(() => {
-  const values = new Set(items.value.map(item => item.upstream_model))
+  const values = new Set(
+    responseModels.value ??
+      items.value
+        .map(item => item.upstream_model)
+        .filter(model => model !== '*')
+  )
   manualModels.value.forEach(model => values.add(model))
   values.add('*')
   return [...values].sort((a, b) => {
@@ -476,6 +486,8 @@ async function loadCapabilities() {
   items.value = []
   publicModelImpacts.value = {}
   orphanUpstreamModels.value = []
+  responseModels.value = null
+  mappingRestricted.value = false
   warnings.value = []
   manualModels.value = []
   manualModelInput.value = ''
@@ -485,6 +497,8 @@ async function loadCapabilities() {
     items.value = result.items || []
     publicModelImpacts.value = result.public_model_impacts || {}
     orphanUpstreamModels.value = result.orphan_upstream_models || []
+    responseModels.value = Array.isArray(result.models) ? result.models : null
+    mappingRestricted.value = result.mapping_restricted === true
     manualModels.value = []
     manualModelInput.value = ''
     warnings.value = result.warnings || []
@@ -523,6 +537,8 @@ async function syncCapabilities() {
     items.value = result.items || []
     publicModelImpacts.value = result.public_model_impacts || {}
     orphanUpstreamModels.value = result.orphan_upstream_models || []
+    responseModels.value = Array.isArray(result.models) ? result.models : null
+    mappingRestricted.value = result.mapping_restricted === true
     warnings.value = result.warnings || []
     resetDraft()
     appStore.showSuccess(t('admin.accounts.modelProtocol.syncSuccess'))
@@ -555,10 +571,13 @@ async function saveOverrides() {
     items.value = result.items || []
     publicModelImpacts.value = result.public_model_impacts || {}
     orphanUpstreamModels.value = result.orphan_upstream_models || []
+    responseModels.value = Array.isArray(result.models) ? result.models : null
+    mappingRestricted.value = result.mapping_restricted === true
     manualModels.value = []
     warnings.value = result.warnings || []
     resetDraft()
     appStore.showSuccess(t('admin.accounts.modelProtocol.saveSuccess'))
+    emit('close')
   } catch (requestError) {
     if (isCurrentAccount(accountId, generation)) error.value = extractApiErrorMessage(requestError)
   } finally {
