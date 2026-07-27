@@ -753,12 +753,14 @@ func (s *ChannelService) Create(ctx context.Context, input *CreateChannelInput) 
 		GroupIDs:                   input.GroupIDs,
 		ModelPricing:               input.ModelPricing,
 		ModelMapping:               input.ModelMapping,
+		ModelMappingOrder:          input.ModelMappingOrder,
 		Features:                   input.Features,
 		FeaturesConfig:             input.FeaturesConfig,
 		ApplyPricingToAccountStats: input.ApplyPricingToAccountStats,
 		AccountStatsPricingRules:   input.AccountStatsPricingRules,
 	}
 	channel.normalizeBillingModelSource()
+	channel.normalizeDisplayOrder()
 
 	if err := validateChannelConfig(channel.ModelPricing, channel.ModelMapping); err != nil {
 		return nil, err
@@ -790,6 +792,7 @@ func (s *ChannelService) GetByID(ctx context.Context, id int64) (*Channel, error
 		return nil, err
 	}
 	ch.normalizeBillingModelSource()
+	ch.normalizeDisplayOrder()
 	return ch, nil
 }
 
@@ -803,6 +806,7 @@ func (s *ChannelService) Update(ctx context.Context, id int64, input *UpdateChan
 	if err := s.applyUpdateInput(ctx, channel, input); err != nil {
 		return nil, err
 	}
+	channel.normalizeDisplayOrder()
 
 	if err := validateChannelConfig(channel.ModelPricing, channel.ModelMapping); err != nil {
 		return nil, err
@@ -827,6 +831,7 @@ func (s *ChannelService) Update(ctx context.Context, id int64, input *UpdateChan
 		return nil, err
 	}
 	updated.normalizeBillingModelSource()
+	updated.normalizeDisplayOrder()
 	return updated, nil
 }
 
@@ -865,6 +870,9 @@ func (s *ChannelService) applyUpdateInput(ctx context.Context, channel *Channel,
 	}
 	if input.ModelMapping != nil {
 		channel.ModelMapping = input.ModelMapping
+	}
+	if input.ModelMappingOrder != nil {
+		channel.ModelMappingOrder = input.ModelMappingOrder
 	}
 	if input.BillingModelSource != "" {
 		channel.BillingModelSource = input.BillingModelSource
@@ -951,6 +959,7 @@ func (s *ChannelService) List(ctx context.Context, params pagination.PaginationP
 	}
 	for i := range channels {
 		channels[i].normalizeBillingModelSource()
+		channels[i].normalizeDisplayOrder()
 	}
 	return channels, res, nil
 }
@@ -1051,6 +1060,7 @@ type CreateChannelInput struct {
 	GroupIDs                   []int64
 	ModelPricing               []ChannelModelPricing
 	ModelMapping               map[string]map[string]string // platform → {src→dst}
+	ModelMappingOrder          map[string][]string
 	BillingModelSource         string
 	RestrictModels             bool
 	Features                   string
@@ -1067,6 +1077,7 @@ type UpdateChannelInput struct {
 	GroupIDs                   *[]int64
 	ModelPricing               *[]ChannelModelPricing
 	ModelMapping               map[string]map[string]string // platform → {src→dst}
+	ModelMappingOrder          map[string][]string
 	BillingModelSource         string
 	RestrictModels             *bool
 	Features                   *string

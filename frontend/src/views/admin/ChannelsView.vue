@@ -369,11 +369,21 @@
 
             <!-- Model Mapping -->
             <div>
-              <div class="mb-1 flex items-center justify-between">
+              <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <label class="input-label text-xs mb-0">{{ t('admin.channels.form.modelMapping', 'Model Mapping') }}</label>
-                <button type="button" @click="addMappingEntry(sIdx)" class="text-xs text-emerald-600 hover:text-emerald-700">
-                  + {{ t('common.add', 'Add') }}
-                </button>
+                <div class="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    v-if="section.model_mapping_order.length > 1"
+                    type="button"
+                    @click="sortMappingNaturally(section)"
+                    class="text-xs text-stone-500 hover:text-emerald-600"
+                  >
+                    {{ t('admin.channels.form.sortByName') }}
+                  </button>
+                  <button type="button" @click="addMappingEntry(sIdx)" class="text-xs text-emerald-600 hover:text-emerald-700">
+                    + {{ t('common.add', 'Add') }}
+                  </button>
+                </div>
               </div>
               <div
                 v-if="Object.keys(section.model_mapping).length === 0"
@@ -381,12 +391,29 @@
               >
                 {{ t('admin.channels.form.noMappingRules', 'No mapping rules. Click "Add" to create one.') }}
               </div>
-              <div v-else class="space-y-1">
+              <VueDraggable
+                v-else
+                v-model="section.model_mapping_order"
+                :animation="180"
+                handle=".mapping-drag-handle"
+                class="space-y-1"
+                @end="normalizeSectionMappingOrder(section)"
+              >
                 <div
-                  v-for="(_, srcModel) in section.model_mapping"
+                  v-for="srcModel in section.model_mapping_order"
                   :key="srcModel"
-                  class="flex items-center gap-2"
+                  class="flex items-center gap-2 rounded-md border border-transparent px-1 py-0.5 hover:border-stone-200/80 hover:bg-stone-50/60 dark:hover:border-white/10 dark:hover:bg-white/[0.03]"
                 >
+                  <button
+                    type="button"
+                    class="mapping-drag-handle cursor-grab p-1 text-stone-300 hover:text-stone-500 active:cursor-grabbing dark:text-stone-600 dark:hover:text-stone-400"
+                    :aria-label="t('admin.channels.form.dragToSort')"
+                    :title="t('admin.channels.form.dragToSort')"
+                  >
+                    <span aria-hidden="true" class="grid grid-cols-2 gap-0.5">
+                      <span v-for="dot in 6" :key="dot" class="h-0.5 w-0.5 rounded-full bg-current"></span>
+                    </span>
+                  </button>
                   <input
                     :value="srcModel"
                     type="text"
@@ -402,8 +429,23 @@
                     class="input flex-1 text-xs"
                     :class="platformTextClass(section.platform)"
                     :placeholder="t('admin.channels.form.mappingTarget', 'Target model')"
-                    @input="section.model_mapping[srcModel] = ($event.target as HTMLInputElement).value"
+                    @change="updateMappingTarget(sIdx, srcModel, ($event.target as HTMLInputElement).value)"
                   />
+                  <span
+                    class="hidden min-w-[4.5rem] justify-center rounded-full px-2 py-1 text-[10px] font-medium sm:inline-flex"
+                    :class="mappingPricingStatusClass(section, srcModel)"
+                  >
+                    {{ mappingPricingStatusLabel(section, srcModel) }}
+                  </span>
+                  <button
+                    v-if="mappingPricingStatus(section, srcModel) === 'missing'"
+                    type="button"
+                    class="rounded px-1.5 py-1 text-[11px] font-medium text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-500/10"
+                    :disabled="pricingRepairingPlatform !== null"
+                    @click="repairMappingPricing(sIdx, srcModel)"
+                  >
+                    {{ t('admin.channels.form.addPricing') }}
+                  </button>
                   <button
                     type="button"
                     @click="removeMappingEntry(sIdx, srcModel)"
@@ -412,14 +454,30 @@
                     <Icon name="trash" size="sm" />
                   </button>
                 </div>
-              </div>
+              </VueDraggable>
             </div>
 
             <!-- Model Pricing -->
             <div>
-              <div class="mb-1 flex items-center justify-between">
+              <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <label class="input-label text-xs mb-0">{{ t('admin.channels.form.modelPricing', 'Model Pricing') }}</label>
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    v-if="section.model_pricing.length > 1"
+                    type="button"
+                    @click="sortPricingByMapping(section)"
+                    class="text-xs text-stone-500 hover:text-emerald-600"
+                  >
+                    {{ t('admin.channels.form.sortByMapping') }}
+                  </button>
+                  <button
+                    v-if="section.model_pricing.length > 1"
+                    type="button"
+                    @click="sortPricingNaturally(section)"
+                    class="text-xs text-stone-500 hover:text-emerald-600"
+                  >
+                    {{ t('admin.channels.form.sortByName') }}
+                  </button>
                   <button
                     type="button"
                     @click="syncLatestModels(sIdx)"
@@ -434,6 +492,71 @@
                 </div>
               </div>
               <div
+                v-if="Object.keys(section.model_mapping).length > 0"
+                class="mb-2 rounded-lg border border-stone-200/80 bg-stone-50/70 px-3 py-2.5 dark:border-white/10 dark:bg-white/[0.03]"
+              >
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                    <span class="font-medium text-stone-600 dark:text-stone-300">
+                      {{ t('admin.channels.form.mappingModelsCount', { count: pricingCoverage(section).expectedModels.length }) }}
+                    </span>
+                    <span class="text-emerald-600 dark:text-emerald-400">
+                      {{ t('admin.channels.form.pricingCoveredCount', { count: pricingCoverage(section).coveredModels.length }) }}
+                    </span>
+                    <span
+                      :class="pricingCoverage(section).missingModels.length > 0
+                        ? 'font-medium text-amber-700 dark:text-amber-300'
+                        : 'text-stone-400'"
+                    >
+                      {{ t('admin.channels.form.pricingMissingCount', { count: pricingCoverage(section).missingModels.length }) }}
+                    </span>
+                    <span class="text-stone-400">
+                      {{ t('admin.channels.form.pricingExtraCount', { count: pricingCoverage(section).extraPricingModels.length }) }}
+                    </span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button
+                      v-if="pricingCoverage(section).missingModels.length > 0"
+                      type="button"
+                      class="text-[11px] font-medium text-stone-500 hover:text-amber-700 dark:text-stone-400 dark:hover:text-amber-300"
+                      @click="section.show_missing_models = !section.show_missing_models"
+                    >
+                      {{ section.show_missing_models ? t('admin.channels.form.hideMissingModels') : t('admin.channels.form.showMissingModels') }}
+                    </button>
+                    <button
+                      v-if="pricingCoverage(section).missingModels.length > 0"
+                      type="button"
+                      class="rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      :disabled="pricingRepairingPlatform !== null"
+                      :title="t('admin.channels.form.quickPricingHint')"
+                      @click="quickPriceMissingModels(sIdx)"
+                    >
+                      {{ pricingRepairingPlatform === section.platform
+                        ? t('admin.channels.form.quickPricingRunning')
+                        : t('admin.channels.form.quickPricing') }}
+                    </button>
+                  </div>
+                </div>
+                <p
+                  v-if="pricingCoverage(section).indeterminate"
+                  class="mt-1.5 text-[11px] text-amber-700 dark:text-amber-300"
+                >
+                  {{ t('admin.channels.form.upstreamPricingCoverageUnknown') }}
+                </p>
+                <div
+                  v-if="section.show_missing_models && pricingCoverage(section).missingModels.length > 0"
+                  class="mt-2 flex flex-wrap gap-1.5 border-t border-stone-200/80 pt-2 dark:border-white/10"
+                >
+                  <span
+                    v-for="model in pricingCoverage(section).missingModels"
+                    :key="model"
+                    class="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[11px] text-amber-800 dark:bg-amber-500/10 dark:text-amber-300"
+                  >
+                    {{ model }}
+                  </span>
+                </div>
+              </div>
+              <div
                 v-if="deliveryError || deliveryWarnings.length"
                 class="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300"
               >
@@ -445,10 +568,17 @@
               >
                 {{ t('admin.channels.form.noPricingRules', 'No pricing rules yet. Click "Add" to create one.') }}
               </div>
-              <div v-else class="space-y-2">
+              <VueDraggable
+                v-else
+                v-model="section.model_pricing"
+                :animation="180"
+                handle=".pricing-drag-handle"
+                class="space-y-2"
+                @end="renumberPricing(section)"
+              >
                 <PricingEntryCard
                   v-for="(entry, idx) in section.model_pricing"
-                  :key="idx"
+                  :key="entry._ui_id || `pricing-${idx}`"
                   :entry="entry"
                   :platform="section.platform"
                   :model-delivery="deliveryLoaded ? modelDeliveryForPlatform(section.platform) : undefined"
@@ -457,7 +587,7 @@
                   @remove="removePricingEntry(sIdx, idx)"
                   @inspect-delivery="openDeliveryDialog"
                 />
-              </div>
+              </VueDraggable>
             </div>
 
             <!-- Account Stats Pricing Rules (per-platform, always visible) -->
@@ -648,9 +778,11 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
-import type { Channel, ChannelModelDelivery, ChannelModelPricing, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule } from '@/api/admin/channels'
+import type { Channel, ChannelModelDelivery, ChannelModelPricing, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule, ModelDefaultPricing } from '@/api/admin/channels'
 import type { PricingFormEntry } from '@/components/admin/channel/types'
 import { mTokToPerToken, perTokenToMTok, apiIntervalsToForm, formIntervalsToAPI, findModelConflict, validateIntervals } from '@/components/admin/channel/types'
+import { derivePricingCoverage, naturalModelCompare, normalizeMappingOrder, patternCovers, pricingCoverageSeverity, pricingModelForMapping } from '@/components/admin/channel/pricingCoverage'
+import type { PricingCoverage } from '@/components/admin/channel/pricingCoverage'
 import type { AdminGroup, GroupPlatform } from '@/types'
 import type { Column } from '@/components/common/types'
 import { platformTextClass, platformBadgeLightClass } from '@/utils/platformColors'
@@ -670,6 +802,7 @@ import PricingEntryCard from '@/components/admin/channel/PricingEntryCard.vue'
 import ChannelModelDeliveryDialog from '@/components/admin/channel/ChannelModelDeliveryDialog.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useKeyedDebouncedSearch } from '@/composables/useKeyedDebouncedSearch'
+import { VueDraggable } from 'vue-draggable-plus'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -701,7 +834,9 @@ interface PlatformSection {
   collapsed: boolean
   group_ids: number[]
   model_mapping: Record<string, string>
+  model_mapping_order: string[]
   model_pricing: PricingFormEntry[]
+  show_missing_models: boolean
   web_search_emulation: boolean
   codex_image_generation_bridge: boolean
   bedrock_cc_compat: boolean
@@ -829,7 +964,9 @@ function addPlatformSection(platform: GroupPlatform) {
     collapsed: false,
     group_ids: [],
     model_mapping: {},
+    model_mapping_order: [],
     model_pricing: [],
+    show_missing_models: false,
     web_search_emulation: false,
     codex_image_generation_bridge: false,
     bedrock_cc_compat: false,
@@ -907,23 +1044,183 @@ function toggleRuleGroup(rule: FormPricingRule, groupId: number) {
 }
 
 // ── Pricing helpers ──
-function addPricingEntry(sectionIdx: number) {
-  form.platforms[sectionIdx].model_pricing.push({
-    models: [],
+let pricingUISequence = 0
+
+function nextPricingUIId(): string {
+  pricingUISequence += 1
+  return `pricing-${pricingUISequence}`
+}
+
+function createPricingEntry(models: string[] = [], defaults?: ModelDefaultPricing): PricingFormEntry {
+  return {
+    _ui_id: nextPricingUIId(),
+    sort_order: 0,
+    models,
     billing_mode: 'token',
-    input_price: null,
-    output_price: null,
-    cache_write_price: null,
-    cache_read_price: null,
-    image_input_price: null,
-    image_output_price: null,
+    input_price: defaults?.found ? perTokenToMTok(defaults.input_price ?? null) : null,
+    output_price: defaults?.found ? perTokenToMTok(defaults.output_price ?? null) : null,
+    cache_write_price: defaults?.found ? perTokenToMTok(defaults.cache_write_price ?? null) : null,
+    cache_read_price: defaults?.found ? perTokenToMTok(defaults.cache_read_price ?? null) : null,
+    image_input_price: defaults?.found ? perTokenToMTok(defaults.image_input_price ?? null) : null,
+    image_output_price: defaults?.found ? perTokenToMTok(defaults.image_output_price ?? null) : null,
     per_request_price: null,
     intervals: [],
-    self_check_enabled_models: []
+    self_check_enabled_models: [],
+  }
+}
+
+function renumberPricing(section: PlatformSection) {
+  section.model_pricing.forEach((entry, index) => {
+    entry.sort_order = index
+    if (!entry._ui_id) entry._ui_id = nextPricingUIId()
   })
 }
 
+function addPricingEntry(sectionIdx: number) {
+  const section = form.platforms[sectionIdx]
+  section.model_pricing.push(createPricingEntry())
+  renumberPricing(section)
+}
+
 const syncingPlatform = ref<string | null>(null)
+const pricingRepairingPlatform = ref<string | null>(null)
+
+const pricingCoverageByPlatform = computed(() => {
+  const coverage = new Map<GroupPlatform, PricingCoverage>()
+  for (const section of form.platforms) {
+    coverage.set(section.platform, derivePricingCoverage(
+      section.model_mapping,
+      section.model_mapping_order,
+      section.model_pricing,
+      form.billing_model_source,
+    ))
+  }
+  return coverage
+})
+
+function pricingCoverage(section: PlatformSection): PricingCoverage {
+  return pricingCoverageByPlatform.value.get(section.platform) ?? {
+    expectedModels: [],
+    coveredModels: [],
+    missingModels: [],
+    extraPricingModels: [],
+    indeterminate: false,
+  }
+}
+
+function defaultPricingSignature(model: string, pricing: ModelDefaultPricing): string {
+  if (!pricing.found) return `missing:${model.toLocaleLowerCase()}`
+  return JSON.stringify({
+    input_price: pricing.input_price ?? null,
+    output_price: pricing.output_price ?? null,
+    cache_write_price: pricing.cache_write_price ?? null,
+    cache_read_price: pricing.cache_read_price ?? null,
+    image_input_price: pricing.image_input_price ?? null,
+    image_output_price: pricing.image_output_price ?? null,
+  })
+}
+
+async function loadDefaultPricing(models: string[]) {
+  const resolved: Array<{ model: string, pricing: ModelDefaultPricing }> = []
+  const concurrency = 6
+  for (let start = 0; start < models.length; start += concurrency) {
+    const batch = models.slice(start, start + concurrency)
+    const batchResult = await Promise.all(batch.map(async model => {
+      try {
+        const pricing = await adminAPI.channels.getModelDefaultPricing(model)
+        return { model, pricing }
+      } catch {
+        return { model, pricing: { found: false } as ModelDefaultPricing }
+      }
+    }))
+    resolved.push(...batchResult)
+  }
+  return resolved
+}
+
+async function repairPricingModels(sectionIdx: number, requestedModels: string[]) {
+  const section = form.platforms[sectionIdx]
+  if (!section || pricingRepairingPlatform.value) return
+  if (form.billing_model_source === 'upstream') {
+    appStore.showWarning(t('admin.channels.form.upstreamPricingCoverageUnknown'))
+    return
+  }
+
+  const missingKeys = new Set(pricingCoverage(section).missingModels.map(model => model.toLocaleLowerCase()))
+  const models = requestedModels.filter(model => missingKeys.has(model.toLocaleLowerCase()))
+  if (models.length === 0) return
+
+  pricingRepairingPlatform.value = section.platform
+  try {
+    const resolved = await loadDefaultPricing(models)
+    if (form.platforms[sectionIdx] !== section) return
+
+    const stillMissing = new Set(pricingCoverage(section).missingModels.map(model => model.toLocaleLowerCase()))
+    const groups = new Map<string, { models: string[], pricing: ModelDefaultPricing }>()
+    for (const item of resolved) {
+      if (!stillMissing.has(item.model.toLocaleLowerCase())) continue
+      const signature = defaultPricingSignature(item.model, item.pricing)
+      const group = groups.get(signature)
+      if (group) {
+        group.models.push(item.model)
+      } else {
+        groups.set(signature, { models: [item.model], pricing: item.pricing })
+      }
+    }
+
+    let addedCount = 0
+    for (const group of groups.values()) {
+      section.model_pricing.push(createPricingEntry(group.models, group.pricing))
+      addedCount += group.models.length
+    }
+    renumberPricing(section)
+    if (addedCount > 0) {
+      appStore.showSuccess(t('admin.channels.form.quickPricingSuccess', { count: addedCount }))
+    }
+  } finally {
+    if (pricingRepairingPlatform.value === section.platform) {
+      pricingRepairingPlatform.value = null
+    }
+  }
+}
+
+async function quickPriceMissingModels(sectionIdx: number) {
+  const section = form.platforms[sectionIdx]
+  await repairPricingModels(sectionIdx, pricingCoverage(section).missingModels)
+}
+
+async function repairMappingPricing(sectionIdx: number, sourceModel: string) {
+  const section = form.platforms[sectionIdx]
+  const expected = pricingModelForMapping(
+    sourceModel,
+    section.model_mapping[sourceModel] || '',
+    form.billing_model_source,
+  )
+  if (expected) await repairPricingModels(sectionIdx, [expected])
+}
+
+function sortPricingNaturally(section: PlatformSection) {
+  section.model_pricing.sort((left, right) =>
+    naturalModelCompare(left.models[0] || '', right.models[0] || ''),
+  )
+  renumberPricing(section)
+}
+
+function sortPricingByMapping(section: PlatformSection) {
+  const expected = pricingCoverage(section).expectedModels
+  const orderIndex = (entry: PricingFormEntry): number => {
+    const indexes = expected
+      .map((model, index) => entry.models.some(pricingModel => patternCovers(pricingModel, model)) ? index : -1)
+      .filter(index => index >= 0)
+    return indexes.length > 0 ? Math.min(...indexes) : Number.MAX_SAFE_INTEGER
+  }
+  section.model_pricing.sort((left, right) => {
+    const byMapping = orderIndex(left) - orderIndex(right)
+    if (byMapping !== 0) return byMapping
+    return naturalModelCompare(left.models[0] || '', right.models[0] || '')
+  })
+  renumberPricing(section)
+}
 
 async function syncLatestModels(sectionIdx: number) {
   const platform = form.platforms[sectionIdx].platform
@@ -942,19 +1239,8 @@ async function syncLatestModels(sectionIdx: number) {
       return
     }
     // Add new models as a single new pricing entry (user fills in prices)
-    form.platforms[sectionIdx].model_pricing.push({
-      models: newModels,
-      billing_mode: 'token',
-      input_price: null,
-      output_price: null,
-      cache_write_price: null,
-      cache_read_price: null,
-      image_input_price: null,
-      image_output_price: null,
-      per_request_price: null,
-      intervals: [],
-      self_check_enabled_models: []
-    })
+    form.platforms[sectionIdx].model_pricing.push(createPricingEntry(newModels))
+    renumberPricing(form.platforms[sectionIdx])
     appStore.showSuccess(t('admin.channels.form.syncModelsSuccess', { count: newModels.length }))
   } catch (error) {
     appStore.showError(extractApiErrorMessage(error, t('admin.channels.form.syncModelsError')))
@@ -965,15 +1251,18 @@ async function syncLatestModels(sectionIdx: number) {
 
 function updatePricingEntry(sectionIdx: number, idx: number, updated: PricingFormEntry) {
   form.platforms[sectionIdx].model_pricing.splice(idx, 1, updated)
+  renumberPricing(form.platforms[sectionIdx])
 }
 
 function removePricingEntry(sectionIdx: number, idx: number) {
   form.platforms[sectionIdx].model_pricing.splice(idx, 1)
+  renumberPricing(form.platforms[sectionIdx])
 }
 
 // ── Model Mapping helpers ──
 function addMappingEntry(sectionIdx: number) {
-  const mapping = form.platforms[sectionIdx].model_mapping
+  const section = form.platforms[sectionIdx]
+  const mapping = section.model_mapping
   let key = ''
   let i = 1
   while (key === '' || key in mapping) {
@@ -981,20 +1270,67 @@ function addMappingEntry(sectionIdx: number) {
     i++
   }
   mapping[key] = ''
+  section.model_mapping_order.push(key)
 }
 
 function removeMappingEntry(sectionIdx: number, key: string) {
-  delete form.platforms[sectionIdx].model_mapping[key]
+  const section = form.platforms[sectionIdx]
+  delete section.model_mapping[key]
+  section.model_mapping_order = section.model_mapping_order.filter(model => model !== key)
 }
 
 function renameMappingKey(sectionIdx: number, oldKey: string, newKey: string) {
   newKey = newKey.trim()
   if (!newKey || newKey === oldKey) return
-  const mapping = form.platforms[sectionIdx].model_mapping
+  const section = form.platforms[sectionIdx]
+  const mapping = section.model_mapping
   if (newKey in mapping) return
   const value = mapping[oldKey]
   delete mapping[oldKey]
   mapping[newKey] = value
+  const orderIndex = section.model_mapping_order.indexOf(oldKey)
+  if (orderIndex >= 0) section.model_mapping_order.splice(orderIndex, 1, newKey)
+  normalizeSectionMappingOrder(section)
+}
+
+function updateMappingTarget(sectionIdx: number, sourceModel: string, targetModel: string) {
+  const section = form.platforms[sectionIdx]
+  section.model_mapping[sourceModel] = targetModel.trim()
+}
+
+function normalizeSectionMappingOrder(section: PlatformSection) {
+  section.model_mapping_order = normalizeMappingOrder(section.model_mapping, section.model_mapping_order)
+}
+
+function sortMappingNaturally(section: PlatformSection) {
+  section.model_mapping_order = Object.keys(section.model_mapping).sort(naturalModelCompare)
+}
+
+function mappingPricingStatus(section: PlatformSection, sourceModel: string): 'covered' | 'missing' | 'unknown' | 'pending' {
+  if (form.billing_model_source === 'upstream') return 'unknown'
+  const expected = pricingModelForMapping(
+    sourceModel,
+    section.model_mapping[sourceModel] || '',
+    form.billing_model_source,
+  )
+  if (!expected) return 'pending'
+  const pricingModels = section.model_pricing.flatMap(entry => entry.models)
+  return pricingModels.some(model => patternCovers(model, expected)) ? 'covered' : 'missing'
+}
+
+function mappingPricingStatusLabel(section: PlatformSection, sourceModel: string): string {
+  return t(`admin.channels.form.mappingPricingStatus.${mappingPricingStatus(section, sourceModel)}`)
+}
+
+function mappingPricingStatusClass(section: PlatformSection, sourceModel: string): string {
+  const status = mappingPricingStatus(section, sourceModel)
+  if (status === 'covered') {
+    return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'
+  }
+  if (status === 'missing') {
+    return 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'
+  }
+  return 'bg-stone-100 text-stone-500 dark:bg-white/[0.06] dark:text-stone-400'
 }
 
 // ── Account Stats Pricing helpers ──
@@ -1159,10 +1495,17 @@ function sanitizeSelfCheckModels(entry: Pick<PricingFormEntry, 'models' | 'self_
   return out
 }
 
-function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[], model_mapping: Record<string, Record<string, string>>, features_config: Record<string, unknown> } {
+function formToAPI(): {
+  group_ids: number[]
+  model_pricing: ChannelModelPricing[]
+  model_mapping: Record<string, Record<string, string>>
+  model_mapping_order: Record<string, string[]>
+  features_config: Record<string, unknown>
+} {
   const group_ids: number[] = []
   const model_pricing: ChannelModelPricing[] = []
   const model_mapping: Record<string, Record<string, string>> = {}
+  const model_mapping_order: Record<string, string[]> = {}
   // Preserve existing features_config fields not managed by the form
   const featuresConfig: Record<string, unknown> = editingChannel.value?.features_config
     ? { ...editingChannel.value.features_config }
@@ -1175,12 +1518,17 @@ function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[
     // Model mapping per platform
     if (Object.keys(section.model_mapping).length > 0) {
       model_mapping[section.platform] = { ...section.model_mapping }
+      model_mapping_order[section.platform] = normalizeMappingOrder(
+        section.model_mapping,
+        section.model_mapping_order,
+      )
     }
 
     // Model pricing with platform tag
-    for (const entry of section.model_pricing) {
+    for (const [pricingIndex, entry] of section.model_pricing.entries()) {
       if (entry.models.length === 0) continue
       model_pricing.push({
+        sort_order: pricingIndex,
         platform: section.platform,
         models: entry.models,
         billing_mode: entry.billing_mode,
@@ -1240,7 +1588,13 @@ function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[
     delete featuresConfig.bedrock_cc_compat
   }
 
-  return { group_ids: uniqueGroupIds, model_pricing, model_mapping, features_config: featuresConfig }
+  return {
+    group_ids: uniqueGroupIds,
+    model_pricing,
+    model_mapping,
+    model_mapping_order,
+    features_config: featuresConfig,
+  }
 }
 
 function apiToForm(channel: Channel): PlatformSection[] {
@@ -1277,9 +1631,15 @@ function apiToForm(channel: Channel): PlatformSection[] {
       return groupPlatform === platform || groupPlatform === 'composite'
     })
     const mapping = (channel.model_mapping || {})[platform] || {}
+    const mappingOrder = normalizeMappingOrder(
+      mapping,
+      channel.model_mapping_order?.[platform],
+    )
     const pricing = (channel.model_pricing || [])
       .filter(p => (p.platform || 'anthropic') === platform)
       .map(p => ({
+        _ui_id: p.id ? `pricing-${p.id}` : nextPricingUIId(),
+        sort_order: p.sort_order ?? 0,
         models: p.models || [],
         billing_mode: p.billing_mode,
         input_price: perTokenToMTok(p.input_price),
@@ -1310,7 +1670,9 @@ function apiToForm(channel: Channel): PlatformSection[] {
       collapsed: false,
       group_ids: groupIds,
       model_mapping: { ...mapping },
+      model_mapping_order: mappingOrder,
       model_pricing: pricing,
+      show_missing_models: false,
       web_search_emulation: webSearchEnabled,
       codex_image_generation_bridge: codexImageGenerationBridgeEnabled,
       bedrock_cc_compat: bedrockCCCompatEnabled,
@@ -1573,6 +1935,28 @@ async function handleSubmit() {
     }
   }
 
+  const pricingCoverageWarnings: string[] = []
+  for (const section of form.platforms.filter(s => s.enabled)) {
+    const coverage = pricingCoverage(section)
+    const severity = pricingCoverageSeverity(coverage, form.restrict_models)
+    if (severity === 'unknown' || severity === 'none') continue
+    const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)
+    const message = t('admin.channels.form.missingPricingCoverage', {
+      platform: platformLabel,
+      models: coverage.missingModels.join(', '),
+    })
+    if (severity === 'error') {
+      appStore.showError(message)
+      section.show_missing_models = true
+      activeTab.value = section.platform
+      return
+    }
+    pricingCoverageWarnings.push(message)
+  }
+  if (pricingCoverageWarnings.length > 0) {
+    appStore.showWarning(pricingCoverageWarnings.join('；'), 7000)
+  }
+
   // Check model pattern conflicts per platform (duplicate / wildcard overlap)
   for (const section of form.platforms.filter(s => s.enabled)) {
     // Collect all pricing models for this platform
@@ -1632,7 +2016,7 @@ async function handleSubmit() {
     }
   }
 
-  const { group_ids, model_pricing, model_mapping, features_config } = formToAPI()
+  const { group_ids, model_pricing, model_mapping, model_mapping_order, features_config } = formToAPI()
 
   submitting.value = true
   try {
@@ -1644,6 +2028,7 @@ async function handleSubmit() {
         group_ids,
         model_pricing,
         model_mapping: Object.keys(model_mapping).length > 0 ? model_mapping : {},
+        model_mapping_order,
         billing_model_source: form.billing_model_source,
         restrict_models: form.restrict_models,
         features_config,
@@ -1659,6 +2044,7 @@ async function handleSubmit() {
         group_ids,
         model_pricing,
         model_mapping: Object.keys(model_mapping).length > 0 ? model_mapping : {},
+        model_mapping_order,
         billing_model_source: form.billing_model_source,
         restrict_models: form.restrict_models,
         features_config,

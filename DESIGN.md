@@ -3,7 +3,7 @@
 ## Source of truth
 
 - Status: Active
-- Last refreshed: 2026-07-22
+- Last refreshed: 2026-07-27
 - Primary product surfaces:
   - User console: `frontend/src/views/user/**`
   - User API Key management: `frontend/src/views/user/KeysView.vue`, `frontend/src/components/keys/**`
@@ -59,6 +59,7 @@
   - Let enterprise owners apply shared member policy changes in one atomic batch without overwriting fields they did not explicitly select.
   - Preserve platform administrator-only visibility into upstream account cost, routing, and operational internals.
   - Keep public model publication, stable delivery eligibility, upstream protocol capability, and customer-facing API endpoints as separate facts joined by one deterministic `DeliveryDecision` shared by catalog projection and runtime candidate filtering.
+  - Keep channel model mapping and channel pricing visibly reconciled so administrators can find and repair omitted pricing coverage before it becomes a runtime restriction failure.
   - Keep model callability separate from endpoint publication: unknown capability evidence may retain an established compatibility route, but only proven delivery decisions may publish endpoint metadata.
   - Separate customer-visible failures, failure ownership, and platform SLA impact so operators can distinguish customer configuration, enterprise policy, client interruption, platform capacity, and final upstream failures.
   - Keep future feature work grounded in small, reviewable slices that fit the dev-zz branch discipline.
@@ -72,6 +73,7 @@
   - A platform admin can answer "which user, group, account, and route is driving operational cost?"
   - A platform admin can answer "what is failing now, whether it affects SLA, who should act, and whether retries recovered the request?"
   - A platform admin can start from a channel-priced public model and see whether any stable account route can deliver it, which public endpoints are available, and which upstream capabilities produce that result.
+  - A platform admin can see mapped, covered, missing, and pricing-only model counts per platform, repair missing coverage in one action, and retain a deterministic display order after reload.
   - A user never sees a model or endpoint described as available solely because a price row or disconnected upstream capability exists.
   - Reviewers can tell from DTO names and routes whether a field is user-safe or admin-only.
 
@@ -151,6 +153,12 @@
   - Public model identity and channel-mapped model identity remain separate inputs: publication/pricing checks use the public model, while account eligibility and protocol capability checks use the mapped/final upstream model.
   - Messages-specific group dispatch mapping is a protocol fallback below explicit channel mapping and above account mapping; control-plane diagnostics and runtime forwarding must resolve the same chain.
   - Short-lived health, concurrency, and rate-limit state must not make catalog metadata flicker, but inactive, unschedulable, or model-ineligible accounts do not prove delivery.
+- Principle 10: Mapping-to-pricing consistency is an explicit admin contract.
+  - Coverage is derived from the selected billing-model source: requested names use mapping sources, channel-mapped names use mapping targets, and final-upstream names require delivery evidence rather than inference.
+  - Exact and wildcard coverage must use the same case-insensitive pattern semantics as runtime pricing lookup.
+  - Missing coverage blocks save only when model restriction would reject the omitted model; otherwise it is a visible warning with an explicit repair action.
+  - Adding or renaming a mapping may offer a safe pricing repair, but deleting a mapping never silently deletes pricing.
+  - Manual ordering is presentation-only. It never implies mapping precedence or changes runtime matching.
 - Tradeoffs:
   - First versions may use raw `usage_logs` with strict date limits.
   - Add pre-aggregation only when a measured query path needs it.
@@ -173,6 +181,8 @@
   - Owner analytics dashboard components should live under `frontend/src/components/keys` or a future `frontend/src/components/enterprise-usage`.
   - Admin-only analytics components should stay under `frontend/src/components/admin`.
   - Channel pricing model rows own the primary "delivery capability" summary and route drilldown.
+  - Channel platform sections own a compact mapping/pricing reconciliation summary, missing-only filter, deterministic sorting controls, and an explicit quick-pricing action.
+  - Mapping and pricing drag handles reuse the existing `vue-draggable-plus` interaction pattern and stable item identities; index keys are not acceptable for reorderable cards.
   - `ModelProtocolCapabilitiesModal` is labeled as upstream capability management and remains the advanced account-level override surface.
   - `AvailableModelMarketplace` shows customer-callable API paths only; native/compatibility route mode stays admin-only.
 - Variants and states:
@@ -189,6 +199,9 @@
   - Tables need compact numeric formatting with full values available in tooltip/title.
   - A channel model delivery summary distinguishes deliverable, partially deliverable, stable route without a callable endpoint, and no stable route. Warning and unavailable states include text and icons, not color alone.
   - Orphan upstream capabilities explicitly say that no channel public model currently resolves to that account/final upstream model.
+  - Missing mapping-derived pricing is an error when model restriction is enabled and a warning otherwise. Pricing-only models remain valid and are never auto-removed.
+  - Mapping edits never create or delete pricing implicitly. Quick pricing runs only after an explicit administrator action, appends only uncovered models, preserves existing pricing values, and leaves unavailable default prices visible for review.
+  - Sorting offers mapping order, natural model-name order, and custom order. Custom order persists across reloads and is described as display order.
 - Token/component ownership:
   - Extend existing Tailwind utility style and local component patterns.
   - Do not add chart or UI dependencies unless the existing stack cannot represent the required view.
@@ -228,6 +241,7 @@
   - Empty analytics states should say what filter or date range produced no data.
 - Error:
   - Use retryable panel errors; preserve filters and last successful context when possible.
+  - Channel save errors identify the platform and exact uncovered model names, then keep the administrator on that platform.
 - Success:
   - Prefer quiet inline updates over toast spam for chart refreshes.
   - Import success distinguishes created members, created Keys, migration opening usage, assigned access policy, and members still awaiting configuration.
@@ -271,6 +285,8 @@
   - Preserve the existing `/v1/messages` compatibility contract only when at least one stable route can serve the public model through the account's selected Chat or Responses transport. Native Messages evidence is not required, but an explicit unsupported fact for that selected transport disables the compatibility path.
   - User catalog `route_group_ids` describes per-group runtime callability; `supported_endpoints[].group_ids` is the stricter set with publishable endpoint evidence. Neither field may expose account topology.
   - Channel pricing remains the publication source, but pricing alone cannot prove deliverability. Existing capability records remain account-scoped and are not duplicated into channel pricing.
+  - Channel pricing entries carry an explicit platform-local `sort_order`; channel mapping order is stored separately from the JSONB mapping object. Runtime mapping and pricing lookup ignore these presentation fields.
+  - Existing channels backfill pricing order from row ID and mapping display order from deterministic natural model-name order. New ordering fields must remain backward-compatible for older clients that omit them.
   - Public delivery metadata may ignore transient runtime saturation and cooldown, but must exclude inactive, unschedulable, platform-incompatible, and model-ineligible accounts.
   - Preserve ADR 0003: enterprise members are non-login entities; member Keys inherit the member's ordered group delegation.
   - `member_code` is immutable while a member exists and remains unique across current and archived members. Irreversible owner-facing removal replaces historical tombstones with a server-only code, allowing the original code to be reused without reassigning old facts.
@@ -297,6 +313,7 @@
 - Test/screenshot expectations:
   - Backend permission tests must cover cross-user denial and admin-only field absence.
   - Frontend typecheck and lint are required for new analytics components.
+  - Channel reconciliation tests must cover requested versus channel-mapped billing sources, exact and wildcard coverage, explicit quick-pricing append-only repair, restricted-save blocking, mapping rename/delete safety, and order persistence.
   - Visual QA should be done on the user-run dev server when the user asks for browser validation.
   - Ops tests must prove raw-query and pre-aggregated parity, overview-to-detail filter parity, terminal request de-duplication for stream failures, and deterministic handling of the documented production classification fixture.
 

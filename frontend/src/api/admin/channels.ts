@@ -25,6 +25,7 @@ export interface PricingInterval {
 
 export interface ChannelModelPricing {
   id?: number
+  sort_order?: number // display order within the pricing entry's platform
   platform: string
   models: string[]
   billing_mode: BillingMode
@@ -58,6 +59,7 @@ export interface Channel {
   group_ids: number[]
   model_pricing: ChannelModelPricing[]
   model_mapping: Record<string, Record<string, string>> // platform → {src→dst}
+  model_mapping_order?: Record<string, string[]> // platform → ordered source model keys (display only)
   apply_pricing_to_account_stats: boolean
   account_stats_pricing_rules: AccountStatsPricingRule[]
   created_at: string
@@ -144,6 +146,7 @@ export interface CreateChannelRequest {
   group_ids?: number[]
   model_pricing?: ChannelModelPricing[]
   model_mapping?: Record<string, Record<string, string>>
+  model_mapping_order?: Record<string, string[]>
   billing_model_source?: string
   restrict_models?: boolean
   features_config?: Record<string, unknown>
@@ -158,6 +161,7 @@ export interface UpdateChannelRequest {
   group_ids?: number[]
   model_pricing?: ChannelModelPricing[]
   model_mapping?: Record<string, Record<string, string>>
+  model_mapping_order?: Record<string, string[]>
   billing_model_source?: string
   restrict_models?: boolean
   features_config?: Record<string, unknown>

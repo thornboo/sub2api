@@ -60,6 +60,8 @@ type Channel struct {
 	ModelPricing []ChannelModelPricing
 	// 渠道级模型映射（按平台分组：platform → {src→dst}）
 	ModelMapping map[string]map[string]string
+	// 模型映射的管理端展示顺序（按平台分组）；不参与运行时匹配优先级
+	ModelMappingOrder map[string][]string
 
 	// 账号统计定价
 	ApplyPricingToAccountStats bool                      // 是否应用渠道模型定价到账号统计
@@ -85,6 +87,7 @@ type AccountStatsPricingRule struct {
 type ChannelModelPricing struct {
 	ID               int64
 	ChannelID        int64
+	SortOrder        int               // 管理端平台内展示顺序；不参与定价匹配优先级
 	Platform         string            // 所属平台（anthropic/openai/gemini/...）
 	Models           []string          // 绑定的模型列表
 	BillingMode      BillingMode       // 计费模式
@@ -227,6 +230,12 @@ func (c *Channel) Clone() *Channel {
 			cp.ModelMapping[platform] = inner
 		}
 	}
+	if c.ModelMappingOrder != nil {
+		cp.ModelMappingOrder = make(map[string][]string, len(c.ModelMappingOrder))
+		for platform, order := range c.ModelMappingOrder {
+			cp.ModelMappingOrder[platform] = append([]string(nil), order...)
+		}
+	}
 	if c.FeaturesConfig != nil {
 		cp.FeaturesConfig = deepCopyFeaturesConfig(c.FeaturesConfig)
 	}
@@ -251,6 +260,109 @@ func (c *Channel) Clone() *Channel {
 		}
 	}
 	return &cp
+}
+
+// normalizeDisplayOrder keeps presentation order deterministic without changing
+// runtime model-matching semantics.
+func (c *Channel) normalizeDisplayOrder() {
+	nextPricingOrder := make(map[string]int)
+	for i := range c.ModelPricing {
+		platform := strings.TrimSpace(c.ModelPricing[i].Platform)
+		if platform == "" {
+			platform = PlatformAnthropic
+		}
+		c.ModelPricing[i].SortOrder = nextPricingOrder[platform]
+		nextPricingOrder[platform]++
+	}
+	c.ModelMappingOrder = normalizeModelMappingOrder(c.ModelMapping, c.ModelMappingOrder)
+}
+
+func normalizeModelMappingOrder(
+	mapping map[string]map[string]string,
+	configured map[string][]string,
+) map[string][]string {
+	if len(mapping) == 0 {
+		return map[string][]string{}
+	}
+
+	result := make(map[string][]string, len(mapping))
+	for platform, entries := range mapping {
+		if len(entries) == 0 {
+			result[platform] = []string{}
+			continue
+		}
+
+		seen := make(map[string]struct{}, len(entries))
+		order := make([]string, 0, len(entries))
+		for _, model := range configured[platform] {
+			if _, exists := entries[model]; !exists {
+				continue
+			}
+			if _, duplicate := seen[model]; duplicate {
+				continue
+			}
+			seen[model] = struct{}{}
+			order = append(order, model)
+		}
+
+		missing := make([]string, 0, len(entries)-len(order))
+		for model := range entries {
+			if _, exists := seen[model]; !exists {
+				missing = append(missing, model)
+			}
+		}
+		sort.Slice(missing, func(i, j int) bool {
+			return naturalModelLess(missing[i], missing[j])
+		})
+		result[platform] = append(order, missing...)
+	}
+	return result
+}
+
+func naturalModelLess(left, right string) bool {
+	leftLower := strings.ToLower(left)
+	rightLower := strings.ToLower(right)
+	for i, j := 0, 0; i < len(leftLower) && j < len(rightLower); {
+		leftDigit := leftLower[i] >= '0' && leftLower[i] <= '9'
+		rightDigit := rightLower[j] >= '0' && rightLower[j] <= '9'
+		if leftDigit && rightDigit {
+			leftEnd, rightEnd := i, j
+			for leftEnd < len(leftLower) && leftLower[leftEnd] >= '0' && leftLower[leftEnd] <= '9' {
+				leftEnd++
+			}
+			for rightEnd < len(rightLower) && rightLower[rightEnd] >= '0' && rightLower[rightEnd] <= '9' {
+				rightEnd++
+			}
+			leftNumber := strings.TrimLeft(leftLower[i:leftEnd], "0")
+			rightNumber := strings.TrimLeft(rightLower[j:rightEnd], "0")
+			if leftNumber == "" {
+				leftNumber = "0"
+			}
+			if rightNumber == "" {
+				rightNumber = "0"
+			}
+			if len(leftNumber) != len(rightNumber) {
+				return len(leftNumber) < len(rightNumber)
+			}
+			if leftNumber != rightNumber {
+				return leftNumber < rightNumber
+			}
+			if leftEnd-i != rightEnd-j {
+				return leftEnd-i < rightEnd-j
+			}
+			i, j = leftEnd, rightEnd
+			continue
+		}
+		if leftLower[i] != rightLower[j] {
+			return leftLower[i] < rightLower[j]
+		}
+		i++
+		j++
+	}
+	if len(leftLower) != len(rightLower) {
+		return len(leftLower) < len(rightLower)
+	}
+	return left < right
 }
 
 // IsWebSearchEmulationEnabled 返回该渠道是否为指定平台启用了 web search 模拟。

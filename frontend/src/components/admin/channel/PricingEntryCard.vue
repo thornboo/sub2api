@@ -5,6 +5,17 @@
       class="flex cursor-pointer select-none items-center gap-2"
       @click="collapsed = !collapsed"
     >
+      <button
+        type="button"
+        class="pricing-drag-handle flex-shrink-0 cursor-grab rounded p-1 text-stone-300 hover:bg-stone-100 hover:text-stone-500 active:cursor-grabbing dark:text-stone-600 dark:hover:bg-white/[0.06] dark:hover:text-stone-400"
+        :aria-label="t('admin.channels.form.dragToSort')"
+        :title="t('admin.channels.form.dragToSort')"
+        @click.stop
+      >
+        <span aria-hidden="true" class="grid grid-cols-2 gap-0.5">
+          <span v-for="dot in 6" :key="dot" class="h-0.5 w-0.5 rounded-full bg-current"></span>
+        </span>
+      </button>
       <Icon
         :name="collapsed ? 'chevronRight' : 'chevronDown'"
         size="sm"

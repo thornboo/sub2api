@@ -44,6 +44,7 @@ func TestChannelToResponse_FullChannel(t *testing.T) {
 		ModelPricing: []service.ChannelModelPricing{
 			{
 				ID:              10,
+				SortOrder:       3,
 				Platform:        "openai",
 				Models:          []string{"gpt-4"},
 				BillingMode:     service.BillingModeToken,
@@ -56,6 +57,9 @@ func TestChannelToResponse_FullChannel(t *testing.T) {
 		},
 		ModelMapping: map[string]map[string]string{
 			"anthropic": {"claude-3-haiku": "claude-haiku-3"},
+		},
+		ModelMappingOrder: map[string][]string{
+			"anthropic": {"claude-3-haiku"},
 		},
 	}
 
@@ -74,11 +78,13 @@ func TestChannelToResponse_FullChannel(t *testing.T) {
 	// model mapping
 	require.Len(t, resp.ModelMapping, 1)
 	require.Equal(t, "claude-haiku-3", resp.ModelMapping["anthropic"]["claude-3-haiku"])
+	require.Equal(t, []string{"claude-3-haiku"}, resp.ModelMappingOrder["anthropic"])
 
 	// pricing
 	require.Len(t, resp.ModelPricing, 1)
 	p := resp.ModelPricing[0]
 	require.Equal(t, int64(10), p.ID)
+	require.Equal(t, 3, p.SortOrder)
 	require.Equal(t, "openai", p.Platform)
 	require.Equal(t, []string{"gpt-4"}, p.Models)
 	require.Equal(t, "token", p.BillingMode)
@@ -118,6 +124,8 @@ func TestChannelToResponse_EmptyDefaults(t *testing.T) {
 	require.Empty(t, resp.GroupIDs)
 	require.NotNil(t, resp.ModelMapping)
 	require.Empty(t, resp.ModelMapping)
+	require.NotNil(t, resp.ModelMappingOrder)
+	require.Empty(t, resp.ModelMappingOrder)
 
 	require.Len(t, resp.ModelPricing, 1)
 	require.Equal(t, "anthropic", resp.ModelPricing[0].Platform)
@@ -344,6 +352,22 @@ func TestPricingRequestToService_WithAllFields(t *testing.T) {
 	require.Equal(t, float64Ptr(0.002), r.CacheReadPrice)
 	require.Equal(t, float64Ptr(0.04), r.ImageOutputPrice)
 	require.Equal(t, float64Ptr(0.5), r.PerRequestPrice)
+}
+
+func TestPricingRequestToServiceUsesPlatformLocalRequestOrder(t *testing.T) {
+	requestedSortOrder := 99
+	result := pricingRequestToService([]channelModelPricingRequest{
+		{Platform: "openai", Models: []string{"openai-first"}, SortOrder: &requestedSortOrder},
+		{Platform: "gemini", Models: []string{"gemini-first"}},
+		{Platform: "openai", Models: []string{"openai-second"}},
+		{Models: []string{"anthropic-default"}},
+	})
+
+	require.Equal(t, 0, result[0].SortOrder)
+	require.Equal(t, 0, result[1].SortOrder)
+	require.Equal(t, 1, result[2].SortOrder)
+	require.Equal(t, 0, result[3].SortOrder)
+	require.Empty(t, result[3].Platform)
 }
 
 func TestPricingRequestToService_WithIntervals(t *testing.T) {

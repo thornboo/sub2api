@@ -125,6 +125,21 @@ func TestUnmarshalModelMapping(t *testing.T) {
 	}
 }
 
+func TestModelMappingOrderRoundTrip(t *testing.T) {
+	input := map[string][]string{
+		"openai": {"gpt-5.2", "gpt-5.10"},
+	}
+
+	encoded, err := marshalModelMappingOrder(input)
+	require.NoError(t, err)
+	require.Equal(t, input, unmarshalModelMappingOrder(encoded))
+
+	empty, err := marshalModelMappingOrder(nil)
+	require.NoError(t, err)
+	require.Equal(t, []byte("{}"), empty)
+	require.Nil(t, unmarshalModelMappingOrder([]byte("invalid")))
+}
+
 // --- escapeLike ---
 
 func TestEscapeLike(t *testing.T) {

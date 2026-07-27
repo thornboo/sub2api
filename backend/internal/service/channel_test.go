@@ -513,7 +513,6 @@ func TestSupportedModels_WildcardExpandedFromPricing(t *testing.T) {
 	}
 }
 
-
 func TestSupportedModels_MissingPricingKeepsNilPricing(t *testing.T) {
 	ch := &Channel{
 		ModelMapping: map[string]map[string]string{
@@ -756,4 +755,47 @@ func TestSupportedModels_ExactMappingTargetMissingFromPricing(t *testing.T) {
 	require.Nil(t, got[0].Pricing, "target 在渠道定价中缺失时不虚假填充，留给 ListAvailable 走 LiteLLM 回落")
 	require.Equal(t, "some-priced-model", got[1].Name)
 	require.NotNil(t, got[1].Pricing)
+}
+
+func TestChannelNormalizeDisplayOrderPreservesConfiguredKeysAndAppendsMissingNaturally(t *testing.T) {
+	ch := &Channel{
+		ModelMapping: map[string]map[string]string{
+			"openai": {
+				"gpt-5.10": "gpt-5.10",
+				"gpt-5.2":  "gpt-5.2",
+				"claude":   "claude",
+			},
+		},
+		ModelMappingOrder: map[string][]string{
+			"openai": {"claude", "removed", "claude"},
+		},
+		ModelPricing: []ChannelModelPricing{
+			{SortOrder: 99, Platform: PlatformOpenAI, Models: []string{"openai-first"}},
+			{SortOrder: 7, Platform: PlatformGemini, Models: []string{"gemini-first"}},
+			{SortOrder: 3, Platform: PlatformOpenAI, Models: []string{"openai-second"}},
+			{SortOrder: 5, Models: []string{"anthropic-default"}},
+		},
+	}
+
+	ch.normalizeDisplayOrder()
+
+	require.Equal(t, []string{"claude", "gpt-5.2", "gpt-5.10"}, ch.ModelMappingOrder["openai"])
+	require.Equal(t, 0, ch.ModelPricing[0].SortOrder)
+	require.Equal(t, 0, ch.ModelPricing[1].SortOrder)
+	require.Equal(t, 1, ch.ModelPricing[2].SortOrder)
+	require.Equal(t, 0, ch.ModelPricing[3].SortOrder)
+	require.Empty(t, ch.ModelPricing[3].Platform)
+}
+
+func TestChannelCloneCopiesModelMappingOrder(t *testing.T) {
+	original := &Channel{
+		ModelMappingOrder: map[string][]string{
+			"openai": {"model-a", "model-b"},
+		},
+	}
+
+	cloned := original.Clone()
+	cloned.ModelMappingOrder["openai"][0] = "changed"
+
+	require.Equal(t, "model-a", original.ModelMappingOrder["openai"][0])
 }

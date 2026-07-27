@@ -35,6 +35,7 @@ type createChannelRequest struct {
 	GroupIDs                   []int64                          `json:"group_ids"`
 	ModelPricing               []channelModelPricingRequest     `json:"model_pricing"`
 	ModelMapping               map[string]map[string]string     `json:"model_mapping"`
+	ModelMappingOrder          map[string][]string              `json:"model_mapping_order"`
 	BillingModelSource         string                           `json:"billing_model_source" binding:"omitempty,oneof=requested upstream channel_mapped"`
 	RestrictModels             bool                             `json:"restrict_models"`
 	Features                   string                           `json:"features"`
@@ -50,6 +51,7 @@ type updateChannelRequest struct {
 	GroupIDs                   *[]int64                          `json:"group_ids"`
 	ModelPricing               *[]channelModelPricingRequest     `json:"model_pricing"`
 	ModelMapping               map[string]map[string]string      `json:"model_mapping"`
+	ModelMappingOrder          map[string][]string               `json:"model_mapping_order"`
 	BillingModelSource         string                            `json:"billing_model_source" binding:"omitempty,oneof=requested upstream channel_mapped"`
 	RestrictModels             *bool                             `json:"restrict_models"`
 	Features                   *string                           `json:"features"`
@@ -59,6 +61,7 @@ type updateChannelRequest struct {
 }
 
 type channelModelPricingRequest struct {
+	SortOrder              *int                     `json:"sort_order" binding:"omitempty,min=0"`
 	Platform               string                   `json:"platform" binding:"omitempty,max=50"`
 	Models                 []string                 `json:"models" binding:"required,min=1,max=100"`
 	BillingMode            string                   `json:"billing_mode" binding:"omitempty,oneof=token per_request image"`
@@ -104,6 +107,7 @@ type channelResponse struct {
 	GroupIDs                   []int64                           `json:"group_ids"`
 	ModelPricing               []channelModelPricingResponse     `json:"model_pricing"`
 	ModelMapping               map[string]map[string]string      `json:"model_mapping"`
+	ModelMappingOrder          map[string][]string               `json:"model_mapping_order"`
 	ApplyPricingToAccountStats bool                              `json:"apply_pricing_to_account_stats"`
 	AccountStatsPricingRules   []accountStatsPricingRuleResponse `json:"account_stats_pricing_rules"`
 	CreatedAt                  string                            `json:"created_at"`
@@ -221,6 +225,7 @@ type channelModelDeliveryResponse struct {
 
 type channelModelPricingResponse struct {
 	ID                     int64                     `json:"id"`
+	SortOrder              int                       `json:"sort_order"`
 	Platform               string                    `json:"platform"`
 	Models                 []string                  `json:"models"`
 	BillingMode            string                    `json:"billing_mode"`
@@ -261,17 +266,18 @@ func channelToResponse(ch *service.Channel) *channelResponse {
 		return nil
 	}
 	resp := &channelResponse{
-		ID:             ch.ID,
-		Name:           ch.Name,
-		Description:    ch.Description,
-		Status:         ch.Status,
-		RestrictModels: ch.RestrictModels,
-		Features:       ch.Features,
-		FeaturesConfig: ch.FeaturesConfig,
-		GroupIDs:       ch.GroupIDs,
-		ModelMapping:   ch.ModelMapping,
-		CreatedAt:      ch.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		UpdatedAt:      ch.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		ID:                ch.ID,
+		Name:              ch.Name,
+		Description:       ch.Description,
+		Status:            ch.Status,
+		RestrictModels:    ch.RestrictModels,
+		Features:          ch.Features,
+		FeaturesConfig:    ch.FeaturesConfig,
+		GroupIDs:          ch.GroupIDs,
+		ModelMapping:      ch.ModelMapping,
+		ModelMappingOrder: ch.ModelMappingOrder,
+		CreatedAt:         ch.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		UpdatedAt:         ch.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 	resp.BillingModelSource = ch.BillingModelSource
 	if resp.GroupIDs == nil {
@@ -279,6 +285,9 @@ func channelToResponse(ch *service.Channel) *channelResponse {
 	}
 	if resp.ModelMapping == nil {
 		resp.ModelMapping = map[string]map[string]string{}
+	}
+	if resp.ModelMappingOrder == nil {
+		resp.ModelMappingOrder = map[string][]string{}
 	}
 
 	resp.ModelPricing = make([]channelModelPricingResponse, 0, len(ch.ModelPricing))
@@ -334,6 +343,7 @@ func pricingToResponse(p *service.ChannelModelPricing) channelModelPricingRespon
 	}
 	return channelModelPricingResponse{
 		ID:                     p.ID,
+		SortOrder:              p.SortOrder,
 		Platform:               platform,
 		Models:                 models,
 		BillingMode:            billingMode,
@@ -483,12 +493,19 @@ func availableCatalogPricing(p *service.ChannelModelPricing) *availableCatalogPr
 
 func pricingRequestToService(reqs []channelModelPricingRequest) []service.ChannelModelPricing {
 	result := make([]service.ChannelModelPricing, 0, len(reqs))
+	nextSortOrder := make(map[string]int)
 	for _, r := range reqs {
 		billingMode := service.BillingMode(r.BillingMode)
 		if billingMode == "" {
 			billingMode = service.BillingModeToken
 		}
 		platform := r.Platform
+		sortPlatform := strings.TrimSpace(platform)
+		if sortPlatform == "" {
+			sortPlatform = service.PlatformAnthropic
+		}
+		sortOrder := nextSortOrder[sortPlatform]
+		nextSortOrder[sortPlatform]++
 		intervals := make([]service.PricingInterval, 0, len(r.Intervals))
 		for _, iv := range r.Intervals {
 			intervals = append(intervals, service.PricingInterval{
@@ -504,6 +521,7 @@ func pricingRequestToService(reqs []channelModelPricingRequest) []service.Channe
 			})
 		}
 		result = append(result, service.ChannelModelPricing{
+			SortOrder:              sortOrder,
 			Platform:               platform,
 			Models:                 r.Models,
 			BillingMode:            billingMode,
@@ -905,6 +923,7 @@ func (h *ChannelHandler) Create(c *gin.Context) {
 		GroupIDs:                   req.GroupIDs,
 		ModelPricing:               pricing,
 		ModelMapping:               req.ModelMapping,
+		ModelMappingOrder:          req.ModelMappingOrder,
 		BillingModelSource:         req.BillingModelSource,
 		RestrictModels:             req.RestrictModels,
 		Features:                   req.Features,
@@ -941,6 +960,7 @@ func (h *ChannelHandler) Update(c *gin.Context) {
 		Status:                     req.Status,
 		GroupIDs:                   req.GroupIDs,
 		ModelMapping:               req.ModelMapping,
+		ModelMappingOrder:          req.ModelMappingOrder,
 		BillingModelSource:         req.BillingModelSource,
 		RestrictModels:             req.RestrictModels,
 		Features:                   req.Features,
