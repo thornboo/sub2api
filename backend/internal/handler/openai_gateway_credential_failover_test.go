@@ -43,6 +43,28 @@ func TestGatewayChatCredentialStopDoesNotSelectAnotherAccountAndReturnsSafe503(t
 	require.NotContains(t, recorder.Body.String(), "client_secret")
 }
 
+func TestGatewayChatAntigravityCredentialFailureReturnsActionableMessage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+
+	(&GatewayHandler{}).handleCCFailoverExhausted(c, &service.UpstreamFailoverError{
+		StatusCode:        http.StatusUnauthorized,
+		Stage:             service.GatewayFailureStageAccountAuth,
+		Scope:             service.GatewayFailureScopeAccount,
+		Reason:            service.AntigravityCredentialRejectedReason,
+		NextAccountAction: service.NextAccountRetry,
+		ClientStatusCode:  http.StatusBadGateway,
+		ClientMessage:     service.AntigravityCredentialRejectedClientMessage,
+		ResponseBody:      []byte(`{"error":{"message":"Invalid bearer token","refresh_token":"must-not-leak"}}`),
+	}, false)
+
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	require.Contains(t, recorder.Body.String(), service.AntigravityCredentialRejectedClientMessage)
+	require.NotContains(t, strings.ToLower(recorder.Body.String()), "bearer")
+	require.NotContains(t, strings.ToLower(recorder.Body.String()), "refresh_token")
+}
+
 func TestGatewayChatInferenceExhaustionRestoresRetryAfter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
@@ -55,6 +77,69 @@ func TestGatewayChatInferenceExhaustionRestoresRetryAfter(t *testing.T) {
 
 	require.Equal(t, http.StatusTooManyRequests, recorder.Code)
 	require.Equal(t, "45", recorder.Header().Get("Retry-After"))
+}
+
+func TestGatewayResponsesFailoverExhaustionMarksEnterpriseGroupRetry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name        string
+		failoverErr *service.UpstreamFailoverError
+		wantStatus  int
+	}{
+		{
+			name: "antigravity credential rejection",
+			failoverErr: &service.UpstreamFailoverError{
+				StatusCode:        http.StatusUnauthorized,
+				Stage:             service.GatewayFailureStageAccountAuth,
+				Scope:             service.GatewayFailureScopeAccount,
+				Reason:            service.AntigravityCredentialRejectedReason,
+				NextAccountAction: service.NextAccountRetry,
+				ClientStatusCode:  http.StatusBadGateway,
+				ClientMessage:     service.AntigravityCredentialRejectedClientMessage,
+			},
+			wantStatus: http.StatusBadGateway,
+		},
+		{
+			name: "upstream capacity exhausted",
+			failoverErr: &service.UpstreamFailoverError{
+				StatusCode: http.StatusTooManyRequests,
+			},
+			wantStatus: http.StatusTooManyRequests,
+		},
+		{
+			name:        "no final upstream error",
+			failoverErr: nil,
+			wantStatus:  http.StatusBadGateway,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+
+			(&GatewayHandler{}).handleResponsesFailoverExhausted(c, tt.failoverErr, false)
+
+			reason, ok := service.OpsGroupRetryReasonFromContext(c)
+			require.True(t, ok)
+			require.Equal(t, service.OpsGroupRetryReasonCapacityExhausted, reason)
+			require.Equal(t, tt.wantStatus, recorder.Code)
+		})
+	}
+}
+
+func TestGatewayResponsesFailoverExhaustionDoesNotRetryAfterStreamStarted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+
+	(&GatewayHandler{}).handleResponsesFailoverExhausted(c, &service.UpstreamFailoverError{
+		StatusCode: http.StatusTooManyRequests,
+	}, true)
+
+	_, ok := service.OpsGroupRetryReasonFromContext(c)
+	require.False(t, ok)
+	require.Empty(t, recorder.Body.String())
 }
 
 func TestCredentialFailoverExhaustionReturnsFixedSafe503(t *testing.T) {

@@ -1,5 +1,52 @@
 # 上游合并记录
 
+## 2026-07-27 - 将上游 `main` 合并到 `dev-zz-develop`：Antigravity 原生兼容与下拉边界修复合流
+
+分支：
+
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`95590b553`
+- 合并前目标：`252b3f649`
+- 上游 head：`d96b6a31f`
+- 结果提交：本次合并提交
+
+上游要点：
+
+- Antigravity OAuth 新增 OpenAI Chat Completions / Responses 到原生 `v1internal:streamGenerateContent` 的请求、流式事件和非流式响应转换。
+- Antigravity 只有 usage、没有可交付内容的响应按失败处理；账号凭据拒绝消息脱敏，并使用真正尝试过的 endpoint 更新账号状态。
+- Gemini Messages 兼容区分显式服务端 Google Search 与 Hermes 风格客户端 `web_search` function，避免普通函数被错误转换。
+- 分组说明支持换行、长文本断行和三行截断；通用 Select 根据视口边界夹紧并收缩下拉层。
+
+合并策略：
+
+- 合并前完整读取 `branch-policy.md`、`maintenance/merge-main.md`、历史合并记录、补丁/变更记录、变更地图和验证矩阵；确认 `dev-zz-develop@252b3f649` 工作区干净并与 `origin/dev-zz-develop` 对齐。
+- 刷新远端后先执行 `git merge-tree --write-tree --messages --name-only` 预演，再执行 `git merge --no-commit origin/main`；预演和真实合并都只产生一个 add/add 测试冲突。
+- 接受上游 Antigravity 原生兼容、Hermes Web Search 正确性和组件边界修复；继续保留 dev-zz 企业成员路由 / 预算 / 归因、模型原生多协议 `DeliveryDecision`、owner / admin 边界、长期证据、stone / neutral / emerald 视觉和现有版本线。
+
+冲突文件：
+
+- `frontend/src/components/common/__tests__/Select.spec.ts`
+
+解决说明：
+
+- 保留 dev-zz 的 outside-click 回归合同：document 继续使用捕获阶段监听，即使祖先节点通过 `@click.stop` 阻止冒泡，下拉框也会正确关闭。
+- 同时接入上游四个视口边界合同：空间充足时保持最小宽度、靠近右边界时收缩、左侧越界时夹紧到 padding、完全位于右侧视口外时按可用宽度收敛。
+- 两组测试使用独立 wrapper，并统一清理 DOM、`innerWidth` 和 Vitest mock，避免跨测试状态泄漏。
+- 提交前语义审查补齐 Responses failover 耗尽后的企业成员重试标记：凭据拒绝、429 或组内无最终错误且响应尚未提交时允许编排器切换下一候选组；流式响应已开始后仍不设置标记，避免不安全重放。
+
+验证：
+
+- Antigravity / Gemini / endpoint / credential / Web Search 后端定向测试通过。
+- 后端 `go test -tags=unit ./... -count=1` 与 `go test ./... -count=1` 全包通过；`go mod tidy -diff` 无依赖元数据漂移，`golangci-lint run ./...` 返回 `0 issues`。
+- 前端 Select / GroupOptionItem 定向测试、typecheck、ESLint、239 个测试文件 / 1579 条 Vitest 和生产构建通过。
+- docs-site 生产构建通过；`git diff --check`、`git diff --cached --check`、冲突路径与冲突标记检查通过。
+
+未验证：
+
+- 浏览器人工 smoke。
+- Docker / Testcontainers 运行时集成测试。
+
 ## 2026-07-27 - 将上游 `main` 合并到 `dev-zz-develop`：设置局部更新、用量筛选、协议兼容与支付统计合流
 
 分支：

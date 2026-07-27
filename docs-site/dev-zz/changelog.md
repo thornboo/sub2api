@@ -2,6 +2,11 @@
 
 ## 2026-07-27
 
+- 同步上游 `main`（`d96b6a31f`）到 `dev-zz-develop`：补齐 Antigravity OAuth 账号对 OpenAI Chat Completions / Responses 请求的原生 `v1internal:streamGenerateContent` 兼容转发，并吸收 Gemini Hermes Web Search 判定、分组说明排版和通用下拉框视口边界修复。
+- Antigravity 兼容层会在请求进入原生 Gemini 链路前转换 OpenAI 请求，在流式与非流式响应返回时恢复 OpenAI 语义；仅收到 usage、没有任何可交付内容的响应会按失败处理并进入既有账号切换机制，组内账号耗尽且响应尚未提交时会继续尝试企业成员的下一候选组，避免把空结果或单组容量问题直接返回给用户。
+- 账号失败与冷却继续使用真正尝试过的上游 endpoint 作为证据；凭据拒绝信息保持脱敏。网关仍通过 dev-zz 的 `DeliveryDecision` 选择最终上游协议，企业成员路由、预算和最终分组归因边界不变。
+- Gemini Messages 兼容只把显式声明为服务端 Google Search 的工具转换为 `googleSearch`；Hermes 风格的普通 `web_search` function 继续作为客户端函数保留，避免工具定义被误吞。
+- 分组说明支持换行、长单词断行和三行截断；通用 Select 会根据视口左右边界收缩并夹紧下拉层，同时保留捕获阶段 outside-click 监听。本轮没有数据库迁移、依赖声明、版本号或 CI workflow 变化。
 - 同步上游 `main`（`95590b553`）到 `dev-zz-develop`：吸收系统设置局部更新保护、显式 `CONFIG_FILE` 路径、管理员用量 `request_id` 筛选、Responses / Anthropic 兼容修复、最终上游模型统计、支付统计分币种和监控时间线窄卡片溢出修复。
 - 设置保存继续保留 dev-zz OpenAI Fast/Flex 策略的原子校验、序列化和审计；局部 payload 没有携带的设置键不会被零值覆盖。用量筛选同时保留企业成员 owner 可见性边界和新增请求 ID 精确查询。
 - OpenAI Responses failover 同时保留模型协议能力选择和上游 reasoning 透传边界；跨账号切换前会基于当前账号派生请求体，避免不兼容 reasoning 形态污染后续账号。

@@ -1,5 +1,33 @@
 # 补丁记录
 
+## 2026-07-27 - 上游 main 同步：Antigravity 原生兼容与下拉边界
+
+### 目标
+
+- 将 `origin/main@d96b6a31f` 合入 `dev-zz-develop`，吸收 Antigravity OAuth 的 OpenAI Chat Completions / Responses 原生兼容转发、Hermes Web Search 判定、分组说明排版和 Select 视口边界修复。
+- 保持 dev-zz 企业成员路由、预算和归因、模型原生多协议 `DeliveryDecision`、账号失败证据、stone / neutral / emerald 视觉及版本线不回退。
+
+### 主要变化
+
+- Antigravity OAuth 账号可把 OpenAI Chat Completions / Responses 请求转换到原生 `v1internal:streamGenerateContent`，并分别把流式事件和非流式结果还原为 OpenAI 兼容响应；响应 usage 继续进入既有计费和用量记录。
+- Antigravity 响应只有 usage、没有文本、工具调用或其他可交付内容时不再被当成成功，而是进入现有账号 failover；Responses 在组内账号因凭据或容量问题耗尽且响应尚未提交时会标记企业成员跨组重试，已经开始流式输出时禁止重放。
+- 上游凭据拒绝消息保持脱敏，账号冷却和错误归因使用实际尝试的 endpoint。
+- Gemini Messages 兼容层区分显式服务端 Google Search 与 Hermes 风格的客户端 `web_search` function：前者转换为 `googleSearch`，后者保留函数声明和参数。
+- 分组说明支持显式换行、超长连续文本断行和最多三行截断。Select 下拉层会根据视口 padding 夹紧左边界并收缩右边界，同时继续使用捕获阶段 document 监听保证祖先节点阻止冒泡时 outside click 仍然生效。
+
+### 数据与兼容性
+
+- 本轮没有新增数据库迁移、依赖声明、版本号或 GitHub Actions workflow。
+- Antigravity 兼容只作用于对应 OAuth 平台；其他 OpenAI / Gemini 转发仍沿用原有协议选择、调度、冷却和计费路径。
+- 企业成员候选编排、预算结果不明保护、最终 `ActiveGroup` 归因以及 owner / admin 数据边界没有放宽。
+
+### 验证
+
+- 后端 Antigravity / Gemini / endpoint / credential / Web Search 定向测试、`go test -tags=unit ./... -count=1`、`go test ./... -count=1`、`go mod tidy -diff` 和 `golangci-lint run ./...` 通过。
+- 前端 Select / GroupOptionItem 定向测试、typecheck、ESLint、239 个测试文件 / 1579 条 Vitest 和生产构建通过；docs-site 生产构建通过。
+- `git diff --check`、`git diff --cached --check`、冲突路径和冲突标记检查通过。
+- 浏览器人工 smoke 与 Docker / Testcontainers 运行时集成测试未执行。
+
 ## 2026-07-27 - 上游 main 同步：设置局部更新、协议兼容与支付统计
 
 ### 目标
