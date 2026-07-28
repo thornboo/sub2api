@@ -66,9 +66,10 @@ func (p *ModelDeliveryGroupProjection) StableRouteAvailable() bool {
 }
 
 // Callable reports whether the group/model pair still has a route the runtime
-// may select. Published endpoints are intentionally stricter: unknown
-// capability evidence can retain the established compatibility path without
-// being advertised as a proven endpoint.
+// may select. When strict protocol routing is enabled, unknown capability
+// evidence is not a routable protocol and cannot retain a user-visible model.
+// With the feature disabled, stable routes keep the legacy compatibility
+// contract.
 func (p *ModelDeliveryGroupProjection) Callable(nativeRoutingEnabled bool) bool {
 	if !p.StableRouteAvailable() {
 		return false
@@ -78,7 +79,7 @@ func (p *ModelDeliveryGroupProjection) Callable(nativeRoutingEnabled bool) bool 
 	}
 	for _, route := range p.Routes {
 		for _, decision := range route.Decisions {
-			if decision.Eligible || modelDeliveryBlockedOnlyByCapabilityUnknown(decision) {
+			if decision.Eligible {
 				return true
 			}
 		}
@@ -159,6 +160,30 @@ func (p *ModelDeliveryProjection) EndpointGroupIDs(publicModel string, protocol 
 		if _, ok := group.Endpoints[protocol]; ok {
 			result = append(result, groupID)
 		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
+	return result
+}
+
+// NativeEndpointGroupIDs returns only groups with at least one stable route
+// that uses the same protocol upstream. Legacy compatibility conversions may
+// remain callable when strict routing is disabled, but must not be advertised
+// as upstream-native model endpoints in the user catalog.
+func (p *ModelDeliveryProjection) NativeEndpointGroupIDs(publicModel string, protocol ModelProtocol) []int64 {
+	if p == nil || p.Models == nil {
+		return nil
+	}
+	groups := p.Models[publicModel]
+	result := make([]int64, 0, len(groups))
+	for groupID, group := range groups {
+		if group == nil {
+			continue
+		}
+		mode, ok := group.Endpoints[protocol]
+		if !ok || (mode != ModelDeliveryModeNative && mode != ModelDeliveryModeMixed) {
+			continue
+		}
+		result = append(result, groupID)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
 	return result
@@ -280,7 +305,7 @@ func (s *ModelDeliveryService) ResolveForGroups(ctx context.Context, groupIDs []
 		capabilitiesByAccount, err = s.capability.listMany(ctx, accountIDs)
 		if err != nil {
 			slog.Warn("model_delivery_capability_evidence_unavailable", "error", err)
-			result.Warnings = append(result.Warnings, "Native protocol evidence is temporarily unavailable; compatibility delivery is shown where it can still be proven")
+			result.Warnings = append(result.Warnings, "Native protocol evidence is temporarily unavailable; strict OpenAI API-key routes are omitted")
 			capabilitiesByAccount = make(map[int64][]AccountModelProtocolCapability)
 		}
 	}

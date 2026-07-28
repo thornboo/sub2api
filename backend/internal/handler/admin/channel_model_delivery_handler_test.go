@@ -144,21 +144,21 @@ func TestChannelHandlerGetModelDeliveryMapsAdminProjection(t *testing.T) {
 	model := body.Data.Models[0]
 	require.Equal(t, "MiniMax-M3", model.Name)
 	require.Equal(t, service.PlatformOpenAI, model.Platform)
-	require.Equal(t, "deliverable", model.Status)
-	require.Equal(t, 2, model.DeliverableGroupCount)
+	require.Equal(t, "partial", model.Status)
+	require.Equal(t, 1, model.DeliverableGroupCount)
 	require.Equal(t, 2, model.TotalGroupCount)
 	require.Equal(t, 2, model.RouteCount)
 	require.Equal(t, []channelModelDeliveryEndpointResponse{{
 		Protocol: string(service.ModelProtocolAnthropicMessages),
 		Path:     "/v1/messages",
-		Mode:     string(service.ModelDeliveryModeMixed),
-		GroupIDs: []int64{10, 20},
+		Mode:     string(service.ModelDeliveryModeNative),
+		GroupIDs: []int64{20},
 	}}, model.Endpoints)
 	require.Len(t, model.Protocols, len(service.AllModelProtocols))
 	require.Equal(t, "available", model.Protocols[0].Status)
-	require.Equal(t, string(service.ModelDeliveryModeMixed), model.Protocols[0].Mode)
-	require.Empty(t, model.Protocols[0].UpstreamProtocol)
-	require.Equal(t, []int64{10, 20}, model.Protocols[0].GroupIDs)
+	require.Equal(t, string(service.ModelDeliveryModeNative), model.Protocols[0].Mode)
+	require.Equal(t, string(service.ModelProtocolAnthropicMessages), model.Protocols[0].UpstreamProtocol)
+	require.Equal(t, []int64{20}, model.Protocols[0].GroupIDs)
 	require.Equal(t, "blocked", model.Protocols[1].Status)
 	require.Equal(t, []string{string(service.ModelDeliveryReasonCapabilityUnknown)}, model.Protocols[1].ReasonCodes)
 	require.Equal(t, "blocked", model.Protocols[2].Status)
@@ -167,24 +167,20 @@ func TestChannelHandlerGetModelDeliveryMapsAdminProjection(t *testing.T) {
 
 	compatGroup := model.Groups[0]
 	require.Equal(t, int64(10), compatGroup.ID)
-	require.Equal(t, "deliverable", compatGroup.Status)
+	require.Equal(t, "no_endpoint", compatGroup.Status)
 	require.Equal(t, 1, compatGroup.RouteCount)
 	require.Len(t, compatGroup.Routes, 1)
 	require.Equal(t, int64(82), compatGroup.Routes[0].AccountID)
 	require.Equal(t, "compat-account", compatGroup.Routes[0].AccountName)
 	require.Equal(t, "MiniMax-M3", compatGroup.Routes[0].ChannelMappedModel)
 	require.Equal(t, "compat-upstream", compatGroup.Routes[0].UpstreamModel)
-	require.Equal(t, []channelModelDeliveryRouteEndpointResponse{{
-		Protocol: string(service.ModelProtocolAnthropicMessages),
-		Path:     "/v1/messages",
-		Mode:     string(service.ModelDeliveryModeCompatibility),
-		Source:   "existing_gateway_contract",
-	}}, compatGroup.Routes[0].Endpoints)
+	require.Empty(t, compatGroup.Routes[0].Endpoints)
 	require.Len(t, compatGroup.Routes[0].Protocols, len(service.AllModelProtocols))
-	require.Equal(t, "available", compatGroup.Routes[0].Protocols[0].Status)
+	require.Equal(t, "blocked", compatGroup.Routes[0].Protocols[0].Status)
 	require.Equal(t, "MiniMax-M3", compatGroup.Routes[0].Protocols[0].ChannelMappedModel)
 	require.Equal(t, "compat-upstream", compatGroup.Routes[0].Protocols[0].UpstreamModel)
-	require.Equal(t, string(service.ModelProtocolOpenAIResponses), compatGroup.Routes[0].Protocols[0].UpstreamProtocol)
+	require.Equal(t, string(service.ModelProtocolAnthropicMessages), compatGroup.Routes[0].Protocols[0].UpstreamProtocol)
+	require.Equal(t, []string{string(service.ModelDeliveryReasonCapabilityUnknown)}, compatGroup.Routes[0].Protocols[0].ReasonCodes)
 
 	nativeGroup := model.Groups[1]
 	require.Equal(t, int64(20), nativeGroup.ID)

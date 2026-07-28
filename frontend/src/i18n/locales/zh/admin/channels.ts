@@ -193,7 +193,7 @@ export default {
         deliveryNotChecked: '保存渠道后检查 API 端点',
         deliveryRouteSummary: '{endpoints}/{totalEndpoints} 个 API 端点 · {routes} 条稳定路由',
         deliveryLoadFailed: 'API 端点就绪状态加载失败',
-        deliveryEvidenceWarning: '上游协议证据暂时不可用；当前仅展示仍可确认的兼容端点',
+        deliveryEvidenceWarning: '上游协议证据暂时不可用；已省略无法确认的严格 OpenAI API Key 路由，仅展示仍有明确证据的端点',
         deliveryStatus: {
           deliverable: '可调用',
           partial: '部分端点可用',

@@ -433,7 +433,7 @@ export default {
         searchPlaceholder: '搜索模型、渠道或 API 端点...',
         empty: '暂无可用模型',
         endpoints: {
-            title: 'API 端点',
+            title: '已确认原生端点',
             copyHint: '复制 {path}',
             copied: 'API 端点已复制',
             copyFailed: '复制 API 端点失败'
@@ -451,9 +451,9 @@ export default {
             groupModelCount: '{count} 个模型',
             channelCount: '{count} 个渠道',
             availableChannels: '可用渠道',
-            apiEndpoints: 'API端点',
+            apiEndpoints: '原生端点',
             copyEndpointHint: '点击复制端点',
-            endpointUnavailable: '沿用原有兼容路由，未发布端点信息',
+            endpointUnavailable: '仅存在兼容转换路由，未发布原生端点',
             priceVariants: '{count} 种报价',
             priceVariantsHint: '不同渠道的价格配置不同，请切换价格表格精确比较。',
             tieredPricing: '阶梯计费'

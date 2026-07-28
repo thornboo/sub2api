@@ -165,6 +165,94 @@ func TestGatewayModelSelfCheckProbeExecutorOpenAIAutoUsesModelCapabilityDecision
 	require.Equal(t, "deepseek-v4-pro", gjson.GetBytes(upstream.lastBody, "model").String())
 }
 
+func TestOpenAISelfCheckUpstreamProtocolUsesExactModelCapability(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		responsesMode openai_compat.ResponsesSupportMode
+		capabilities  []AccountModelProtocolCapability
+		wantProtocol  ModelProtocol
+		wantStrict    bool
+	}{
+		{
+			name:          "responses capability overrides force chat preference",
+			responsesMode: openai_compat.ResponsesSupportModeForceChatCompletions,
+			capabilities: []AccountModelProtocolCapability{{
+				UpstreamModel: "deepseek-v4-pro",
+				Protocol:      ModelProtocolOpenAIResponses,
+				OverrideState: ModelProtocolStateSupported,
+			}},
+			wantProtocol: ModelProtocolOpenAIResponses,
+			wantStrict:   true,
+		},
+		{
+			name:          "messages capability overrides force responses preference",
+			responsesMode: openai_compat.ResponsesSupportModeForceResponses,
+			capabilities: []AccountModelProtocolCapability{{
+				UpstreamModel: "deepseek-v4-pro",
+				Protocol:      ModelProtocolAnthropicMessages,
+				OverrideState: ModelProtocolStateSupported,
+			}},
+			wantProtocol: ModelProtocolAnthropicMessages,
+			wantStrict:   true,
+		},
+		{
+			name:          "unknown capabilities fail closed in strict mode",
+			responsesMode: openai_compat.ResponsesSupportModeAuto,
+			wantStrict:    true,
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			account := modelSelfCheckOpenAITestAccount()
+			account.Extra = map[string]any{
+				openai_compat.ExtraKeyResponsesMode: string(test.responsesMode),
+			}
+			cfg := modelSelfCheckProbeTestConfig()
+			cfg.Gateway.NativeModelProtocolRoutingEnabled = true
+			executor := &gatewayModelSelfCheckProbeExecutor{
+				openAIGatewayService: &OpenAIGatewayService{
+					cfg: cfg,
+					modelProtocolCapability: &ModelProtocolCapabilityService{
+						repo: &modelProtocolCapabilityRepoStub{itemsByAccount: map[int64][]AccountModelProtocolCapability{
+							account.ID: test.capabilities,
+						}},
+					},
+				},
+			}
+
+			protocol, strict := executor.openAISelfCheckUpstreamProtocol(
+				context.Background(),
+				account,
+				"deepseek-v4-pro",
+			)
+			require.Equal(t, test.wantProtocol, protocol)
+			require.Equal(t, test.wantStrict, strict)
+		})
+	}
+}
+
+func TestGatewayModelSelfCheckProbeExecutorStrictUnknownDoesNotUseLegacyPreference(t *testing.T) {
+	account := modelSelfCheckOpenAITestAccount()
+	account.Extra = map[string]any{
+		openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceResponses),
+	}
+	upstream := &httpUpstreamRecorder{}
+	cfg := modelSelfCheckProbeTestConfig()
+	cfg.Gateway.NativeModelProtocolRoutingEnabled = true
+	executor := &gatewayModelSelfCheckProbeExecutor{
+		openAIGatewayService: &OpenAIGatewayService{
+			cfg:                     cfg,
+			httpUpstream:            upstream,
+			modelProtocolCapability: &ModelProtocolCapabilityService{repo: &modelProtocolCapabilityRepoStub{}},
+		},
+	}
+
+	result := executor.Probe(context.Background(), account, "deepseek-v4-pro")
+
+	require.Equal(t, MonitorStatusFailed, result.Status)
+	require.Nil(t, upstream.lastReq)
+}
+
 func TestParseModelSelfCheckTokenUsageBody(t *testing.T) {
 	tests := []struct {
 		name       string

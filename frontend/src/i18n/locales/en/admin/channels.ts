@@ -193,7 +193,7 @@ export default {
         deliveryNotChecked: 'Save the channel to inspect API endpoints',
         deliveryRouteSummary: '{endpoints}/{totalEndpoints} API endpoints · {routes} stable routes',
         deliveryLoadFailed: 'Failed to load API endpoint readiness',
-        deliveryEvidenceWarning: 'Upstream protocol evidence is temporarily unavailable; only provable compatibility endpoints are shown',
+        deliveryEvidenceWarning: 'Upstream protocol evidence is temporarily unavailable; unconfirmed strict OpenAI API-key routes are omitted and only endpoints with explicit evidence are shown',
         deliveryStatus: {
           deliverable: 'Callable',
           partial: 'Some endpoints available',

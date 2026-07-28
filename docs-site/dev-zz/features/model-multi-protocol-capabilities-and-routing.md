@@ -9,8 +9,8 @@ sub2api 应把“账号怎么接入”和“模型支持什么协议”拆成两
 
 - `Account.Platform` / `Group.Platform` 继续是单值，表示账号接入适配器和分组主调度域。
 - 新增“账号 + 最终上游模型 + 协议”的原生能力记录。
-- 每个“公开模型 + 分组 + 账号 + 入站协议”只通过一个 `DeliveryDecision` 判定是否可交付、实际使用哪个上游协议，以及属于原生还是兼容交付。
-- 用户模型目录把“渠道发布的公开模型”“稳定可交付路由”“用户可调用的 API 端点”和“上游原生能力”分开；只有存在稳定可交付路由时才发布端点，经过确认的原生能力负责选择原生路由，兼容路径继续表达已有公共合同。
+- 每个“公开模型 + 分组 + 账号 + 入站协议”只通过一个 `DeliveryDecision` 判定是否可交付及实际使用哪个上游协议；严格路由开启时，入站与上游协议必须相同。
+- 用户模型目录把“渠道发布的公开模型”“稳定可交付路由”“目录声明的原生 API 端点”和“关闭严格路由后恢复的网关兼容转换能力”分开；目录只发布存在稳定同协议路由的端点。
 - 渠道定价只发布商品，不再承担协议配置；渠道页展示的是只读交付结果和阻断原因。
 - 同一个账号继续共享一份密钥、并发、健康、供应商、资金池、余额和综合折扣。
 
@@ -32,11 +32,11 @@ sub2api 应把“账号怎么接入”和“模型支持什么协议”拆成两
 - 迁移 `197_account_model_protocol_capabilities.sql` 落地能力事实、观察结果与管理员覆盖。
 - 管理端账号操作新增“模型与协议能力”，支持上游同步、警告查看、无法同步时手工添加精确模型，以及精确模型 / `*` 覆盖。
 - new-api `supported_endpoint_types` 已按本文合同解析；字段缺失、空数组或未知枚举只生成/保留 `unknown` 证据，不覆盖既有支持/不支持观察；未知值和异常模型 ID 的管理员警告经过长度与控制字符限制。
-- 多 API 端点路由开关默认继承 `gateway.native_model_protocol_routing_enabled`；管理员明确修改并保存后，数据库值成为显式覆盖且无需重启。关闭时只保留原有兼容合同；开启后，确认可交付的 Chat / Responses 端点参与目录发布和调度，OpenAI APIKey 的 `/v1/messages` 可选择确认支持 Messages 的原生路由。
+- 多 API 端点路由开关默认继承 `gateway.native_model_protocol_routing_enabled`；管理员明确修改并保存后，数据库值成为显式覆盖且无需重启。关闭时使用原有兼容合同；开启后，OpenAI APIKey 账号只按最终上游模型已确认支持的同名协议参与 Chat、Responses 或 Messages 调度，跨协议转换不进入这条严格路由。
 - 原生路径按“显式渠道映射，或 Messages 分组调度回落 → 账号映射 → 平台规范化”后的最终上游模型查能力，并复用代理、Header 覆盖、并发占用、调度失败切换、usage 计费与使用记录。
-- 原生 404/405/501 或明确的 endpoint-not-supported 响应只退出本次原生协议尝试，不降低账号整体健康；切换仍受统一账号切换预算约束，原生层耗尽后可回到兼容路径。
+- 原生 404/405/501 或明确的 endpoint-not-supported 响应只退出本次同协议尝试，不降低账号整体健康；切换仍受统一账号切换预算约束，但严格路由耗尽后不会改走其它协议。
 - `/v1/models` 使用分组、账号和能力的批量加载结果，只在开关开启且当前可见分组可形成原生路由时返回端点扩展字段。
-- `/api/v1/channels/available` 只发布统一交付判定确认可调用的公共端点；OpenAI 分组继续服从 `AllowMessagesDispatch`。能力元数据读取失败时保留能够证明的旧 Messages 兼容合同，不中断原模型/渠道目录。
+- `/api/v1/channels/available` 只发布统一交付判定确认存在同协议上游路由的公共端点；OpenAI 分组继续服从 `AllowMessagesDispatch`。严格路由开启时，能力为 `unknown`、明确 `unsupported` 或能力元数据读取失败的 OpenAI APIKey 路由均按不可用处理。
 - 上述默认 Messages 合同必须建立在“当前渠道模型至少存在一个稳定可交付账号路由”之上；渠道定价本身只表示商品发布，不能单独证明模型可用。
 
 ## 为什么要这样设计
@@ -77,7 +77,7 @@ sub2api 已经注册：
 | 能力 | 现有位置 | 设计影响 |
 | --- | --- | --- |
 | 多协议公共入口 | `backend/internal/server/routes/gateway.go` | 公共路由不需要重新命名。 |
-| Messages 到 OpenAI 兼容路径 | `backend/internal/service/openai_gateway_messages.go` | 没有可用原生 Messages 路由时继续使用。 |
+| Messages 到 OpenAI 兼容路径 | `backend/internal/service/openai_gateway_messages.go` | 仅在严格路由开关关闭时继续使用原有转换合同。 |
 | Chat / Responses 路径选择 | `backend/internal/service/openai_gateway_chat_completions.go` | 已有能力判定雏形，可以迁移到统一模型。 |
 | Responses 手动覆盖与探测结果 | `backend/internal/pkg/openai_compat/upstream_capability.go` | 复用“手动覆盖与观察结果分离”的思想。 |
 | 账号模型映射 | `backend/internal/service/account.go` | 能力必须在账号模型映射完成后判断。 |
@@ -93,13 +93,13 @@ sub2api 已经注册：
 | --- | --- | --- |
 | 接入平台 | `openai` | 决定账号凭据和主要网关适配器，不代表唯一协议。 |
 | 入站协议 | `anthropic_messages` | 客户端发送给 sub2api 的请求/响应格式。 |
-| 上游协议 | `openai_chat_completions` | sub2api 实际发送给上游的格式。 |
+| 上游协议 | `anthropic_messages` | sub2api 实际发送给上游的格式；严格路由中与入站协议相同。 |
 | 公共端点 | `/v1/messages` | 用户调用 sub2api 的路径。 |
 | 上游端点 | `/v1/messages` | sub2api 调用具体账号的路径。 |
 | 公开模型 | `MiniMax-M3` | 用户请求、渠道目录和定价使用的模型名。 |
 | 上游模型 | 账号映射后的模型名 | 具体账号最终收到的模型 ID。 |
 | 稳定可交付路由 | 分组 10 → 账号 7 → `MiniMax-M3` | 忽略瞬时并发/限流，但账号必须 active、schedulable、平台匹配且支持映射后的模型。 |
-| 模型交付能力 | `/v1/messages` 可兼容交付 | 公开模型通过至少一条稳定路由完成某公共端点请求的聚合结果。 |
+| 模型交付能力 | `/v1/messages` 可同协议交付 | 公开模型通过至少一条稳定路由完成某公共端点请求的聚合结果。 |
 | 原生调用 | Messages → Messages | 不进行跨协议转换。 |
 | 旧兼容调用 | Messages → Responses / Chat | 当前已有转换或回落路径。 |
 
@@ -123,7 +123,7 @@ Embedding、媒体、Gemini 原生协议、WebSocket、compact、count_tokens �
 | 账号模型协议能力 | 记录最终上游模型原生支持哪些协议；上游声明优先自动同步，管理员只处理例外 | 不决定商品是否公开，不决定分组授权 |
 | 全局多端点开关 | 控制新增公共端点是否发布并参与新调度 | 不删除能力证据，不改变渠道价格 |
 
-`openai_responses_mode` 是账号内部 Chat / Responses 传输偏好，不是额外的多端点开关。管理员无需为了“开启多协议”统一改成 `auto`；`force_chat_completions` 和 `force_responses` 仍然有效，只会改变该账号实际选择的上游协议。原生 Messages 能力与这个偏好相互独立。
+`openai_responses_mode` 是旧 Chat / Responses 转换链路的传输偏好，不是多端点能力事实。严格路由开关关闭时，`auto`、`force_chat_completions` 和 `force_responses` 继续控制旧链路；开关开启后，它们不能覆盖 OpenAI APIKey 账号的逐模型协议能力，也不能把 Chat 请求改发 Responses，或把 Responses 请求改发 Chat。Messages 能力同样只由逐模型 Messages 状态决定。
 
 渠道页的“API 端点就绪度”是只读结果，不是第四处配置。它由统一判定函数计算：
 
@@ -144,7 +144,7 @@ DeliveryDecision =
 - `mode`：`native` 或 `compatibility`。
 - `reason_codes`：不可交付时的稳定、可测试原因，例如无稳定路由、分组禁用、全局开关关闭、能力未知或明确不支持。
 
-控制面与数据面共享同一个候选判定：管理员渠道页按 `eligible=true` 聚合已确认端点，Chat、Responses 和 Messages 运行时也用它筛选账号。模型广场额外区分“模型仍可调用”和“端点已证明”：能力为 `unknown` 时可以保留旧兼容模型卡片，但不发布该未知端点；明确 `unsupported`、模型不匹配或传输不可用属于权威拒绝，不能被旧选择器重新选回。能力存储不可用或全局开关未接管时只允许沿用既有合同，不会反向把未证明端点发布到目录。
+控制面与数据面共享同一个候选判定：Chat、Responses 和 Messages 的用户端点展示与运行时账号筛选都以最终上游模型的同名协议能力为准。一个分组内只要至少一个合格账号确认支持某协议，就发布该协议；实际请求只在确认支持该协议的账号子集中继续执行 priority、cost、load、并发和 sticky 规则。严格路由开启时，`unknown`、`unsupported` 和能力存储失败均不能进入候选，也不能只凭旧兼容链路保留用户模型卡片；只有关闭开关后才恢复既有转换合同。
 
 ## 已确定的设计原则
 
@@ -215,7 +215,7 @@ OpenAI 分组的 Messages 模型名处理使用 `messages_dispatch_model_config.
 - 认证失败、余额不足、限流、超时：`unknown`，不是 `unsupported`。
 - 只有可信能力声明或管理员明确设置，才得到确定状态。
 
-未知账号不进入“确认原生”的候选层，也不进入原生端点目录；但仍可按当前旧兼容逻辑运行，避免破坏存量行为。
+未知账号不进入“确认原生”的候选层，也不进入用户原生端点目录。对于开启严格路由的 OpenAI APIKey 账号，`unknown` 按不可路由处理；关闭开关后才由旧选择器恢复存量兼容行为。
 
 ### 5. 第一阶段不让 runtime 自动修改能力
 
@@ -262,13 +262,13 @@ OpenAI 分组的 Messages 模型名处理使用 `messages_dispatch_model_config.
 
 “上游支持 Responses”是能力事实；“即使用户调用 Chat，也强制转发到 Responses”是路由偏好。两者不能写进同一个状态。
 
-现有 `openai_responses_mode` 在第一阶段继续作为显式路由偏好：
+现有 `openai_responses_mode` 只在旧兼容路由中继续作为显式传输偏好：
 
-- `force_responses`：继续执行当前强制 Responses 路径。
-- `force_chat_completions`：继续执行当前强制 Chat 路径。
-- `auto`：账号探测结果只给出初始偏好；最终上游模型若明确不支持或尚未证明该协议、但另一个协议已明确支持，则选择已证明可用的协议。探测收到 400 / 401 / 403 / 422 / 429 / 5xx 等非成功响应时保持 `unknown`，不能据此写成支持 Responses。
+- `force_responses`：严格路由关闭时继续执行当前强制 Responses 路径。
+- `force_chat_completions`：严格路由关闭时继续执行当前强制 Chat 路径。
+- `auto`：严格路由关闭时继续使用旧探测偏好；探测收到 400 / 401 / 403 / 422 / 429 / 5xx 等非成功响应时保持 `unknown`，不能据此写成支持 Responses。
 
-这个偏好只决定该账号的 Chat / Responses 实际上游传输，不是协议能力事实，也不是多端点总开关。例如 `force_chat_completions` 下，入站 Responses 可以通过 Responses → Chat 兼容交付；如果同一模型确认支持 Messages，入站 Messages 仍可原生走 `/v1/messages`。能力表不会因为路由偏好而把另一个协议错误标成“不支持”。
+这个偏好不是协议能力事实，也不是多端点总开关。严格路由开启时，入站协议就是要求的上游协议：Chat → Chat、Responses → Responses、Messages → Messages；`force_chat_completions` 和 `force_responses` 均不得改写该结论。能力表也不会因为旧偏好而把另一个协议错误标成支持或不支持。
 
 ## 数据模型
 
@@ -478,37 +478,37 @@ openai-response -> openai_responses
 2. 用公开模型执行渠道发布与定价限制检查
 3. 用渠道映射后的模型执行账号模型资格筛选
 4. 对候选应用账号映射并得到最终 upstream_model
-5. 解析账号实际使用的上游协议
-6. 查询该最终模型、该实际上游协议的有效能力
+5. 严格路由开启时，将实际上游协议固定为当前入站协议
+6. 查询该最终模型、该同名上游协议的有效能力
 7. 生成 DeliveryDecision，排除 eligible=false 的候选
 8. eligible 候选继续使用现有 priority / cost / load / sticky 规则
-9. 执行决定中的原生或兼容转发，并把同一决定写入 usage 调度元数据；旧流量兜底只允许覆盖 `unknown`、能力存储不可用或全局开关未接管，且仍受原有重试和排除集合约束
+9. 执行同协议转发，并把同一决定写入 usage 调度元数据；严格候选耗尽、`unknown` 或能力存储不可用时直接失败，不进入跨协议转换
 ~~~
 
 公开模型和渠道映射模型必须作为两个参数传递。前者用于商品/定价合同，后者用于账号模型映射和能力解析，禁止复用一个字符串同时承担两种语义。
 
-### 原生与兼容的选择
+### 严格路由与旧兼容的边界
 
-- Messages：确认原生 Messages 时走 Messages → Messages；否则按照该账号当前 Chat / Responses 传输策略判断现有 Messages 兼容桥是否可用。
-- Chat：账号实际传输为 Chat 时是原生；实际传输为 Responses 时是兼容。
-- Responses：账号实际传输为 Responses 时是原生；实际传输为 Chat 时是兼容。
-- 能力判断始终针对“实际上游协议”，不是机械要求入站协议也必须被上游原生支持。
-- 同一候选只生成一个确定的上游传输方案；多条账号路由聚合后才可能显示 `mixed`。
+- 严格路由开启后，OpenAI APIKey 账号的 Messages、Chat 和 Responses 都只允许同协议上游传输。
+- 同一 Responses 判定同时约束 HTTP/SSE 与 `/v1/responses` WebSocket 入口，不能让 WebSocket 绕过逐模型能力筛选。
+- 每个账号必须针对最终上游模型明确支持当前入站协议；`unknown` 和 `unsupported` 都不是候选。
+- 分组端点使用账号能力并集：任一合格账号支持某协议即可展示该端点。运行时使用同协议账号子集，不要求分组内全部账号都支持。
 - 粘性账号不满足交付判定时不能绕过过滤，调度器应继续选择其它合格候选。
-- 原生端点明确不支持时可切换其它候选或兼容路径，但必须遵守统一账号切换预算。
+- 同协议端点失败时可切换其它同协议候选，并继续遵守统一账号切换预算；候选耗尽后不得改用其它协议。
+- 严格路由关闭后，系统回到现有旧选择器，原有跨协议转换和 `openai_responses_mode` 偏好继续生效。
 
 第一阶段不增加“成本优先于原生”的策略。协议语义正确性优先于小幅成本差异。
 
-### 明确不改变的旧兼容路径
+### 仅在严格路由关闭时保留的旧兼容路径
 
-以下逻辑第一阶段保留：
+以下逻辑仍用于功能关闭后的存量合同，不参与开启后的 OpenAI APIKey 严格路由：
 
 - Messages 转 Responses。
 - APIKey Responses 不可用时回落 Chat Completions。
 - Chat Completions 转 Responses。
 - OpenAI 请求转 Anthropic 的现有兼容服务。
 
-它们继续维持存量行为，但不自动被写成“上游原生支持”，也不进入第一阶段公共原生端点目录。
+它们不自动被写成“上游原生支持”，也不进入公共原生端点目录。
 
 ### 确定性上游错误
 
@@ -516,7 +516,7 @@ openai-response -> openai_responses
 
 1. 本次请求把该账号加入排除集合。
 2. 继续尝试其它原生账号。
-3. 原生层耗尽后按旧兼容规则决定是否兜底。
+3. 同协议候选耗尽后返回失败，不跨协议兜底。
 4. 记录管理员诊断。
 5. 不自动更新能力表。
 
@@ -595,7 +595,7 @@ POST /api/v1/admin/accounts/:id/model-protocol-capabilities/sync
 规则：
 
 - 只聚合当前 API Key 可访问分组中的确认原生能力。
-- `/v1/models` 只聚合当前可形成的同协议原生路由，不把兼容转换伪装成上游原生能力；账号 Chat / Responses 传输偏好会影响对应协议是否属于原生，但不会错误移除独立的原生 Messages 能力。
+- `/v1/models` 只聚合当前可形成的同协议原生路由，不把兼容转换伪装成上游原生能力；逐模型协议能力是严格路由的唯一协议事实，Chat / Responses 旧传输偏好不参与聚合。
 - 没有确认能力时省略字段，不返回误导性的空数组。
 - 不返回账号、供应商、上游地址、成本和交付拓扑。
 - 老客户端可忽略未知字段。
@@ -625,16 +625,16 @@ POST /api/v1/admin/accounts/:id/model-protocol-capabilities/sync
 }
 ~~~
 
-`route_group_ids` 是当前用户可见范围内仍有可调用路由的分组；`supported_endpoints[].group_ids` 是其中已确认可发布该端点的分组。两者都只使用接口本来已经公开的可见分组 ID，解决同一渠道平台区段内不同分组协议权限不一致的问题。模型可能因 `unknown` 证据仍保留在 `route_group_ids`，但不会因此获得一个未经证明的 `supported_endpoints` 条目。
+`route_group_ids` 是当前用户可见范围内仍有至少一个已确认同协议路由的分组；`supported_endpoints[].group_ids` 是其中已确认可发布该端点的分组。两者都只使用接口本来已经公开的可见分组 ID，解决同一渠道平台区段内不同分组协议权限不一致的问题。严格路由开启时，只有 `unknown` 证据而没有任何已确认协议路由的模型不会保留在 `route_group_ids`。
 
-目录字段表达的是“用户可以调用的 API 端点”，不是纯粹的上游原生能力。计算必须先证明公开模型存在稳定可交付路由：
+目录字段表达的是“当前模型已确认存在原生上游路由的 API 端点”，不等同于运行时可以通过协议转换兼容接收的全部入口。计算必须先证明公开模型存在稳定可交付路由：
 
 - 渠道映射或定价决定公开模型是否发布，但不能单独证明模型可交付。
-- 原有 `/v1/messages` 不要求管理员先写 Messages 原生能力记录，但必须至少存在一个能够进入兼容路径或原生路径的稳定账号路由。
+- Anthropic 分组的 `/v1/messages` 属于既有同协议原生合同；OpenAI 分组必须有明确的原生 Messages 支持证据，不能用 Chat / Responses 兼容桥代替。
 - OpenAI 分组只有在 `AllowMessagesDispatch=true` 时进入 `/v1/messages` 的 `group_ids`。
-- Chat / Responses 公共端点按账号当前实际传输方案判定：同协议为原生，跨协议为兼容；两者都必须有实际上游协议的明确支持证据。
-- `unknown` 不会删除仍可由存量 Messages 兼容合同证明的端点；如果当前账号由 Chat 承接兼容路径，则 Chat 明确 `unsupported` 会退出该路径；由 Responses 承接时则检查 Responses 能力。
-- 能力查询失败或状态为 `unknown` 时，如果运行时仍允许走既有兼容合同，则保留模型及对应 `route_group_ids`；只保留能够证明的存量 Messages 兼容端点，并省略无法确认的新增端点。
+- Chat / Responses 只有在至少一条账号路由以同协议向上游交付时才发布；端点能力按账号取并集，运行时再按请求协议过滤账号。
+- `unknown` 不产生原生端点声明；明确 `unsupported` 也不能借另一个协议的转换路径重新出现在端点列表。
+- 严格路由开启时，能力查询失败或状态为 `unknown` 的 OpenAI APIKey 路由按不可用处理；若该模型没有其它已确认协议路由，则不保留用户模型卡片。
 - 没有任何稳定账号路由的公开模型不应在“可用模型”目录中伪装成可调用；管理员目录保留该商品配置并标记“无可用路由”。
 
 公共模型仍只展示一次；协议不是模型身份的一部分。
@@ -684,7 +684,7 @@ POST /api/v1/admin/accounts/:id/model-protocol-capabilities/sync
 说明文案：
 
 ~~~
-平台决定账号如何认证和调度；这里记录具体上游模型可原生接收的协议。用户可调用的 API 端点由渠道模型的实际交付路由聚合得出。
+平台决定账号如何认证和调度；这里记录具体上游模型可原生接收的协议。严格路由开启时，用户目录展示和运行时调度都由渠道模型的同协议上游路由聚合得出；旧兼容转换只在关闭严格路由后恢复。
 ~~~
 
 不要把完整模型 × 协议矩阵继续塞进已经很长的账号创建/编辑表单：
@@ -736,7 +736,7 @@ MiniMax-M3    Anthropic Messages    OpenAI Chat
 ~~~
 MiniMax-M3
 
-API 端点
+已确认原生端点
 Anthropic Messages    /v1/messages
 OpenAI Chat           /v1/chat/completions
 ~~~
@@ -752,10 +752,10 @@ OpenAI Chat           /v1/chat/completions
 
 页面状态：
 
-- 存在稳定兼容路由但没有额外原生证据：展示原有 `/v1/messages`，不把“未声明原生能力”误写成“没有可用端点”。
+- 严格路由开启且没有任何已确认同协议路由：不生成普通用户模型卡片；管理员侧保留能力诊断。
 - 渠道发布了模型但没有稳定账号路由：普通用户目录不显示为可用；管理员渠道模型页显示“无可用路由”。
-- 有确认能力：在默认端点后追加 `/v1/chat/completions`、`/v1/responses` 等端点。
-- 卡片标题使用“API 端点”，按钮直接显示并复制真实路径；原生或兼容转发属于内部路由细节。
+- 有确认原生能力：展示 `/v1/messages`、`/v1/chat/completions`、`/v1/responses` 中实际存在同协议上游路由的端点。
+- 卡片标题使用“原生端点”，按钮直接显示并复制真实路径；关闭严格路由后恢复的纯兼容转换入口也不在这里对外声明。
 - 当前账号短时不健康：端点仍保留，由模型状态模块展示健康异常。
 - 分组禁止某协议：对应 `group_id` 不进入该端点。
 
@@ -793,7 +793,7 @@ OpenAI Chat           /v1/chat/completions
 
 - 各入站协议请求量和成功率。
 - 原生路径命中率。
-- 无原生候选进入旧兼容路径的次数。
+- 严格模式因没有同协议候选而拒绝的次数。
 - 原生端点明确不支持的诊断次数。
 - 能力同步成功、缺字段和未知枚举次数。
 
@@ -830,7 +830,7 @@ OpenAI Chat           /v1/chat/completions
 
 | 存量证据 | 新模型 |
 | --- | --- |
-| `openai_responses_mode` | 不迁入能力表；继续作为独立的显式路由偏好。 |
+| `openai_responses_mode` | 不迁入能力表；仅在严格路由关闭时继续作为旧链路的显式路由偏好。 |
 | `openai_responses_supported=true/false` | `* + openai_responses + observed=supported/unsupported` |
 | 明确配置的 `openai_capabilities` | 对应 `* + protocol + observed=legacy_migration` |
 | 缺少明确证据 | 不写能力记录，保持 unknown |
@@ -853,7 +853,7 @@ native_model_protocol_routing_enabled
 2. 数据库设置不存在时，继承 `gateway.native_model_protocol_routing_enabled` 配置文件默认值；
 3. 两者都未配置时为 `false`。
 
-保存后当前实例立即生效，多实例部署通过共享设置表在最多约 5 秒内收敛。账号“模型与协议能力”弹窗会同时显示全局路由状态；关闭开关只停止新增端点发布和新交付选择，不删除同步结果或管理员覆盖，存量兼容路由继续运行。
+保存后当前实例立即生效，多实例部署通过共享设置表在最多约 5 秒内收敛。账号“模型与协议能力”弹窗会同时显示全局路由状态；关闭开关会停止严格同协议筛选并恢复旧选择器及存量兼容路由，但不删除同步结果或管理员覆盖。
 
 启用顺序：
 
@@ -882,7 +882,7 @@ native_model_protocol_routing_enabled
 
 - 调度请求增加统一交付判定筛选。
 - OpenAI APIKey 账号增加原生 Messages 传输。
-- Chat / Responses 按账号实际传输策略形成原生或兼容决定；存量选择器保留故障兜底。
+- Chat / Responses / Messages 在严格路由开启时都按逐模型同协议能力筛选；存量选择器只在开关关闭时使用。
 - 接入并发、重试、错误分类、usage 和计费。
 - `schedule_meta` 增加协议路由诊断。
 
@@ -896,7 +896,7 @@ native_model_protocol_routing_enabled
 - 批量聚合与缓存失效。
 - 普通用户隐私测试。
 
-完成标准：页面只展示实际可调用的 API 端点；管理员能看到原生/兼容方式、实际上游协议和不可交付原因。
+完成标准：页面只展示已确认存在同协议上游路由的 API 端点；管理员能看到严格/旧兼容模式、实际上游协议和不可交付原因。
 
 ### 后续里程碑：转换能力合同
 
@@ -918,20 +918,21 @@ native_model_protocol_routing_enabled
 
 - 只创建一个 new-api 上游账号。
 - 同一账号的 `MiniMax-M3` 可确认支持 Messages、Chat 和 Responses。
-- 三个公共入口都按账号当前传输偏好形成可解释的原生或兼容交付决定。
+- 三个公共入口都只在逐模型能力明确支持对应协议时形成同协议交付决定。
 - 两个入口共享同一账号并发、健康、供应商、余额池和综合折扣。
 - 模型映射后按最终上游模型查能力。
 - 交付判定不合格的高优先级账号不会遮住合格账号。
-- 能力存储不可用或没有已证明的新路由时，当前旧兼容路径不受破坏。
+- 同一分组内多个账号的端点能力按并集展示，请求只进入支持当前协议的账号子集。
+- 严格路由开启时，能力存储不可用或没有已证明的同协议路由应失败关闭；关闭开关后旧兼容路径恢复。
 - 上游模型列表缺少能力字段时保持 unknown。
 - 管理员手动禁用优先于同步观察。
-- 用户目录保留可证明的默认 Messages 兼容端点，并只追加统一交付判定确认可调用的其它端点。
+- 用户目录只发布统一交付判定确认存在同协议原生上游路由的端点。
 - 普通用户接口不泄露上游账号和交付拓扑。
 
 ### 回归场景
 
-- 未生成能力记录的存量账号行为不变。
-- Responses 现有强制模式继续控制 Chat / Responses 的实际上游传输，但不再错误禁用独立的原生 Messages 能力。
+- 严格路由开启时，未生成能力记录的 OpenAI APIKey 账号按 `unknown` 排除。
+- Responses 现有强制模式只在严格路由关闭时控制 Chat / Responses 的实际上游传输。
 - 关闭功能开关即可恢复旧路由。
 - 老客户端可以忽略新增模型字段。
 - 404/405/501 或 endpoint-not-supported 不会自动永久修改账号能力。
@@ -953,13 +954,13 @@ native_model_protocol_routing_enabled
 ### 调度与交付判定
 
 - 公开模型与渠道映射模型分别参与商品限制和账号模型资格检查。
-- 每个候选的入站协议、实际上游协议、原生/兼容方式和原因码稳定可预测。
+- 严格路由中每个候选的入站协议与实际上游协议相同，能力状态和原因码稳定可预测。
 - 合格候选内部保留 priority、cost、load 和 sticky 规则。
 - sticky 账号交付判定不匹配时重新选择。
 - 最终上游模型能力匹配。
 - 同一账号不重复进入候选。
 - 原生 404/405/501 和 endpoint-not-supported 失败转移但不写能力状态。
-- 新交付候选耗尽或能力存储故障后进入旧兼容路径。
+- 新交付候选耗尽、能力为 `unknown` 或能力存储故障时不进入旧兼容路径。
 - 功能开关关闭时行为完全回到旧路径。
 
 ### 转发与计费

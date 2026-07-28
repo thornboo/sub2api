@@ -11,8 +11,9 @@ var ErrModelProtocolCapabilityUnavailable = errors.New("model protocol capabilit
 
 // SelectAccountWithSchedulerForProtocolDelivery preserves all existing live
 // scheduler constraints and then applies the same stable per-model delivery
-// decision used by catalog projection. Callers may fall back to the legacy
-// selector when no proven route exists in order to preserve existing traffic.
+// decision used by catalog projection. The outer legacy selector is allowed
+// only when strict protocol routing is disabled before an authoritative
+// decision is made.
 func (s *OpenAIGatewayService) SelectAccountWithSchedulerForProtocolDelivery(
 	ctx context.Context,
 	groupID *int64,
@@ -32,27 +33,7 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForProtocolDelivery(
 	return s.selectAccountWithSchedulerForProtocolDelivery(
 		ctx, groupID, previousResponseID, sessionHash, requestedModel, channelMappedModel, excludedIDs,
 		requiredTransport, requiredCapability, requireCompact, previousResponseCanMove, useUpstreamTokenCost,
-		inboundProtocol, platform, false,
-	)
-}
-
-// SelectAccountWithSchedulerForMessagesCompatibility selects only the existing
-// Messages -> Chat/Responses bridge. It still enforces the canonical capability
-// decision, so an explicit unsupported override cannot be bypassed by the
-// compatibility layer after native Messages candidates are exhausted.
-func (s *OpenAIGatewayService) SelectAccountWithSchedulerForMessagesCompatibility(
-	ctx context.Context,
-	groupID *int64,
-	sessionHash string,
-	requestedModel string,
-	channelMappedModel string,
-	excludedIDs map[int64]struct{},
-	platform string,
-) (*AccountSelectionResult, OpenAIAccountScheduleDecision, ModelDeliveryDecision, error) {
-	return s.selectAccountWithSchedulerForProtocolDelivery(
-		ctx, groupID, "", sessionHash, requestedModel, channelMappedModel, excludedIDs,
-		OpenAIUpstreamTransportAny, "", false, false, true,
-		ModelProtocolAnthropicMessages, platform, true,
+		inboundProtocol, platform,
 	)
 }
 
@@ -71,11 +52,10 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerForProtocolDelivery(
 	useUpstreamTokenCost bool,
 	inboundProtocol ModelProtocol,
 	platform string,
-	disableNativeMessages bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, ModelDeliveryDecision, error) {
 	decision := OpenAIAccountScheduleDecision{}
 	delivery := ModelDeliveryDecision{InboundProtocol: inboundProtocol}
-	if s == nil || s.modelProtocolCapability == nil {
+	if s == nil {
 		return nil, decision, delivery, ErrNoAvailableAccounts
 	}
 	var routingSettings NativeModelProtocolRoutingSettingReader
@@ -84,6 +64,28 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerForProtocolDelivery(
 	}
 	if !nativeModelProtocolRoutingEnabled(ctx, routingSettings, s.cfg) {
 		return nil, decision, delivery, ErrNoAvailableAccounts
+	}
+	if platform != PlatformOpenAI {
+		// Per-model strict protocol capabilities currently belong to OpenAI
+		// API-key upstreams. Other platform adapters retain their established
+		// selector and conversion behavior.
+		return nil, decision, delivery, ErrNoAvailableAccounts
+	}
+	if s.modelProtocolCapability == nil {
+		delivery = blockModelDeliveryDecision(delivery, ModelDeliveryReasonCapabilityUnknown)
+		return nil, decision, delivery, ErrModelProtocolCapabilityUnavailable
+	}
+	delivery = blockModelDeliveryDecision(delivery, ModelDeliveryReasonNoStableRoute)
+
+	schedulerRequiredCapability := requiredCapability
+	if inboundProtocol == ModelProtocolOpenAIResponses &&
+		requiredCapability == OpenAIEndpointCapabilityResponses {
+		// Exact per-model Responses capability is authoritative for strict API
+		// key routing. Widen the account-level prefilter to generic text
+		// generation, then let the delivery decision enforce the concrete
+		// Responses endpoint. This prevents the legacy account-wide Responses
+		// preference from hiding a proven per-model route.
+		schedulerRequiredCapability = OpenAIEndpointCapabilityChatCompletions
 	}
 
 	effectiveExcluded := cloneExcludedAccountIDs(excludedIDs)
@@ -106,7 +108,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerForProtocolDelivery(
 			channelMappedModel,
 			effectiveExcluded,
 			requiredTransport,
-			requiredCapability,
+			schedulerRequiredCapability,
 			requireCompact,
 			previousResponseCanMove,
 			useUpstreamTokenCost,
@@ -122,6 +124,10 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerForProtocolDelivery(
 		}
 
 		account := selection.Account
+		strictAccount := strictOpenAIAPIKeyProtocolRouting(ModelDeliveryCandidateInput{
+			Account:              account,
+			NativeRoutingEnabled: true,
+		})
 		capabilities, capabilityErr := s.modelProtocolCapability.List(ctx, account.ID)
 		if capabilityErr != nil {
 			if selection.ReleaseFunc != nil {
@@ -131,6 +137,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerForProtocolDelivery(
 				s.bindProtocolDeliverySticky(ctx, groupID, sessionHash, legacySelection)
 				return legacySelection, legacyScheduleDecision, allowLegacyUnknownProtocolDelivery(legacyDelivery), nil
 			}
+			delivery = blockModelDeliveryDecision(delivery, ModelDeliveryReasonCapabilityUnknown)
 			return nil, decision, delivery, fmt.Errorf("%w: %v", ErrModelProtocolCapabilityUnavailable, capabilityErr)
 		}
 		delivery = EvaluateModelDeliveryCandidate(ModelDeliveryCandidateInput{
@@ -139,7 +146,6 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerForProtocolDelivery(
 			ChannelMappedModel:    channelMappedModel,
 			GroupPlatform:         account.Platform,
 			AllowMessagesDispatch: true,
-			DisableNativeMessages: disableNativeMessages,
 			InboundProtocol:       inboundProtocol,
 			NativeRoutingEnabled:  true,
 			Capabilities:          capabilities,
@@ -149,7 +155,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerForProtocolDelivery(
 			s.bindProtocolDeliverySticky(ctx, groupID, sessionHash, selection)
 			return selection, decision, delivery, nil
 		}
-		if modelDeliveryBlockedOnlyByCapabilityUnknown(delivery) && legacySelection == nil {
+		if modelDeliveryBlockedOnlyByCapabilityUnknown(delivery) && !strictAccount && legacySelection == nil {
 			legacySelection = selection
 			legacyScheduleDecision = decision
 			legacyDelivery = delivery

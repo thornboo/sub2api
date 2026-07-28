@@ -22,13 +22,17 @@ const openAINativeProtocolUnavailableReason GatewayFailureReason = "openai_nativ
 var ErrNativeAnthropicStreamErrorForwarded = errors.New("native Anthropic stream error already forwarded")
 
 // IsNativeProtocolUnavailable reports endpoint-specific incompatibility. The
-// account may still be healthy and usable through the existing compatibility path.
+// account may still be healthy or usable for other protocols, but strict
+// routing must not convert the current request to one of them.
 func (e *UpstreamFailoverError) IsNativeProtocolUnavailable() bool {
 	return e != nil && e.Reason == openAINativeProtocolUnavailableReason
 }
 
 // SelectAccountWithSchedulerForNativeProtocol preserves the current scheduler's
-// ordering while excluding candidates that cannot form the requested native route.
+// ordering while excluding strict candidates that cannot form the requested
+// native route. Non-strict account types may be retained as a legacy fallback,
+// but a rejected OpenAI API-key account must never be selected through that
+// fallback.
 func (s *OpenAIGatewayService) SelectAccountWithSchedulerForNativeProtocol(
 	ctx context.Context,
 	groupID *int64,
@@ -41,7 +45,7 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForNativeProtocol(
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, ModelDeliveryDecision, error) {
 	decision := OpenAIAccountScheduleDecision{}
 	delivery := ModelDeliveryDecision{InboundProtocol: protocol}
-	if s == nil || s.modelProtocolCapability == nil {
+	if s == nil {
 		return nil, decision, delivery, ErrNoAvailableAccounts
 	}
 	var routingSettings NativeModelProtocolRoutingSettingReader
@@ -51,8 +55,28 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForNativeProtocol(
 	if !nativeModelProtocolRoutingEnabled(ctx, routingSettings, s.cfg) {
 		return nil, decision, delivery, ErrNoAvailableAccounts
 	}
+	if platform != PlatformOpenAI {
+		// Native Anthropic Messages forwarding in this service is implemented
+		// only for OpenAI API-key upstreams. Other platform adapters remain on
+		// their existing path.
+		return nil, decision, delivery, ErrNoAvailableAccounts
+	}
+	if s.modelProtocolCapability == nil {
+		delivery = blockModelDeliveryDecision(delivery, ModelDeliveryReasonCapabilityUnknown)
+		return nil, decision, delivery, ErrModelProtocolCapabilityUnavailable
+	}
+	delivery = blockModelDeliveryDecision(delivery, ModelDeliveryReasonNoStableRoute)
 
 	effectiveExcluded := cloneExcludedAccountIDs(excludedIDs)
+	var legacySelection *AccountSelectionResult
+	var legacyScheduleDecision OpenAIAccountScheduleDecision
+	var legacyDelivery ModelDeliveryDecision
+	releaseLegacySelection := func() {
+		if legacySelection != nil && legacySelection.ReleaseFunc != nil {
+			legacySelection.ReleaseFunc()
+		}
+		legacySelection = nil
+	}
 	for {
 		selection, nextDecision, err := s.selectAccountWithSchedulerForResolvedModel(
 			ctx,
@@ -71,15 +95,28 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForNativeProtocol(
 		)
 		decision = nextDecision
 		if err != nil || selection == nil || selection.Account == nil {
+			if legacySelection != nil {
+				s.bindProtocolDeliverySticky(ctx, groupID, sessionHash, legacySelection)
+				return legacySelection, legacyScheduleDecision, legacyDelivery, nil
+			}
 			return selection, decision, delivery, err
 		}
 
 		account := selection.Account
+		strictAccount := strictOpenAIAPIKeyProtocolRouting(ModelDeliveryCandidateInput{
+			Account:              account,
+			NativeRoutingEnabled: true,
+		})
 		capabilities, capabilityErr := s.modelProtocolCapability.List(ctx, account.ID)
 		if capabilityErr != nil {
 			if selection.ReleaseFunc != nil {
 				selection.ReleaseFunc()
 			}
+			if legacySelection != nil {
+				s.bindProtocolDeliverySticky(ctx, groupID, sessionHash, legacySelection)
+				return legacySelection, legacyScheduleDecision, legacyDelivery, nil
+			}
+			delivery = blockModelDeliveryDecision(delivery, ModelDeliveryReasonCapabilityUnknown)
 			return nil, decision, delivery, fmt.Errorf("%w: %v", ErrModelProtocolCapabilityUnavailable, capabilityErr)
 		}
 		delivery = EvaluateModelDeliveryCandidate(ModelDeliveryCandidateInput{
@@ -93,17 +130,23 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForNativeProtocol(
 			Capabilities:          capabilities,
 		})
 		if delivery.Eligible && delivery.Mode == ModelDeliveryModeNative && delivery.UpstreamProtocol == protocol {
+			releaseLegacySelection()
 			s.bindProtocolDeliverySticky(ctx, groupID, sessionHash, selection)
 			return selection, decision, delivery, nil
 		}
 
-		if selection.ReleaseFunc != nil {
+		if delivery.Eligible && !strictAccount && legacySelection == nil {
+			legacySelection = selection
+			legacyScheduleDecision = decision
+			legacyDelivery = delivery
+		} else if selection.ReleaseFunc != nil {
 			selection.ReleaseFunc()
 		}
 		if effectiveExcluded == nil {
 			effectiveExcluded = make(map[int64]struct{})
 		}
 		if _, exists := effectiveExcluded[account.ID]; exists {
+			releaseLegacySelection()
 			return nil, decision, delivery, ErrNoAvailableAccounts
 		}
 		effectiveExcluded[account.ID] = struct{}{}

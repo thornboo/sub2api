@@ -4,7 +4,7 @@
 >
 > 本文取代了早期「按上游渠道探针（`channel_monitor_histories`）聚合模型状态」的方案（其设计文档与 `channel_monitor_model_status.go` 实现均已删除）。用户侧页面/DTO/路由外壳沿用，但底层数据源改为站点自检结果，展示维度改为 (分组, 模型)。
 >
-> 实现要点（与本设计的差异/补充）：用户 DTO 含 `group_id`/`group_name`/`degraded_ratio_24h`；探针标记 `ctxkey.ModelSelfCheckProbe` 让限流封禁 / runtime-block / **重试 / failover** 全部跳过（默认安全）；管理员设置新增 `model_self_check_enabled` 软开关与 `self_check_max_tasks_per_round` 单轮任务上限；4 个平台均有真实 Forward 集成测试。
+> 实现要点（与本设计的差异/补充）：用户 DTO 含 `group_id`/`group_name`/`degraded_ratio_24h`；探针标记 `ctxkey.ModelSelfCheckProbe` 让限流封禁 / runtime-block / **重试 / failover** 全部跳过（默认安全）；管理员设置新增 `model_self_check_enabled` 软开关与 `self_check_max_tasks_per_round` 单轮任务上限；4 个平台均有真实 Forward 集成测试。OpenAI APIKey 开启严格多协议路由时，自检按逐模型能力选择已确认协议（优先 Chat，其次 Responses、Messages），`unknown`、`unsupported` 或能力读取失败不再回到账号级 Responses 偏好。
 
 ## 背景与动机
 

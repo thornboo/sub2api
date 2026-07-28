@@ -45,7 +45,6 @@ type ModelDeliveryCandidateInput struct {
 	ChannelMappedModel    string
 	GroupPlatform         string
 	AllowMessagesDispatch bool
-	DisableNativeMessages bool
 	InboundProtocol       ModelProtocol
 	NativeRoutingEnabled  bool
 	Capabilities          []AccountModelProtocolCapability
@@ -88,6 +87,24 @@ func EvaluateModelDeliveryCandidate(input ModelDeliveryCandidateInput) ModelDeli
 	if !account.IsOpenAI() {
 		return blockModelDeliveryDecision(decision, ModelDeliveryReasonPlatformMismatch)
 	}
+	if strictOpenAIAPIKeyProtocolRouting(input) {
+		decision.UpstreamProtocol = decision.InboundProtocol
+		decision.CapabilityState, decision.CapabilitySource = resolveCapabilityFromItems(
+			input.Capabilities,
+			decision.UpstreamModel,
+			decision.InboundProtocol,
+			false,
+		)
+		if !accountSupportsStrictOpenAIProtocolTransport(account, decision.UpstreamProtocol) {
+			return blockModelDeliveryDecision(decision, ModelDeliveryReasonAccountTransportUnavailable)
+		}
+		if decision.CapabilityState != ModelProtocolStateSupported {
+			return blockForCapabilityState(decision)
+		}
+		decision.Eligible = true
+		decision.Mode = ModelDeliveryModeNative
+		return decision
+	}
 
 	decision.UpstreamProtocol, decision.CapabilityState, decision.CapabilitySource = selectOpenAIUpstreamProtocolForModel(
 		account,
@@ -117,11 +134,29 @@ func evaluateMessagesDeliveryCandidate(input ModelDeliveryCandidateInput, decisi
 		decision.Eligible = true
 		decision.UpstreamProtocol = ModelProtocolAnthropicMessages
 		decision.Mode = ModelDeliveryModeCompatibility
+		if account.Platform == PlatformAnthropic {
+			decision.Mode = ModelDeliveryModeNative
+		}
 		decision.CapabilitySource = "existing_gateway_contract"
 		return decision
 	}
+	if strictOpenAIAPIKeyProtocolRouting(input) {
+		decision.UpstreamProtocol = ModelProtocolAnthropicMessages
+		decision.CapabilityState, decision.CapabilitySource = resolveCapabilityFromItems(
+			input.Capabilities,
+			decision.UpstreamModel,
+			ModelProtocolAnthropicMessages,
+			false,
+		)
+		if decision.CapabilityState != ModelProtocolStateSupported {
+			return blockForCapabilityState(decision)
+		}
+		decision.Eligible = true
+		decision.Mode = ModelDeliveryModeNative
+		return decision
+	}
 
-	if input.NativeRoutingEnabled && !input.DisableNativeMessages && account.Type == AccountTypeAPIKey {
+	if input.NativeRoutingEnabled && account.Type == AccountTypeAPIKey {
 		state, source := resolveCapabilityFromItems(
 			input.Capabilities,
 			decision.UpstreamModel,
@@ -158,6 +193,29 @@ func evaluateMessagesDeliveryCandidate(input ModelDeliveryCandidateInput, decisi
 		decision.CapabilitySource = "existing_gateway_contract"
 	}
 	return decision
+}
+
+func strictOpenAIAPIKeyProtocolRouting(input ModelDeliveryCandidateInput) bool {
+	account := input.Account
+	return input.NativeRoutingEnabled &&
+		account != nil &&
+		account.Platform == PlatformOpenAI &&
+		account.Type == AccountTypeAPIKey
+}
+
+func accountSupportsStrictOpenAIProtocolTransport(account *Account, protocol ModelProtocol) bool {
+	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey {
+		return false
+	}
+	switch protocol {
+	case ModelProtocolOpenAIChat, ModelProtocolOpenAIResponses:
+		// The per-model protocol capability is authoritative for the concrete
+		// upstream endpoint. The legacy account-wide Responses preference must
+		// not override it; retain only the generic OpenAI HTTP capability gate.
+		return account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityChatCompletions)
+	default:
+		return false
+	}
 }
 
 func blockForCapabilityState(decision ModelDeliveryDecision) ModelDeliveryDecision {

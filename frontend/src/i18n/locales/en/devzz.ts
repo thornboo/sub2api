@@ -433,7 +433,7 @@ export default {
         searchPlaceholder: 'Search models, channels, or API endpoints...',
         empty: 'No available models',
         endpoints: {
-            title: 'API endpoints',
+            title: 'Confirmed native endpoints',
             copyHint: 'Copy {path}',
             copied: 'API endpoint copied',
             copyFailed: 'Failed to copy API endpoint'
@@ -451,9 +451,9 @@ export default {
             groupModelCount: '{count} models',
             channelCount: '{count} channels',
             availableChannels: 'Available channels',
-            apiEndpoints: 'API endpoints',
+            apiEndpoints: 'Native endpoints',
             copyEndpointHint: 'Click to copy endpoint',
-            endpointUnavailable: 'Using the legacy compatibility route; endpoint metadata is not published',
+            endpointUnavailable: 'Only a compatibility route exists; no native endpoint is published',
             priceVariants: '{count} price variants',
             priceVariantsHint: 'Channel prices differ. Switch to the pricing table for an exact comparison.',
             tieredPricing: 'Tiered pricing'

@@ -208,7 +208,7 @@ func (r *availableDeliveryGroupRepoStub) GetAccountIDsByGroupIDs(_ context.Conte
 	return r.accountIDs, nil
 }
 
-func TestAttachSupportedEndpoints_PreservesMessagesOnlyForStableRoutes(t *testing.T) {
+func TestAttachSupportedEndpoints_PublishesIntrinsicAnthropicButNotUnprovenOpenAICompatibility(t *testing.T) {
 	channels := []userAvailableChannel{
 		{
 			Name: "legacy-contract",
@@ -255,12 +255,161 @@ func TestAttachSupportedEndpoints_PreservesMessagesOnlyForStableRoutes(t *testin
 		GroupIDs: []int64{3},
 	}}, category[0].SupportedModels[0].SupportedEndpoints)
 	require.Equal(t, []int64{3}, category[0].SupportedModels[0].RouteGroupIDs)
-	require.Equal(t, []userSupportedEndpoint{{
-		Protocol: string(service.ModelProtocolAnthropicMessages),
-		Path:     "/v1/messages",
-		GroupIDs: []int64{7},
-	}}, category[1].SupportedModels[0].SupportedEndpoints)
+	require.Empty(t, category[1].SupportedModels[0].SupportedEndpoints)
 	require.Equal(t, []int64{7, 8}, category[1].SupportedModels[0].RouteGroupIDs)
+}
+
+func TestAttachSupportedEndpoints_DoesNotAdvertiseResponsesCompatibilityAsNativeCapability(t *testing.T) {
+	channels := []userAvailableChannel{{
+		Name: "deepseek",
+		Platforms: []userChannelPlatformSection{{
+			Platform: service.PlatformOpenAI,
+			Groups: []userAvailableGroup{{
+				ID: 7, Platform: service.PlatformOpenAI, AllowMessagesDispatch: true,
+			}},
+			SupportedModels: []userSupportedModel{{
+				Name: "deepseek-v4-pro", Platform: service.PlatformOpenAI,
+			}},
+		}},
+	}}
+	groupRepo := &availableDeliveryGroupRepoStub{
+		groups: []service.Group{{
+			ID: 7, Platform: service.PlatformOpenAI, Status: service.StatusActive, AllowMessagesDispatch: true,
+		}},
+		accountIDs: []int64{70},
+	}
+	accountRepo := &availableDeliveryAccountRepoStub{accounts: []*service.Account{{
+		ID: 70, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true, GroupIDs: []int64{7},
+		Extra: map[string]any{
+			"openai_responses_mode":      "auto",
+			"openai_responses_supported": false,
+		},
+	}}}
+	items := []service.AccountModelProtocolCapability{
+		{
+			UpstreamModel: "deepseek-v4-pro", Protocol: service.ModelProtocolAnthropicMessages,
+			OverrideState: service.ModelProtocolStateSupported,
+		},
+		{
+			UpstreamModel: "deepseek-v4-pro", Protocol: service.ModelProtocolOpenAIChat,
+			OverrideState: service.ModelProtocolStateSupported,
+		},
+		{
+			UpstreamModel: "deepseek-v4-pro", Protocol: service.ModelProtocolOpenAIResponses,
+			OverrideState: service.ModelProtocolStateUnsupported,
+		},
+	}
+	cfg := &config.Config{}
+	cfg.Gateway.NativeModelProtocolRoutingEnabled = true
+	capability := service.NewModelProtocolCapabilityService(
+		&availableDeliveryCapabilityRepoStub{itemsByAccount: map[int64][]service.AccountModelProtocolCapability{70: items}},
+		accountRepo,
+		groupRepo,
+		nil,
+		cfg,
+	)
+	delivery := service.NewModelDeliveryService(accountRepo, groupRepo, nil, capability, cfg)
+
+	require.NoError(t, (&AvailableChannelHandler{modelDelivery: delivery}).attachSupportedEndpoints(context.Background(), channels))
+	require.Equal(t, []userSupportedEndpoint{
+		{
+			Protocol: string(service.ModelProtocolAnthropicMessages),
+			Path:     "/v1/messages",
+			GroupIDs: []int64{7},
+		},
+		{
+			Protocol: string(service.ModelProtocolOpenAIChat),
+			Path:     "/v1/chat/completions",
+			GroupIDs: []int64{7},
+		},
+	}, channels[0].Platforms[0].SupportedModels[0].SupportedEndpoints)
+}
+
+func TestAttachSupportedEndpoints_AggregatesExactProtocolsAcrossHeterogeneousAccounts(t *testing.T) {
+	channels := []userAvailableChannel{{
+		Name: "deepseek",
+		Platforms: []userChannelPlatformSection{{
+			Platform: service.PlatformOpenAI,
+			Groups: []userAvailableGroup{{
+				ID: 7, Platform: service.PlatformOpenAI, AllowMessagesDispatch: true,
+			}},
+			SupportedModels: []userSupportedModel{{
+				Name: "deepseek-v4-pro", Platform: service.PlatformOpenAI,
+			}},
+		}},
+	}}
+	groupRepo := &availableDeliveryGroupRepoStub{
+		groups: []service.Group{{
+			ID: 7, Platform: service.PlatformOpenAI, Status: service.StatusActive, AllowMessagesDispatch: true,
+		}},
+		accountIDs: []int64{71, 72, 73},
+	}
+	accountRepo := &availableDeliveryAccountRepoStub{accounts: []*service.Account{
+		{
+			ID: 71, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+			Status: service.StatusActive, Schedulable: true, GroupIDs: []int64{7},
+		},
+		{
+			ID: 72, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+			Status: service.StatusActive, Schedulable: true, GroupIDs: []int64{7},
+		},
+		{
+			ID: 73, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+			Status: service.StatusActive, Schedulable: true, GroupIDs: []int64{7},
+			Extra: map[string]any{"openai_responses_mode": "force_chat_completions"},
+		},
+	}}
+	itemsByAccount := map[int64][]service.AccountModelProtocolCapability{
+		71: exactProtocolCapabilities("deepseek-v4-pro", service.ModelProtocolAnthropicMessages),
+		72: exactProtocolCapabilities("deepseek-v4-pro", service.ModelProtocolOpenAIChat),
+		73: exactProtocolCapabilities("deepseek-v4-pro", service.ModelProtocolOpenAIResponses),
+	}
+	cfg := &config.Config{}
+	cfg.Gateway.NativeModelProtocolRoutingEnabled = true
+	capability := service.NewModelProtocolCapabilityService(
+		&availableDeliveryCapabilityRepoStub{itemsByAccount: itemsByAccount},
+		accountRepo,
+		groupRepo,
+		nil,
+		cfg,
+	)
+	delivery := service.NewModelDeliveryService(accountRepo, groupRepo, nil, capability, cfg)
+
+	require.NoError(t, (&AvailableChannelHandler{modelDelivery: delivery}).attachSupportedEndpoints(context.Background(), channels))
+	require.Equal(t, []userSupportedEndpoint{
+		{
+			Protocol: string(service.ModelProtocolAnthropicMessages),
+			Path:     "/v1/messages",
+			GroupIDs: []int64{7},
+		},
+		{
+			Protocol: string(service.ModelProtocolOpenAIChat),
+			Path:     "/v1/chat/completions",
+			GroupIDs: []int64{7},
+		},
+		{
+			Protocol: string(service.ModelProtocolOpenAIResponses),
+			Path:     "/v1/responses",
+			GroupIDs: []int64{7},
+		},
+	}, channels[0].Platforms[0].SupportedModels[0].SupportedEndpoints)
+}
+
+func exactProtocolCapabilities(model string, supported service.ModelProtocol) []service.AccountModelProtocolCapability {
+	items := make([]service.AccountModelProtocolCapability, 0, len(service.AllModelProtocols))
+	for _, protocol := range service.AllModelProtocols {
+		state := service.ModelProtocolStateUnsupported
+		if protocol == supported {
+			state = service.ModelProtocolStateSupported
+		}
+		items = append(items, service.AccountModelProtocolCapability{
+			UpstreamModel: model,
+			Protocol:      protocol,
+			OverrideState: state,
+		})
+	}
+	return items
 }
 
 func TestAttachSupportedEndpoints_RemovesPricingOnlyModelWithoutStableRoute(t *testing.T) {
@@ -307,7 +456,7 @@ func TestAttachSupportedEndpoints_KeepsStableLegacyRouteWhenNativeRoutingDisable
 	require.Nil(t, channels[0].Platforms[0].SupportedModels[0].SupportedEndpoints)
 }
 
-func TestAttachSupportedEndpoints_KeepsUnknownLegacyRouteWithoutPublishingEndpoint(t *testing.T) {
+func TestAttachSupportedEndpoints_RemovesUnknownStrictRoute(t *testing.T) {
 	channels := []userAvailableChannel{{
 		Name: "unknown-capability",
 		Platforms: []userChannelPlatformSection{{
@@ -332,10 +481,7 @@ func TestAttachSupportedEndpoints_KeepsUnknownLegacyRouteWithoutPublishingEndpoi
 	delivery := service.NewModelDeliveryService(accountRepo, groupRepo, nil, capability, cfg)
 
 	require.NoError(t, (&AvailableChannelHandler{modelDelivery: delivery}).attachSupportedEndpoints(context.Background(), channels))
-	require.Len(t, channels[0].Platforms[0].SupportedModels, 1)
-	model := channels[0].Platforms[0].SupportedModels[0]
-	require.Equal(t, []int64{7}, model.RouteGroupIDs)
-	require.Empty(t, model.SupportedEndpoints, "unknown evidence must not be advertised as a proven endpoint")
+	require.Empty(t, channels[0].Platforms[0].SupportedModels)
 }
 
 func TestAttachSupportedEndpoints_RemovesRouteWhenAllProtocolsExplicitlyUnsupported(t *testing.T) {

@@ -293,7 +293,7 @@ func TestModelProtocolCapabilityUpdateOverridesForAccountAllowsMappedAndWildcard
 	require.Equal(t, overrides, repo.overrides)
 }
 
-func TestEvaluateModelDeliveryCandidateAutoUsesSupportedChatWhenResponsesCapabilityIsUnsupported(t *testing.T) {
+func TestEvaluateModelDeliveryCandidateRequiresExactSupportedProtocolForOpenAIAPIKey(t *testing.T) {
 	t.Parallel()
 	account := &Account{
 		ID:          9,
@@ -344,13 +344,112 @@ func TestEvaluateModelDeliveryCandidateAutoUsesSupportedChatWhenResponsesCapabil
 		NativeRoutingEnabled: true,
 		Capabilities:         capabilities,
 	})
-	require.True(t, responsesDecision.Eligible)
-	require.Equal(t, ModelProtocolOpenAIChat, responsesDecision.UpstreamProtocol)
-	require.Equal(t, ModelDeliveryModeCompatibility, responsesDecision.Mode)
+	require.False(t, responsesDecision.Eligible)
+	require.Equal(t, ModelProtocolOpenAIResponses, responsesDecision.UpstreamProtocol)
+	require.Contains(t, responsesDecision.ReasonCodes, ModelDeliveryReasonCapabilityUnsupported)
 	require.Equal(t, "upstream_model_list", responsesDecision.CapabilitySource)
 }
 
-func TestEvaluateModelDeliveryCandidateForceResponsesDoesNotFallbackToChat(t *testing.T) {
+func TestEvaluateModelDeliveryCandidateStrictRoutingIgnoresLegacyChatResponsesPreference(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name            string
+		mode            openai_compat.ResponsesSupportMode
+		inboundProtocol ModelProtocol
+	}{
+		{
+			name:            "force chat does not convert responses",
+			mode:            openai_compat.ResponsesSupportModeForceChatCompletions,
+			inboundProtocol: ModelProtocolOpenAIResponses,
+		},
+		{
+			name:            "force responses does not convert chat",
+			mode:            openai_compat.ResponsesSupportModeForceResponses,
+			inboundProtocol: ModelProtocolOpenAIChat,
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			account := &Account{
+				ID:          9,
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Status:      StatusActive,
+				Schedulable: true,
+				Extra: map[string]any{
+					openai_compat.ExtraKeyResponsesMode: string(test.mode),
+				},
+			}
+			capabilities := []AccountModelProtocolCapability{
+				{
+					UpstreamModel: "deepseek-v4-pro",
+					Protocol:      ModelProtocolOpenAIChat,
+					OverrideState: ModelProtocolStateSupported,
+				},
+				{
+					UpstreamModel: "deepseek-v4-pro",
+					Protocol:      ModelProtocolOpenAIResponses,
+					OverrideState: ModelProtocolStateSupported,
+				},
+			}
+
+			decision := EvaluateModelDeliveryCandidate(ModelDeliveryCandidateInput{
+				Account:              account,
+				PublicModel:          "deepseek-v4-pro",
+				ChannelMappedModel:   "deepseek-v4-pro",
+				GroupPlatform:        PlatformOpenAI,
+				InboundProtocol:      test.inboundProtocol,
+				NativeRoutingEnabled: true,
+				Capabilities:         capabilities,
+			})
+
+			require.True(t, decision.Eligible)
+			require.Equal(t, test.inboundProtocol, decision.UpstreamProtocol)
+			require.Equal(t, ModelDeliveryModeNative, decision.Mode)
+		})
+	}
+}
+
+func TestEvaluateModelDeliveryCandidateOnlyTreatsAnthropicMessagesUpstreamAsNative(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name     string
+		platform string
+		wantMode ModelDeliveryMode
+	}{
+		{name: "anthropic", platform: PlatformAnthropic, wantMode: ModelDeliveryModeNative},
+		{name: "gemini compatibility bridge", platform: PlatformGemini, wantMode: ModelDeliveryModeCompatibility},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			account := &Account{
+				ID:          9,
+				Platform:    test.platform,
+				Type:        AccountTypeAPIKey,
+				Status:      StatusActive,
+				Schedulable: true,
+			}
+
+			decision := EvaluateModelDeliveryCandidate(ModelDeliveryCandidateInput{
+				Account:            account,
+				PublicModel:        "upstream-model",
+				ChannelMappedModel: "upstream-model",
+				GroupPlatform:      test.platform,
+				InboundProtocol:    ModelProtocolAnthropicMessages,
+			})
+
+			require.True(t, decision.Eligible)
+			require.Equal(t, ModelProtocolAnthropicMessages, decision.UpstreamProtocol)
+			require.Equal(t, test.wantMode, decision.Mode)
+		})
+	}
+}
+
+func TestEvaluateModelDeliveryCandidateStrictChatIgnoresForceResponsesPreference(t *testing.T) {
 	t.Parallel()
 	account := &Account{
 		ID:          10,
@@ -385,10 +484,11 @@ func TestEvaluateModelDeliveryCandidateForceResponsesDoesNotFallbackToChat(t *te
 		},
 	})
 
-	require.False(t, decision.Eligible)
-	require.Equal(t, ModelProtocolOpenAIResponses, decision.UpstreamProtocol)
-	require.Equal(t, ModelProtocolStateUnsupported, decision.CapabilityState)
-	require.Equal(t, []ModelDeliveryReasonCode{ModelDeliveryReasonCapabilityUnsupported}, decision.ReasonCodes)
+	require.True(t, decision.Eligible)
+	require.Equal(t, ModelProtocolOpenAIChat, decision.UpstreamProtocol)
+	require.Equal(t, ModelProtocolStateSupported, decision.CapabilityState)
+	require.Equal(t, ModelDeliveryModeNative, decision.Mode)
+	require.Empty(t, decision.ReasonCodes)
 }
 
 func TestModelProtocolCapabilityUpdateOverridesRejectsComplexWildcard(t *testing.T) {
@@ -448,6 +548,54 @@ func TestSelectAccountWithSchedulerForNativeProtocolSkipsHigherPriorityLegacyCan
 	require.NotNil(t, selection)
 	require.Equal(t, int64(82), selection.Account.ID)
 	require.Equal(t, "upstream_model_list", delivery.CapabilitySource)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestSelectAccountWithSchedulerForNativeProtocolFallsBackOnlyToNonStrictAccount(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	groupID := int64(808)
+	rejectedAPIKey := Account{
+		ID: 81, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 10,
+	}
+	legacyOAuth := Account{
+		ID: 82, Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"MiniMax-M3": "MiniMax-M3"},
+		},
+	}
+	capRepo := &modelProtocolCapabilityRepoStub{itemsByAccount: map[int64][]AccountModelProtocolCapability{
+		81: {{
+			UpstreamModel: "MiniMax-M3",
+			Protocol:      ModelProtocolAnthropicMessages,
+			OverrideState: ModelProtocolStateUnsupported,
+		}},
+	}}
+	cfg := &config.Config{}
+	cfg.Gateway.NativeModelProtocolRoutingEnabled = true
+	cfg.Gateway.Scheduling.LoadBatchEnabled = false
+	svc := &OpenAIGatewayService{
+		accountRepo:             schedulerTestOpenAIAccountRepo{accounts: []Account{rejectedAPIKey, legacyOAuth}},
+		cache:                   &schedulerTestGatewayCache{},
+		cfg:                     cfg,
+		concurrencyService:      NewConcurrencyService(schedulerTestConcurrencyCache{}),
+		modelProtocolCapability: &ModelProtocolCapabilityService{repo: capRepo},
+	}
+
+	selection, _, delivery, err := svc.SelectAccountWithSchedulerForNativeProtocol(
+		context.Background(), &groupID, "", "MiniMax-M3", "MiniMax-M3", nil,
+		ModelProtocolAnthropicMessages, PlatformOpenAI,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, int64(82), selection.Account.ID)
+	require.Equal(t, ModelDeliveryModeCompatibility, delivery.Mode)
+	require.Equal(t, ModelProtocolOpenAIResponses, delivery.UpstreamProtocol)
+	require.Equal(t, "intrinsic", delivery.CapabilitySource)
 	if selection.ReleaseFunc != nil {
 		selection.ReleaseFunc()
 	}
@@ -588,14 +736,77 @@ func TestSelectAccountWithSchedulerForNativeMessagesClassifiesCapabilityStoreFai
 		modelProtocolCapability: &ModelProtocolCapabilityService{repo: &modelProtocolCapabilityRepoStub{listErr: errors.New("database unavailable")}},
 	}
 
-	selection, _, _, err := svc.SelectAccountWithSchedulerForNativeProtocol(
+	selection, _, delivery, err := svc.SelectAccountWithSchedulerForNativeProtocol(
 		context.Background(), &groupID, "", "MiniMax-M3", "MiniMax-M3", nil, ModelProtocolAnthropicMessages, PlatformOpenAI,
 	)
 	require.Nil(t, selection)
 	require.ErrorIs(t, err, ErrModelProtocolCapabilityUnavailable)
+	require.Contains(t, delivery.ReasonCodes, ModelDeliveryReasonCapabilityUnknown)
+	require.False(t, ShouldUseLegacyProtocolDeliverySelector(err, delivery))
 }
 
-func TestSelectAccountWithSchedulerForProtocolDeliveryUsesForceChatTransport(t *testing.T) {
+func TestProtocolDeliveryUsesLegacySelectorOnlyWhenStrictRoutingIsDisabled(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		enabled        bool
+		platform       string
+		wantLegacy     bool
+		wantReasonCode ModelDeliveryReasonCode
+	}{
+		{
+			name:       "disabled keeps legacy selector",
+			enabled:    false,
+			platform:   PlatformOpenAI,
+			wantLegacy: true,
+		},
+		{
+			name:           "enabled no-route stays authoritative",
+			enabled:        true,
+			platform:       PlatformOpenAI,
+			wantLegacy:     false,
+			wantReasonCode: ModelDeliveryReasonNoStableRoute,
+		},
+		{
+			name:       "enabled non-openai platform keeps legacy selector",
+			enabled:    true,
+			platform:   PlatformGrok,
+			wantLegacy: true,
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			resetOpenAIAdvancedSchedulerSettingCacheForTest()
+			groupID := int64(808)
+			cfg := &config.Config{}
+			cfg.Gateway.NativeModelProtocolRoutingEnabled = test.enabled
+			cfg.Gateway.Scheduling.LoadBatchEnabled = false
+			svc := &OpenAIGatewayService{
+				accountRepo:             schedulerTestOpenAIAccountRepo{},
+				cache:                   &schedulerTestGatewayCache{},
+				cfg:                     cfg,
+				concurrencyService:      NewConcurrencyService(schedulerTestConcurrencyCache{}),
+				modelProtocolCapability: &ModelProtocolCapabilityService{repo: &modelProtocolCapabilityRepoStub{}},
+			}
+
+			selection, _, delivery, err := svc.SelectAccountWithSchedulerForProtocolDelivery(
+				context.Background(), &groupID, "", "", "deepseek-v4-pro", "deepseek-v4-pro", nil,
+				OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityChatCompletions,
+				false, false, true, ModelProtocolOpenAIChat, test.platform,
+			)
+
+			require.Nil(t, selection)
+			require.ErrorIs(t, err, ErrNoAvailableAccounts)
+			require.Equal(t, test.wantLegacy, ShouldUseLegacyProtocolDeliverySelector(err, delivery))
+			if test.wantReasonCode != "" {
+				require.Contains(t, delivery.ReasonCodes, test.wantReasonCode)
+			} else {
+				require.Empty(t, delivery.ReasonCodes)
+			}
+		})
+	}
+}
+
+func TestSelectAccountWithSchedulerForProtocolDeliveryUsesExactResponsesProtocol(t *testing.T) {
 	resetOpenAIAdvancedSchedulerSettingCacheForTest()
 	groupID := int64(808)
 	account := Account{
@@ -627,17 +838,105 @@ func TestSelectAccountWithSchedulerForProtocolDeliveryUsesForceChatTransport(t *
 		OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityChatCompletions,
 		false, false, true, ModelProtocolOpenAIResponses, PlatformOpenAI,
 	)
+	require.Nil(t, selection)
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.False(t, delivery.Eligible)
+	require.Equal(t, ModelProtocolOpenAIResponses, delivery.UpstreamProtocol)
+	require.Contains(t, delivery.ReasonCodes, ModelDeliveryReasonCapabilityUnsupported)
+}
+
+func TestSelectAccountWithSchedulerForProtocolDeliveryStrictResponsesIgnoresLegacyResponsesPrefilter(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	groupID := int64(808)
+	account := Account{
+		ID: 82, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1,
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceChatCompletions),
+		},
+	}
+	capRepo := &modelProtocolCapabilityRepoStub{itemsByAccount: map[int64][]AccountModelProtocolCapability{
+		82: {
+			{UpstreamModel: "glm-5.2", Protocol: ModelProtocolOpenAIChat, OverrideState: ModelProtocolStateUnsupported},
+			{UpstreamModel: "glm-5.2", Protocol: ModelProtocolOpenAIResponses, OverrideState: ModelProtocolStateSupported},
+		},
+	}}
+	cfg := &config.Config{}
+	cfg.Gateway.NativeModelProtocolRoutingEnabled = true
+	cfg.Gateway.Scheduling.LoadBatchEnabled = false
+	svc := &OpenAIGatewayService{
+		accountRepo:             schedulerTestOpenAIAccountRepo{accounts: []Account{account}},
+		cache:                   &schedulerTestGatewayCache{},
+		cfg:                     cfg,
+		concurrencyService:      NewConcurrencyService(schedulerTestConcurrencyCache{}),
+		modelProtocolCapability: &ModelProtocolCapabilityService{repo: capRepo},
+	}
+
+	selection, _, delivery, err := svc.SelectAccountWithSchedulerForProtocolDelivery(
+		context.Background(), &groupID, "", "", "glm-5.2", "glm-5.2", nil,
+		OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityResponses,
+		false, false, true, ModelProtocolOpenAIResponses, PlatformOpenAI,
+	)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
+	require.Equal(t, int64(82), selection.Account.ID)
 	require.True(t, delivery.Eligible)
-	require.Equal(t, ModelProtocolOpenAIChat, delivery.UpstreamProtocol)
-	require.Equal(t, ModelDeliveryModeCompatibility, delivery.Mode)
+	require.Equal(t, ModelProtocolOpenAIResponses, delivery.UpstreamProtocol)
+	require.Equal(t, ModelDeliveryModeNative, delivery.Mode)
 	if selection.ReleaseFunc != nil {
 		selection.ReleaseFunc()
 	}
 }
 
-func TestSelectAccountWithSchedulerForProtocolDeliveryUsesForceResponsesTransport(t *testing.T) {
+func TestSelectAccountWithSchedulerForProtocolDeliveryStrictResponsesSupportsWebSocketIngress(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	groupID := int64(808)
+	account := Account{
+		ID: 82, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1,
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesMode:             string(openai_compat.ResponsesSupportModeForceChatCompletions),
+			"openai_apikey_responses_websockets_v2_enabled": true,
+		},
+	}
+	capRepo := &modelProtocolCapabilityRepoStub{itemsByAccount: map[int64][]AccountModelProtocolCapability{
+		82: {{
+			UpstreamModel: "glm-5.2",
+			Protocol:      ModelProtocolOpenAIResponses,
+			OverrideState: ModelProtocolStateSupported,
+		}},
+	}}
+	cfg := &config.Config{}
+	cfg.Gateway.NativeModelProtocolRoutingEnabled = true
+	cfg.Gateway.Scheduling.LoadBatchEnabled = false
+	cfg.Gateway.OpenAIWS.Enabled = true
+	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
+	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
+	svc := &OpenAIGatewayService{
+		accountRepo:             schedulerTestOpenAIAccountRepo{accounts: []Account{account}},
+		cache:                   &schedulerTestGatewayCache{},
+		cfg:                     cfg,
+		concurrencyService:      NewConcurrencyService(schedulerTestConcurrencyCache{}),
+		modelProtocolCapability: &ModelProtocolCapabilityService{repo: capRepo},
+	}
+
+	selection, _, delivery, err := svc.SelectAccountWithSchedulerForProtocolDelivery(
+		context.Background(), &groupID, "", "", "glm-5.2", "glm-5.2", nil,
+		OpenAIUpstreamTransportResponsesWebsocketV2Ingress, OpenAIEndpointCapabilityResponses,
+		false, false, true, ModelProtocolOpenAIResponses, PlatformOpenAI,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, int64(82), selection.Account.ID)
+	require.True(t, delivery.Eligible)
+	require.Equal(t, ModelProtocolOpenAIResponses, delivery.UpstreamProtocol)
+	require.Equal(t, ModelDeliveryModeNative, delivery.Mode)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestSelectAccountWithSchedulerForProtocolDeliveryUsesExactChatProtocol(t *testing.T) {
 	resetOpenAIAdvancedSchedulerSettingCacheForTest()
 	groupID := int64(808)
 	account := Account{
@@ -669,11 +968,118 @@ func TestSelectAccountWithSchedulerForProtocolDeliveryUsesForceResponsesTranspor
 		OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityChatCompletions,
 		false, false, true, ModelProtocolOpenAIChat, PlatformOpenAI,
 	)
+	require.Nil(t, selection)
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.False(t, delivery.Eligible)
+	require.Equal(t, ModelProtocolOpenAIChat, delivery.UpstreamProtocol)
+	require.Contains(t, delivery.ReasonCodes, ModelDeliveryReasonCapabilityUnsupported)
+}
+
+func TestSelectAccountWithSchedulerForProtocolDeliverySkipsHigherPriorityWrongProtocolAccount(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	groupID := int64(808)
+	chatOnly := Account{
+		ID: 81, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 10,
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceChatCompletions),
+		},
+	}
+	responses := Account{
+		ID: 82, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1,
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceChatCompletions),
+		},
+	}
+	capRepo := &modelProtocolCapabilityRepoStub{itemsByAccount: map[int64][]AccountModelProtocolCapability{
+		81: {
+			{UpstreamModel: "deepseek-v4-pro", Protocol: ModelProtocolOpenAIChat, OverrideState: ModelProtocolStateSupported},
+			{UpstreamModel: "deepseek-v4-pro", Protocol: ModelProtocolOpenAIResponses, OverrideState: ModelProtocolStateUnsupported},
+		},
+		82: {
+			{UpstreamModel: "deepseek-v4-pro", Protocol: ModelProtocolOpenAIChat, OverrideState: ModelProtocolStateUnsupported},
+			{UpstreamModel: "deepseek-v4-pro", Protocol: ModelProtocolOpenAIResponses, OverrideState: ModelProtocolStateSupported},
+		},
+	}}
+	cfg := &config.Config{}
+	cfg.Gateway.NativeModelProtocolRoutingEnabled = true
+	cfg.Gateway.Scheduling.LoadBatchEnabled = false
+	svc := &OpenAIGatewayService{
+		accountRepo:             schedulerTestOpenAIAccountRepo{accounts: []Account{chatOnly, responses}},
+		cache:                   &schedulerTestGatewayCache{},
+		cfg:                     cfg,
+		concurrencyService:      NewConcurrencyService(schedulerTestConcurrencyCache{}),
+		modelProtocolCapability: &ModelProtocolCapabilityService{repo: capRepo},
+	}
+
+	selection, _, delivery, err := svc.SelectAccountWithSchedulerForProtocolDelivery(
+		context.Background(), &groupID, "", "", "deepseek-v4-pro", "deepseek-v4-pro", nil,
+		OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityChatCompletions,
+		false, false, true, ModelProtocolOpenAIResponses, PlatformOpenAI,
+	)
+
 	require.NoError(t, err)
 	require.NotNil(t, selection)
+	require.Equal(t, int64(82), selection.Account.ID)
 	require.True(t, delivery.Eligible)
 	require.Equal(t, ModelProtocolOpenAIResponses, delivery.UpstreamProtocol)
-	require.Equal(t, ModelDeliveryModeCompatibility, delivery.Mode)
+	require.Equal(t, ModelDeliveryModeNative, delivery.Mode)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestSelectAccountWithSchedulerForProtocolDeliverySkipsHigherPriorityResponsesOnlyAccountForChat(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	groupID := int64(808)
+	responsesOnly := Account{
+		ID: 81, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 10,
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceResponses),
+		},
+	}
+	chat := Account{
+		ID: 82, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1,
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceResponses),
+		},
+	}
+	capRepo := &modelProtocolCapabilityRepoStub{itemsByAccount: map[int64][]AccountModelProtocolCapability{
+		81: {
+			{UpstreamModel: "deepseek-v4-pro", Protocol: ModelProtocolOpenAIChat, OverrideState: ModelProtocolStateUnsupported},
+			{UpstreamModel: "deepseek-v4-pro", Protocol: ModelProtocolOpenAIResponses, OverrideState: ModelProtocolStateSupported},
+		},
+		82: {
+			{UpstreamModel: "deepseek-v4-pro", Protocol: ModelProtocolOpenAIChat, OverrideState: ModelProtocolStateSupported},
+			{UpstreamModel: "deepseek-v4-pro", Protocol: ModelProtocolOpenAIResponses, OverrideState: ModelProtocolStateUnsupported},
+		},
+	}}
+	cfg := &config.Config{}
+	cfg.Gateway.NativeModelProtocolRoutingEnabled = true
+	cfg.Gateway.Scheduling.LoadBatchEnabled = false
+	svc := &OpenAIGatewayService{
+		accountRepo:             schedulerTestOpenAIAccountRepo{accounts: []Account{responsesOnly, chat}},
+		cache:                   &schedulerTestGatewayCache{},
+		cfg:                     cfg,
+		concurrencyService:      NewConcurrencyService(schedulerTestConcurrencyCache{}),
+		modelProtocolCapability: &ModelProtocolCapabilityService{repo: capRepo},
+	}
+
+	selection, _, delivery, err := svc.SelectAccountWithSchedulerForProtocolDelivery(
+		context.Background(), &groupID, "", "", "deepseek-v4-pro", "deepseek-v4-pro", nil,
+		OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityChatCompletions,
+		false, false, true, ModelProtocolOpenAIChat, PlatformOpenAI,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, int64(82), selection.Account.ID)
+	require.True(t, delivery.Eligible)
+	require.Equal(t, ModelProtocolOpenAIChat, delivery.UpstreamProtocol)
+	require.Equal(t, ModelDeliveryModeNative, delivery.Mode)
 	if selection.ReleaseFunc != nil {
 		selection.ReleaseFunc()
 	}
@@ -725,7 +1131,7 @@ func TestSelectAccountWithSchedulerForProtocolDeliveryKeepsPublicAndMappedModels
 	}
 }
 
-func TestSelectAccountWithSchedulerForProtocolDeliveryPreservesLegacyOnlyForUnknownCapability(t *testing.T) {
+func TestSelectAccountWithSchedulerForProtocolDeliveryRejectsUnknownStrictCapability(t *testing.T) {
 	resetOpenAIAdvancedSchedulerSettingCacheForTest()
 	groupID := int64(808)
 	explicitlyUnsupported := Account{
@@ -764,15 +1170,11 @@ func TestSelectAccountWithSchedulerForProtocolDeliveryPreservesLegacyOnlyForUnkn
 		OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityChatCompletions,
 		false, false, true, ModelProtocolOpenAIChat, PlatformOpenAI,
 	)
-	require.NoError(t, err)
-	require.NotNil(t, selection)
-	require.Equal(t, int64(82), selection.Account.ID)
-	require.True(t, delivery.Eligible)
+	require.Nil(t, selection)
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.False(t, delivery.Eligible)
 	require.Equal(t, ModelProtocolStateUnknown, delivery.CapabilityState)
-	require.Equal(t, "existing_gateway_contract", delivery.CapabilitySource)
-	if selection.ReleaseFunc != nil {
-		selection.ReleaseFunc()
-	}
+	require.Contains(t, delivery.ReasonCodes, ModelDeliveryReasonCapabilityUnknown)
 }
 
 func TestSelectAccountWithSchedulerForProtocolDeliveryDoesNotBypassExplicitUnsupported(t *testing.T) {
@@ -982,7 +1384,7 @@ func TestResolveNativeProtocolsForGroupsBatchesAccountsAndUsesFinalAccountModel(
 	require.Equal(t, 1, capRepo.batchListCalls)
 }
 
-func TestModelDeliveryRequiresStableRouteAndPreservesCompatibilityMessages(t *testing.T) {
+func TestModelDeliveryRequiresStableRouteAndRejectsUnknownMessagesCapability(t *testing.T) {
 	t.Parallel()
 	groupRepo := &modelProtocolCatalogGroupRepoStub{
 		groups: []Group{{
@@ -1022,9 +1424,10 @@ func TestModelDeliveryRequiresStableRouteAndPreservesCompatibilityMessages(t *te
 	require.True(t, group.Deliverable(), "transient rate limiting must not remove stable catalog delivery")
 	require.Len(t, group.Routes, 1)
 	require.Equal(t, "MiniMax-M3-upstream", group.Routes[0].UpstreamModel)
-	require.Equal(t, ModelDeliveryModeCompatibility, group.Endpoints[ModelProtocolAnthropicMessages])
+	_, hasMessagesEndpoint := group.Endpoints[ModelProtocolAnthropicMessages]
+	require.False(t, hasMessagesEndpoint)
 	require.Equal(t, ModelDeliveryModeNative, group.Endpoints[ModelProtocolOpenAIChat])
-	require.Equal(t, []int64{10}, projection.EndpointGroupIDs("MiniMax-M3", ModelProtocolAnthropicMessages))
+	require.Empty(t, projection.EndpointGroupIDs("MiniMax-M3", ModelProtocolAnthropicMessages))
 }
 
 func TestModelDeliveryUsesMessagesDispatchModelInProtocolDecision(t *testing.T) {
@@ -1068,7 +1471,7 @@ func TestModelDeliveryUsesMessagesDispatchModelInProtocolDecision(t *testing.T) 
 	require.Contains(t, group.Routes[0].Decisions[ModelProtocolOpenAIChat].ReasonCodes, ModelDeliveryReasonModelUnsupported)
 }
 
-func TestModelDeliveryForceChatPolicyKeepsAllPublicEndpointsWithTruthfulModes(t *testing.T) {
+func TestModelDeliveryStrictRoutingIgnoresForceChatCompatibilityPreference(t *testing.T) {
 	t.Parallel()
 	groupRepo := &modelProtocolCatalogGroupRepoStub{
 		groups: []Group{{
@@ -1102,10 +1505,13 @@ func TestModelDeliveryForceChatPolicyKeepsAllPublicEndpointsWithTruthfulModes(t 
 	require.NotNil(t, group)
 	require.Equal(t, ModelDeliveryModeNative, group.Endpoints[ModelProtocolAnthropicMessages])
 	require.Equal(t, ModelDeliveryModeNative, group.Endpoints[ModelProtocolOpenAIChat])
-	require.Equal(t, ModelDeliveryModeCompatibility, group.Endpoints[ModelProtocolOpenAIResponses])
+	require.Equal(t, ModelDeliveryModeNative, group.Endpoints[ModelProtocolOpenAIResponses])
+	require.Equal(t, []int64{10}, projection.EndpointGroupIDs("glm-5.2", ModelProtocolOpenAIResponses))
+	require.Equal(t, []int64{10}, projection.NativeEndpointGroupIDs("glm-5.2", ModelProtocolOpenAIResponses))
+	require.Equal(t, []int64{10}, projection.NativeEndpointGroupIDs("glm-5.2", ModelProtocolOpenAIChat))
 }
 
-func TestModelDeliveryForceResponsesPolicyKeepsAllPublicEndpointsWithTruthfulModes(t *testing.T) {
+func TestModelDeliveryStrictRoutingIgnoresForceResponsesCompatibilityPreference(t *testing.T) {
 	t.Parallel()
 	groupRepo := &modelProtocolCatalogGroupRepoStub{
 		groups: []Group{{
@@ -1138,7 +1544,7 @@ func TestModelDeliveryForceResponsesPolicyKeepsAllPublicEndpointsWithTruthfulMod
 	group := projection.Group("glm-5.2", 10)
 	require.NotNil(t, group)
 	require.Equal(t, ModelDeliveryModeNative, group.Endpoints[ModelProtocolAnthropicMessages])
-	require.Equal(t, ModelDeliveryModeCompatibility, group.Endpoints[ModelProtocolOpenAIChat])
+	require.Equal(t, ModelDeliveryModeNative, group.Endpoints[ModelProtocolOpenAIChat])
 	require.Equal(t, ModelDeliveryModeNative, group.Endpoints[ModelProtocolOpenAIResponses])
 }
 
@@ -1187,7 +1593,7 @@ func TestModelDeliveryDoesNotAdvertiseStableRouteWithoutPublicEndpoint(t *testin
 	require.Empty(t, projection.DeliverableGroupIDs("MiniMax-M3"))
 }
 
-func TestModelDeliveryResponsesBridgeDoesNotDependOnChatCapability(t *testing.T) {
+func TestModelDeliveryStrictRoutingPublishesOnlyExactSupportedProtocol(t *testing.T) {
 	t.Parallel()
 	groupRepo := &modelProtocolCatalogGroupRepoStub{
 		groups: []Group{{
@@ -1222,12 +1628,12 @@ func TestModelDeliveryResponsesBridgeDoesNotDependOnChatCapability(t *testing.T)
 	group := projection.Group("MiniMax-M3", 10)
 	require.NotNil(t, group)
 	require.True(t, group.Deliverable())
-	require.Equal(t, ModelDeliveryModeCompatibility, group.Endpoints[ModelProtocolAnthropicMessages])
-	require.Equal(t, ModelDeliveryModeCompatibility, group.Endpoints[ModelProtocolOpenAIChat])
+	require.NotContains(t, group.Endpoints, ModelProtocolAnthropicMessages)
+	require.NotContains(t, group.Endpoints, ModelProtocolOpenAIChat)
 	require.Equal(t, ModelDeliveryModeNative, group.Endpoints[ModelProtocolOpenAIResponses])
 }
 
-func TestModelDeliveryCapabilityLookupFailureKeepsProvableCompatibilityRoute(t *testing.T) {
+func TestModelDeliveryCapabilityLookupFailureDoesNotCreateStrictRoute(t *testing.T) {
 	t.Parallel()
 	groupRepo := &modelProtocolCatalogGroupRepoStub{
 		groups: []Group{{
@@ -1249,8 +1655,9 @@ func TestModelDeliveryCapabilityLookupFailureKeepsProvableCompatibilityRoute(t *
 	projection, err := svc.ResolveForGroups(context.Background(), []int64{10}, []string{"MiniMax-M3"})
 	require.NoError(t, err)
 	require.NotEmpty(t, projection.Warnings)
-	require.Equal(t, []int64{10}, projection.EndpointGroupIDs("MiniMax-M3", ModelProtocolAnthropicMessages))
+	require.Empty(t, projection.EndpointGroupIDs("MiniMax-M3", ModelProtocolAnthropicMessages))
 	require.Empty(t, projection.EndpointGroupIDs("MiniMax-M3", ModelProtocolOpenAIChat))
+	require.Empty(t, projection.CallableGroupIDs("MiniMax-M3"))
 }
 
 func TestMergeModelDeliveryModePreservesMixedAccountRoutes(t *testing.T) {

@@ -240,7 +240,7 @@ func (h *AvailableChannelHandler) attachSupportedEndpoints(ctx context.Context, 
 				model := &section.SupportedModels[k]
 				model.RouteGroupIDs = intersectVisibleGroupIDs(delivery.CallableGroupIDs(model.Name), visible)
 				for _, protocol := range protocolOrder {
-					ids := intersectVisibleGroupIDs(delivery.EndpointGroupIDs(model.Name, protocol), visible)
+					ids := intersectVisibleGroupIDs(delivery.NativeEndpointGroupIDs(model.Name, protocol), visible)
 					if len(ids) == 0 {
 						continue
 					}

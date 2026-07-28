@@ -1102,7 +1102,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	switchCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	nativeProtocolUnavailableAccountIDs := make(map[int64]struct{})
-	nativeLayerExhausted := false
+	legacyRoutingMode := false
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
@@ -1126,7 +1126,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		deliveryDecision := service.ModelDeliveryDecision{InboundProtocol: service.ModelProtocolAnthropicMessages}
 		capabilitySource := ""
 		var nativeErr error
-		if !nativeLayerExhausted {
+		if !legacyRoutingMode {
 			selection, scheduleDecision, deliveryDecision, nativeErr = h.gatewayService.SelectAccountWithSchedulerForNativeProtocol(
 				c.Request.Context(), apiKey.GroupID, sessionHash, reqModel, deliveryRoutingModel, nativeExcludedAccountIDs,
 				service.ModelProtocolAnthropicMessages, requestPlatform,
@@ -1136,7 +1136,10 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		}
 		var err error
 		if nativeErr == nil && selection != nil && selection.Account != nil {
-			deliveryMode = "native"
+			deliveryMode = string(deliveryDecision.Mode)
+			if deliveryMode == "" {
+				deliveryMode = "compatibility"
+			}
 			capabilitySource = deliveryDecision.CapabilitySource
 		} else if nativeErr != nil &&
 			!errors.Is(nativeErr, service.ErrNoAvailableAccounts) &&
@@ -1144,36 +1147,27 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			reqLog.Error("openai_messages.native_account_select_failed", zap.Error(nativeErr))
 			h.anthropicStreamingAwareError(c, http.StatusInternalServerError, "api_error", "Failed to resolve upstream protocol capabilities", streamStarted)
 			return
-		} else {
-			if errors.Is(nativeErr, service.ErrModelProtocolCapabilityUnavailable) {
-				reqLog.Warn("openai_messages.native_capability_unavailable_using_compatibility", zap.Error(nativeErr))
-			}
-			nativeLayerExhausted = true
-			var compatibilityErr error
-			selection, scheduleDecision, deliveryDecision, compatibilityErr = h.gatewayService.SelectAccountWithSchedulerForMessagesCompatibility(
-				c.Request.Context(), apiKey.GroupID, sessionHash, reqModel, deliveryRoutingModel, failedAccountIDs, requestPlatform,
+		} else if service.ShouldUseLegacyProtocolDeliverySelector(nativeErr, deliveryDecision) {
+			// The new protocol router is disabled or unavailable before it
+			// made any authoritative decision. Preserve the pre-existing
+			// Messages conversion path only for that legacy mode.
+			legacyRoutingMode = true
+			selection, scheduleDecision, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
+				c.Request.Context(),
+				apiKey.GroupID,
+				"", // no previous_response_id
+				sessionHash,
+				currentRoutingModel,
+				failedAccountIDs,
+				service.OpenAIUpstreamTransportAny,
+				service.OpenAIEndpointCapabilityChatCompletions,
+				false,
+				false,
+				true,
+				requestPlatform,
 			)
-			if compatibilityErr == nil && selection != nil && selection.Account != nil {
-				deliveryMode = string(deliveryDecision.Mode)
-				capabilitySource = deliveryDecision.CapabilitySource
-			} else if service.ShouldUseLegacyProtocolDeliverySelector(compatibilityErr, deliveryDecision) {
-				selection, scheduleDecision, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
-					c.Request.Context(),
-					apiKey.GroupID,
-					"", // no previous_response_id
-					sessionHash,
-					currentRoutingModel,
-					failedAccountIDs,
-					service.OpenAIUpstreamTransportAny,
-					service.OpenAIEndpointCapabilityChatCompletions,
-					false,
-					false,
-					true,
-					requestPlatform,
-				)
-			} else {
-				err = compatibilityErr
-			}
+		} else {
+			err = nativeErr
 		}
 		if err != nil {
 			if failoverClientGone(c) {
@@ -1297,12 +1291,11 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 							return
 						}
 						h.gatewayService.RecordOpenAIAccountSwitch()
-						reqLog.Warn("openai_messages.native_protocol_unavailable_falling_back",
+						reqLog.Warn("openai_messages.native_protocol_unavailable_switching_account",
 							zap.Int64("account_id", account.ID),
 							zap.Int("upstream_status", failoverErr.StatusCode),
 							zap.Int("native_excluded_account_count", len(nativeProtocolUnavailableAccountIDs)),
 							zap.Int("switch_count", switchCount),
-							zap.Bool("native_layer_exhausted", false),
 						)
 						continue
 					}
@@ -2047,20 +2040,40 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			return
 		}
 		reqLog.Debug("openai.websocket_account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
-		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			ctx,
-			apiKey.GroupID,
-			previousResponseID,
-			sessionHash,
-			schedulingModel,
-			failedAccountIDs,
-			requiredTransport,
-			requiredCapability,
-			false,
-			previousResponseCanMove,
-			!imageIntent,
-			requestPlatform,
+		deliveryRoutingModel := schedulingModel
+		if channelMappingWS.Mapped {
+			deliveryRoutingModel = channelMappingWS.MappedModel
+		}
+		selection, scheduleDecision, deliveryDecision, deliveryErr := h.gatewayService.SelectAccountWithSchedulerForProtocolDelivery(
+			ctx, apiKey.GroupID, previousResponseID, sessionHash, reqModel, deliveryRoutingModel, failedAccountIDs,
+			requiredTransport, requiredCapability, false, previousResponseCanMove, !imageIntent,
+			service.ModelProtocolOpenAIResponses, requestPlatform,
 		)
+		var err error
+		if deliveryErr == nil && selection != nil && selection.Account != nil {
+			reqLog.Debug("openai.websocket_delivery_decision",
+				zap.String("mode", string(deliveryDecision.Mode)),
+				zap.String("upstream_protocol", string(deliveryDecision.UpstreamProtocol)),
+				zap.String("capability_source", deliveryDecision.CapabilitySource),
+			)
+		} else if service.ShouldUseLegacyProtocolDeliverySelector(deliveryErr, deliveryDecision) {
+			selection, scheduleDecision, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
+				ctx,
+				apiKey.GroupID,
+				previousResponseID,
+				sessionHash,
+				schedulingModel,
+				failedAccountIDs,
+				requiredTransport,
+				requiredCapability,
+				false,
+				previousResponseCanMove,
+				!imageIntent,
+				requestPlatform,
+			)
+		} else {
+			err = deliveryErr
+		}
 		if err != nil {
 			reqLog.Warn("openai.websocket_account_select_failed",
 				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
@@ -2363,6 +2376,16 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				sessionID := service.ExtractClientSessionID(c)
 				cyberBlocked := service.GetOpsCyberPolicy(c) != nil
 				h.submitOpenAIUsageRecordTask(c, turnCtx, result, apiKey, func(taskCtx context.Context) {
+					scheduleMeta := service.UsageScheduleMetaFromOpenAIDecision(scheduleDecision)
+					if deliveryDecision.Eligible {
+						scheduleMeta = service.UsageScheduleMetaWithProtocol(
+							scheduleMeta,
+							service.ModelProtocolOpenAIResponses,
+							deliveryDecision.UpstreamProtocol,
+							string(deliveryDecision.Mode),
+							deliveryDecision.CapabilitySource,
+						)
+					}
 					if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
 						Result:             result,
 						APIKey:             apiKey,
@@ -2371,7 +2394,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 						Subscription:       subscription,
 						InboundEndpoint:    inboundEndpoint,
 						UpstreamEndpoint:   upstreamEndpoint,
-						ScheduleMeta:       service.UsageScheduleMetaFromOpenAIDecision(scheduleDecision),
+						ScheduleMeta:       scheduleMeta,
 						UserAgent:          userAgent,
 						IPAddress:          clientIP,
 						RequestPayloadHash: requestPayloadHash,
