@@ -454,7 +454,9 @@ func (s *APIKeyRepoSuite) TestDisableKeysForGroupRateChange_ExcludesUsersWithCus
 	}))
 
 	expiredKey.Status = service.StatusAPIKeyExpired
-	s.Require().NoError(s.repo.Update(s.ctx, expiredKey))
+	s.Require().NoError(s.repo.Update(s.ctx, expiredKey, service.APIKeyUpdateFields{
+		Status: true,
+	}))
 	s.Require().NoError(s.repo.Delete(s.ctx, deletedKey.ID))
 
 	affected, err := s.repo.DisableKeysForGroupRateChange(s.ctx, group.ID)
@@ -591,7 +593,9 @@ func (s *APIKeyRepoSuite) mustCreateApiKeyWithTags(userID int64, key, name strin
 
 	k := s.mustCreateApiKey(userID, key, name, groupID)
 	k.Tags = append([]string(nil), tags...)
-	s.Require().NoError(s.repo.Update(s.ctx, k), "update api key tags")
+	s.Require().NoError(s.repo.Update(s.ctx, k, service.APIKeyUpdateFields{
+		Tags: true,
+	}), "update api key tags")
 	return k
 }
 
