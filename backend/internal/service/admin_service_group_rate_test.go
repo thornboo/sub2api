@@ -170,10 +170,10 @@ type rateChangeUserRepoStub struct {
 	updateSawRateChangeTx []bool
 }
 
-func (s *rateChangeUserRepoStub) Update(ctx context.Context, user *User) error {
+func (s *rateChangeUserRepoStub) Update(ctx context.Context, user *User, fields UserUpdateFields) error {
 	s.updateSawRateChangeTx = append(s.updateSawRateChangeTx, ctx.Value(rateChangeTxMarkerKey{}) == true)
 	if s.userRepoStub != nil {
-		return s.userRepoStub.Update(ctx, user)
+		return s.userRepoStub.Update(ctx, user, fields)
 	}
 	return nil
 }

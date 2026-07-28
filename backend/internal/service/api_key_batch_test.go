@@ -269,7 +269,11 @@ func idsMatchingUserAndFilters(keysByID map[int64]APIKey, userID int64, filters 
 	return ids
 }
 
-func (s *batchCreateAPIKeyRepoStub) Update(_ context.Context, key *APIKey) error {
+func (s *batchCreateAPIKeyRepoStub) Update(
+	_ context.Context,
+	key *APIKey,
+	_ APIKeyUpdateFields,
+) error {
 	if s.updateErrAt > 0 && len(s.updated)+1 == s.updateErrAt {
 		return errors.New("update failed")
 	}

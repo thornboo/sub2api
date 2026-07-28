@@ -26,7 +26,11 @@ func (s *apiKeyUpdateRepoStub) GetByID(_ context.Context, id int64) (*service.AP
 	return &key, nil
 }
 
-func (s *apiKeyUpdateRepoStub) Update(_ context.Context, key *service.APIKey) error {
+func (s *apiKeyUpdateRepoStub) Update(
+	_ context.Context,
+	key *service.APIKey,
+	_ service.APIKeyUpdateFields,
+) error {
 	s.key = *key
 	return nil
 }

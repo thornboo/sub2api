@@ -203,6 +203,7 @@ export interface PublicSettings {
   login_agreement_revision?: string
   login_agreement_documents?: LoginAgreementDocument[]
   turnstile_enabled: boolean
+  passkey_enabled?: boolean
   turnstile_site_key: string
   site_name: string
   site_logo: string
@@ -244,6 +245,8 @@ export interface PublicSettings {
   self_check_max_concurrency: number
   self_check_max_tasks_per_round: number
   available_channels_enabled: boolean
+  model_plaza_enabled: boolean
+  model_plaza_require_auth: boolean
   service_quota_enabled: boolean
   affiliate_enabled: boolean
   allow_user_view_error_requests?: boolean

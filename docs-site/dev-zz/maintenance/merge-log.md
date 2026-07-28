@@ -1,5 +1,69 @@
 # 上游合并记录
 
+## 2026-07-28 - 将上游 `main` 合并到 `dev-zz`：Passkey、模型价格橱窗与字段级更新合流
+
+分支：
+
+- 目标：`dev-zz`
+- 上游：`origin/main`
+- Base：`dc893dd0b`
+- 合并前目标：`eddb60257`
+- 上游 head：`8fd01c281`
+- 结果提交：本次合并提交
+
+上游要点：
+
+- 新增 Passkey 注册、登录、撤销和管理端开关；注册与撤销要求当前账户密码，WebAuthn 配置不完整时 fail-closed。
+- 新增默认关闭的 `/model-plaza` 价格橱窗，按分组聚合渠道模型与官方参考价，并支持公开访问或强制登录。
+- User / API Key 仓储更新改为显式字段集合，避免余额、额度、状态、标签或企业字段被并发的无关保存覆盖。
+- OpenAI Messages 桥接保留 GPT-5.6 `max` reasoning effort；补充 Kimi K3 / 1M 后缀、Codex Web Search、Anthropic cache breakpoint、安全审计配置恢复和 setup bypass 修复。
+- 管理端模型白名单增加模型 ID 复制能力。
+
+合并策略：
+
+- 合并前读取 `branch-policy.md`、`maintenance/merge-main.md`、最新补丁/合并/变更记录、变更地图和验证矩阵；确认 `dev-zz@eddb60257` 与 `origin/dev-zz` 对齐且工作区干净。
+- `git fetch --prune origin` 后确认 `origin/main@8fd01c281` 比上一轮上游增加 18 个非合并提交；先执行 `git merge-tree --write-tree --messages --name-only` 预演，再执行 `git merge --no-commit origin/main`，两者均得到相同的 12 个冲突。
+- 接受上游 Passkey、字段级仓储更新、模型价格橱窗和协议正确性修复；继续保留 dev-zz 企业成员能力、模型多协议调度、Messages 显式映射、模型状态授权、现有可用渠道模型广场、stone / neutral / emerald 视觉、长期数据保留和 `1.7.21` 版本线。
+
+冲突文件：
+
+- `backend/cmd/server/VERSION`
+- `backend/cmd/server/wire_gen.go`
+- `backend/go.mod`
+- `backend/internal/repository/api_key_repo.go`
+- `backend/internal/repository/user_repo.go`
+- `backend/internal/server/http.go`
+- `backend/internal/server/router.go`
+- `backend/internal/service/admin_user.go`
+- `backend/internal/service/api_key_service.go`
+- `backend/internal/service/openai_gateway_messages_chat_fallback.go`
+- `frontend/src/components/account/ModelWhitelistSelector.vue`
+- `frontend/src/views/admin/__tests__/SettingsView.spec.ts`
+
+解决说明：
+
+- `VERSION` 保持 dev-zz `1.7.21`；Go 依赖同时保留 dev-zz `google/subcommands` 与上游 WebAuthn 所需 `google/go-tpm`，重新执行 `go mod tidy`。
+- Wire / HTTP / Router 重新生成并做并集：保留企业成员预算、模型交付服务和恢复任务，同时接入 Passkey、模型价格橱窗和 Optional JWT；前端服务器的静态检查抑制保持上游拆分后的边界。
+- User 更新字段同时覆盖上游的邮箱、资料、状态、限额等列与 dev-zz 的 `account_type` / `enterprise_disabled_at`；企业费率事务不再用完整实体覆盖余额或其它并发字段。
+- API Key 更新字段同时覆盖上游的名称、状态、额度、限流等列与 dev-zz `tags`；状态更新继续同步 `disabled_reason`，普通更新不会触碰企业成员归属，批量更新按请求内容构造字段集合。
+- Messages 强制 Chat Completions 回退继续使用 dev-zz 的 Responses 中间表示；上游 GPT-5.6 `max` effort 修复在进入 Responses 序列化前生效，不回退已落地的原生 Messages / Responses 协议选择。
+- 模型白名单组件同时保留 dev-zz 目录搜索、自定义模型加入语义和上游复制按钮；SettingsView 测试同时保留 OpenAI Fast/Flex 与 Passkey 配置合同。
+- `/model-plaza` 保持上游独立且默认关闭的价格橱窗，不替换 `/available-channels`：前者可展示授权专属分组的报价，后者仍是 dev-zz 按真实可调度能力收敛的用户可用模型入口。
+- 字段级仓储接口合流后同步修正 dev-zz API Key 批量与 handler 测试桩签名，避免测试替身继续实现旧的全实体更新合同。
+
+验证：
+
+- 冲突相关 repository / service / handler / middleware / routes 定向测试通过。
+- 后端 `go test -tags=unit ./... -count=1` 与 `go test ./... -count=1` 全包通过；`go mod tidy -diff` 无依赖元数据漂移，`golangci-lint run ./...` 返回 `0 issues`。
+- 前端定向测试、typecheck、ESLint、全量 Vitest 242 个测试文件 / 1602 条测试和生产构建通过。
+- docs-site 生产构建通过；Go 格式、whitespace、冲突路径和冲突标记检查通过。
+
+未验证：
+
+- 浏览器人工 Passkey / 模型价格橱窗 smoke。
+- 真实 WebAuthn HTTPS 域名与硬件认证器流程。
+- Docker / Testcontainers 运行时集成测试。
+
 ## 2026-07-27 - 将上游 `main` 合并到 `dev-zz-develop`：面板 API 分层限流与 dev-zz 路由合同合流
 
 分支：

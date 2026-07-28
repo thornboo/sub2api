@@ -257,24 +257,33 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	oldAllowedGroups := append([]int64(nil), user.AllowedGroups...)
 	groupRatesTouched := input.GroupRates != nil && s.userGroupRateRepo != nil
 
+	// fields 与下面的 input.X 判空条件一一对应：管理员没提交的列不写回，
+	// 避免这份快照回滚并发的扣费、状态变更或批量限额调整。
+	var fields UserUpdateFields
+
 	if input.Email != "" {
 		user.Email = input.Email
+		fields.Email = true
 	}
 	if input.Password != "" {
 		if err := user.SetPassword(input.Password); err != nil {
 			return nil, err
 		}
+		fields.PasswordHash = true
 	}
 
 	if input.Username != nil {
 		user.Username = *input.Username
+		fields.Username = true
 	}
 	if input.Notes != nil {
 		user.Notes = *input.Notes
+		fields.Notes = true
 	}
 
 	if input.Status != "" {
 		user.Status = input.Status
+		fields.Status = true
 	}
 
 	// 角色变更(admin/user);空字符串表示不修改。
@@ -291,6 +300,7 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 			}
 		}
 		user.Role = role
+		fields.Role = true
 	}
 	nextAccountType := user.AccountType
 	if input.AccountType != "" {
@@ -320,6 +330,9 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 		return nil, errors.New("enterprise_enabled requires account_type=enterprise")
 	}
 	user.AccountType = nextAccountType
+	if input.AccountType != "" {
+		fields.AccountType = true
+	}
 	if nextAccountType == UserAccountTypeIndividual {
 		user.EnterpriseDisabledAt = nil
 	} else if input.EnterpriseEnabled != nil {
@@ -330,17 +343,23 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 			user.EnterpriseDisabledAt = &disabledAt
 		}
 	}
+	if input.AccountType != "" || input.EnterpriseEnabled != nil {
+		fields.EnterpriseDisabledAt = true
+	}
 
 	if input.Concurrency != nil {
 		user.Concurrency = *input.Concurrency
+		fields.Concurrency = true
 	}
 
 	if input.RPMLimit != nil {
 		user.RPMLimit = *input.RPMLimit
+		fields.RPMLimit = true
 	}
 
 	if input.AllowedGroups != nil {
 		user.AllowedGroups = *input.AllowedGroups
+		fields.AllowedGroups = true
 	}
 
 	disableKeysForUserRateChange := groupRatesTouched && s.disableKeysOnRateChangeEnabled(ctx)
@@ -359,7 +378,7 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 					return err
 				}
 			}
-			if err := s.userRepo.Update(txCtx, user); err != nil {
+			if err := s.userRepo.Update(txCtx, user, fields); err != nil {
 				return err
 			}
 			if err := s.userGroupRateRepo.SyncUserGroupRates(txCtx, user.ID, input.GroupRates); err != nil {
@@ -376,7 +395,7 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 			return nil, err
 		}
 	} else {
-		if err := s.userRepo.Update(ctx, user); err != nil {
+		if err := s.userRepo.Update(ctx, user, fields); err != nil {
 			return nil, err
 		}
 
@@ -612,30 +631,34 @@ func (s *adminServiceImpl) BatchUpdateLimits(ctx context.Context, userIDs []int6
 }
 
 func (s *adminServiceImpl) UpdateUserBalance(ctx context.Context, userID int64, balance float64, operation string, notes string) (*User, error) {
+	// 余额调整必须走原子接口：先读后整行写回会把并发的计费扣款覆盖掉。
+	var (
+		change BalanceChange
+		err    error
+	)
+	switch operation {
+	case "set":
+		change, err = s.userRepo.SetBalance(ctx, userID, balance)
+	case "add":
+		change, err = s.userRepo.AdjustBalance(ctx, userID, balance)
+	case "subtract":
+		change, err = s.userRepo.AdjustBalance(ctx, userID, -balance)
+	default:
+		return nil, fmt.Errorf("unsupported balance operation: %q", operation)
+	}
+	if errors.Is(err, ErrBalanceNegative) {
+		return nil, fmt.Errorf("balance cannot be negative, current balance: %.2f, requested operation would result in: %.2f", change.Old, change.New)
+	}
+	if err != nil {
+		return nil, err
+	}
+
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	oldBalance := user.Balance
-
-	switch operation {
-	case "set":
-		user.Balance = balance
-	case "add":
-		user.Balance += balance
-	case "subtract":
-		user.Balance -= balance
-	}
-
-	if user.Balance < 0 {
-		return nil, fmt.Errorf("balance cannot be negative, current balance: %.2f, requested operation would result in: %.2f", oldBalance, user.Balance)
-	}
-
-	if err := s.userRepo.Update(ctx, user); err != nil {
-		return nil, err
-	}
-	balanceDiff := user.Balance - oldBalance
+	balanceDiff := change.New - change.Old
 	if s.authCacheInvalidator != nil && balanceDiff != 0 {
 		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, userID)
 	}

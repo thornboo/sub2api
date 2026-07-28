@@ -2,6 +2,10 @@
 
 ## 2026-07-28
 
+- 同步上游 `main`（`8fd01c281`）到 `dev-zz`：新增默认关闭的 Passkey 登录与管理能力，以及默认关闭、可选强制登录的 `/model-plaza` 分组价格橱窗。价格橱窗不会替换 `/available-channels`；后者仍按 dev-zz 的真实账号路由和端点能力展示可用模型。
+- User / API Key 更新改为显式字段集合，避免管理员资料保存、余额变更、额度重置、状态切换、标签和企业能力并发修改时互相覆盖；合并继续保留 `account_type`、企业停用标记、API Key 标签和企业成员归属隔离。
+- OpenAI Messages 桥接补齐 GPT-5.6 `max` reasoning effort，另同步 Kimi K3 / 1M 后缀、Codex Web Search、Anthropic cache breakpoint、安全审计配置恢复、setup bypass 和模型 ID 复制修复。
+- 新增 `191_passkey_credentials.sql`，与既有同号迁移按完整文件名并存；版本保持 `1.7.21`，企业成员路由 / 预算 / 归因、模型多协议调度、Messages 显式映射和模型状态授权不变。
 - OpenAI 分组的 Messages 模型名处理改为显式策略：新分组默认原样透传，管理员可选择自定义 Opus / Sonnet / Haiku 系列映射，且单个系列留空时继续透传；精确模型覆盖始终优先。旧分组缺少策略字段时继续沿用原 GPT 默认映射，避免升级后静默改变存量流量。
 - 分组编辑页的目标模型输入会建议当前分组可调度 OpenAI 账号 `model_mapping` 中的具体逻辑模型，并对不在候选范围内的手填值给出提示；不再把平台全局模型目录当作该分组的目标模型。新增候选接口，无数据库迁移。
 - 收紧账号“上游模型协议能力”的模型范围：账号配置了 `model_mapping` 时，同步、接口响应和弹窗只处理映射右侧的最终上游模型，不再把同一上游 `/v1/models` 中未参与该账号路由的模型混入能力矩阵；空映射账号继续保持全模型透传语义。

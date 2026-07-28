@@ -1,5 +1,31 @@
 # 补丁记录
 
+## 2026-07-28 - 上游 main 同步：Passkey、模型价格橱窗与字段级更新
+
+### 目标
+
+- 将 `origin/main@8fd01c281` 合入 `dev-zz`，吸收 Passkey、模型价格橱窗、User / API Key 并发更新保护和协议正确性修复。
+- 保持 dev-zz 企业成员路由 / 预算 / 归因、模型多协议能力、Messages 显式模型映射、模型状态授权、现有可用渠道目录和 `1.7.21` 版本线不回退。
+
+### 主要变化
+
+- 用户可在资料页注册和撤销 Passkey，并使用 Passkey 登录；敏感管理动作要求当前密码，配置不完整或部署条件不满足时 fail-closed。管理员可独立控制 Passkey 登录入口。
+- 新增默认关闭的 `/model-plaza` 价格橱窗，可按分组展示渠道价和官方参考价，并选择公开访问或强制登录；它不替换 `/available-channels`，后者继续按真实可调度账号和端点展示用户可用模型。
+- User / API Key 更新改为显式列集合，避免并发的资料、余额、额度、状态、标签或企业设置互相覆盖。合并后继续支持 dev-zz `account_type`、企业停用标记和 API Key `tags`。
+- OpenAI Messages 桥接会为最终 GPT-5.6 模型保留 `max` reasoning effort；Kimi K3 / 1M 后缀、Codex Web Search、Anthropic cache breakpoint、安全审计配置恢复、setup bypass 和模型 ID 复制修复同步合入。
+
+### 数据与兼容性
+
+- 新增 `backend/migrations/191_passkey_credentials.sql`；它与 dev-zz 既有同号迁移按完整文件名并存，不修改任何历史迁移。
+- `VERSION` 保持 `1.7.21`；模型价格橱窗和 Passkey 登录默认关闭，升级不会自动新增公开入口或改变现有登录方式。
+- 字段级更新只改变仓储写入范围，不改变现有 API payload；企业成员归属仍不能通过普通 API Key 更新路径修改。
+
+### 验证
+
+- 后端冲突相关定向测试、unit / 默认标签全包、依赖元数据检查和 golangci-lint 通过。
+- 前端定向测试、全量 242 个测试文件 / 1602 条 Vitest、typecheck、ESLint 和生产构建通过。
+- docs-site 生产构建、生成代码、Go 格式、whitespace 和冲突标记检查通过。
+
 ## 2026-07-28 - OpenAI Messages 分组模型映射显式化
 
 ### 问题
