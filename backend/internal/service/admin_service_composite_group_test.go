@@ -179,3 +179,39 @@ func TestAdminService_CompositeModelsListCandidatesIncludeConcreteAccountMapping
 	require.Contains(t, candidates, "gpt-5.5")
 	require.Contains(t, candidates, "gemini-2.5-flash")
 }
+
+func TestAdminService_MessagesDispatchCandidatesUseConcreteGroupAccountMappingKeys(t *testing.T) {
+	accountRepo := &accountRepoStubForCompositeModelsList{
+		accounts: []Account{
+			{
+				ID:       1,
+				Platform: PlatformOpenAI,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{
+						"minimax-m2.7": "MiniMax-M2.7",
+						"minimax-m2.5": "minimax-m2.5",
+						"minimax-*":    "MiniMax-M2.7",
+					},
+				},
+			},
+			{
+				ID:       2,
+				Platform: PlatformGemini,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{
+						"gemini-2.5-flash": "gemini-2.5-flash",
+					},
+				},
+			},
+		},
+	}
+	groupRepo := &groupRepoStubForAdmin{
+		getByID: &Group{ID: 9, Platform: PlatformOpenAI},
+	}
+	svc := &adminServiceImpl{accountRepo: accountRepo, groupRepo: groupRepo}
+
+	candidates, err := svc.GetGroupMessagesDispatchModelCandidates(context.Background(), 9)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"minimax-m2.5", "minimax-m2.7"}, candidates)
+}

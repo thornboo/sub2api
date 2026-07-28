@@ -120,6 +120,16 @@ export async function getModelsListCandidates(
 }
 
 /**
+ * Get concrete logical model IDs exposed by schedulable OpenAI accounts in a group.
+ */
+export async function getMessagesDispatchModelCandidates(id: number): Promise<string[]> {
+  const { data } = await apiClient.get<{ models: string[] }>(
+    `/admin/groups/${id}/messages-dispatch-model-candidates`
+  )
+  return data.models || []
+}
+
+/**
  * Create new group
  * @param groupData - Group data
  * @returns Created group
@@ -481,6 +491,7 @@ export const groupsAPI = {
   getLiveCapability,
   getById,
   getModelsListCandidates,
+  getMessagesDispatchModelCandidates,
   create,
   duplicate,
   update,

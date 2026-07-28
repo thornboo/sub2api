@@ -949,6 +949,85 @@ func TestAdminService_UpdateGroup_NormalizesMessagesDispatchModelConfig(t *testi
 	}, repo.updated.MessagesDispatchModelConfig)
 }
 
+func TestAdminService_CreateGroupRejectsUnknownMessagesDispatchFamilyMappingMode(t *testing.T) {
+	repo := &groupRepoStubForAdmin{}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name:           "invalid-dispatch-mode",
+		Platform:       PlatformOpenAI,
+		RateMultiplier: 1,
+		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
+			FamilyMappingMode: "automatic",
+		},
+	})
+
+	require.Error(t, err)
+	require.Nil(t, group)
+	require.Nil(t, repo.created)
+}
+
+func TestAdminService_CreateGroupDefaultsEmptyMessagesDispatchConfigToPassThrough(t *testing.T) {
+	repo := &groupRepoStubForAdmin{}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name:           "new-openai-group",
+		Platform:       PlatformOpenAI,
+		RateMultiplier: 1,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, group)
+	require.Equal(t, OpenAIMessagesDispatchModelConfig{
+		FamilyMappingMode: OpenAIMessagesDispatchFamilyMappingModePassthrough,
+	}, repo.created.MessagesDispatchModelConfig)
+}
+
+func TestAdminService_CreateGroupPreservesLegacyFamilyMappingsWithoutMode(t *testing.T) {
+	repo := &groupRepoStubForAdmin{}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name:           "legacy-client-group",
+		Platform:       PlatformOpenAI,
+		RateMultiplier: 1,
+		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
+			SonnetMappedModel: "gpt-5.3-codex",
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, group)
+	require.Equal(t, OpenAIMessagesDispatchModelConfig{
+		SonnetMappedModel: "gpt-5.3-codex",
+	}, repo.created.MessagesDispatchModelConfig)
+}
+
+func TestAdminService_UpdateGroupPersistsExplicitMessagesDispatchPassThrough(t *testing.T) {
+	existingGroup := &Group{
+		ID:       1,
+		Name:     "existing-group",
+		Platform: PlatformOpenAI,
+		Status:   StatusActive,
+	}
+	repo := &groupRepoStubForAdmin{getByID: existingGroup}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	group, err := svc.UpdateGroup(context.Background(), 1, &UpdateGroupInput{
+		MessagesDispatchModelConfig: &OpenAIMessagesDispatchModelConfig{
+			FamilyMappingMode: " PASSTHROUGH ",
+			OpusMappedModel:   "gpt-5.4",
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, group)
+	require.Equal(t, OpenAIMessagesDispatchModelConfig{
+		FamilyMappingMode: OpenAIMessagesDispatchFamilyMappingModePassthrough,
+	}, repo.updated.MessagesDispatchModelConfig)
+}
+
 func TestAdminService_CreateGroup_ClearsMessagesDispatchFieldsForNonOpenAIPlatform(t *testing.T) {
 	repo := &groupRepoStubForAdmin{}
 	svc := &adminServiceImpl{groupRepo: repo}

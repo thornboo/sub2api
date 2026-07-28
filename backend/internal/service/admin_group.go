@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -97,6 +98,42 @@ func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id 
 			candidates = append(candidates, model)
 		}
 	}
+	return candidates, nil
+}
+
+func (s *adminServiceImpl) GetGroupMessagesDispatchModelCandidates(ctx context.Context, id int64) ([]string, error) {
+	group, err := s.groupRepo.GetByIDLite(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if group.Platform != PlatformOpenAI || s.accountRepo == nil {
+		return []string{}, nil
+	}
+
+	accounts, err := s.accountRepo.ListSchedulableByGroupID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{})
+	candidates := make([]string, 0)
+	for _, account := range accounts {
+		if account.Platform != PlatformOpenAI {
+			continue
+		}
+		for model := range account.GetModelMapping() {
+			model = strings.TrimSpace(model)
+			if model == "" || strings.HasSuffix(model, "*") {
+				continue
+			}
+			if _, exists := seen[model]; exists {
+				continue
+			}
+			seen[model] = struct{}{}
+			candidates = append(candidates, model)
+		}
+	}
+	sort.Strings(candidates)
 	return candidates, nil
 }
 
@@ -304,6 +341,11 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	if platform == "" {
 		platform = PlatformAnthropic
 	}
+	if platform == PlatformOpenAI {
+		if err := validateOpenAIMessagesDispatchModelConfig(input.MessagesDispatchModelConfig); err != nil {
+			return nil, infraerrors.Newf(http.StatusBadRequest, "INVALID_MESSAGES_DISPATCH_MODEL_CONFIG", "%v", err)
+		}
+	}
 	maxReasoningEffort, err := normalizeMaxReasoningEffortForPlatform(platform, input.MaxReasoningEffort)
 	if err != nil {
 		return nil, infraerrors.Newf(http.StatusBadRequest, "INVALID_MAX_REASONING_EFFORT", "%v", err)
@@ -474,7 +516,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		RequireOAuthOnly:                input.RequireOAuthOnly,
 		RequirePrivacySet:               input.RequirePrivacySet,
 		DefaultMappedModel:              input.DefaultMappedModel,
-		MessagesDispatchModelConfig:     normalizeOpenAIMessagesDispatchModelConfig(input.MessagesDispatchModelConfig),
+		MessagesDispatchModelConfig:     normalizeNewOpenAIMessagesDispatchModelConfig(input.MessagesDispatchModelConfig),
 		ModelsListConfig:                normalizeGroupModelsListConfig(input.ModelsListConfig),
 		RPMLimit:                        input.RPMLimit,
 		MaxReasoningEffort:              maxReasoningEffort,
@@ -796,6 +838,11 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 		group.DefaultMappedModel = *input.DefaultMappedModel
 	}
 	if input.MessagesDispatchModelConfig != nil {
+		if group.Platform == PlatformOpenAI {
+			if err := validateOpenAIMessagesDispatchModelConfig(*input.MessagesDispatchModelConfig); err != nil {
+				return nil, infraerrors.Newf(http.StatusBadRequest, "INVALID_MESSAGES_DISPATCH_MODEL_CONFIG", "%v", err)
+			}
+		}
 		group.MessagesDispatchModelConfig = normalizeOpenAIMessagesDispatchModelConfig(*input.MessagesDispatchModelConfig)
 	}
 	if input.ModelsListConfig != nil {

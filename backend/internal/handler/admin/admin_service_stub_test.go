@@ -305,6 +305,10 @@ func (s *stubAdminService) GetGroupModelsListCandidates(ctx context.Context, id 
 	return []string{"claude-sonnet-4-6"}, nil
 }
 
+func (s *stubAdminService) GetGroupMessagesDispatchModelCandidates(ctx context.Context, id int64) ([]string, error) {
+	return []string{"minimax-m2.5", "minimax-m2.7"}, nil
+}
+
 func (s *stubAdminService) ListCompositeRoutes(ctx context.Context, groupID int64) ([]service.CompositeModelRoute, error) {
 	return []service.CompositeModelRoute{
 		{

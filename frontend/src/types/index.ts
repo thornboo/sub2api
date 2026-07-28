@@ -502,7 +502,10 @@ export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 
 
 export type SubscriptionType = 'standard' | 'subscription'
 
+export type OpenAIMessagesDispatchFamilyMappingMode = 'passthrough' | 'custom'
+
 export interface OpenAIMessagesDispatchModelConfig {
+  family_mapping_mode?: OpenAIMessagesDispatchFamilyMappingMode
   opus_mapped_model?: string
   sonnet_mapped_model?: string
   haiku_mapped_model?: string

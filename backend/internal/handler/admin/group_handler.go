@@ -461,6 +461,25 @@ func (h *GroupHandler) GetModelsListCandidates(c *gin.Context) {
 	response.Success(c, gin.H{"models": models})
 }
 
+// GetMessagesDispatchModelCandidates returns concrete logical model IDs exposed
+// by schedulable OpenAI accounts in the group.
+// GET /api/v1/admin/groups/:id/messages-dispatch-model-candidates
+func (h *GroupHandler) GetMessagesDispatchModelCandidates(c *gin.Context) {
+	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || groupID <= 0 {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+
+	models, err := h.adminService.GetGroupMessagesDispatchModelCandidates(c.Request.Context(), groupID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{"models": models})
+}
+
 // Create handles creating a new group
 // POST /api/v1/admin/groups
 func (h *GroupHandler) Create(c *gin.Context) {

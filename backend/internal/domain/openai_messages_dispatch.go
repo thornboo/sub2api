@@ -3,6 +3,7 @@ package domain
 // OpenAIMessagesDispatchModelConfig controls how Anthropic /v1/messages
 // requests are mapped onto OpenAI/Codex models.
 type OpenAIMessagesDispatchModelConfig struct {
+	FamilyMappingMode  string            `json:"family_mapping_mode,omitempty"`
 	OpusMappedModel    string            `json:"opus_mapped_model,omitempty"`
 	SonnetMappedModel  string            `json:"sonnet_mapped_model,omitempty"`
 	HaikuMappedModel   string            `json:"haiku_mapped_model,omitempty"`

@@ -170,13 +170,21 @@ DeliveryDecision =
 
 ~~~
 渠道模型映射
--> Messages 分组调度映射（仅在没有显式渠道映射时作为协议专属回落）
+-> Messages 分组调度映射（精确覆盖优先；系列映射按分组模式决定）
 -> 账号模型映射
 -> 平台规范化
 -> 最终 upstream_model
 ~~~
 
 只有得到最终 `upstream_model` 后，才能查询原生协议能力。
+
+OpenAI 分组的 Messages 模型名处理使用 `messages_dispatch_model_config.family_mapping_mode`：
+
+- `passthrough`：未命中精确覆盖时保留客户端提交的模型名，由账号模型映射继续处理。新建分组默认使用此模式。
+- `custom`：未命中精确覆盖时，按 Opus、Sonnet、Haiku 系列使用管理员显式填写的目标逻辑模型；某个系列留空时只对该系列透传。
+- 字段缺失：仅作为存量兼容语义，继续沿用原有 `gpt-5.4`、`gpt-5.3-codex`、`gpt-5.4-mini` 默认映射，直到管理员明确切换为透传或自定义。
+
+精确模型覆盖始终高于系列模式。系统不会在映射目标交付失败后自动重试原始模型，以免一次请求因隐式改写产生不可预测的跨模型重放。
 
 ### 3. 第一阶段只支持精确模型和账号默认值
 
@@ -224,6 +232,7 @@ DeliveryDecision =
 第一阶段不新增 `group_protocol_policies`。
 
 - OpenAI 分组是否允许 Messages，继续由 `AllowMessagesDispatch` 决定。
+- OpenAI 分组如何处理入站 Claude 模型名，继续由 `MessagesDispatchModelConfig` 决定；`family_mapping_mode` 缺失只表示旧版兼容，不会被保存界面静默改写。
 - 平台现有入口准入继续沿用当前代码。
 - 新能力表只回答账号模型能否原生接收协议。
 

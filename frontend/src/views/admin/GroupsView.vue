@@ -1488,47 +1488,121 @@
                   {{ t("admin.groups.openaiMessages.familyMappingHint") }}
                 </p>
               </div>
-              <div class="p-4">
-                <div class="grid gap-4 md:grid-cols-3">
-                  <div>
-                    <label class="input-label">{{
-                      t("admin.groups.openaiMessages.opusModel")
-                    }}</label>
-                    <input
-                      v-model="createForm.opus_mapped_model"
-                      type="text"
-                      :placeholder="
-                        t('admin.groups.openaiMessages.opusModelPlaceholder')
-                      "
-                      class="input"
-                    />
+              <div class="space-y-4 p-4">
+                <div class="grid gap-3 md:grid-cols-2">
+                  <button
+                    type="button"
+                    class="rounded-xl border p-4 text-left transition-colors"
+                    :class="
+                      createForm.family_mapping_mode === 'passthrough'
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-100'
+                        : 'border-stone-200 bg-white text-stone-700 hover:border-stone-300 dark:border-white/10 dark:bg-neutral-950 dark:text-stone-300'
+                    "
+                    @click="createForm.family_mapping_mode = 'passthrough'"
+                  >
+                    <span class="block text-sm font-medium">{{
+                      t("admin.groups.openaiMessages.passthroughTitle")
+                    }}</span>
+                    <span class="mt-1 block text-xs opacity-75">{{
+                      t("admin.groups.openaiMessages.passthroughHint")
+                    }}</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="rounded-xl border p-4 text-left transition-colors"
+                    :class="
+                      createForm.family_mapping_mode === 'custom'
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-100'
+                        : 'border-stone-200 bg-white text-stone-700 hover:border-stone-300 dark:border-white/10 dark:bg-neutral-950 dark:text-stone-300'
+                    "
+                    @click="createForm.family_mapping_mode = 'custom'"
+                  >
+                    <span class="block text-sm font-medium">{{
+                      t("admin.groups.openaiMessages.customTitle")
+                    }}</span>
+                    <span class="mt-1 block text-xs opacity-75">{{
+                      t("admin.groups.openaiMessages.customHint")
+                    }}</span>
+                  </button>
+                </div>
+
+                <div
+                  v-if="createForm.family_mapping_mode === 'passthrough'"
+                  class="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-200"
+                >
+                  {{ t("admin.groups.openaiMessages.passthroughActiveHint") }}
+                </div>
+
+                <div v-else class="space-y-3">
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <p class="text-xs text-stone-500 dark:text-stone-400">
+                      {{
+                        t(
+                          "admin.groups.openaiMessages.createCandidateModelsHint",
+                        )
+                      }}
+                    </p>
+                    <button
+                      type="button"
+                      class="text-xs font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
+                      @click="applyOpenAIMessagesDispatchPreset(createForm)"
+                    >
+                      {{
+                        t("admin.groups.openaiMessages.applyOpenAIPreset")
+                      }}
+                    </button>
                   </div>
-                  <div>
-                    <label class="input-label">{{
-                      t("admin.groups.openaiMessages.sonnetModel")
-                    }}</label>
-                    <input
-                      v-model="createForm.sonnet_mapped_model"
-                      type="text"
-                      :placeholder="
-                        t('admin.groups.openaiMessages.sonnetModelPlaceholder')
-                      "
-                      class="input"
-                    />
+                  <div class="grid gap-4 md:grid-cols-3">
+                    <div>
+                      <label class="input-label">{{
+                        t("admin.groups.openaiMessages.opusModel")
+                      }}</label>
+                      <input
+                        v-model="createForm.opus_mapped_model"
+                        list="create-messages-dispatch-model-candidates"
+                        type="text"
+                        :placeholder="
+                          t('admin.groups.openaiMessages.optionalModelPlaceholder')
+                        "
+                        class="input"
+                      />
+                    </div>
+                    <div>
+                      <label class="input-label">{{
+                        t("admin.groups.openaiMessages.sonnetModel")
+                      }}</label>
+                      <input
+                        v-model="createForm.sonnet_mapped_model"
+                        list="create-messages-dispatch-model-candidates"
+                        type="text"
+                        :placeholder="
+                          t('admin.groups.openaiMessages.optionalModelPlaceholder')
+                        "
+                        class="input"
+                      />
+                    </div>
+                    <div>
+                      <label class="input-label">{{
+                        t("admin.groups.openaiMessages.haikuModel")
+                      }}</label>
+                      <input
+                        v-model="createForm.haiku_mapped_model"
+                        list="create-messages-dispatch-model-candidates"
+                        type="text"
+                        :placeholder="
+                          t('admin.groups.openaiMessages.optionalModelPlaceholder')
+                        "
+                        class="input"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label class="input-label">{{
-                      t("admin.groups.openaiMessages.haikuModel")
-                    }}</label>
-                    <input
-                      v-model="createForm.haiku_mapped_model"
-                      type="text"
-                      :placeholder="
-                        t('admin.groups.openaiMessages.haikuModelPlaceholder')
-                      "
-                      class="input"
+                  <datalist id="create-messages-dispatch-model-candidates">
+                    <option
+                      v-for="model in createMessagesDispatchModelCandidates"
+                      :key="model"
+                      :value="model"
                     />
-                  </div>
+                  </datalist>
                 </div>
               </div>
             </div>
@@ -1617,6 +1691,7 @@
                           }}</label>
                           <input
                             v-model="row.target_model"
+                            list="create-messages-dispatch-model-candidates"
                             type="text"
                             :placeholder="
                               t(
@@ -3039,48 +3114,216 @@
                   {{ t("admin.groups.openaiMessages.familyMappingHint") }}
                 </p>
               </div>
-              <div class="p-4">
-                <div class="grid gap-4 md:grid-cols-3">
-                  <div>
-                    <label class="input-label">{{
-                      t("admin.groups.openaiMessages.opusModel")
-                    }}</label>
-                    <input
-                      v-model="editForm.opus_mapped_model"
-                      type="text"
-                      :placeholder="
-                        t('admin.groups.openaiMessages.opusModelPlaceholder')
-                      "
-                      class="input"
-                    />
+              <div class="space-y-4 p-4">
+                <div
+                  v-if="editForm.family_mapping_mode === 'legacy'"
+                  class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-100"
+                >
+                  <p class="text-sm font-medium">
+                    {{ t("admin.groups.openaiMessages.legacyMappingTitle") }}
+                  </p>
+                  <p class="mt-1 text-xs opacity-80">
+                    {{ t("admin.groups.openaiMessages.legacyMappingHint") }}
+                  </p>
+                  <div class="mt-3 flex flex-wrap gap-2 text-xs">
+                    <span class="rounded-full bg-amber-100 px-2.5 py-1 dark:bg-amber-900/40">
+                      Opus → {{ editForm.opus_mapped_model }}
+                    </span>
+                    <span class="rounded-full bg-amber-100 px-2.5 py-1 dark:bg-amber-900/40">
+                      Sonnet → {{ editForm.sonnet_mapped_model }}
+                    </span>
+                    <span class="rounded-full bg-amber-100 px-2.5 py-1 dark:bg-amber-900/40">
+                      Haiku → {{ editForm.haiku_mapped_model }}
+                    </span>
                   </div>
-                  <div>
-                    <label class="input-label">{{
-                      t("admin.groups.openaiMessages.sonnetModel")
-                    }}</label>
-                    <input
-                      v-model="editForm.sonnet_mapped_model"
-                      type="text"
-                      :placeholder="
-                        t('admin.groups.openaiMessages.sonnetModelPlaceholder')
-                      "
-                      class="input"
-                    />
-                  </div>
-                  <div>
-                    <label class="input-label">{{
-                      t("admin.groups.openaiMessages.haikuModel")
-                    }}</label>
-                    <input
-                      v-model="editForm.haiku_mapped_model"
-                      type="text"
-                      :placeholder="
-                        t('admin.groups.openaiMessages.haikuModelPlaceholder')
-                      "
-                      class="input"
-                    />
+                  <div class="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      class="rounded-lg border border-amber-400 bg-white px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:bg-neutral-950 dark:text-amber-200 dark:hover:bg-amber-900/30"
+                      @click="editForm.family_mapping_mode = 'passthrough'"
+                    >
+                      {{
+                        t(
+                          "admin.groups.openaiMessages.convertToPassthrough",
+                        )
+                      }}
+                    </button>
+                    <button
+                      type="button"
+                      class="rounded-lg bg-amber-700 px-3 py-2 text-xs font-medium text-white hover:bg-amber-800 dark:bg-amber-600 dark:hover:bg-amber-500"
+                      @click="applyOpenAIMessagesDispatchPreset(editForm)"
+                    >
+                      {{ t("admin.groups.openaiMessages.convertToCustom") }}
+                    </button>
                   </div>
                 </div>
+
+                <template v-else>
+                  <div class="grid gap-3 md:grid-cols-2">
+                    <button
+                      type="button"
+                      class="rounded-xl border p-4 text-left transition-colors"
+                      :class="
+                        editForm.family_mapping_mode === 'passthrough'
+                          ? 'border-emerald-500 bg-emerald-50 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-100'
+                          : 'border-stone-200 bg-white text-stone-700 hover:border-stone-300 dark:border-white/10 dark:bg-neutral-950 dark:text-stone-300'
+                      "
+                      @click="editForm.family_mapping_mode = 'passthrough'"
+                    >
+                      <span class="block text-sm font-medium">{{
+                        t("admin.groups.openaiMessages.passthroughTitle")
+                      }}</span>
+                      <span class="mt-1 block text-xs opacity-75">{{
+                        t("admin.groups.openaiMessages.passthroughHint")
+                      }}</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="rounded-xl border p-4 text-left transition-colors"
+                      :class="
+                        editForm.family_mapping_mode === 'custom'
+                          ? 'border-emerald-500 bg-emerald-50 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-100'
+                          : 'border-stone-200 bg-white text-stone-700 hover:border-stone-300 dark:border-white/10 dark:bg-neutral-950 dark:text-stone-300'
+                      "
+                      @click="editForm.family_mapping_mode = 'custom'"
+                    >
+                      <span class="block text-sm font-medium">{{
+                        t("admin.groups.openaiMessages.customTitle")
+                      }}</span>
+                      <span class="mt-1 block text-xs opacity-75">{{
+                        t("admin.groups.openaiMessages.customHint")
+                      }}</span>
+                    </button>
+                  </div>
+
+                  <div
+                    v-if="editForm.family_mapping_mode === 'passthrough'"
+                    class="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-200"
+                  >
+                    {{ t("admin.groups.openaiMessages.passthroughActiveHint") }}
+                  </div>
+
+                  <div v-else class="space-y-3">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                      <p class="text-xs text-stone-500 dark:text-stone-400">
+                        {{
+                          editMessagesDispatchModelCandidates.length > 0
+                            ? t(
+                                "admin.groups.openaiMessages.candidateModelsHint",
+                              )
+                            : t(
+                                "admin.groups.openaiMessages.noCandidateModelsHint",
+                              )
+                        }}
+                      </p>
+                      <button
+                        type="button"
+                        class="text-xs font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
+                        @click="applyOpenAIMessagesDispatchPreset(editForm)"
+                      >
+                        {{
+                          t("admin.groups.openaiMessages.applyOpenAIPreset")
+                        }}
+                      </button>
+                    </div>
+                    <div class="grid gap-4 md:grid-cols-3">
+                      <div>
+                        <label class="input-label">{{
+                          t("admin.groups.openaiMessages.opusModel")
+                        }}</label>
+                        <input
+                          v-model="editForm.opus_mapped_model"
+                          list="edit-messages-dispatch-model-candidates"
+                          type="text"
+                          :placeholder="
+                            t('admin.groups.openaiMessages.optionalModelPlaceholder')
+                          "
+                          class="input"
+                        />
+                        <p
+                          v-if="
+                            isMessagesDispatchModelOutsideCandidates(
+                              editForm.opus_mapped_model,
+                              editMessagesDispatchModelCandidates,
+                            )
+                          "
+                          class="mt-1 text-xs text-amber-600 dark:text-amber-400"
+                        >
+                          {{
+                            t(
+                              "admin.groups.openaiMessages.unlistedCandidateWarning",
+                            )
+                          }}
+                        </p>
+                      </div>
+                      <div>
+                        <label class="input-label">{{
+                          t("admin.groups.openaiMessages.sonnetModel")
+                        }}</label>
+                        <input
+                          v-model="editForm.sonnet_mapped_model"
+                          list="edit-messages-dispatch-model-candidates"
+                          type="text"
+                          :placeholder="
+                            t('admin.groups.openaiMessages.optionalModelPlaceholder')
+                          "
+                          class="input"
+                        />
+                        <p
+                          v-if="
+                            isMessagesDispatchModelOutsideCandidates(
+                              editForm.sonnet_mapped_model,
+                              editMessagesDispatchModelCandidates,
+                            )
+                          "
+                          class="mt-1 text-xs text-amber-600 dark:text-amber-400"
+                        >
+                          {{
+                            t(
+                              "admin.groups.openaiMessages.unlistedCandidateWarning",
+                            )
+                          }}
+                        </p>
+                      </div>
+                      <div>
+                        <label class="input-label">{{
+                          t("admin.groups.openaiMessages.haikuModel")
+                        }}</label>
+                        <input
+                          v-model="editForm.haiku_mapped_model"
+                          list="edit-messages-dispatch-model-candidates"
+                          type="text"
+                          :placeholder="
+                            t('admin.groups.openaiMessages.optionalModelPlaceholder')
+                          "
+                          class="input"
+                        />
+                        <p
+                          v-if="
+                            isMessagesDispatchModelOutsideCandidates(
+                              editForm.haiku_mapped_model,
+                              editMessagesDispatchModelCandidates,
+                            )
+                          "
+                          class="mt-1 text-xs text-amber-600 dark:text-amber-400"
+                        >
+                          {{
+                            t(
+                              "admin.groups.openaiMessages.unlistedCandidateWarning",
+                            )
+                          }}
+                        </p>
+                      </div>
+                    </div>
+                    <datalist id="edit-messages-dispatch-model-candidates">
+                      <option
+                        v-for="model in editMessagesDispatchModelCandidates"
+                        :key="model"
+                        :value="model"
+                      />
+                    </datalist>
+                  </div>
+                </template>
               </div>
             </div>
 
@@ -3168,6 +3411,7 @@
                           }}</label>
                           <input
                             v-model="row.target_model"
+                            list="edit-messages-dispatch-model-candidates"
                             type="text"
                             :placeholder="
                               t(
@@ -3176,6 +3420,21 @@
                             "
                             class="input bg-stone-50/80 focus:bg-white dark:bg-neutral-950 dark:focus:bg-black/40"
                           />
+                          <p
+                            v-if="
+                              isMessagesDispatchModelOutsideCandidates(
+                                row.target_model,
+                                editMessagesDispatchModelCandidates,
+                              )
+                            "
+                            class="mt-1 text-xs text-amber-600 dark:text-amber-400"
+                          >
+                            {{
+                              t(
+                                "admin.groups.openaiMessages.unlistedCandidateWarning",
+                              )
+                            }}
+                          </p>
                         </div>
                       </div>
                       <button
@@ -4079,7 +4338,9 @@ import { extractApiErrorMessage } from "@/utils/apiError";
 import { useKeyedDebouncedSearch } from "@/composables/useKeyedDebouncedSearch";
 import { getPersistedPageSize } from "@/composables/usePersistedPageSize";
 import {
+  applyOpenAIMessagesDispatchPreset,
   createDefaultMessagesDispatchFormState,
+  isMessagesDispatchModelOutsideCandidates,
   messagesDispatchConfigToFormState,
   messagesDispatchFormStateToConfig,
   resetMessagesDispatchFormState,
@@ -4569,6 +4830,12 @@ const createMessagesDispatchDefaults = createDefaultMessagesDispatchFormState();
 const editMessagesDispatchDefaults = createDefaultMessagesDispatchFormState();
 const createModelsListState = reactive(createInitialModelsListState());
 const editModelsListState = reactive(createInitialModelsListState());
+const createMessagesDispatchModelCandidates = ref<string[]>([]);
+const editMessagesDispatchModelCandidates = ref<string[]>([]);
+const messagesDispatchCandidateRequestIDs = {
+  create: 0,
+  edit: 0,
+};
 const createModelsListLoading = ref(false);
 const editModelsListLoading = ref(false);
 type ReasoningEffortPolicyFieldsExpose = {
@@ -4624,6 +4891,7 @@ const createForm = reactive({
   fallback_group_id_on_invalid_request: null as number | null,
   // OpenAI Messages 调度配置（仅 openai 平台使用）
   allow_messages_dispatch: false,
+  family_mapping_mode: createMessagesDispatchDefaults.family_mapping_mode,
   allow_live: false,
   opus_mapped_model: createMessagesDispatchDefaults.opus_mapped_model,
   sonnet_mapped_model: createMessagesDispatchDefaults.sonnet_mapped_model,
@@ -4880,6 +5148,36 @@ const loadModelsListCandidates = async (
   }
 };
 
+const loadMessagesDispatchModelCandidates = async (
+  mode: "create" | "edit",
+  groupID: number,
+) => {
+  const target =
+    mode === "create"
+      ? createMessagesDispatchModelCandidates
+      : editMessagesDispatchModelCandidates;
+  const requestID = ++messagesDispatchCandidateRequestIDs[mode];
+  target.value = [];
+  if (groupID <= 0) {
+    return;
+  }
+
+  try {
+    const models =
+      await adminAPI.groups.getMessagesDispatchModelCandidates(groupID);
+    if (requestID === messagesDispatchCandidateRequestIDs[mode]) {
+      target.value = models;
+    }
+  } catch (error) {
+    if (requestID === messagesDispatchCandidateRequestIDs[mode]) {
+      console.error(
+        "Error loading Messages dispatch model candidates:",
+        error,
+      );
+    }
+  }
+};
+
 const moveCreateModelsListItem = (fromIndex: number, toIndex: number) => {
   moveModelsListItem(createModelsListState, fromIndex, toIndex);
 };
@@ -4974,6 +5272,7 @@ const editForm = reactive({
   fallback_group_id_on_invalid_request: null as number | null,
   // OpenAI Messages 调度配置（仅 openai 平台使用）
   allow_messages_dispatch: false,
+  family_mapping_mode: editMessagesDispatchDefaults.family_mapping_mode,
   allow_live: false,
   default_mapped_model: '',
   opus_mapped_model: editMessagesDispatchDefaults.opus_mapped_model,
@@ -5375,6 +5674,7 @@ const handleSort = (key: string, order: 'asc' | 'desc') => {
 
 const openCreateModal = () => {
   showCreateModal.value = true;
+  createMessagesDispatchModelCandidates.value = [];
   loadModelsListCandidates("create", 0, createForm.platform);
 };
 
@@ -5416,6 +5716,7 @@ const closeCreateModal = () => {
   createForm.fallback_group_id = null;
   createForm.fallback_group_id_on_invalid_request = null;
   resetMessagesDispatchFormState(createForm);
+  createMessagesDispatchModelCandidates.value = [];
   createForm.allow_live = false;
   createForm.require_oauth_only = false;
   createForm.require_privacy_set = false;
@@ -5497,6 +5798,7 @@ const handleCreateGroup = async () => {
         createForm.platform === "openai"
           ? messagesDispatchFormStateToConfig({
               allow_messages_dispatch: createForm.allow_messages_dispatch,
+              family_mapping_mode: createForm.family_mapping_mode,
               opus_mapped_model: createForm.opus_mapped_model,
               sonnet_mapped_model: createForm.sonnet_mapped_model,
               haiku_mapped_model: createForm.haiku_mapped_model,
@@ -5605,6 +5907,8 @@ const handleEdit = async (group: AdminGroup) => {
     group.allow_messages_dispatch ||
     messagesDispatchFormState.allow_messages_dispatch;
   editForm.allow_live = group.allow_live ?? false;
+  editForm.family_mapping_mode =
+    messagesDispatchFormState.family_mapping_mode;
   editForm.opus_mapped_model = messagesDispatchFormState.opus_mapped_model;
   editForm.sonnet_mapped_model = messagesDispatchFormState.sonnet_mapped_model;
   editForm.haiku_mapped_model = messagesDispatchFormState.haiku_mapped_model;
@@ -5635,6 +5939,7 @@ const handleEdit = async (group: AdminGroup) => {
     group.model_routing,
   );
   loadModelsListCandidates("edit", group.id, group.platform);
+  loadMessagesDispatchModelCandidates("edit", group.id);
   showEditModal.value = true;
 };
 
@@ -5661,6 +5966,8 @@ const closeEditModal = () => {
   editForm.video_price_1080p = null;
   editForm.web_search_price_per_call = null;
   resetMessagesDispatchFormState(editForm);
+  messagesDispatchCandidateRequestIDs.edit += 1;
+  editMessagesDispatchModelCandidates.value = [];
   editForm.allow_live = false;
   resetModelsListState(editModelsListState);
 };
@@ -5711,6 +6018,7 @@ const handleUpdateGroup = async () => {
         editForm.platform === "openai"
           ? messagesDispatchFormStateToConfig({
               allow_messages_dispatch: editForm.allow_messages_dispatch,
+              family_mapping_mode: editForm.family_mapping_mode,
               opus_mapped_model: editForm.opus_mapped_model,
               sonnet_mapped_model: editForm.sonnet_mapped_model,
               haiku_mapped_model: editForm.haiku_mapped_model,
@@ -6128,6 +6436,12 @@ watch(
     if (editingGroup.value) {
       resetModelsListState(editModelsListState, editForm.platform === editingGroup.value.platform ? editingGroup.value.models_list_config : undefined);
       loadModelsListCandidates("edit", editingGroup.value.id, newVal);
+      if (newVal === "openai") {
+        loadMessagesDispatchModelCandidates("edit", editingGroup.value.id);
+      } else {
+        messagesDispatchCandidateRequestIDs.edit += 1;
+        editMessagesDispatchModelCandidates.value = [];
+      }
     }
   },
 );

@@ -260,6 +260,7 @@ Gateway、OpenAI、Gemini、图片和异步 batch image 会从显式客户端头
 | `GET` | `/api/v1/admin/groups/all` | 管理端分组候选列表，可带 `include_inactive=true` |
 | `POST` | `/api/v1/admin/groups` | 创建分组，支持高峰倍率字段 |
 | `PUT` | `/api/v1/admin/groups/:id` | 更新分组，支持高峰倍率字段 |
+| `GET` | `/api/v1/admin/groups/:id/messages-dispatch-model-candidates` | 返回该 OpenAI 分组可调度账号中可枚举的模型映射左侧键，供 Messages 调度映射输入建议使用 |
 
 高峰倍率字段：
 
@@ -277,6 +278,8 @@ Gateway、OpenAI、Gemini、图片和异步 batch image 会从显式客户端头
 - 高峰时间按服务端全局时区判定。
 - 高峰倍率只叠加到 token 计费倍率；token 模式下的图片 token 同样适用，图片按次计费不受高峰倍率影响。
 - 用户侧可用渠道和订阅展示可返回公开分组的高峰倍率提示，但不得因此暴露上游账号、渠道、内部成本或管理员专属计费字段。
+
+OpenAI 分组的 `messages_dispatch_model_config.family_mapping_mode` 接受 `passthrough` 或 `custom`。`passthrough` 在精确覆盖未命中时保留客户端模型名；`custom` 使用管理员显式配置的 Opus / Sonnet / Haiku 系列目标，单个系列留空时透传。旧分组缺少该字段时继续沿用历史 GPT 默认映射，避免部署后改变存量流量；新分组默认显式保存 `passthrough`。候选模型接口只返回当前分组可调度 OpenAI 账号的具体 `model_mapping` 左侧键，排除通配规则，不把平台全局模型目录混入分组建议；输入仍允许管理员手工填写。
 
 ## 管理端 OpenAI Fast / Flex 策略
 

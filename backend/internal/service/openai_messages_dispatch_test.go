@@ -57,6 +57,109 @@ func TestResolveOpenAIMessagesDeliveryModelPrefersExplicitChannelMapping(t *test
 	require.Equal(t, "gpt-5.4", ResolveOpenAIMessagesDeliveryModel(group, "gpt-5.4", ChannelMappingResult{}))
 }
 
+func TestResolveOpenAIMessagesDeliveryModelSupportsExplicitPassThrough(t *testing.T) {
+	t.Parallel()
+
+	group := &Group{
+		Platform: PlatformOpenAI,
+		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
+			FamilyMappingMode: OpenAIMessagesDispatchFamilyMappingModePassthrough,
+		},
+	}
+
+	require.Equal(t, "claude-sonnet-4-5", ResolveOpenAIMessagesDeliveryModel(
+		group,
+		"claude-sonnet-4-5",
+		ChannelMappingResult{},
+	))
+}
+
+func TestResolveOpenAIMessagesDeliveryModelSupportsPartialCustomFamilyMappings(t *testing.T) {
+	t.Parallel()
+
+	group := &Group{
+		Platform: PlatformOpenAI,
+		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
+			FamilyMappingMode: OpenAIMessagesDispatchFamilyMappingModeCustom,
+			SonnetMappedModel: "minimax-m2.7",
+		},
+	}
+
+	require.Equal(t, "minimax-m2.7", ResolveOpenAIMessagesDeliveryModel(
+		group,
+		"claude-sonnet-4-5",
+		ChannelMappingResult{},
+	))
+	require.Equal(t, "claude-opus-4-6", ResolveOpenAIMessagesDeliveryModel(
+		group,
+		"claude-opus-4-6",
+		ChannelMappingResult{},
+	))
+}
+
+func TestResolveOpenAIMessagesDeliveryModelExactMappingWinsInPassThroughMode(t *testing.T) {
+	t.Parallel()
+
+	group := &Group{
+		Platform: PlatformOpenAI,
+		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
+			FamilyMappingMode: OpenAIMessagesDispatchFamilyMappingModePassthrough,
+			ExactModelMappings: map[string]string{
+				"claude-sonnet-4-5": "minimax-m2.7",
+			},
+		},
+	}
+
+	require.Equal(t, "minimax-m2.7", ResolveOpenAIMessagesDeliveryModel(
+		group,
+		"claude-sonnet-4-5",
+		ChannelMappingResult{},
+	))
+}
+
+func TestResolveOpenAIMessagesDeliveryModelFeedsAccountLogicalMapping(t *testing.T) {
+	t.Parallel()
+
+	group := &Group{
+		Platform: PlatformOpenAI,
+		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
+			FamilyMappingMode: OpenAIMessagesDispatchFamilyMappingModeCustom,
+			SonnetMappedModel: "minimax-m2.7",
+		},
+	}
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"minimax-m2.7": "MiniMax-M2.7",
+			},
+		},
+	}
+
+	deliveryModel := ResolveOpenAIMessagesDeliveryModel(
+		group,
+		"claude-sonnet-4-5",
+		ChannelMappingResult{},
+	)
+
+	require.Equal(t, "minimax-m2.7", deliveryModel)
+	require.True(t, accountSupportsDeliveryModel(account, deliveryModel))
+	require.Equal(t, "MiniMax-M2.7", resolveFinalDeliveryModel(account, deliveryModel))
+}
+
+func TestValidateOpenAIMessagesDispatchModelConfigRejectsUnknownMode(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, validateOpenAIMessagesDispatchModelConfig(OpenAIMessagesDispatchModelConfig{}))
+	require.NoError(t, validateOpenAIMessagesDispatchModelConfig(OpenAIMessagesDispatchModelConfig{
+		FamilyMappingMode: OpenAIMessagesDispatchFamilyMappingModePassthrough,
+	}))
+	require.Error(t, validateOpenAIMessagesDispatchModelConfig(OpenAIMessagesDispatchModelConfig{
+		FamilyMappingMode: "automatic",
+	}))
+}
+
 func TestSanitizeGroupMessagesDispatchFields_ClearsNonOpenAIPlatform(t *testing.T) {
 	t.Parallel()
 

@@ -1,12 +1,16 @@
 package service
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
 const (
+	OpenAIMessagesDispatchFamilyMappingModePassthrough = "passthrough"
+	OpenAIMessagesDispatchFamilyMappingModeCustom      = "custom"
+
 	defaultOpenAIMessagesDispatchOpusMappedModel   = "gpt-5.4"
 	defaultOpenAIMessagesDispatchSonnetMappedModel = "gpt-5.3-codex"
 	defaultOpenAIMessagesDispatchHaikuMappedModel  = "gpt-5.4-mini"
@@ -19,6 +23,7 @@ func normalizeOpenAIMessagesDispatchMappedModel(model string) string {
 
 func normalizeOpenAIMessagesDispatchModelConfig(cfg OpenAIMessagesDispatchModelConfig) OpenAIMessagesDispatchModelConfig {
 	out := OpenAIMessagesDispatchModelConfig{
+		FamilyMappingMode: strings.ToLower(strings.TrimSpace(cfg.FamilyMappingMode)),
 		OpusMappedModel:   normalizeOpenAIMessagesDispatchMappedModel(cfg.OpusMappedModel),
 		SonnetMappedModel: normalizeOpenAIMessagesDispatchMappedModel(cfg.SonnetMappedModel),
 		HaikuMappedModel:  normalizeOpenAIMessagesDispatchMappedModel(cfg.HaikuMappedModel),
@@ -39,7 +44,37 @@ func normalizeOpenAIMessagesDispatchModelConfig(cfg OpenAIMessagesDispatchModelC
 		}
 	}
 
+	if out.FamilyMappingMode == OpenAIMessagesDispatchFamilyMappingModePassthrough {
+		out.OpusMappedModel = ""
+		out.SonnetMappedModel = ""
+		out.HaikuMappedModel = ""
+	}
+
 	return out
+}
+
+func normalizeNewOpenAIMessagesDispatchModelConfig(cfg OpenAIMessagesDispatchModelConfig) OpenAIMessagesDispatchModelConfig {
+	out := normalizeOpenAIMessagesDispatchModelConfig(cfg)
+	if out.FamilyMappingMode == "" &&
+		out.OpusMappedModel == "" &&
+		out.SonnetMappedModel == "" &&
+		out.HaikuMappedModel == "" {
+		out.FamilyMappingMode = OpenAIMessagesDispatchFamilyMappingModePassthrough
+	}
+	return out
+}
+
+func validateOpenAIMessagesDispatchModelConfig(cfg OpenAIMessagesDispatchModelConfig) error {
+	switch strings.ToLower(strings.TrimSpace(cfg.FamilyMappingMode)) {
+	case "", OpenAIMessagesDispatchFamilyMappingModePassthrough, OpenAIMessagesDispatchFamilyMappingModeCustom:
+		return nil
+	default:
+		return fmt.Errorf(
+			"family_mapping_mode must be %q or %q",
+			OpenAIMessagesDispatchFamilyMappingModePassthrough,
+			OpenAIMessagesDispatchFamilyMappingModeCustom,
+		)
+	}
 }
 
 func claudeMessagesDispatchFamily(model string) string {
@@ -80,20 +115,34 @@ func (g *Group) ResolveMessagesDispatchModel(requestedModel string) string {
 		return mappedModel
 	}
 
+	mode := strings.TrimSpace(cfg.FamilyMappingMode)
+	if mode == OpenAIMessagesDispatchFamilyMappingModePassthrough {
+		return ""
+	}
+
 	switch claudeMessagesDispatchFamily(requestedModel) {
 	case "opus":
 		if mappedModel := strings.TrimSpace(cfg.OpusMappedModel); mappedModel != "" {
 			return mappedModel
+		}
+		if mode == OpenAIMessagesDispatchFamilyMappingModeCustom {
+			return ""
 		}
 		return defaultOpenAIMessagesDispatchOpusMappedModel
 	case "sonnet":
 		if mappedModel := strings.TrimSpace(cfg.SonnetMappedModel); mappedModel != "" {
 			return mappedModel
 		}
+		if mode == OpenAIMessagesDispatchFamilyMappingModeCustom {
+			return ""
+		}
 		return defaultOpenAIMessagesDispatchSonnetMappedModel
 	case "haiku":
 		if mappedModel := strings.TrimSpace(cfg.HaikuMappedModel); mappedModel != "" {
 			return mappedModel
+		}
+		if mode == OpenAIMessagesDispatchFamilyMappingModeCustom {
+			return ""
 		}
 		return defaultOpenAIMessagesDispatchHaikuMappedModel
 	default:
