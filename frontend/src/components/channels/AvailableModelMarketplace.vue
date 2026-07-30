@@ -49,6 +49,12 @@
           </span>
           <span class="h-px min-w-4 flex-1 bg-stone-200/80 dark:bg-white/[0.08]" />
         </div>
+        <p
+          v-if="section.group.description"
+          class="-mt-1 mb-2.5 line-clamp-2 px-0.5 text-xs leading-5 text-stone-500 dark:text-stone-400"
+        >
+          {{ section.group.description }}
+        </p>
 
         <div class="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           <article
@@ -106,25 +112,25 @@
                       {{ formatBillingMode(card.pricingOptions[0], pricingLabels) }}
                     </span>
                     <span class="ml-1 text-[9px] text-stone-400 dark:text-stone-500">{{ pricingUnit(card.pricingOptions[0]) }}</span>
-                    <p v-if="hasTieredPricing(card.pricingOptions[0])" class="mt-0.5 truncate text-[9px] text-stone-500 dark:text-stone-400" :title="tieredPricing(card.pricingOptions[0])">
-                      {{ t('availableChannels.modelMarketplace.tieredPricing') }} · {{ tieredPricing(card.pricingOptions[0]) }}
+                    <p v-if="hasTieredPricing(card.pricingOptions[0])" class="mt-0.5 truncate text-[9px] text-stone-500 dark:text-stone-400" :title="tieredPricing(card, card.pricingOptions[0])">
+                      {{ t('availableChannels.modelMarketplace.tieredPricing') }} · {{ tieredPricing(card, card.pricingOptions[0]) }}
                     </p>
                   </div>
 
                   <div v-if="card.pricingOptions[0]?.billing_mode === BILLING_MODE_TOKEN" class="flex shrink-0 items-baseline gap-2 font-mono">
                     <div class="whitespace-nowrap text-[10px] text-stone-500 dark:text-stone-400">
                       {{ t('availableChannels.pricing.inputPrice') }}
-                      <strong class="ml-0.5 text-[13px] text-stone-950 dark:text-stone-100">{{ formatCompactTokenPrice(card.pricingOptions[0]?.input_price ?? null) }}</strong>
+                      <strong class="ml-0.5 text-[13px] text-stone-950 dark:text-stone-100">{{ formatCompactTokenPrice(displayPrice(card, card.pricingOptions[0]?.input_price ?? null)) }}</strong>
                     </div>
                     <span class="h-3 w-px bg-stone-200 dark:bg-white/10" />
                     <div class="whitespace-nowrap text-[10px] text-stone-500 dark:text-stone-400">
                       {{ t('availableChannels.pricing.outputPrice') }}
-                      <strong class="ml-0.5 text-[13px] text-stone-950 dark:text-stone-100">{{ formatCompactTokenPrice(card.pricingOptions[0]?.output_price ?? null) }}</strong>
+                      <strong class="ml-0.5 text-[13px] text-stone-950 dark:text-stone-100">{{ formatCompactTokenPrice(displayPrice(card, card.pricingOptions[0]?.output_price ?? null)) }}</strong>
                     </div>
                   </div>
 
                   <div v-else class="shrink-0 font-mono text-[13px] font-semibold text-stone-950 dark:text-stone-100">
-                    {{ requestPrice(card.pricingOptions[0]) }}
+                    {{ requestPrice(card, card.pricingOptions[0]) }}
                   </div>
                 </div>
                 <div v-else class="flex min-h-7 items-center text-xs text-stone-500 dark:text-stone-400">
@@ -226,6 +232,7 @@ const props = defineProps<{
   pricingLabels: AvailableChannelPricingLabels
   emptyLabel: string
   userGroupRates: Record<number, number>
+  applyRateMultiplier?: boolean
 }>()
 
 const { t } = useI18n()
@@ -262,19 +269,60 @@ function pricingUnit(pricing: UserSupportedModelPricing): string {
     : props.pricingLabels.unitPerRequest
 }
 
-function requestPrice(pricing: UserSupportedModelPricing): string {
+function requestPrice(card: AvailableModelMarketplaceCard, pricing: UserSupportedModelPricing): string {
   const value = pricing.billing_mode === BILLING_MODE_IMAGE
     ? pricing.image_output_price
     : pricing.per_request_price
-  return `${formatCompactRequestPrice(value)} ${props.pricingLabels.unitPerRequest}`
+  return `${formatCompactRequestPrice(displayPrice(card, value))} ${props.pricingLabels.unitPerRequest}`
 }
 
 function hasTieredPricing(pricing: UserSupportedModelPricing): boolean {
   return pricing.intervals.length > 0
 }
 
-function tieredPricing(pricing: UserSupportedModelPricing): string {
-  return formatAvailableChannelIntervals(pricing, props.pricingLabels, { compact: true })
+function tieredPricing(
+  card: AvailableModelMarketplaceCard,
+  pricing: UserSupportedModelPricing,
+): string {
+  return formatAvailableChannelIntervals(
+    scalePricing(pricing, priceMultiplier(card)),
+    props.pricingLabels,
+    { compact: true },
+  )
+}
+
+function displayPrice(card: AvailableModelMarketplaceCard, value: number | null): number | null {
+  return value == null ? null : value * priceMultiplier(card)
+}
+
+function priceMultiplier(card: AvailableModelMarketplaceCard): number {
+  if (!props.applyRateMultiplier) return 1
+  return props.userGroupRates[card.group.id] ?? card.group.rate_multiplier ?? 1
+}
+
+function scalePricing(
+  pricing: UserSupportedModelPricing,
+  multiplier: number,
+): UserSupportedModelPricing {
+  const scale = (value: number | null) => (value == null ? null : value * multiplier)
+  return {
+    ...pricing,
+    input_price: scale(pricing.input_price),
+    output_price: scale(pricing.output_price),
+    cache_write_price: scale(pricing.cache_write_price),
+    cache_read_price: scale(pricing.cache_read_price),
+    image_input_price: scale(pricing.image_input_price),
+    image_output_price: scale(pricing.image_output_price),
+    per_request_price: scale(pricing.per_request_price),
+    intervals: pricing.intervals.map((interval) => ({
+      ...interval,
+      input_price: scale(interval.input_price),
+      output_price: scale(interval.output_price),
+      cache_write_price: scale(interval.cache_write_price),
+      cache_read_price: scale(interval.cache_read_price),
+      per_request_price: scale(interval.per_request_price),
+    })),
+  }
 }
 
 function endpointLabel(protocol: UserSupportedEndpoint['protocol']): string {

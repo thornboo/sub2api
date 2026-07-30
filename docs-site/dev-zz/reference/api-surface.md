@@ -342,15 +342,18 @@ owner analytics 已落地在用户认证域 `/api/v1/usage/analytics/*`。接口
 
 ## 可用渠道模型
 
-用户侧可用渠道仍使用：
+公开目录和用户侧可用渠道分别使用：
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
+| `GET` | `/api/v1/model-plaza` | 返回 active、standard、非专属分组的公开模型目录；默认匿名可读，登录身份不会扩展响应 |
 | `GET` | `/api/v1/channels/available` | 返回当前用户可见渠道及模型信息 |
 
-模型条目可选返回 `route_group_ids` 和 `supported_endpoints`。前者只包含当前用户可见、运行时仍可选择的分组；后者每项只包含协议、公共路径和已确认可发布该端点的可见 `group_ids`。只有定价模型能通过 active、可调度且模型匹配的账号形成稳定可调用路由时才返回。原有 Messages 兼容路径可提供 `/v1/messages`，Chat / Responses 则按账号实际选定的上游协议与明确能力证据形成原生或兼容交付。能力为 `unknown` 可保留既有兼容模型，但不发布未经证明的新端点；明确 `unsupported` 不允许被旧选择器绕过。不会返回账号、供应商、上游地址或故障转移拓扑。`GET /v1/models` 同步使用 new-api 兼容的可选字段 `supported_endpoint_types`，且复用同一稳定路由解析器。
+两个接口复用同一客户安全目录与交付投影。模型条目可选返回 `route_group_ids` 和 `supported_endpoints`：前者只包含本次响应可见、运行时仍可选择的分组；后者每项只包含协议、公共路径和已确认可发布该端点的可见 `group_ids`。只有定价模型能通过 active、可调度且模型匹配的账号形成稳定可调用路由时才返回。原有 Messages 兼容路径可提供 `/v1/messages`，Chat / Responses 则按账号实际选定的上游协议与明确能力证据形成原生或兼容交付。能力为 `unknown` 可保留既有兼容模型，但不发布未经证明的新端点；明确 `unsupported` 不允许被旧选择器绕过。不会返回账号、供应商、上游地址或故障转移拓扑。`GET /v1/models` 同步使用 new-api 兼容的可选字段 `supported_endpoint_types`，且复用同一稳定路由解析器。
 
-dev-zz 前端基于该接口构建模型级表格和导出视图。具体展示口径见 [可用渠道模型广场与报价导出](../features/available-channels-model-marketplace.md)。
+`GET /api/v1/model-plaza` 的响应为公开说明和 `channels` 客户目录。即使请求携带普通用户 token，也不会追加专属分组、订阅分组或用户专属倍率；当 `model_plaza_require_auth=true` 时，token 只用于兼容存量的访问门禁。`model_plaza_enabled=false` 时接口返回 404。公开页面的完整范围见 [公开模型列表与价格页](../features/public-model-catalog.md)。
+
+dev-zz 前端基于这些接口分别构建公开模型列表和登录后的模型级表格、导出视图。具体展示口径见 [公开模型列表与价格页](../features/public-model-catalog.md) 与 [可用渠道模型广场与报价导出](../features/available-channels-model-marketplace.md)。
 
 ## 模型服务状态（定价驱动站点自检）
 

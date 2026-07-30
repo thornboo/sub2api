@@ -9,6 +9,7 @@ import type { BillingMode } from '@/constants/channel'
 export interface UserAvailableGroup {
   id: number
   name: string
+  description?: string
   platform: string
   /** 'standard' | 'subscription' — 订阅分组视觉加深，和 API 密钥页保持一致。 */
   subscription_type: string
@@ -88,7 +89,10 @@ export function normalizeAvailableChannels<T extends UserAvailableChannel>(
     description: channel.description ?? '',
     platforms: arrayOrEmpty(channel.platforms).map((section) => ({
       ...section,
-      groups: arrayOrEmpty(section.groups),
+      groups: arrayOrEmpty(section.groups).map((group) => ({
+        ...group,
+        description: group.description ?? '',
+      })),
       supported_models: arrayOrEmpty(section.supported_models).map((model) => {
         const normalized = {
           ...model,

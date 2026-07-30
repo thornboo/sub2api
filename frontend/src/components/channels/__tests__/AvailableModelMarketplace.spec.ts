@@ -186,4 +186,20 @@ describe('AvailableModelMarketplace', () => {
     const empty = mountMarketplace({ cards: [] })
     expect(empty.text()).toContain('暂无模型')
   })
+
+  it('can display effective prices using the group or user multiplier', () => {
+    const groupRate = mountMarketplace({ applyRateMultiplier: true })
+    const publicSection = groupRate.get('[data-group-id="1"]')
+    expect(publicSection.text()).toContain('$0.64')
+    expect(publicSection.text()).toContain('$3.2')
+    groupRate.unmount()
+
+    const userRate = mountMarketplace({
+      applyRateMultiplier: true,
+      userGroupRates: { 1: 0.5 },
+    })
+    const userPublicSection = userRate.get('[data-group-id="1"]')
+    expect(userPublicSection.text()).toContain('$0.4')
+    expect(userPublicSection.text()).toContain('$2')
+  })
 })

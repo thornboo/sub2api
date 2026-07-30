@@ -13,6 +13,7 @@ export default {
     dashboard: 'Dashboard',
     login: 'Login',
     keyQuery: 'Key lookup',
+    modelCatalog: 'Model Catalog',
     getStarted: 'Get Started',
     goToDashboard: 'Go to Dashboard',
     // User-focused value proposition

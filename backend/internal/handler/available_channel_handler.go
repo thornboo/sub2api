@@ -59,6 +59,7 @@ func (h *AvailableChannelHandler) featureEnabled(c *gin.Context) bool {
 type userAvailableGroup struct {
 	ID                 int64   `json:"id"`
 	Name               string  `json:"name"`
+	Description        string  `json:"description"`
 	Platform           string  `json:"platform"`
 	SubscriptionType   string  `json:"subscription_type"`
 	RateMultiplier     float64 `json:"rate_multiplier"`
@@ -131,6 +132,8 @@ type userAvailableChannel struct {
 	Platforms   []userChannelPlatformSection `json:"platforms"`
 }
 
+type availableGroupFilter func([]service.AvailableGroupRef) []userAvailableGroup
+
 // List 列出当前用户可见的「可用渠道」。
 // GET /api/v1/channels/available
 func (h *AvailableChannelHandler) List(c *gin.Context) {
@@ -163,12 +166,37 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 		return
 	}
 
+	out, err := buildAvailableChannelCatalog(
+		c.Request.Context(),
+		channels,
+		h.modelDelivery,
+		func(groups []service.AvailableGroupRef) []userAvailableGroup {
+			return filterUserVisibleGroups(groups, allowedGroupIDs)
+		},
+	)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, out)
+}
+
+// buildAvailableChannelCatalog projects a set of visible groups through the
+// same customer-safe channel, model, pricing and endpoint contract. Callers
+// own only group visibility; delivery eligibility must stay shared.
+func buildAvailableChannelCatalog(
+	ctx context.Context,
+	channels []service.AvailableChannel,
+	modelDelivery *service.ModelDeliveryService,
+	filterGroups availableGroupFilter,
+) ([]userAvailableChannel, error) {
 	out := make([]userAvailableChannel, 0, len(channels))
 	for _, ch := range channels {
 		if ch.Status != service.StatusActive {
 			continue
 		}
-		visibleGroups := filterUserVisibleGroups(ch.Groups, allowedGroupIDs)
+		visibleGroups := filterGroups(ch.Groups)
 		if len(visibleGroups) == 0 {
 			continue
 		}
@@ -182,21 +210,29 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 			Platforms:   sections,
 		})
 	}
-	if err := h.attachSupportedEndpoints(c.Request.Context(), out); err != nil {
-		response.ErrorFrom(c, err)
-		return
+	if err := attachSupportedEndpoints(ctx, modelDelivery, out); err != nil {
+		return nil, err
 	}
-	out = pruneUndeliverableChannels(out)
-
-	response.Success(c, out)
+	return pruneUndeliverableChannels(out), nil
 }
 
 func (h *AvailableChannelHandler) attachSupportedEndpoints(ctx context.Context, channels []userAvailableChannel) error {
+	if h == nil {
+		return nil
+	}
+	return attachSupportedEndpoints(ctx, h.modelDelivery, channels)
+}
+
+func attachSupportedEndpoints(
+	ctx context.Context,
+	modelDelivery *service.ModelDeliveryService,
+	channels []userAvailableChannel,
+) error {
 	if len(channels) == 0 {
 		return nil
 	}
 
-	if h == nil || h.modelDelivery == nil {
+	if modelDelivery == nil {
 		return nil
 	}
 	groupSet := make(map[int64]struct{})
@@ -220,7 +256,7 @@ func (h *AvailableChannelHandler) attachSupportedEndpoints(ctx context.Context, 
 	for model := range modelSet {
 		models = append(models, model)
 	}
-	delivery, err := h.modelDelivery.ResolveForGroups(ctx, groupIDs, models)
+	delivery, err := modelDelivery.ResolveForGroups(ctx, groupIDs, models)
 	if err != nil {
 		return err
 	}
@@ -401,21 +437,40 @@ func filterUserVisibleGroups(
 		if _, ok := allowed[g.ID]; !ok {
 			continue
 		}
-		visible = append(visible, userAvailableGroup{
-			ID:                    g.ID,
-			Name:                  g.Name,
-			Platform:              g.Platform,
-			SubscriptionType:      g.SubscriptionType,
-			RateMultiplier:        g.RateMultiplier,
-			PeakRateEnabled:       g.PeakRateEnabled,
-			PeakStart:             g.PeakStart,
-			PeakEnd:               g.PeakEnd,
-			PeakRateMultiplier:    g.PeakRateMultiplier,
-			IsExclusive:           g.IsExclusive,
-			AllowMessagesDispatch: g.AllowMessagesDispatch,
-		})
+		visible = append(visible, toUserAvailableGroup(g))
 	}
 	return visible
+}
+
+// filterPublicStandardGroups is the public catalog visibility boundary.
+// ListAvailable already sources active groups; this filter additionally keeps
+// only standard groups that require no explicit grant or subscription.
+func filterPublicStandardGroups(groups []service.AvailableGroupRef) []userAvailableGroup {
+	visible := make([]userAvailableGroup, 0, len(groups))
+	for _, g := range groups {
+		if g.IsExclusive || g.SubscriptionType != service.SubscriptionTypeStandard {
+			continue
+		}
+		visible = append(visible, toUserAvailableGroup(g))
+	}
+	return visible
+}
+
+func toUserAvailableGroup(g service.AvailableGroupRef) userAvailableGroup {
+	return userAvailableGroup{
+		ID:                    g.ID,
+		Name:                  g.Name,
+		Description:           g.Description,
+		Platform:              g.Platform,
+		SubscriptionType:      g.SubscriptionType,
+		RateMultiplier:        g.RateMultiplier,
+		PeakRateEnabled:       g.PeakRateEnabled,
+		PeakStart:             g.PeakStart,
+		PeakEnd:               g.PeakEnd,
+		PeakRateMultiplier:    g.PeakRateMultiplier,
+		IsExclusive:           g.IsExclusive,
+		AllowMessagesDispatch: g.AllowMessagesDispatch,
+	}
 }
 
 // toUserSupportedModels 将 service 层支持模型转换为用户 DTO（字段白名单）。

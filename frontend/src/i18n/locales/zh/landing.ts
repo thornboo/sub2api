@@ -13,6 +13,7 @@ export default {
     dashboard: '控制台',
     login: '登录',
     keyQuery: 'Key 查询',
+    modelCatalog: '模型列表',
     getStarted: '立即开始',
     goToDashboard: '进入控制台',
     // 新增：面向用户的价值主张

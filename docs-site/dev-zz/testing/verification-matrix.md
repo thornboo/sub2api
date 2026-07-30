@@ -173,7 +173,7 @@
 | --- | --- |
 | new-api 模型列表解析、覆盖优先级、统一交付投影与原生 Messages 请求 | `cd backend && go test ./internal/service -run 'Test(ExtractUpstreamModelCatalog\|ModelProtocolCapability\|ModelDelivery\|MergeModelDeliveryMode\|ResolveAccountImpacts\|SanitizeUnknownEndpointTypes\|ResolveNativeProtocolsForGroups\|SelectAccountWithSchedulerForNativeProtocol\|ForwardNativeAnthropicMessages\|RewriteNativeAnthropicSSEModel)' -count=1` |
 | 观察/覆盖列隔离的仓储写入 | `cd backend && go test ./internal/repository -run 'TestModelProtocolCapabilityRepository' -count=1` |
-| 模型目录与可用渠道 handler 回归 | `cd backend && go test ./internal/handler -run 'TestGatewayModels\|TestUserAvailableChannel\|TestAttachSupportedEndpoints' -count=1` |
+| 模型目录、公开目录与可用渠道 handler 回归 | `cd backend && go test -tags=unit ./internal/handler -run 'Test(FilterPublicStandardGroups\|BuildAvailableChannelCatalog_Public\|ModelPlazaResponse\|ModelPlazaHandler\|AttachSupportedEndpoints\|GatewayModels\|UserAvailableChannel)' -count=1` |
 | 管理端能力矩阵、公开模型影响、用户端点 DTO 和文案 | `pnpm --dir frontend typecheck && pnpm --dir frontend lint:check && pnpm --dir frontend test:run src/components/admin/account/__tests__/ModelProtocolCapabilitiesModal.spec.ts src/api/__tests__/channels.modelProtocols.spec.ts src/i18n/__tests__/localesMessageCompile.spec.ts` |
 
 必要人工核对：
@@ -185,6 +185,7 @@
 - `supported_endpoint_types` 只聚合当前 Key 可见且实际可形成的原生路由；`supported_endpoints` 可额外包含可证明的 Messages 兼容路径。两者都不得泄露账号、供应商、base URL、成本或余额。
 - 渠道中只有价格、没有稳定账号路由的模型不得进入用户模型广场；仍可走存量兼容合同但协议能力证据未知的模型可以保留，不过不得发布未经证明的新端点。管理员仍能看到“无路由”和“有路由但无端点”的区别。
 - `route_group_ids` 必须只包含当前用户可见且仍可调用的分组，`supported_endpoints[].group_ids` 只能包含已确认能交付对应端点的分组；任一分组不得借用其他分组的路由或能力证据。
+- 匿名和携带普通用户 token 的 `/api/v1/model-plaza` 响应必须一致，只包含 active、standard、非专属分组；专属授权、有效订阅和用户倍率都不得改变公开目录。
 - 能力明确为不支持时，旧选择器不得把同一模型重新纳入；即使后续账号的能力仓储读取失败，也不得绕过该显式否定。
 - 普通、批量旧调度与高级调度模式都必须等统一交付判定通过后再写入 sticky；能力不匹配的候选不得新建、刷新或清理会话绑定。
 - 未配置能力时保留可证明的默认 Messages 兼容路径；模型级 Chat 明确不支持时必须同时退出依赖 Chat 的 Messages 兼容路径。
@@ -226,6 +227,8 @@
 
 | 场景 | 推荐命令 |
 | --- | --- |
+| 公开模型列表、筛选与失败重试 | `pnpm --dir frontend exec vitest run src/components/modelPlaza/__tests__/ModelPlazaContent.spec.ts` |
+| Home 公开模型列表入口与开关 | `pnpm --dir frontend exec vitest run src/views/__tests__/HomeModelCatalogLink.spec.ts src/router/__tests__/feature-access.spec.ts` |
 | 可用渠道模型表格/导出 | `pnpm --dir frontend test:run src/utils/__tests__/availableChannelsCatalog.spec.ts` |
 | 注册可选返佣码与强制邀请码 / Turnstile 互斥 | `pnpm --dir frontend exec vitest run src/views/auth/__tests__/RegisterView.spec.ts` |
 | 模型目录/推荐工具 | `pnpm --dir frontend test:run src/components/account/__tests__/modelCatalog.spec.ts src/components/account/__tests__/channelModelRecommendations.spec.ts` |

@@ -527,19 +527,19 @@ export default {
 
   // Model Plaza (public group/model pricing showcase)
   modelPlaza: {
-    title: '模型广场',
-    description: '按分组浏览可用模型与价格',
+    title: '模型列表',
+    description: '浏览本站公开提供的模型、价格与 API 端点',
     loading: '加载中...',
-    empty: '暂无可展示的分组',
-    loadFailed: '加载模型广场失败',
+    empty: '当前暂无公开模型',
+    loadFailed: '加载模型列表失败',
+    retry: '重新加载',
     noSearchResult: '没有匹配的模型',
-    anonymousHint: '登录后可查看你的专属分组与专属倍率',
     filters: {
       platformLabel: '平台',
       groupLabel: '分组',
-      rateLabel: '倍率',
       modelLabel: '模型',
       searchPlaceholder: '搜索模型名称',
+      clearSearch: '清除模型搜索',
       all: '全部'
     },
     badges: {
@@ -568,8 +568,8 @@ export default {
       perImage: '按图片计费'
     },
     nav: {
-      login: '登录',
-      backToDashboard: '回到后台'
+      backToHome: '回到首页',
+      backToConsole: '返回控制台'
     }
   },
 

@@ -522,19 +522,19 @@ export default {
 
   // Model Plaza (public group/model pricing showcase)
   modelPlaza: {
-    title: 'Model Plaza',
-    description: 'Browse available models and pricing by group',
+    title: 'Model Catalog',
+    description: 'Browse public models, pricing, and API endpoints offered by this site',
     loading: 'Loading...',
-    empty: 'No groups to display',
-    loadFailed: 'Failed to load model plaza',
+    empty: 'No public models are currently available',
+    loadFailed: 'Failed to load model catalog',
+    retry: 'Try again',
     noSearchResult: 'No matching models',
-    anonymousHint: 'Sign in to see your exclusive groups and personal rates',
     filters: {
       platformLabel: 'Platform',
       groupLabel: 'Group',
-      rateLabel: 'Rate',
       modelLabel: 'Model',
       searchPlaceholder: 'Search models',
+      clearSearch: 'Clear model search',
       all: 'All'
     },
     badges: {
@@ -563,8 +563,8 @@ export default {
       perImage: 'Per image'
     },
     nav: {
-      login: 'Sign In',
-      backToDashboard: 'Back to Console'
+      backToHome: 'Back to Home',
+      backToConsole: 'Back to Console'
     }
   },
 

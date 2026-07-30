@@ -3,13 +3,14 @@
 ## Source of truth
 
 - Status: Active
-- Last refreshed: 2026-07-27
+- Last refreshed: 2026-07-30
 - Primary product surfaces:
   - User console: `frontend/src/views/user/**`
   - User API Key management: `frontend/src/views/user/KeysView.vue`, `frontend/src/components/keys/**`
   - Enterprise member control plane: `frontend/src/views/user/EnterpriseMembersView.vue`
   - User usage records: `frontend/src/views/user/UsageView.vue`
   - Public Key self-service: `frontend/src/views/KeyUsageView.vue`, route `/key-usage`
+  - Public model catalog: `frontend/src/views/ModelPlazaView.vue`, route `/model-plaza`
   - Admin usage and dashboard: `frontend/src/views/admin/UsageView.vue`, `frontend/src/api/admin/dashboard.ts`
   - Admin operations monitoring: `frontend/src/views/admin/ops/**`, `frontend/src/components/admin/ops/**`
   - User model marketplace: `frontend/src/views/user/AvailableChannelsView.vue`, `frontend/src/components/channels/**`
@@ -26,6 +27,7 @@
   - `docs-site/dev-zz/features/ops-failure-classification-redesign.md`
   - `docs-site/dev-zz/decisions/adr-0004-ops-failure-taxonomy-and-sla.md`
   - `docs-site/dev-zz/features/available-channels-model-marketplace.md`
+  - `docs-site/dev-zz/features/public-model-catalog.md`
   - `docs-site/dev-zz/features/model-multi-protocol-capabilities-and-routing.md`
   - `backend/ent/schema/api_key.go`
   - `backend/ent/schema/group.go`
@@ -58,6 +60,7 @@
   - Give each member one shared set of 5h, 1d, 7d, and calendar-month spending limits across all assigned Keys.
   - Let enterprise owners apply shared member policy changes in one atomic batch without overwriting fields they did not explicitly select.
   - Preserve platform administrator-only visibility into upstream account cost, routing, and operational internals.
+  - Let prospective users inspect public groups, models, prices, and callable API endpoints before registration through a standalone public catalog.
   - Keep public model publication, stable delivery eligibility, upstream protocol capability, and customer-facing API endpoints as separate facts joined by one deterministic `DeliveryDecision` shared by catalog projection and runtime candidate filtering.
   - Keep channel model mapping and channel pricing visibly reconciled so administrators can find and repair omitted pricing coverage before it becomes a runtime restriction failure.
   - Keep model callability separate from endpoint publication: unknown capability evidence may retain an established compatibility route, but only proven delivery decisions may publish endpoint metadata.
@@ -75,20 +78,24 @@
   - A platform admin can start from a channel-priced public model and see whether any stable account route can deliver it, which public endpoints are available, and which upstream capabilities produce that result.
   - A platform admin can see mapped, covered, missing, and pricing-only model counts per platform, repair missing coverage in one action, and retain a deterministic display order after reload.
   - A user never sees a model or endpoint described as available solely because a price row or disconnected upstream capability exists.
+  - An anonymous visitor and an authenticated user see the same public-standard-group catalog at `/model-plaza`; personalized access remains in `/available-channels`.
   - Reviewers can tell from DTO names and routes whether a field is user-safe or admin-only.
 
 ## Personas and jobs
 
 - Primary personas:
   - Platform administrator: operates the whole site, upstream accounts, channels, groups, pricing, abuse, and profitability.
+  - Prospective user: evaluates model coverage, public pricing, and callable API endpoints before registration.
   - Enterprise owner: a normal enterprise user who manages non-login member identities, their Keys, access groups, and aggregate limits.
   - Employee or user with a Key only: has no site account and can inspect that Key's status, effective access, own usage evidence, and applicable Key/member limits without gaining owner-console authority.
 - User jobs:
   - Platform administrator: troubleshoot global usage, cost, routing, failed requests, and user behavior.
   - Platform administrator: publish channel models, verify stable delivery routes, inspect per-account upstream protocol evidence, and resolve orphan pricing or capability configuration.
+  - Prospective user: confirm that the site offers the required public model, price, and API endpoint without creating an account first.
   - Enterprise owner: create members, issue multiple Keys per member, delegate accessible groups, set aggregate limits, correct consumed projections with immutable audit evidence, and inspect usage evidence.
   - Employee or user with a Key only: confirm whether the Key is active, expired, rate limited, or out of quota; understand the effective groups/models; distinguish current-Key usage from shared member budget; inspect and export only that Key's redacted request evidence.
 - Key contexts of use:
+  - Public desktop and mobile model lookup before registration.
   - Dense admin console on desktop.
   - Owner-side console for repeated operational checks.
   - Occasional mobile/tablet lookup for Key state, not full analysis.
@@ -96,11 +103,12 @@
 ## Information architecture
 
 - Primary navigation:
-  - Public landing header: language, theme, Key query, login, registration/dashboard.
+  - Public landing header: model catalog, language, theme, Key query, login, registration/dashboard.
   - User side: Dashboard, API Keys, Usage Records, Profile.
   - Admin side: Dashboard, Usage, Users, Groups, Accounts, Ops.
 - Core routes/screens:
   - `/key-usage` is the account-free Key-holder self-service surface. It uses a short-lived server-side query session and never grants access to the owner console.
+  - `/model-plaza` is the account-free public catalog for active standard non-exclusive groups, their models, public default rates, customer prices, and callable API endpoints. Authentication never expands this route; personalized and exclusive access remains in `/available-channels`.
   - User API Keys remain the owner workspace for employee-seat Key management.
   - User Usage Records remain the owner request-log surface.
   - Enterprise Members is the owner workspace for member identity, shared spending limits, group delegation/order, Keys, usage, and audit.
@@ -153,7 +161,12 @@
   - Public model identity and channel-mapped model identity remain separate inputs: publication/pricing checks use the public model, while account eligibility and protocol capability checks use the mapped/final upstream model.
   - Messages-specific group dispatch mapping is a protocol fallback below explicit channel mapping and above account mapping; control-plane diagnostics and runtime forwarding must resolve the same chain.
   - Short-lived health, concurrency, and rate-limit state must not make catalog metadata flicker, but inactive, unschedulable, or model-ineligible accounts do not prove delivery.
-- Principle 10: Mapping-to-pricing consistency is an explicit admin contract.
+- Principle 10: Public discovery and personalized access share one delivery truth but have different visibility scopes.
+  - `/model-plaza` is a standalone page linked from Home, not an embedded full catalog inside the landing page.
+  - Its public scope is active standard non-exclusive groups only; login state, exclusive authorization, subscriptions, and user-specific rates never expand or alter its response.
+  - `/available-channels` remains the authenticated personalized view and may include additional groups and rates authorized for that user.
+  - Both surfaces reuse the same group-aware model route, price formatting, and customer-callable endpoint projection.
+- Principle 11: Mapping-to-pricing consistency is an explicit admin contract.
   - Coverage is derived from the selected billing-model source: requested names use mapping sources, channel-mapped names use mapping targets, and final-upstream names require delivery evidence rather than inference.
   - Exact and wildcard coverage must use the same case-insensitive pattern semantics as runtime pricing lookup.
   - Missing coverage blocks save only when model restriction would reject the omitted model; otherwise it is a visible warning with an explicit repair action.
@@ -175,7 +188,7 @@
 ## Components
 
 - Existing components to reuse:
-  - `LocaleSwitcher`, `Select`, `Pagination`, `Icon`, existing card/table utilities, and existing `components/keys` panels.
+  - `LocaleSwitcher`, `Select`, `Pagination`, `Icon`, existing card/table utilities, existing `components/keys` panels, and the customer-safe `AvailableModelMarketplace` catalog components.
 - New/changed components:
   - Public Key query orchestration currently stays in `KeyUsageView.vue`; its API transport remains isolated in `frontend/src/api/publicKeyUsage.ts` so the signed-in JWT client cannot overwrite the one-time Key credential.
   - Owner analytics dashboard components should live under `frontend/src/components/keys` or a future `frontend/src/components/enterprise-usage`.
@@ -185,6 +198,7 @@
   - Mapping and pricing drag handles reuse the existing `vue-draggable-plus` interaction pattern and stable item identities; index keys are not acceptable for reorderable cards.
   - `ModelProtocolCapabilitiesModal` is labeled as upstream capability management and remains the advanced account-level override surface.
   - `AvailableModelMarketplace` shows customer-callable API paths only; native/compatibility route mode stays admin-only.
+  - `ModelPlazaView` owns the standalone anonymous catalog shell; it reuses the available-channel marketplace projection in public-only mode instead of maintaining independent model and endpoint rules.
 - Variants and states:
   - Every analytics panel needs loading, empty, error, and stale-data states.
   - Ops overview separates fixed-window current state from selected-range totals, and shows whether the selected period is normal, actively failing, or recovered after a prior spike.
@@ -266,6 +280,7 @@
   - "渠道模型" or "公开模型" for the customer-requested, priced model identity.
   - "上游模型协议能力" for account plus final-upstream-model native protocol evidence; never shorten this to a customer-facing "API endpoint".
   - "API 端点" for a path the customer can call on sub2api. Admin route details may additionally say "原生交付" or "兼容交付".
+  - "公开模型列表" for `/model-plaza`; it means the active standard non-exclusive portion of the customer catalog, not an administrator inventory and not a personalized entitlement list.
 - Microcopy rules:
   - Avoid explaining the UI in visible product copy.
   - Do use short permission copy where a field is intentionally hidden.
@@ -288,6 +303,7 @@
   - Channel pricing entries carry an explicit platform-local `sort_order`; channel mapping order is stored separately from the JSONB mapping object. Runtime mapping and pricing lookup ignore these presentation fields.
   - Existing channels backfill pricing order from row ID and mapping display order from deterministic natural model-name order. New ordering fields must remain backward-compatible for older clients that omit them.
   - Public delivery metadata may ignore transient runtime saturation and cooldown, but must exclude inactive, unschedulable, platform-incompatible, and model-ineligible accounts.
+  - `/model-plaza` must use the same delivery projection as `/available-channels`, scoped to active standard non-exclusive groups. A bearer token may be accepted by shared transport middleware but must not add exclusive groups, subscription groups, or user-specific rates to the public response.
   - Preserve ADR 0003: enterprise members are non-login entities; member Keys inherit the member's ordered group delegation.
   - `member_code` is immutable while a member exists and remains unique across current and archived members. Irreversible owner-facing removal replaces historical tombstones with a server-only code, allowing the original code to be reused without reassigning old facts.
   - Restore clears archive state but leaves the member disabled so group access and Keys cannot resume without an explicit owner enable action.
@@ -315,6 +331,7 @@
   - Frontend typecheck and lint are required for new analytics components.
   - Channel reconciliation tests must cover requested versus channel-mapped billing sources, exact and wildcard coverage, explicit quick-pricing append-only repair, restricted-save blocking, mapping rename/delete safety, and order persistence.
   - Visual QA should be done on the user-run dev server when the user asks for browser validation.
+  - Public catalog tests must compare anonymous and authenticated responses, exclude exclusive/subscription/user-rate data, and prove parity with the public-group portion of `/available-channels`.
   - Ops tests must prove raw-query and pre-aggregated parity, overview-to-detail filter parity, terminal request de-duplication for stream failures, and deterministic handling of the documented production classification fixture.
 
 ## Open questions

@@ -39,6 +39,17 @@
         </router-link>
 
         <div class="flex items-center gap-2 sm:gap-3">
+          <router-link
+            v-if="modelPlazaEnabled"
+            to="/model-plaza"
+            class="inline-flex h-9 items-center gap-1.5 rounded-lg border border-stone-200 px-2.5 text-sm font-medium text-stone-700 transition hover:border-emerald-500/40 hover:text-emerald-600 dark:border-[#1e1e1e] dark:text-stone-300"
+            :title="t('home.modelCatalog')"
+            :aria-label="t('home.modelCatalog')"
+          >
+            <Icon name="grid" size="sm" />
+            <span class="hidden lg:inline">{{ t('home.modelCatalog') }}</span>
+          </router-link>
+
           <LocaleSwitcher />
 
           <button
@@ -303,7 +314,8 @@
               </p>
             </div>
             <router-link
-              to="/available-channels"
+              v-if="modelPlazaEnabled"
+              to="/model-plaza"
               class="inline-flex w-fit items-center rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-5 py-3 text-sm font-semibold text-emerald-600 transition hover:bg-emerald-500/15 dark:text-emerald-400"
             >
               {{ t('home.models.more') }}
@@ -593,6 +605,7 @@ import { useI18n } from 'vue-i18n'
 import { useAuthStore, useAppStore } from '@/stores'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 import { sanitizeUrl } from '@/utils/url'
 
 const { t } = useI18n()
@@ -608,6 +621,7 @@ const docUrl = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.doc_url
 const contactInfo = computed(() => appStore.cachedPublicSettings?.contact_info || appStore.contactInfo || '')
 const contactHref = computed(() => normalizeContactHref(contactInfo.value))
 const homeContent = computed(() => appStore.cachedPublicSettings?.home_content || '')
+const modelPlazaEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.modelPlaza))
 
 const isHomeContentUrl = computed(() => {
   const content = homeContent.value.trim()
