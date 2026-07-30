@@ -168,7 +168,6 @@ export default {
     groups: '分组管理',
     channels: '渠道管理',
     availableChannels: '可用渠道',
-    modelPlaza: '模型列表',
     subscriptions: '订阅管理',
     accounts: '账号管理',
     proxies: 'IP管理',
