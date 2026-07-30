@@ -1,5 +1,31 @@
 # 补丁记录
 
+## 2026-07-30 - 上游 main 同步：OpenAI Live store 容错与前端状态修复
+
+### 目标
+
+- 将 `origin/main@5a6143097` 合入 `dev-zz`，吸收 OpenAI Live store 故障恢复、usage 可靠落库、Claude Sonnet 5 状态别名和 Passkey 禁用态提示修复。
+- 保持 dev-zz 企业成员 Live 身份与归因、脱敏结构化失败证据、现有 Passkey 开关边界和 `1.7.23` 版本线不回退。
+
+### 主要变化
+
+- Live observer 在 controller claim 或 call / controller 读取遇到 store 故障时有限重试；持续失败后持有原始 call record 等待 `ExpiresAt`，再通过幂等 finalize 释放租约并补写 usage，避免 Redis 抖动让会话静默消失。
+- Live finalize 先尝试仓储 best-effort writer，队列超时或失败时换用同步 `Create` 兜底；最终失败继续记录脱敏的 call hash、account、API Key 和 user 数字 ID，不记录原始 call ID、凭据或 attestation。
+- 企业成员 Live call 的 `MemberID`、成员编号 / 名称快照现在由生产 Redis gateway cache 显式保存并恢复，最终继续写入 usage；sideband 仍要求调用身份与原 call 的成员身份一致。
+- 管理端账号状态增加 Claude Sonnet 5 短别名 `CSon5`；Passkey 功能关闭时资料页跳过凭据查询，设置切换竞态返回 `PASSKEY_DISABLED` 时不再弹出加载失败。
+
+### 数据与兼容性
+
+- 本轮没有数据库迁移、依赖声明、API payload 或配置键变化。
+- Live 仍保持零金额 usage 证据与默认关闭的分组 gate；本轮只加固 controller / store 故障恢复，不改变调度、计费、并发限制或最大会话时长。
+- `VERSION` 保持 `1.7.23`，不采用上游 `0.1.168`。
+
+### 验证
+
+- Live repository / service 定向测试及 service 包全量测试通过，包含 Redis 成员字段跨实例往返、store fault、到期 finalize、best-effort 同步回退、企业成员快照与失败日志合同。
+- AccountStatusIndicator 6 条定向测试、前端 typecheck 与 ESLint 通过。
+- docs-site 生产构建、Go 格式、whitespace 和冲突标记检查通过。
+
 ## 2026-07-28 - 上游 main 同步：Passkey、模型价格橱窗与字段级更新
 
 ### 目标

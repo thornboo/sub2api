@@ -132,23 +132,38 @@ func (c *gatewayCache) SaveLiveCall(ctx context.Context, record *service.LiveCal
 	if record == nil || record.CallHash == "" || record.CallID == "" {
 		return fmt.Errorf("invalid live call record")
 	}
+	var memberID int64
+	if record.MemberID != nil {
+		memberID = *record.MemberID
+	}
+	var memberCodeSnapshot string
+	if record.MemberCodeSnapshot != nil {
+		memberCodeSnapshot = *record.MemberCodeSnapshot
+	}
+	var memberNameSnapshot string
+	if record.MemberNameSnapshot != nil {
+		memberNameSnapshot = *record.MemberNameSnapshot
+	}
 	values := map[string]any{
-		"call_id":          record.CallID,
-		"account_id":       record.AccountID,
-		"api_key_id":       record.APIKeyID,
-		"user_id":          record.UserID,
-		"group_id":         record.GroupID,
-		"subscription_id":  record.SubscriptionID,
-		"lease_id":         record.LeaseID,
-		"model":            record.Model,
-		"created_at":       record.CreatedAt.UnixMilli(),
-		"expires_at":       record.ExpiresAt.UnixMilli(),
-		"controller":       record.Controller,
-		"controller_owner": record.ControllerOwner,
-		"user_agent":       record.UserAgent,
-		"ip_address":       record.IPAddress,
-		"inbound_endpoint": record.InboundEndpoint,
-		"attestation":      record.AttestationCiphertext,
+		"call_id":              record.CallID,
+		"account_id":           record.AccountID,
+		"api_key_id":           record.APIKeyID,
+		"user_id":              record.UserID,
+		"group_id":             record.GroupID,
+		"member_id":            memberID,
+		"member_code_snapshot": memberCodeSnapshot,
+		"member_name_snapshot": memberNameSnapshot,
+		"subscription_id":      record.SubscriptionID,
+		"lease_id":             record.LeaseID,
+		"model":                record.Model,
+		"created_at":           record.CreatedAt.UnixMilli(),
+		"expires_at":           record.ExpiresAt.UnixMilli(),
+		"controller":           record.Controller,
+		"controller_owner":     record.ControllerOwner,
+		"user_agent":           record.UserAgent,
+		"ip_address":           record.IPAddress,
+		"inbound_endpoint":     record.InboundEndpoint,
+		"attestation":          record.AttestationCiphertext,
 	}
 	key := liveCallKey(record.CallHash)
 	pipe := c.rdb.TxPipeline()
@@ -172,7 +187,7 @@ func (c *gatewayCache) GetLiveCall(ctx context.Context, callHash string) (*servi
 	}
 	createdAt := time.UnixMilli(parseInt("created_at"))
 	expiresAt := time.UnixMilli(parseInt("expires_at"))
-	return &service.LiveCallRecord{
+	record := &service.LiveCallRecord{
 		CallID:                values["call_id"],
 		CallHash:              callHash,
 		AccountID:             parseInt("account_id"),
@@ -190,7 +205,17 @@ func (c *gatewayCache) GetLiveCall(ctx context.Context, callHash string) (*servi
 		IPAddress:             values["ip_address"],
 		InboundEndpoint:       values["inbound_endpoint"],
 		AttestationCiphertext: values["attestation"],
-	}, nil
+	}
+	if memberID := parseInt("member_id"); memberID > 0 {
+		record.MemberID = &memberID
+	}
+	if memberCodeSnapshot := values["member_code_snapshot"]; memberCodeSnapshot != "" {
+		record.MemberCodeSnapshot = &memberCodeSnapshot
+	}
+	if memberNameSnapshot := values["member_name_snapshot"]; memberNameSnapshot != "" {
+		record.MemberNameSnapshot = &memberNameSnapshot
+	}
+	return record, nil
 }
 
 func (c *gatewayCache) ClaimLiveController(ctx context.Context, callHash, controller, owner string) (bool, error) {

@@ -1,5 +1,55 @@
 # 上游合并记录
 
+## 2026-07-30 - 将上游 `main` 合并到 `dev-zz`：OpenAI Live store 容错与前端状态修复合流
+
+分支：
+
+- 目标：`dev-zz`
+- 上游：`origin/main`
+- Base：`8fd01c281`
+- 合并前目标：`db4eb63e2`
+- 上游 head：`5a6143097`
+- 结果提交：本次合并提交
+
+上游要点：
+
+- OpenAI Live observer 在 controller claim、call record 和 controller 状态读取遇到 Redis / store 抖动时不再静默退出；有限重试耗尽后按会话 `ExpiresAt` 兜底 finalize，保证租约释放与 usage 证据最迟在会话到期时完成。
+- Live finalize 的 usage 写入改为 best-effort 队列优先、同步 `Create` 回退，避免该会话唯一一次落库机会因队列超时或故障永久丢失。
+- 管理端账号状态为 Claude Sonnet 5 增加稳定短别名；Passkey 功能关闭时资料页不再请求凭据列表，设置变更竞态返回 `PASSKEY_DISABLED` 时也不会显示误导性错误提示。
+- 上游版本推进到 `0.1.168`。
+
+合并策略：
+
+- 合并前读取 `branch-policy.md`、`maintenance/merge-main.md`、最近补丁/合并/变更记录、变更地图和验证矩阵；确认 `dev-zz@db4eb63e2` 与 `origin/dev-zz` 对齐、工作区干净，且本地 `main` 与 `origin/main` 都指向 `5a6143097`。
+- 先执行 `git merge-tree --write-tree --messages --name-only --merge-base` 预演，再执行 `git merge --no-commit origin/main`；预演和真实合并都只得到 `VERSION` 与 `openai_live.go` 两个内容冲突。
+- 接受上游 Live store 容错、usage 同步回退、Claude Sonnet 5 状态别名和 Passkey 禁用态修复；继续保留 dev-zz 企业成员 Live 身份校验、成员快照、最终实际分组证据、脱敏结构化失败事件和 `1.7.23` 发布线。
+
+冲突文件：
+
+- `backend/cmd/server/VERSION`
+- `backend/internal/service/openai_live.go`
+
+解决说明：
+
+- `VERSION` 保持 dev-zz `1.7.23`，不采用上游 `0.1.168`。
+- Live observer 接受上游把完整 `LiveCallRecord` 交给 observer、store 故障有限重试、到期兜底 finalize 和幂等关闭语义；原有企业成员 identity / snapshot 字段继续随 call record 持久化并在 sideband 身份匹配时校验。合并审查同时发现生产 Redis gateway cache 原先没有序列化这三个字段，已补齐保存 / 读取和 miniredis 跨实例往返测试，避免测试 fake 掩盖成员归因丢失。
+- Live usage 在写入前继续补齐 `MemberID`、成员编号 / 名称快照、最终 `GroupID` 与 call hash request ID；写入改为 best-effort 队列优先、同步回退。定向测试发现直接使用上游通用 helper 会丢失 dev-zz 的 `openai_live.usage_log_insert_failed` 结构化事件，因此最终解法在同步回退仍失败时保留 call hash、account、Key 和 user 数字 ID，且不记录原始 call ID、凭据或 attestation。
+- Claude Sonnet 5 只增加状态徽标短别名，不改变模型匹配或限流状态；Passkey 修复只收紧 disabled 路径，不改变已启用情况下的注册、登录和撤销合同。
+
+验证：
+
+- `mise x -C backend -- go test ./internal/repository ./internal/service -run 'Live' -count=1` 通过，覆盖 Redis call record 成员字段跨实例往返、store claim / read 故障、到期 finalize、usage best-effort 同步回退、企业成员快照、身份校验和脱敏失败日志。
+- `mise x -C backend -- go test ./internal/service -count=1` 全包通过。
+- `pnpm --dir frontend test:run src/components/account/__tests__/AccountStatusIndicator.spec.ts` 通过，共 6 条测试。
+- `pnpm --dir frontend typecheck` 与 `pnpm --dir frontend lint:check` 通过。
+- `pnpm --dir docs-site docs:build` 通过；仅有既有 VitePress chunk-size 警告。
+- Go 格式、staged whitespace 和冲突标记检查通过。
+
+未验证：
+
+- 浏览器人工 Passkey disabled 设置切换与 Claude Sonnet 5 状态徽标 smoke。
+- 真实 Redis 故障期间的长连接到期恢复；Redis 字段往返仅使用 miniredis 验证。
+
 ## 2026-07-28 - 将上游 `main` 合并到 `dev-zz`：Passkey、模型价格橱窗与字段级更新合流
 
 分支：

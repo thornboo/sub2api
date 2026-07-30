@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-07-30
+
+- 同步上游 `main`（`5a6143097`）到 `dev-zz`：OpenAI Live observer 在 Redis / store 抖动时有限重试，持续失败后按会话到期时间兜底 finalize，不再因为 controller 或 call record 读取异常静默丢失租约释放与 usage 证据。
+- Live usage 改为 best-effort 队列优先、同步写入回退；生产 Redis call record 同时补齐企业成员 ID、成员编号 / 名称快照的保存与恢复，usage 继续保留这些成员证据、最终实际分组和 call hash request ID，最终写入失败保留 dev-zz 脱敏结构化事件。
+- 管理端账号状态补充 Claude Sonnet 5 短别名；Passkey 功能关闭时资料页跳过凭据查询，设置切换竞态返回禁用错误时不再显示误导性加载失败。
+- 本轮没有迁移、依赖、接口或配置变化；`VERSION` 保持 `1.7.23`，企业成员 Live 身份、调度、计费和分组 gate 合同不变。
+
 ## 2026-07-28
 
 - 同步上游 `main`（`8fd01c281`）到 `dev-zz`：新增默认关闭的 Passkey 登录与管理能力，以及默认关闭、可选强制登录的 `/model-plaza` 分组价格橱窗。价格橱窗不会替换 `/available-channels`；后者仍按 dev-zz 的真实账号路由和端点能力展示可用模型。

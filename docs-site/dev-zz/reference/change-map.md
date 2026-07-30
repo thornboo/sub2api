@@ -69,6 +69,7 @@
 - 映射模式支持清空全部模型，并保留映射模式语义。
 - 符合条件的 Ollama Cloud OpenAI / Anthropic API Key 账号支持管理员用量观察：session 加密保存，快照只展示官方 5 小时 / 7 天窗口、余额和模型请求数；该观察不进入调度、计费、账号健康或用户 DTO。
 - OpenAI 分组支持默认关闭的 Live gate；macOS DeviceCheck attestation、Live HTTP / sideband 路由、并发租约、最长会话时间和独立 usage 类型已接入，管理员可先探测当前实例能力再决定是否开启。
+- Live observer 在 controller / call store 抖动时有限重试并按会话到期时间兜底 finalize；usage 采用 best-effort 队列与同步回退，同时保留企业成员快照、最终实际分组和脱敏失败证据。
 
 ### UI 与运维体验
 

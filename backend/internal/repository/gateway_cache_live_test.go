@@ -18,6 +18,9 @@ func TestGatewayCacheLiveCallIdentityAndController(t *testing.T) {
 	require.True(t, ok)
 	otherInstance, ok := NewGatewayCache(client).(service.LiveCallStore)
 	require.True(t, ok)
+	memberID := int64(55)
+	memberCode := "member-55"
+	memberName := "Member 55"
 	record := &service.LiveCallRecord{
 		CallID:                "call_secret",
 		CallHash:              HashLiveCallID("call_secret"),
@@ -25,6 +28,9 @@ func TestGatewayCacheLiveCallIdentityAndController(t *testing.T) {
 		APIKeyID:              22,
 		UserID:                33,
 		GroupID:               44,
+		MemberID:              &memberID,
+		MemberCodeSnapshot:    &memberCode,
+		MemberNameSnapshot:    &memberName,
 		LeaseID:               "lease",
 		Model:                 "gpt-live-test",
 		AttestationCiphertext: "encrypted-attestation",
@@ -39,6 +45,12 @@ func TestGatewayCacheLiveCallIdentityAndController(t *testing.T) {
 	require.Equal(t, record.CallID, loaded.CallID)
 	require.Equal(t, record.AccountID, loaded.AccountID)
 	require.Equal(t, record.AttestationCiphertext, loaded.AttestationCiphertext)
+	require.NotNil(t, loaded.MemberID)
+	require.Equal(t, memberID, *loaded.MemberID)
+	require.NotNil(t, loaded.MemberCodeSnapshot)
+	require.Equal(t, memberCode, *loaded.MemberCodeSnapshot)
+	require.NotNil(t, loaded.MemberNameSnapshot)
+	require.Equal(t, memberName, *loaded.MemberNameSnapshot)
 
 	claimed, err := cache.ClaimLiveController(context.Background(), record.CallHash, service.LiveControllerObserver, "observer-1")
 	require.NoError(t, err)
