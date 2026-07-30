@@ -216,13 +216,6 @@ func buildAvailableChannelCatalog(
 	return pruneUndeliverableChannels(out), nil
 }
 
-func (h *AvailableChannelHandler) attachSupportedEndpoints(ctx context.Context, channels []userAvailableChannel) error {
-	if h == nil {
-		return nil
-	}
-	return attachSupportedEndpoints(ctx, h.modelDelivery, channels)
-}
-
 func attachSupportedEndpoints(
 	ctx context.Context,
 	modelDelivery *service.ModelDeliveryService,
