@@ -197,6 +197,25 @@ func RegisterGatewayRoutes(
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Videos API is not supported for this platform"}})
 	}
+	// /responses/*subpath 的子路径会被转发到上游同名端点之后，因此在入口就拒掉
+	// 不可转发的子路径，不让它进入调度与转发流程。可转发的判定见
+	// service.IsForwardableOpenAIResponsesRequestPath 及 upstream_path_guard.go。
+	guardResponsesSubpath := func(next gin.HandlerFunc) gin.HandlerFunc {
+		return func(c *gin.Context) {
+			if !service.IsForwardableOpenAIResponsesRequestPath(c) {
+				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalPolicyDenied)
+				c.AbortWithStatusJSON(http.StatusNotFound, gin.H{
+					"error": gin.H{
+						"type":    "not_found_error",
+						"message": "Unsupported responses subpath",
+					},
+				})
+				return
+			}
+			next(c)
+		}
+	}
+
 	// API网关（Claude API兼容）
 	gateway := r.Group("/v1")
 	gateway.Use(bodyLimit)
@@ -245,13 +264,13 @@ func RegisterGatewayRoutes(
 			}
 			h.Gateway.Responses(c)
 		}))
-		gateway.POST("/responses/*subpath", withCompositeMemberGroups(func(c *gin.Context) {
+		gateway.POST("/responses/*subpath", guardResponsesSubpath(withCompositeMemberGroups(func(c *gin.Context) {
 			if isOpenAIResponsesCompatibleGatewayPlatform(c) {
 				h.OpenAIGateway.Responses(c)
 				return
 			}
 			h.Gateway.Responses(c)
-		}))
+		})))
 		gateway.POST("/alpha/search", textBodyLimit, withCompositeMemberGroups(h.OpenAIGateway.AlphaSearch))
 		gateway.GET("/responses", withCompositeResolver(func(c *gin.Context) {
 			h.OpenAIGateway.ResponsesWebSocket(c)
@@ -335,7 +354,7 @@ func RegisterGatewayRoutes(
 		requireGroupAnthropic,
 	}
 	r.POST("/responses", append(commonDirect, withCompositeMemberGroups(responsesHandler))...)
-	r.POST("/responses/*subpath", append(commonDirect, withCompositeMemberGroups(responsesHandler))...)
+	r.POST("/responses/*subpath", append(commonDirect, guardResponsesSubpath(withCompositeMemberGroups(responsesHandler)))...)
 	r.POST("/alpha/search", append([]gin.HandlerFunc{textBodyLimit}, append(commonDirect[1:], withCompositeMemberGroups(h.OpenAIGateway.AlphaSearch))...)...)
 	r.GET("/responses", append(commonDirect, withCompositeResolver(func(c *gin.Context) {
 		h.OpenAIGateway.ResponsesWebSocket(c)
@@ -349,7 +368,7 @@ func RegisterGatewayRoutes(
 		codexDirect.POST("/realtime/calls", withCompositeLiveMemberGroups(liveCreateHandler))
 		codexDirect.GET("/:call_id", h.OpenAIGateway.LiveSideband)
 		codexDirect.POST("/responses", withCompositeMemberGroups(responsesHandler))
-		codexDirect.POST("/responses/*subpath", withCompositeMemberGroups(responsesHandler))
+		codexDirect.POST("/responses/*subpath", guardResponsesSubpath(withCompositeMemberGroups(responsesHandler)))
 		codexDirect.POST("/alpha/search", textBodyLimit, withCompositeMemberGroups(h.OpenAIGateway.AlphaSearch))
 		codexDirect.GET("/responses", withCompositeResolver(func(c *gin.Context) {
 			h.OpenAIGateway.ResponsesWebSocket(c)

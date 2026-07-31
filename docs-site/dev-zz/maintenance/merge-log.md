@@ -1,5 +1,62 @@
 # 上游合并记录
 
+## 2026-07-31 - 将上游 `main` 合并到 `dev-zz-develop`：网关安全、订阅窗口与支付配置正确性合流
+
+分支：
+
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`
+- Base：`5a6143097`
+- 合并前目标：`be7384503`
+- 上游 head：`d29acc29a`
+- 结果提交：本次合并提交
+
+上游要点：
+
+- OpenAI Responses 子路径与 Gemini 上游 URL 增加路径片段校验；OpenAI 代理断流熔断在全部候选都被隔离时 fail-open，并合并突发断流事件。Pool 模式可重试流式容量错误，Grok billing ping 统一转换为 SSE 注释且不再因 pool 模式的 entitlement `403` 误冷却账号。
+- 订阅日 / 周 / 月额度窗口以订阅真实开始时间和到期时间为边界推进，旧版首个午夜锚点可安全归一到订阅开始时间；前后端剩余时间与重置标签使用同一口径。
+- 支付设置恢复严格 patch 语义，省略字段不会清空已保存的可见支付方式；支付方式选择器和长套餐标题修复窄屏溢出。SMTP 邮件改为标准 CRLF、折行与 dot-stuffing 格式，异步图片转存支持解码 data URL。
+- 用户可用渠道会把 Composite 分组展开到其实际配置模型的平台 section；官方价格更新 GPT-5.6 Luna / Terra 与 GLM-5.2 fallback，管理员渠道列表可显示 Composite 模型。
+- Docker / Compose 增加 `no-new-privileges`，release 产物补齐价格 fallback 资源，CI 增加部署安全合同脚本。上游版本推进到 `0.1.169`。
+
+合并策略：
+
+- 合并前读取 `branch-policy.md`、`maintenance/merge-main.md`、最近补丁 / 合并 / 变更记录、变更地图和验证矩阵；确认 `dev-zz-develop@be7384503` 与 `origin/dev-zz-develop`、`dev-zz`、`origin/dev-zz` 完全一致且工作区干净。
+- `git fetch --prune origin` 后确认上游自 `5a6143097` 新增 56 个提交，其中 32 个非合并提交；先执行 `git merge-tree --write-tree --messages --name-only --merge-base` 预演，再执行 `git merge --no-commit origin/main`，两者均得到相同的 4 个内容冲突。
+- 接受上游网关路径安全、流式容错、订阅窗口、支付 patch、邮件 / 图片、Composite 目录、价格和容器权限修复；继续保留 dev-zz 企业成员候选编排、预算、最终分组归因、WebSocket 首轮路由锁、真实模型交付目录、长期数据保留和 `1.7.25` 版本线。
+
+冲突文件：
+
+- `backend/cmd/server/VERSION`
+- `backend/internal/handler/available_channel_handler_test.go`
+- `backend/internal/handler/openai_gateway_handler_test.go`
+- `backend/internal/server/routes/gateway.go`
+
+解决说明：
+
+- `VERSION` 保持 dev-zz `1.7.25`，不采用上游 `0.1.169`。
+- Responses 子路径在进入企业成员 / Composite 候选编排前执行上游安全守卫；合法路径继续经过 dev-zz 的成员分组解析、预算门禁与最终分组归因，非法路径以本地策略拒绝且不进入上游调度。
+- 可用渠道测试同时保留 dev-zz 的稳定交付 / 协议端点投影与上游 Composite section 展开合同；Composite 分组不会被错误压缩为单一平台，普通分组仍保持平台隔离。
+- Responses WebSocket 三处冲突继续遵守文档化的 dev-zz 首轮路由锁：连接内可以省略或重复同一公共模型，模型、平台或渠道目标变化必须重连；上游价格更新仍由共享价格资源吸收。
+- 编译验证发现上游新抽取的代理熔断 fail-open 包装层没有把 dev-zz 的 `skipChannelPricingRestriction` 与 `preserveStickyBinding` 加入内部选择签名并传入两次选择。最终两次选择都透传原参数，使 fail-open 只放宽代理隔离，不放宽渠道定价或首轮 sticky 合同。
+- Ops 自动清理仍由 `ops.cleanup.auto_cleanup_enabled` 门禁且默认关闭；本轮只把成功日志切换为结构化 info，不改变保留期或删除行为。
+
+验证：
+
+- 冲突相关 routes / handler 定向 Go 测试通过，覆盖 Responses 子路径安全守卫、可用渠道 Composite 展开、稳定交付投影和 WebSocket 首轮路由锁。
+- 代理熔断 fail-open 定向测试通过，覆盖全部代理隔离时恢复容量，以及第二次选择继续遵守调用方显式渠道定价预检策略。
+- 后端 `go test -tags=unit ./... -count=1` 全包通过。
+- 前端支付方式、套餐卡、订阅额度口径、用户支付页和管理设置共 5 个测试文件 / 62 条测试通过；测试输出只有既有 jsdom navigation 与 i18n compiler 警告。
+- 前端 typecheck、ESLint 与生产构建通过；仅有既有 browserslist、动态导入和大 chunk 提示。
+- `docker-compose-security-test.sh` 与 `docker-runtime-resources-test.sh` 通过。
+- docs-site 生产构建通过；仅有既有 chunk-size 提示。
+- Go 格式、staged whitespace 与冲突标记检查通过。
+
+未验证：
+
+- 浏览器人工支付布局 / 订阅到期标签 smoke。
+- 真实 SMTP、代理断流、Grok ping、上游 URL 拒绝和 Docker 容器运行时 smoke。
+
 ## 2026-07-30 - 将上游 `main` 合并到 `dev-zz`：OpenAI Live store 容错与前端状态修复合流
 
 分支：

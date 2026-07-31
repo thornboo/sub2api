@@ -1,5 +1,13 @@
 # 变更记录
 
+## 2026-07-31
+
+- 同步上游 `main`（`d29acc29a`）到 `dev-zz-develop`：Responses / Gemini 上游路径增加安全校验；OpenAI 代理断流熔断在全部候选被隔离时 fail-open，Pool 模式补齐流式容量重试，Grok billing ping 统一为 SSE 注释并避免 pool 模式 entitlement `403` 误冷却。
+- 网关继续保留 dev-zz 企业成员候选编排、预算门禁、最终实际分组归因和 Responses WebSocket 首轮路由锁。Responses 子路径安全守卫会先于候选调度拒绝非法路径；代理 fail-open 只放宽隔离偏好，不跳过渠道定价限制或 sticky 路由合同。
+- 订阅日 / 周 / 月额度窗口改为服从订阅真实开始与到期边界，前后端重置时间和剩余标签保持同一口径。支付设置恢复 patch 语义，未提交字段不会清空可见支付方式；支付选择器与长套餐标题修复窄屏溢出。
+- 可用渠道目录把 Composite 分组展开到实际配置模型的平台 section，同时继续使用 dev-zz 的稳定路由和协议能力投影；另同步标准 SMTP 格式、图片 data URL 转存、GPT-5.6 Luna / Terra 与 GLM-5.2 价格、Composite 模型展示及结构化清理日志。
+- Docker / Compose 增加 `no-new-privileges`，CI 加入部署安全合同脚本。本轮没有数据库迁移或依赖变更；`VERSION` 保持 `1.7.25`，Ops 自动清理默认关闭和长期数据保留合同不变。
+
 ## 2026-07-30
 
 - `/model-plaza` 收敛为注册前可访问的公开模型列表：只返回 active、standard、非专属分组，匿名与登录请求内容一致；专属分组、订阅分组和用户专属倍率继续只属于登录后的 `/available-channels`。

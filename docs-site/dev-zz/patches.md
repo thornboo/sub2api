@@ -1,5 +1,37 @@
 # 补丁记录
 
+## 2026-07-31 - 上游 main 同步：网关安全、订阅窗口与支付配置正确性
+
+### 目标
+
+- 将 `origin/main@d29acc29a` 合入 `dev-zz-develop`，吸收网关路径安全、OpenAI / Grok 流式容错、订阅额度窗口、支付 patch、邮件 / 图片、Composite 目录、价格和容器权限修复。
+- 保持 dev-zz 企业成员路由 / 预算 / 归因、WebSocket 首轮路由锁、真实模型交付目录、长期证据和 `1.7.25` 版本线不回退。
+
+### 主要变化
+
+- Responses wildcard 子路径与 Gemini 上游 URL 拒绝不可转发路径片段；安全守卫在企业成员和 Composite 候选调度前执行，合法请求仍走原有成员预算、能力选择和最终分组归因。
+- OpenAI 代理断流熔断增加配置开关、突发错误合并和容量耗尽 fail-open；fail-open 第二次选择继续透传渠道定价限制和 sticky 绑定。Pool 模式可重试流式容量错误，缺失 passthrough instructions 时补默认值。
+- Grok billing ping 被转换为标准 SSE 注释，并对过滤缓冲和 body close 错误增加保护；pool 模式的默认冷却与 entitlement `403` 处理统一，不再错误暂停可继续使用的账号。
+- 订阅日 / 周 / 月额度窗口从真实订阅锚点推进，并在到期边界停止自动重置；旧首个午夜锚点可归一到开始时间。前端用同一窗口计算展示剩余时间与到期标签。
+- 支付配置只写入请求中显式携带的字段，保留未修改的可见支付方式；支付方式选择器和套餐卡约束窄屏布局。SMTP 输出标准 CRLF / 折行 / dot-stuffing，图片任务可解码 data URL 后转存。
+- Composite 分组在用户目录按已配置模型的平台展开，但仍服从稳定账号交付和协议端点证据；同步 GPT-5.6 Luna / Terra、GLM-5.2 fallback 价格和管理员 Composite 模型展示。
+
+### 数据与兼容性
+
+- 没有数据库迁移、Go / 前端依赖变更；新增 `gateway.openai_proxy_stream_circuit.disabled`，默认 `false`，即继续启用现有熔断。
+- Docker / Compose 增加 `no-new-privileges`，release 资源包含模型价格 fallback，CI 执行对应部署安全脚本。
+- Ops cleanup 仍要求 `auto_cleanup_enabled=true` 才会删除数据，默认关闭；本轮仅把成功日志改为结构化 info。
+- `VERSION` 保持 `1.7.25`，不采用上游 `0.1.169`。
+
+### 验证
+
+- 冲突相关 routes / handler 测试通过，覆盖 Responses 子路径守卫、Composite 目录展开、稳定交付投影和 WebSocket 路由锁。
+- 代理熔断 fail-open 定向测试通过，覆盖全部代理隔离时恢复容量和第二次选择的渠道定价预检策略透传。
+- 后端 `go test -tags=unit ./... -count=1` 全包通过。
+- 支付 / 订阅 / 设置前端定向测试 5 个文件、62 条测试通过；两个部署安全合同脚本通过。
+- 前端 typecheck、ESLint 与生产构建、docs-site 生产构建通过；Go 格式、whitespace 和冲突标记检查通过。
+- 真实 SMTP、代理 / Grok 上游、浏览器与 Docker 运行时 smoke 未执行。
+
 ## 2026-07-30 - 公开模型列表复用真实可交付目录
 
 ### 目标
