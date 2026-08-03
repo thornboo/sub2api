@@ -12,6 +12,9 @@ import {
   formatCompactTokenPrice,
   formatRateMultiplier,
   formatTokenPrice,
+  getRowCacheReadPrice,
+  getRowCacheWritePrice,
+  getRowImageOutputPrice,
   getRowInputPrice,
   getRowOutputPrice,
   getRowPerRequestPrice,
@@ -307,10 +310,173 @@ describe('availableChannelsCatalog', () => {
       billingMode: BILLING_MODE_TOKEN,
       priceStatus: 'priced',
     })
-    expect(tokenRows.map((row) => row.modelName)).toEqual(['priced-model'])
+    expect(tokenRows).toHaveLength(2)
+    expect(tokenRows.every((row) => row.modelName === 'priced-model')).toBe(true)
+    expect(tokenRows.map((row) => row.groups[0]?.name).sort()).toEqual(['exclusive', 'public'])
 
     const unpricedRows = buildAvailableChannelCatalogRows(channels, { priceStatus: 'unpriced' })
-    expect(unpricedRows.map((row) => row.modelName)).toEqual(['unpriced-model'])
+    expect(unpricedRows).toHaveLength(2)
+    expect(unpricedRows.every((row) => row.modelName === 'unpriced-model')).toBe(true)
+  })
+
+  it('splits model quotes by callable group and applies the effective user rate to every price field', () => {
+    const channels: UserAvailableChannel[] = [
+      {
+        name: 'Shared Channel',
+        description: '',
+        platforms: [
+          {
+            platform: 'openai',
+            groups: [
+              {
+                id: 1,
+                name: 'public',
+                platform: 'openai',
+                subscription_type: 'standard',
+                rate_multiplier: 0.8,
+                is_exclusive: false,
+              },
+              {
+                id: 2,
+                name: 'exclusive',
+                platform: 'openai',
+                subscription_type: 'standard',
+                rate_multiplier: 0.7,
+                is_exclusive: true,
+              },
+              {
+                id: 3,
+                name: 'not-callable',
+                platform: 'openai',
+                subscription_type: 'standard',
+                rate_multiplier: 0.1,
+                is_exclusive: false,
+              },
+            ],
+            supported_models: [
+              {
+                name: 'priced-model',
+                platform: 'openai',
+                route_group_ids: [1, 2],
+                pricing: {
+                  billing_mode: BILLING_MODE_TOKEN,
+                  input_price: 0.000001,
+                  output_price: 0.000002,
+                  cache_write_price: 0.000003,
+                  cache_read_price: 0.0000004,
+                  image_input_price: null,
+                  image_output_price: 0.04,
+                  per_request_price: 0.02,
+                  intervals: [],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ]
+
+    const rows = buildAvailableChannelCatalogRows(channels, {
+      sortBy: 'inputPrice',
+      userGroupRates: { 1: 0.5 },
+    })
+
+    expect(rows).toHaveLength(2)
+    expect(rows.map((row) => row.groups[0]?.name)).toEqual(['public', 'exclusive'])
+    expect(rows.map((row) => row.effectiveRateMultiplier)).toEqual([0.5, 0.7])
+    expect(getRowInputPrice(rows[0])).toBeCloseTo(0.0000005)
+    expect(getRowOutputPrice(rows[0])).toBeCloseTo(0.000001)
+    expect(getRowCacheWritePrice(rows[0])).toBeCloseTo(0.0000015)
+    expect(getRowCacheReadPrice(rows[0])).toBeCloseTo(0.0000002)
+    expect(getRowImageOutputPrice(rows[0])).toBeCloseTo(0.02)
+    expect(getRowPerRequestPrice(rows[0])).toBeCloseTo(0.01)
+    expect(getRowInputPrice(rows[1])).toBeCloseTo(0.0000007)
+  })
+
+  it('uses endpoint group metadata only as a legacy fallback for quote rows', () => {
+    const sectionGroups = [
+      {
+        id: 1,
+        name: 'public',
+        platform: 'openai',
+        subscription_type: 'standard',
+        rate_multiplier: 0.8,
+        peak_rate_enabled: false,
+        peak_start: '',
+        peak_end: '',
+        peak_rate_multiplier: 1,
+        is_exclusive: false,
+      },
+      {
+        id: 2,
+        name: 'exclusive',
+        platform: 'openai',
+        subscription_type: 'standard',
+        rate_multiplier: 0.7,
+        peak_rate_enabled: false,
+        peak_start: '',
+        peak_end: '',
+        peak_rate_multiplier: 1,
+        is_exclusive: true,
+      },
+    ]
+    const channel = (model: UserAvailableChannel['platforms'][number]['supported_models'][number]): UserAvailableChannel => ({
+      name: 'Legacy Channel',
+      description: '',
+      platforms: [{ platform: 'openai', groups: sectionGroups, supported_models: [model] }],
+    })
+
+    const legacyRows = buildAvailableChannelCatalogRows([channel({
+      name: 'legacy-model',
+      platform: 'openai',
+      pricing: null,
+      supported_endpoints: [
+        { protocol: 'openai_chat_completions', path: '/v1/chat/completions', group_ids: [2] },
+      ],
+    })])
+    expect(legacyRows.map((row) => row.groups[0]?.id)).toEqual([2])
+
+    const authoritativeEmptyRows = buildAvailableChannelCatalogRows([channel({
+      name: 'no-route-model',
+      platform: 'openai',
+      pricing: null,
+      route_group_ids: [],
+      supported_endpoints: [
+        { protocol: 'openai_chat_completions', path: '/v1/chat/completions', group_ids: [] },
+      ],
+    })])
+    expect(authoritativeEmptyRows).toEqual([])
+
+    const noGroupAuthoritativeRows = buildAvailableChannelCatalogRows([{
+      name: 'Admin Diagnostic Channel',
+      description: '',
+      platforms: [{
+        platform: 'openai',
+        groups: [],
+        supported_models: [{
+          name: 'no-group-route-model',
+          platform: 'openai',
+          pricing: null,
+          route_group_ids: [],
+        }],
+      }],
+    }])
+    expect(noGroupAuthoritativeRows).toEqual([])
+
+    const noGroupLegacyRows = buildAvailableChannelCatalogRows([{
+      name: 'Rollback-Compatible Channel',
+      description: '',
+      platforms: [{
+        platform: 'openai',
+        groups: [],
+        supported_models: [{
+          name: 'legacy-no-group-model',
+          platform: 'openai',
+          pricing: null,
+        }],
+      }],
+    }])
+    expect(noGroupLegacyRows).toHaveLength(1)
   })
 
   it('expands tiered pricing into interval rows and sorts by effective row price', () => {

@@ -21,6 +21,63 @@ import (
 func float64Ptr(v float64) *float64 { return &v }
 func intPtr(v int) *int             { return &v }
 
+func TestAvailableCatalogDeliveryInputs_DeduplicatesAndSorts(t *testing.T) {
+	channels := []availableCatalogChannelResponse{
+		{
+			Platforms: []availableCatalogPlatformSectionResponse{
+				{
+					Groups: []availableCatalogGroupResponse{{ID: 3}, {ID: 1}},
+					SupportedModels: []availableCatalogModelResponse{
+						{Name: "model-b"},
+						{Name: "model-a"},
+					},
+				},
+				{
+					Groups:          []availableCatalogGroupResponse{{ID: 1}, {ID: 2}},
+					SupportedModels: []availableCatalogModelResponse{{Name: "model-b"}},
+				},
+			},
+		},
+	}
+
+	groupIDs, modelIDs := availableCatalogDeliveryInputs(channels)
+
+	require.Equal(t, []int64{1, 2, 3}, groupIDs)
+	require.Equal(t, []string{"model-a", "model-b"}, modelIDs)
+}
+
+func TestAttachAvailableCatalogRouteGroupIDs_IntersectsSectionAndUsesEmptyArray(t *testing.T) {
+	channels := []availableCatalogChannelResponse{
+		{
+			Platforms: []availableCatalogPlatformSectionResponse{
+				{
+					Groups: []availableCatalogGroupResponse{{ID: 2}, {ID: 1}},
+					SupportedModels: []availableCatalogModelResponse{
+						{Name: "callable-model"},
+						{Name: "no-route-model"},
+					},
+				},
+			},
+		},
+	}
+
+	attachAvailableCatalogRouteGroupIDs(channels, func(model string) []int64 {
+		if model == "callable-model" {
+			return []int64{3, 2, 1}
+		}
+		return nil
+	})
+
+	models := channels[0].Platforms[0].SupportedModels
+	require.Equal(t, []int64{1, 2}, models[0].RouteGroupIDs)
+	require.NotNil(t, models[1].RouteGroupIDs)
+	require.Empty(t, models[1].RouteGroupIDs)
+
+	payload, err := json.Marshal(models[1])
+	require.NoError(t, err)
+	require.Contains(t, string(payload), `"route_group_ids":[]`)
+}
+
 // ---------------------------------------------------------------------------
 // 1. channelToResponse
 // ---------------------------------------------------------------------------

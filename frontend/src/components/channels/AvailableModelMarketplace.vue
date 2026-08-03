@@ -221,6 +221,7 @@ import {
   formatBillingMode,
   formatCompactRequestPrice,
   formatCompactTokenPrice,
+  resolveAvailableGroupRateMultiplier,
   type AvailableChannelPricingLabels,
 } from '@/utils/availableChannelsCatalog'
 import type { AvailableModelMarketplaceCard } from '@/utils/availableModelMarketplace'
@@ -297,7 +298,7 @@ function displayPrice(card: AvailableModelMarketplaceCard, value: number | null)
 
 function priceMultiplier(card: AvailableModelMarketplaceCard): number {
   if (!props.applyRateMultiplier) return 1
-  return props.userGroupRates[card.group.id] ?? card.group.rate_multiplier ?? 1
+  return resolveAvailableGroupRateMultiplier(card.group, props.userGroupRates)
 }
 
 function scalePricing(

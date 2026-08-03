@@ -5,8 +5,9 @@
 ## 已落地情况
 
 - 用户侧模型广场、价格表格、当前可见报价导出和管理员全量目录导出已经落地。
-- 用户侧入口仍是 `/available-channels`；默认“模型广场”按分组分区、以模型为主实体，“价格表格”用于按渠道、分组和价格区间横向比较。
+- 用户侧入口仍是 `/available-channels`；默认“模型广场”按分组分区、以模型为主实体，“价格表格”用于按渠道、计价分组和价格区间横向比较客户生效价。
 - 模型广场组件为 `frontend/src/components/channels/AvailableModelMarketplace.vue`，聚合逻辑集中在 `frontend/src/utils/availableModelMarketplace.ts`。
+- 模型广场与价格表格共享 `frontend/src/utils/availableChannelCallability.ts` 的可调用分组判断，避免新旧响应兼容口径漂移。
 - 一张卡片只代表一个“分组 + 模型”组合；同一分组内的同名模型跨渠道聚合，不同分组分别展示。卡片只展示该分组下存在稳定交付路由的渠道、计费摘要及已确认可原生交付的 API 端点，不把其他分组的能力或网关兼容转换能力混入。
 - 前端表格组件为 `frontend/src/components/channels/AvailableChannelModelsTable.vue`。
 - 前端扁平化、排序、分组范围过滤、价格格式化和 Excel 导出集中在 `frontend/src/utils/availableChannelsCatalog.ts`。
@@ -34,7 +35,7 @@
 | 视图 | 说明 |
 | --- | --- |
 | 模型广场 | 使用 `AvailableModelMarketplace`，先按用户可访问分组分区，再按模型展示卡片；同组多渠道聚合，跨分组不混合 |
-| 价格表格 | 使用 `AvailableChannelModelsTable`，按模型报价行展示平台、渠道、计费模式、阶梯、价格和分组 |
+| 价格表格 | 使用 `AvailableChannelModelsTable`，按“渠道 + 模型 + 计价分组 + 阶梯”展示平台、计费模式和客户生效价 |
 
 表格视图支持：
 
@@ -48,7 +49,7 @@
 
 ### 导出
 
-导出入口使用同一套 `buildAvailableChannelCatalogRows` 生成行，确保页面表格和 Excel 口径一致。
+导出入口使用同一套 `buildAvailableChannelCatalogRows` 生成行，确保页面表格和 Excel 都按单一计价分组应用生效倍率。
 
 普通用户导出：
 
@@ -61,6 +62,7 @@
 - 可选择“管理员全量目录”，来自 `/admin/channels/available-catalog`。
 - 可选择“当前可见可用渠道”，与普通用户口径一致。
 - 管理员全量目录支持导出全部、仅启用、仅禁用渠道。
+- 管理员接口仍保留无稳定路由的模型用于诊断，但其 `route_group_ids` 明确为 `[]`；生效报价导出只生成确有可调用分组的行，不为无路由模型伪造分组价格。
 - 若管理员全量目录加载失败，导出源降级为当前可见渠道，并在导出弹窗显示提示。
 
 导出文件包含模型报价行，列包括：
@@ -86,7 +88,7 @@ GET /api/v1/channels/available
 
 该接口只返回当前登录用户可访问的渠道和分组。普通用户看到的模型目录不是全站报价表，而是“当前账号可见报价”。
 
-“配置了报价”和“当前可交付”是两件事：渠道映射/定价决定商品是否发布，分组关联的 active、schedulable、平台匹配且支持该模型的账号决定是否存在稳定交付路由。普通用户的“可用模型”只保留至少一条稳定路由的商品；管理员全量目录保留无路由商品用于排障，并明确标记状态。
+“配置了报价”和“当前可交付”是两件事：渠道映射/定价决定商品是否发布，分组关联的 active、schedulable、平台匹配且支持该模型的账号决定是否存在稳定交付路由。普通用户的“可用模型”只保留至少一条稳定路由的商品；管理员全量目录保留无路由商品用于排障，并用显式空数组 `route_group_ids: []` 表达没有可调用分组。
 
 用户侧表格和导出不应声明为公开对外报价，因为其中可能包含：
 
@@ -102,13 +104,17 @@ GET /api/v1/channels/available
 GET /api/v1/admin/channels/available-catalog
 ```
 
-该接口返回管理员可见的完整渠道目录，用于管理侧报价整理。前端仍通过导出弹窗要求选择分组范围和渠道状态，避免默认把订阅或禁用内容混入普通报价。
+该接口返回管理员可见的完整渠道目录，用于管理侧报价整理。每个模型都会返回不省略的 `route_group_ids`：数组内只包含该平台区段中当前存在稳定可调用路由的分组；无路由模型保留在接口中但返回 `[]`。前端仍通过导出弹窗要求选择分组范围和渠道状态，避免默认把订阅或禁用内容混入普通报价。
 
 ### 价格含义
 
 模型卡片的价格摘要来自渠道模型定价和展示回落逻辑，并应用当前分组对当前用户生效的倍率；公开模型列表固定使用公开分组默认倍率。它表达当前目录口径下的客户价格，但真实扣费仍以请求最终命中的分组、计费模型和计费记录为准。
 
-价格表格和导出继续保留原始渠道报价维度，用于比较不同渠道与分组的报价方案，不应与某一次请求最终落账混为一谈。
+价格表格和导出使用与模型卡片相同的倍率优先级：当前用户专属倍率优先，否则使用分组默认倍率。每一行只对应一个计价分组，输入、输出、缓存、图片和按次价格都显示 `渠道模型定价 × 该分组生效倍率`，价格排序也按这一生效价执行。管理员全量目录导出没有目标用户上下文，因此使用各分组默认倍率。
+
+可调用分组兼容顺序在模型广场、价格表格和导出中完全一致：响应包含 `route_group_ids` 时以它为权威（包括显式空数组）；旧响应缺少该字段时才按 `supported_endpoints[].group_ids` 回退；两个字段都缺失时保留全局回滚开关所需的旧目录行为。
+
+接口仍分别返回渠道模型基础定价和分组倍率，前端把基础定价作为计算输入，不再把未乘倍率的原始值直接显示为用户价格。真实扣费仍以请求最终命中的分组、计费模型和计费记录为准。
 
 如果未来需要严格区分价格来源，应让后端返回 `pricing_source`，再在表格和导出中显示“渠道价 / 展示回落价 / 未配置”等来源字段。
 
@@ -120,9 +126,12 @@ GET /api/v1/admin/channels/available-catalog
 - `frontend/src/components/channels/AvailableModelMarketplace.vue`
 - `frontend/src/components/channels/__tests__/AvailableModelMarketplace.spec.ts`
 - `frontend/src/components/channels/AvailableChannelModelsTable.vue`
+- `frontend/src/components/channels/__tests__/AvailableChannelModelsTable.spec.ts`
 - `frontend/src/utils/availableModelMarketplace.ts`
 - `frontend/src/utils/__tests__/availableModelMarketplace.spec.ts`
 - `frontend/src/utils/availableChannelsCatalog.ts`
+- `frontend/src/utils/availableChannelCallability.ts`
+- `frontend/src/utils/__tests__/availableChannelCallability.spec.ts`
 - `frontend/src/utils/__tests__/availableChannelsCatalog.spec.ts`
 - `frontend/src/api/admin/channels.ts`
 - `backend/internal/handler/admin/channel_handler.go`
@@ -155,7 +164,9 @@ GET /api/v1/admin/channels/available-catalog
 - 只有定价、没有稳定账号路由的模型不在用户侧伪装成可用；管理员侧必须能看到“无可用路由”诊断。
 - 卡片显示模型价格摘要；发现多个不同报价时不擅自选取最低价，而是明确提示切换价格表格精确比较。
 - 用户可以切换到表格视图并直接比较模型价格。
-- 价格表格中的同一模型跨渠道、跨分组、跨阶梯报价仍保持独立行，不会被错误合并。
+- 价格表格中的同一模型跨渠道、跨计价分组、跨阶梯报价保持独立行，并按该行分组对当前用户的生效倍率计算价格；不在 `route_group_ids` 中的分组不会生成该模型报价行。
+- 管理员全量目录对每个模型都返回数组形态的 `route_group_ids`；无路由模型仍保留在接口诊断数据中，但不会产生任何生效报价行。
+- 缺少 `route_group_ids` 的旧响应在模型广场、表格和导出中统一按端点分组回退，避免三个视图对同一响应得出不同可调用分组。
 - 导出行与当前筛选、分组范围和价格状态一致。
 - 管理员全量目录失败时，导出不会静默使用错误数据源。
 - Excel 文件可被 Excel、Numbers 或 WPS 打开。
@@ -166,8 +177,10 @@ GET /api/v1/admin/channels/available-catalog
 
 ```bash
 pnpm --dir frontend test:run src/utils/__tests__/availableChannelsCatalog.spec.ts
+pnpm --dir frontend test:run src/utils/__tests__/availableChannelCallability.spec.ts
 pnpm --dir frontend typecheck
 pnpm --dir frontend lint:check
+go -C backend test -tags=unit ./internal/handler/admin
 ```
 
 手动验证时重点检查：

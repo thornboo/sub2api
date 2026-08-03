@@ -146,9 +146,10 @@ type availableCatalogIntervalResponse struct {
 }
 
 type availableCatalogModelResponse struct {
-	Name     string                           `json:"name"`
-	Platform string                           `json:"platform"`
-	Pricing  *availableCatalogPricingResponse `json:"pricing"`
+	Name          string                           `json:"name"`
+	Platform      string                           `json:"platform"`
+	Pricing       *availableCatalogPricingResponse `json:"pricing"`
+	RouteGroupIDs []int64                          `json:"route_group_ids"`
 }
 
 type availableCatalogPlatformSectionResponse struct {
@@ -450,12 +451,77 @@ func availableCatalogSupportedModels(src []service.SupportedModel, platform stri
 			continue
 		}
 		models = append(models, availableCatalogModelResponse{
-			Name:     model.Name,
-			Platform: model.Platform,
-			Pricing:  availableCatalogPricing(model.Pricing),
+			Name:          model.Name,
+			Platform:      model.Platform,
+			Pricing:       availableCatalogPricing(model.Pricing),
+			RouteGroupIDs: []int64{},
 		})
 	}
 	return models
+}
+
+func availableCatalogDeliveryInputs(channels []availableCatalogChannelResponse) ([]int64, []string) {
+	groupSet := make(map[int64]struct{})
+	modelSet := make(map[string]struct{})
+	for channelIndex := range channels {
+		for sectionIndex := range channels[channelIndex].Platforms {
+			section := &channels[channelIndex].Platforms[sectionIndex]
+			for _, group := range section.Groups {
+				if group.ID > 0 {
+					groupSet[group.ID] = struct{}{}
+				}
+			}
+			for _, model := range section.SupportedModels {
+				if model.Name != "" {
+					modelSet[model.Name] = struct{}{}
+				}
+			}
+		}
+	}
+
+	groupIDs := make([]int64, 0, len(groupSet))
+	for groupID := range groupSet {
+		groupIDs = append(groupIDs, groupID)
+	}
+	sort.Slice(groupIDs, func(i, j int) bool { return groupIDs[i] < groupIDs[j] })
+
+	modelIDs := make([]string, 0, len(modelSet))
+	for modelID := range modelSet {
+		modelIDs = append(modelIDs, modelID)
+	}
+	sort.Strings(modelIDs)
+	return groupIDs, modelIDs
+}
+
+func attachAvailableCatalogRouteGroupIDs(
+	channels []availableCatalogChannelResponse,
+	callableGroupIDs func(string) []int64,
+) {
+	for channelIndex := range channels {
+		for sectionIndex := range channels[channelIndex].Platforms {
+			section := &channels[channelIndex].Platforms[sectionIndex]
+			sectionGroupIDs := make(map[int64]struct{}, len(section.Groups))
+			for _, group := range section.Groups {
+				sectionGroupIDs[group.ID] = struct{}{}
+			}
+
+			for modelIndex := range section.SupportedModels {
+				model := &section.SupportedModels[modelIndex]
+				model.RouteGroupIDs = []int64{}
+				if callableGroupIDs == nil {
+					continue
+				}
+				for _, groupID := range callableGroupIDs(model.Name) {
+					if _, ok := sectionGroupIDs[groupID]; ok {
+						model.RouteGroupIDs = append(model.RouteGroupIDs, groupID)
+					}
+				}
+				sort.Slice(model.RouteGroupIDs, func(i, j int) bool {
+					return model.RouteGroupIDs[i] < model.RouteGroupIDs[j]
+				})
+			}
+		}
+	}
 }
 
 func availableCatalogPricing(p *service.ChannelModelPricing) *availableCatalogPricingResponse {
@@ -591,6 +657,17 @@ func (h *ChannelHandler) ListAvailableCatalog(c *gin.Context) {
 	for _, ch := range channels {
 		out = append(out, availableCatalogToResponse(ch))
 	}
+	if h.modelDelivery == nil {
+		response.InternalError(c, "Model delivery service is not configured")
+		return
+	}
+	groupIDs, modelIDs := availableCatalogDeliveryInputs(out)
+	delivery, err := h.modelDelivery.ResolveForGroups(c.Request.Context(), groupIDs, modelIDs)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	attachAvailableCatalogRouteGroupIDs(out, delivery.CallableGroupIDs)
 	response.Success(c, out)
 }
 

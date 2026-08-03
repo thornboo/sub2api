@@ -10,6 +10,7 @@ import {
   BILLING_MODE_TOKEN,
   type BillingMode,
 } from '@/constants/channel'
+import { resolveAvailableModelGroupContexts } from '@/utils/availableChannelCallability'
 import { formatScaled } from '@/utils/pricing'
 
 export type AvailableChannelGroupScope = 'all' | 'public' | 'public_exclusive' | 'exclusive'
@@ -38,6 +39,7 @@ export interface AvailableChannelCatalogRow {
   platform: string
   modelName: string
   groups: UserAvailableGroup[]
+  effectiveRateMultiplier: number
   pricing: UserSupportedModelPricing | null
   interval: UserPricingInterval | null
   intervalLabel: string
@@ -54,6 +56,7 @@ export interface AvailableChannelCatalogOptions {
   sortBy?: AvailableChannelSortKey
   sortOrder?: AvailableChannelSortOrder
   activeOnly?: boolean
+  userGroupRates?: Record<number, number>
 }
 
 export interface AvailableChannelPricingLabels {
@@ -121,42 +124,56 @@ export function buildAvailableChannelCatalogRows(
       supportedModels.forEach((model, modelIndex) => {
         if (options.billingMode && model.pricing?.billing_mode !== options.billingMode) return
 
+        const modelGroups = resolveAvailableModelGroupContexts(model, groups)
+          .map(({ group }) => group)
+        const callabilityMetadataPresent = Array.isArray(model.route_group_ids)
+          || Array.isArray(model.supported_endpoints)
+        if (modelGroups.length === 0 && (sectionGroups.length > 0 || callabilityMetadataPresent)) return
+
         const intervals = expandIntervals ? getValuedIntervals(model.pricing) : []
-        const baseRow = {
-          channelName: channel.name,
-          channelDescription: channel.description || '',
-          channelStatus,
-          platform: section.platform,
-          modelName: model.name,
-          groups,
-          pricing: model.pricing,
-        }
+        const groupRows = modelGroups.length > 0 ? modelGroups.map((group) => [group]) : [[]]
 
-        const pushRow = (interval: UserPricingInterval | null, intervalIndex: number) => {
-          const row: AvailableChannelCatalogRow = {
-            ...baseRow,
-            id: [
-              channel.name,
-              section.platform,
-              model.name,
-              intervalIndex,
-              channelIndex,
-              sectionIndex,
-              modelIndex,
-            ].join('::'),
-            interval,
-            intervalLabel: formatAvailableChannelIntervalLabel(interval),
-            priceStatus: rowHasPricing({ pricing: model.pricing, interval }) ? 'priced' : 'unpriced',
+        groupRows.forEach((rowGroups, groupIndex) => {
+          const group = rowGroups[0] ?? null
+          const baseRow = {
+            channelName: channel.name,
+            channelDescription: channel.description || '',
+            channelStatus,
+            platform: section.platform,
+            modelName: model.name,
+            groups: rowGroups,
+            effectiveRateMultiplier: resolveAvailableGroupRateMultiplier(group, options.userGroupRates),
+            pricing: model.pricing,
           }
-          if (priceStatus !== 'all' && row.priceStatus !== priceStatus) return
-          rows.push(row)
-        }
 
-        if (intervals.length > 0) {
-          intervals.forEach((interval, intervalIndex) => pushRow(interval, intervalIndex))
-          return
-        }
-        pushRow(null, 0)
+          const pushRow = (interval: UserPricingInterval | null, intervalIndex: number) => {
+            const row: AvailableChannelCatalogRow = {
+              ...baseRow,
+              id: [
+                channel.name,
+                section.platform,
+                model.name,
+                group?.id ?? 'no-group',
+                intervalIndex,
+                channelIndex,
+                sectionIndex,
+                modelIndex,
+                groupIndex,
+              ].join('::'),
+              interval,
+              intervalLabel: formatAvailableChannelIntervalLabel(interval),
+              priceStatus: rowHasPricing({ pricing: model.pricing, interval }) ? 'priced' : 'unpriced',
+            }
+            if (priceStatus !== 'all' && row.priceStatus !== priceStatus) return
+            rows.push(row)
+          }
+
+          if (intervals.length > 0) {
+            intervals.forEach((interval, intervalIndex) => pushRow(interval, intervalIndex))
+            return
+          }
+          pushRow(null, 0)
+        })
       })
     })
   })
@@ -224,6 +241,14 @@ export function formatAvailableChannelGroups(
       return `${group.name} ${formatRateMultiplier(rate)}`
     })
     .join('; ')
+}
+
+export function resolveAvailableGroupRateMultiplier(
+  group: UserAvailableGroup | null | undefined,
+  userGroupRates: Record<number, number> = {},
+): number {
+  if (!group) return 1
+  return userGroupRates[group.id] ?? group.rate_multiplier ?? 1
 }
 
 export function formatRateMultiplier(rate: number | null | undefined): string {
@@ -297,27 +322,42 @@ export function rowHasPricing(row: Pick<AvailableChannelCatalogRow, 'pricing' | 
 }
 
 export function getRowInputPrice(row: AvailableChannelCatalogRow): number | null {
-  return row.interval ? row.interval.input_price : row.pricing?.input_price ?? null
+  return applyRowRateMultiplier(
+    row.interval ? row.interval.input_price : row.pricing?.input_price ?? null,
+    row.effectiveRateMultiplier,
+  )
 }
 
 export function getRowOutputPrice(row: AvailableChannelCatalogRow): number | null {
-  return row.interval ? row.interval.output_price : row.pricing?.output_price ?? null
+  return applyRowRateMultiplier(
+    row.interval ? row.interval.output_price : row.pricing?.output_price ?? null,
+    row.effectiveRateMultiplier,
+  )
 }
 
 export function getRowCacheWritePrice(row: AvailableChannelCatalogRow): number | null {
-  return row.interval ? row.interval.cache_write_price : row.pricing?.cache_write_price ?? null
+  return applyRowRateMultiplier(
+    row.interval ? row.interval.cache_write_price : row.pricing?.cache_write_price ?? null,
+    row.effectiveRateMultiplier,
+  )
 }
 
 export function getRowCacheReadPrice(row: AvailableChannelCatalogRow): number | null {
-  return row.interval ? row.interval.cache_read_price : row.pricing?.cache_read_price ?? null
+  return applyRowRateMultiplier(
+    row.interval ? row.interval.cache_read_price : row.pricing?.cache_read_price ?? null,
+    row.effectiveRateMultiplier,
+  )
 }
 
 export function getRowImageOutputPrice(row: AvailableChannelCatalogRow): number | null {
-  return row.pricing?.image_output_price ?? null
+  return applyRowRateMultiplier(row.pricing?.image_output_price ?? null, row.effectiveRateMultiplier)
 }
 
 export function getRowPerRequestPrice(row: AvailableChannelCatalogRow): number | null {
-  return row.interval ? row.interval.per_request_price : row.pricing?.per_request_price ?? null
+  return applyRowRateMultiplier(
+    row.interval ? row.interval.per_request_price : row.pricing?.per_request_price ?? null,
+    row.effectiveRateMultiplier,
+  )
 }
 
 export async function exportAvailableChannelsCatalog(
@@ -490,7 +530,16 @@ function compareDefaultOrder(a: AvailableChannelCatalogRow, b: AvailableChannelC
   if (platformOrder !== 0) return platformOrder
   const channelOrder = a.channelName.localeCompare(b.channelName, undefined, { numeric: true, sensitivity: 'base' })
   if (channelOrder !== 0) return channelOrder
+  const groupOrder = (a.groups[0]?.name ?? '').localeCompare(b.groups[0]?.name ?? '', undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  })
+  if (groupOrder !== 0) return groupOrder
   return a.intervalLabel.localeCompare(b.intervalLabel, undefined, { numeric: true, sensitivity: 'base' })
+}
+
+function applyRowRateMultiplier(value: number | null, multiplier: number): number | null {
+  return value == null ? null : value * multiplier
 }
 
 function formatIntervalRange(min: number, max: number | null): string {

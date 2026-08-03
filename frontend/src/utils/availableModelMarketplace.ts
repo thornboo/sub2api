@@ -5,6 +5,7 @@ import type {
   UserSupportedModelPricing,
 } from '@/api/channels'
 import type { BillingMode } from '@/constants/channel'
+import { resolveAvailableModelGroupContexts } from '@/utils/availableChannelCallability'
 import type {
   AvailableChannelGroupScope,
   AvailableChannelPriceStatus,
@@ -67,19 +68,7 @@ export function buildAvailableModelMarketplaceCards(
         if (priceStatus === 'priced' && !hasPricing) return
         if (priceStatus === 'unpriced' && hasPricing) return
 
-        groups.forEach((group) => {
-          const routeMetadataPresent = Array.isArray(model.route_group_ids)
-          const endpointMetadataPresent = Array.isArray(model.supported_endpoints)
-          const endpoints = (model.supported_endpoints ?? [])
-            .filter(endpoint => endpointAppliesToGroup(endpoint, group.id))
-            .map(endpoint => ({ ...endpoint, group_ids: [group.id] }))
-
-          // route_group_ids is the authoritative per-group callability contract.
-          // Older responses fall back to endpoint-based filtering, while an
-          // omitted endpoint list still means the rollback-compatible catalog.
-          if (routeMetadataPresent && !model.route_group_ids?.includes(group.id)) return
-          if (!routeMetadataPresent && endpointMetadataPresent && endpoints.length === 0) return
-
+        resolveAvailableModelGroupContexts(model, groups).forEach(({ group, endpoints }) => {
           const id = `${group.id}::${model.name}`
           const card = cards.get(id) ?? createMutableCard(model.name, group)
           card.platforms.set(section.platform, section.platform)
@@ -174,10 +163,6 @@ function pricingKey(pricing: UserSupportedModelPricing | null): string {
 
 function endpointKey(endpoint: UserSupportedEndpoint): string {
   return `${endpoint.protocol}:${endpoint.path}`
-}
-
-function endpointAppliesToGroup(endpoint: UserSupportedEndpoint, groupID: number): boolean {
-  return endpoint.group_ids.length === 0 || endpoint.group_ids.includes(groupID)
 }
 
 function localeCompare(a: string, b: string): number {

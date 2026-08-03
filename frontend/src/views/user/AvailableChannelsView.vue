@@ -368,8 +368,14 @@ const modelRows = computed(() =>
     sortBy: sortBy.value,
     sortOrder: sortOrder.value,
     activeOnly: true,
+    userGroupRates: userGroupRates.value,
   }),
 )
+
+const exportGroupRates = computed<Record<number, number>>(() => {
+  if (authStore.isAdmin && exportSource.value === 'admin_catalog') return {}
+  return userGroupRates.value
+})
 
 const exportRows = computed(() =>
   buildAvailableChannelCatalogRows(filteredExportChannels.value, {
@@ -381,6 +387,7 @@ const exportRows = computed(() =>
     expandIntervals: true,
     sortBy: sortBy.value,
     sortOrder: sortOrder.value,
+    userGroupRates: exportGroupRates.value,
   }),
 )
 
@@ -492,7 +499,7 @@ async function exportModelCatalog() {
 
   exporting.value = true
   try {
-    await exportAvailableChannelsCatalog(exportRows.value, exportLabels.value, userGroupRates.value)
+    await exportAvailableChannelsCatalog(exportRows.value, exportLabels.value, exportGroupRates.value)
     appStore.showSuccess(t('availableChannels.export.success'))
     showExportDialog.value = false
   } catch (err: unknown) {
