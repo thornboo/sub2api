@@ -49,11 +49,34 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 		if err := validateEnterpriseMemberUsageBillingCommand(cmd); err != nil {
 			return nil, err
 		}
-		if err := r.stageEnterpriseMemberSettlement(ctx, cmd); err != nil {
-			return nil, err
-		}
+	} else {
+		return r.applyOnce(ctx, cmd)
 	}
 
+	settlementPayload, err := marshalEnterpriseMemberSettlementPayload(cmd)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := withPostgresDeadlockRetry(ctx, "usage_billing_stage_enterprise_member_settlement", func() (struct{}, error) {
+		return struct{}{}, r.stageEnterpriseMemberSettlement(ctx, cmd, settlementPayload)
+	}); err != nil {
+		return nil, err
+	}
+
+	return withPostgresDeadlockRetry(ctx, "usage_billing_apply", func() (*service.UsageBillingApplyResult, error) {
+		// Persistence normalizes and populates UsageLog fields in place. Isolate
+		// those mutations to one transaction attempt so a rolled-back attempt
+		// cannot alter the durable outbox payload or leak stale database IDs.
+		attemptCmd := cloneUsageBillingCommandForAttempt(cmd)
+		result, attemptErr := r.applyOnce(ctx, attemptCmd)
+		if attemptErr == nil && result != nil && result.UsageLogPersisted && cmd.UsageLog != nil && attemptCmd.UsageLog != nil {
+			*cmd.UsageLog = *attemptCmd.UsageLog
+		}
+		return result, attemptErr
+	})
+}
+
+func (r *usageBillingRepository) applyOnce(ctx context.Context, cmd *service.UsageBillingCommand) (_ *service.UsageBillingApplyResult, err error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -100,6 +123,18 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 	return result, nil
 }
 
+func cloneUsageBillingCommandForAttempt(cmd *service.UsageBillingCommand) *service.UsageBillingCommand {
+	if cmd == nil {
+		return nil
+	}
+	attempt := *cmd
+	if cmd.UsageLog != nil {
+		usageLog := *cmd.UsageLog
+		attempt.UsageLog = &usageLog
+	}
+	return &attempt
+}
+
 func validateEnterpriseMemberUsageBillingCommand(cmd *service.UsageBillingCommand) error {
 	if cmd == nil || cmd.MemberID == nil || cmd.UsageLog == nil || strings.TrimSpace(cmd.MemberBudgetRequestID) == "" {
 		return service.ErrEnterpriseMemberUsagePersistenceUnavailable
@@ -116,13 +151,20 @@ func validateEnterpriseMemberUsageBillingCommand(cmd *service.UsageBillingComman
 	return nil
 }
 
-func (r *usageBillingRepository) stageEnterpriseMemberSettlement(ctx context.Context, cmd *service.UsageBillingCommand) error {
+func marshalEnterpriseMemberSettlementPayload(cmd *service.UsageBillingCommand) ([]byte, error) {
+	payload, err := json.Marshal(enterpriseMemberSettlementPayload{Version: enterpriseMemberSettlementPayloadVersion, Command: cmd})
+	if err != nil {
+		return nil, fmt.Errorf("marshal enterprise member settlement command: %w", err)
+	}
+	return payload, nil
+}
+
+func (r *usageBillingRepository) stageEnterpriseMemberSettlement(ctx context.Context, cmd *service.UsageBillingCommand, payload []byte) error {
 	if r == nil || r.db == nil || cmd == nil || cmd.MemberID == nil {
 		return service.ErrEnterpriseMemberUsagePersistenceUnavailable
 	}
-	payload, err := json.Marshal(enterpriseMemberSettlementPayload{Version: enterpriseMemberSettlementPayloadVersion, Command: cmd})
-	if err != nil {
-		return fmt.Errorf("marshal enterprise member settlement command: %w", err)
+	if len(payload) == 0 {
+		return service.ErrEnterpriseMemberUsagePersistenceUnavailable
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

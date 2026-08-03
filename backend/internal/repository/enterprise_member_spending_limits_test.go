@@ -11,6 +11,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestLockEnterpriseMemberSpendingLimitStateUsesNoKeyUpdate(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	now := time.Date(2026, time.August, 3, 8, 0, 0, 0, time.UTC)
+	memberID := int64(42)
+	mock.ExpectBegin()
+	mock.ExpectQuery(`FROM enterprise_members WHERE id = \$1 FOR NO KEY UPDATE`).
+		WithArgs(memberID).
+		WillReturnRows(sqlmock.NewRows([]string{"monthly_limit_usd", "rate_limit_5h", "rate_limit_1d", "rate_limit_7d", "status", "deleted_at"}).
+			AddRow(0.0, 0.0, 0.0, 0.0, service.EnterpriseMemberStatusActive, nil))
+	mock.ExpectExec(`INSERT INTO enterprise_member_budget_periods`).
+		WithArgs(memberID, sqlmock.AnyArg(), enterpriseBudgetTimezone()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT used_usd, reserved_usd FROM enterprise_member_budget_periods`).
+		WithArgs(memberID, sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"used_usd", "reserved_usd"}).AddRow(0.0, 0.0))
+	mock.ExpectRollback()
+
+	tx, err := db.BeginTx(context.Background(), nil)
+	require.NoError(t, err)
+	_, err = lockEnterpriseMemberSpendingLimitState(context.Background(), tx, memberID, now)
+	require.NoError(t, err)
+	require.NoError(t, tx.Rollback())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestReserveEnterpriseMemberSpendingLimitsAggregatesPendingRequestsAcrossKeys(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)

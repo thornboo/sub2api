@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -231,6 +232,137 @@ func TestUsageBillingRepositoryApply_MemberUsageWriteFailureRollsBackBilling(t *
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestUsageBillingRepositoryApply_RetriesMemberDeadlockWithNewTransaction(t *testing.T) {
+	ctx := context.Background()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	memberID := int64(44)
+	deadlockErr := &pq.Error{Code: "40P01"}
+	stopErr := errors.New("stop after retry")
+	mock.ExpectBegin()
+	mock.ExpectQuery(`(?s)SELECT member_id, status\s+FROM enterprise_member_budget_reservations.*FOR UPDATE`).
+		WithArgs("5:req-deadlock-retry").
+		WillReturnError(deadlockErr)
+	mock.ExpectRollback()
+	mock.ExpectBegin()
+	mock.ExpectQuery(`(?s)SELECT member_id, status\s+FROM enterprise_member_budget_reservations.*FOR UPDATE`).
+		WithArgs("5:req-deadlock-retry").
+		WillReturnError(stopErr)
+	mock.ExpectRollback()
+
+	repo := &usageBillingRepository{db: db}
+	result, err := repo.Apply(ctx, &service.UsageBillingCommand{
+		RequestID:             "req-deadlock-retry",
+		APIKeyID:              5,
+		UserID:                7,
+		MemberID:              &memberID,
+		MemberBudgetRequestID: "5:req-deadlock-retry",
+		UsageLog: &service.UsageLog{
+			UserID:    7,
+			APIKeyID:  5,
+			RequestID: "req-deadlock-retry",
+			MemberID:  &memberID,
+		},
+	})
+
+	require.Nil(t, result)
+	require.ErrorIs(t, err, stopErr)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUsageBillingRepositoryApply_RetriesLateDeadlockWithoutRestagingMutatedUsageLog(t *testing.T) {
+	ctx := context.Background()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	memberID := int64(44)
+	createdAt := time.Date(2026, time.August, 4, 14, 30, 0, 0, time.UTC)
+	deadlockErr := &pq.Error{Code: "40P01"}
+	usageLog := &service.UsageLog{
+		UserID:    7,
+		APIKeyID:  5,
+		AccountID: 9,
+		RequestID: "req-late-deadlock",
+		Model:     "gpt-test",
+		MemberID:  &memberID,
+	}
+	cmd := &service.UsageBillingCommand{
+		RequestID:             "req-late-deadlock",
+		APIKeyID:              5,
+		UserID:                7,
+		AccountID:             9,
+		MemberID:              &memberID,
+		MemberBudgetRequestID: "5:req-late-deadlock",
+		UsageLog:              usageLog,
+	}
+	cmd.Normalize()
+
+	// Stage the immutable settlement intent once.
+	mock.ExpectBegin()
+	mock.ExpectQuery(`(?s)SELECT member_id, status\s+FROM enterprise_member_budget_reservations.*FOR UPDATE`).
+		WithArgs(cmd.MemberBudgetRequestID).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(`(?s)INSERT INTO enterprise_member_usage_settlement_outbox`).
+		WithArgs(cmd.APIKeyID, memberID, cmd.UserID, cmd.RequestID, cmd.MemberBudgetRequestID, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(73))
+	mock.ExpectCommit()
+
+	// The first billing transaction reaches the usage log, mutates its attempt
+	// copy, then deadlocks while deleting the durable settlement intent.
+	mock.ExpectBegin()
+	mock.ExpectQuery(`(?s)INSERT INTO usage_billing_dedup`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	mock.ExpectQuery(`(?s)SELECT request_fingerprint\s+FROM usage_billing_dedup_archive`).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(`(?s)SELECT member_id, period_start, reserved_usd, status\s+FROM enterprise_member_budget_reservations`).
+		WithArgs(cmd.MemberBudgetRequestID).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(`SELECT monthly_limit_usd, rate_limit_5h, rate_limit_1d, rate_limit_7d FROM enterprise_members`).
+		WithArgs(memberID).
+		WillReturnRows(sqlmock.NewRows([]string{"monthly_limit_usd", "rate_limit_5h", "rate_limit_1d", "rate_limit_7d"}).AddRow(0, 0, 0, 0))
+	mock.ExpectExec(`(?s)INSERT INTO enterprise_member_budget_periods`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`(?s)INSERT INTO enterprise_member_budget_entries`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`(?s)UPDATE enterprise_member_budget_periods\s+SET used_usd`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`(?s)INSERT INTO usage_logs`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(91, createdAt))
+	mock.ExpectExec(`(?s)UPDATE enterprise_member_budget_entries entry\s+SET usage_log_id = usage.id`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`(?s)UPDATE enterprise_member_budget_reservations reservation\s+SET usage_log_id = usage.id`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`(?s)DELETE FROM enterprise_member_usage_settlement_outbox`).
+		WithArgs(cmd.APIKeyID, cmd.RequestID, cmd.RequestFingerprint).
+		WillReturnError(deadlockErr)
+	mock.ExpectRollback()
+
+	// A concurrent identical request may have committed while this caller was
+	// backing off. The retry must enter a fresh billing transaction directly,
+	// recognize the dedup row, and clean the outbox without staging again.
+	mock.ExpectBegin()
+	mock.ExpectQuery(`(?s)INSERT INTO usage_billing_dedup`).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(`(?s)SELECT request_fingerprint\s+FROM usage_billing_dedup\s+WHERE`).
+		WillReturnRows(sqlmock.NewRows([]string{"request_fingerprint"}).AddRow(cmd.RequestFingerprint))
+	mock.ExpectExec(`(?s)DELETE FROM enterprise_member_usage_settlement_outbox`).
+		WithArgs(cmd.APIKeyID, cmd.RequestID, cmd.RequestFingerprint).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	result, err := (&usageBillingRepository{db: db}).Apply(ctx, cmd)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.False(t, result.Applied)
+	require.Zero(t, usageLog.ID, "rolled-back attempt must not leak its usage log ID")
+	require.True(t, usageLog.CreatedAt.IsZero(), "rolled-back attempt must not leak its usage log timestamp")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestUsageBillingRepositoryApply_RejectsMismatchedMemberUsageIdentity(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -348,8 +480,10 @@ func TestUsageBillingRepositoryStageMemberSettlementRejectsReleasedReceipt(t *te
 		WillReturnRows(sqlmock.NewRows([]string{"member_id", "status"}).AddRow(memberID, "released"))
 	mock.ExpectRollback()
 
+	payload, err := marshalEnterpriseMemberSettlementPayload(cmd)
+	require.NoError(t, err)
 	repo := &usageBillingRepository{db: db}
-	err = repo.stageEnterpriseMemberSettlement(context.Background(), cmd)
+	err = repo.stageEnterpriseMemberSettlement(context.Background(), cmd, payload)
 
 	require.ErrorIs(t, err, service.ErrEnterpriseMemberBudgetConflict)
 	require.NoError(t, mock.ExpectationsWereMet())

@@ -33,6 +33,12 @@ func (r *enterpriseMemberBudgetRepository) ReserveWithKind(ctx context.Context, 
 	if !validEnterpriseMemberReceiptKind(receiptKind) {
 		return nil, service.ErrEnterpriseMemberBudgetConflict
 	}
+	return withPostgresDeadlockRetry(ctx, "enterprise_member_budget_reserve", func() (*service.EnterpriseMemberBudgetReservation, error) {
+		return r.reserveWithKindOnce(ctx, requestID, memberID, groupID, payloadHash, amount, receiptKind, expiresAt)
+	})
+}
+
+func (r *enterpriseMemberBudgetRepository) reserveWithKindOnce(ctx context.Context, requestID string, memberID int64, groupID *int64, payloadHash string, amount float64, receiptKind string, expiresAt time.Time) (_ *service.EnterpriseMemberBudgetReservation, err error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -572,7 +578,9 @@ func (r *enterpriseMemberBudgetRepository) SetUsage(ctx context.Context, ownerID
 	}
 
 	var actualOwnerID int64
-	if err := tx.QueryRowContext(ctx, `SELECT enterprise_user_id FROM enterprise_members WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, memberID).Scan(&actualOwnerID); err != nil {
+	// Match the reservation mutex without blocking KEY SHARE locks acquired by
+	// budget child-table foreign keys during concurrent settlement.
+	if err := tx.QueryRowContext(ctx, `SELECT enterprise_user_id FROM enterprise_members WHERE id = $1 AND deleted_at IS NULL FOR NO KEY UPDATE`, memberID).Scan(&actualOwnerID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return service.ErrEnterpriseMemberNotFound
 		}

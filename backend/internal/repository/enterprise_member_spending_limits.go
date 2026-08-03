@@ -130,9 +130,13 @@ func lockEnterpriseMemberSpendingLimitState(ctx context.Context, tx *sql.Tx, mem
 	state := &enterpriseMemberSpendingLimitState{}
 	var status string
 	var deletedAt *time.Time
+	// This row is the member-level spending mutex. NO KEY UPDATE still
+	// serializes concurrent budget decisions and policy updates, while allowing
+	// child-table foreign-key checks to take KEY SHARE without forming a lock
+	// cycle with settlement transactions that already hold the budget period.
 	if err := tx.QueryRowContext(ctx, `
 		SELECT monthly_limit_usd, rate_limit_5h, rate_limit_1d, rate_limit_7d, status, deleted_at
-		FROM enterprise_members WHERE id = $1 FOR UPDATE`, memberID).
+		FROM enterprise_members WHERE id = $1 FOR NO KEY UPDATE`, memberID).
 		Scan(&state.monthlyLimit, &state.limit5h, &state.limit1d, &state.limit7d, &status, &deletedAt); err != nil {
 		return nil, err
 	}
