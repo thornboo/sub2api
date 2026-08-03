@@ -1,5 +1,13 @@
 # 变更记录
 
+## 2026-08-03
+
+- 同步上游 `main`（`825ca7b1f`）到 `dev-zz-develop`：新增分组级利润准入与预览能力，按客户倍率、账号成本倍率、最低利润率和安全缓冲过滤候选；普通、OpenAI、图片、WebSocket 和 failover 路径共用 gate，并新增迁移 `192_group_profit_control.sql`、`193_group_profit_control_auth_cache_invalidation.sql`。
+- 上游账单探测扩展到多 API Key 平台，可在显式开关、倍率上限与可信探测约束下同步账号倍率；账号编辑、批量探测与列表刷新使用同一口径。认证刷新、退款 / Stripe、SMTP、内容审核代理和窄范围提示词阻断同步增强。
+- OpenAI 吸收 reset-credit 缓存 / 恢复、Messages 临时错误切换、SSE `429`、取消、负载削峰、namespace 与工具输出媒体修复；Anthropic 中断流会保留已观察 usage。企业成员预算、usage 与最终实际分组继续原子结算，事务失败不会退化为独立 usage 写入。
+- 管理端账号支持按完整筛选结果全选并继续作用于 dev-zz 批量编辑、探测和归档，不恢复页面硬删除；Home 增加 compact preset。公开模型列表继续使用共享 marketplace、Select 筛选和 stone / neutral / emerald 视觉，不恢复已删除旧价格组件或倍率筛选。
+- 认证快照提升到 `v21` 并合并利润、计价、企业成员与 Live 字段；`VERSION` 保持 `1.7.25`，上游版本 `0.1.170` 不进入 fork 发布线。本轮没有新增依赖。
+
 ## 2026-07-31
 
 - 同步上游 `main`（`d29acc29a`）到 `dev-zz-develop`：Responses / Gemini 上游路径增加安全校验；OpenAI 代理断流熔断在全部候选被隔离时 fail-open，Pool 模式补齐流式容量重试，Grok billing ping 统一为 SSE 注释并避免 pool 模式 entitlement `403` 误冷却。

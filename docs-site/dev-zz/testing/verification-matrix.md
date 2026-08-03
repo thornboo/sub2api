@@ -109,6 +109,23 @@
 - WebSocket 会话使用建连时的策略快照；设置变更只影响新连接，已有连接重连后生效。
 - 策略变更的审计只记录设置键，不记录完整用户 ID 列表或规则内容。
 
+## 分组利润控制与上游账单倍率
+
+| 场景 | 推荐命令 |
+| --- | --- |
+| 利润 gate、slot 复核、sticky / failover 与各网关路径 | `mise x -C backend -- go test -tags=unit ./internal/service ./internal/handler -run 'Profit' -count=1` |
+| Group schema、认证快照投影与缓存失效迁移 | `mise x -C backend -- go test ./migrations ./internal/service -run 'Profit\|APIKeyAuthSnapshot' -count=1` |
+| 多平台账单探测、倍率上限与受控回写 | `mise x -C backend -- go test ./internal/service ./internal/repository ./internal/handler/admin -run 'UpstreamBillingProbe\|RateMultiplier' -count=1` |
+| 管理端分组表单与账号探测 / 倍率刷新 | `pnpm --dir frontend test:run src/views/admin/__tests__/groupsProfitControl.spec.ts src/components/account/__tests__/EditAccountModal.spec.ts src/views/admin/__tests__/AccountsView.bulkEdit.spec.ts` |
+
+必要人工核对：
+
+- 利润阈值必须来自分组客户倍率、最低利润率、安全缓冲和账号成本倍率；无效 / 缺失成本证据不得被当成低成本账号放行。
+- gate 必须在账号并发 slot 复核后执行；被 veto 的候选不能留下新 sticky 绑定，代理隔离 fail-open 不能丢失调用方的定价预检 bypass。
+- 账单探测只有在管理员显式允许、上游声明可信且倍率不超过上限时才写回；抑制名单、失败探测和超限倍率只能更新观察证据，不能改账号倍率。
+- 普通请求计费事务失败可以写 `ActualCost=0` 的未结算 usage；企业成员 usage、预算和最终分组必须原子化，事务不可用时不得独立写 usage。
+- 利润配置属于管理员 / 调度信息，不能进入用户模型目录、owner analytics 或客户 usage DTO。
+
 ## 面板 API 限流
 
 | 场景 | 推荐命令 |

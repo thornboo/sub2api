@@ -13,6 +13,13 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+const (
+	toolOutputMediaMarker      = "[Tool output media moved to the following user message]"
+	toolOutputMediaAttribution = "[Tool output media for call %s]"
+)
+
+type toolOutputMediaByCallID map[string][]ChatContentPart
+
 // ResponsesToChatCompletionsRequest converts a Responses API request into a
 // Chat Completions request for upstreams that only implement
 // /v1/chat/completions.
@@ -226,16 +233,16 @@ func responsesInputToChatMessagesWithRegistry(instructions string, registry *Res
 		return messages, nil
 	}
 
-	built, err := buildChatMessagesFromItems(messages, registry.inputItems, registry, capabilities)
+	built, mediaByCallID, err := buildChatMessagesFromItems(messages, registry.inputItems, registry, capabilities)
 	if err != nil {
 		return nil, err
 	}
-	return normalizeChatMessages(built), nil
+	return normalizeChatMessagesWithToolOutputMedia(built, mediaByCallID), nil
 }
 
 // buildChatMessagesFromItems walks the Responses input items and appends the
 // corresponding Chat messages.
-func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessage, registry *ResponsesToolRegistry, capabilities ChatCompletionsCapabilities) ([]ChatMessage, error) {
+func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessage, registry *ResponsesToolRegistry, capabilities ChatCompletionsCapabilities) ([]ChatMessage, toolOutputMediaByCallID, error) {
 	// pendingReasoning holds the reasoning text from a reasoning item until the
 	// assistant message it belongs to is emitted. DeepSeek's thinking mode
 	// requires the reasoning_content that produced a tool call to be passed back
@@ -243,6 +250,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 	// across an assistant message (so a following tool call in the same turn
 	// still receives it); any other role ends the thinking span.
 	var pendingReasoning string
+	mediaByCallID := make(toolOutputMediaByCallID)
 
 	for inputItemIndex, raw := range rawItems {
 		raw = bytesTrimSpace(raw)
@@ -259,7 +267,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 				pendingReasoning = ""
 				continue
 			}
-			return nil, fmt.Errorf("parse responses input item: %w", err)
+			return nil, nil, fmt.Errorf("parse responses input item: %w", err)
 		}
 
 		role := chatCompletionsBridgeRole(rawString(item["role"]))
@@ -281,7 +289,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 			if ns := rawString(item["namespace"]); ns != "" {
 				registeredName, ok, err := registry.chatNameForResponseToolAt(inputItemIndex, ns, name)
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				if ok {
 					name = registeredName
@@ -303,11 +311,11 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 		case "tool_search_call":
 			execution := rawString(item["execution"])
 			if err := validateClientToolSearchExecution(execution, capabilities); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			callID := rawString(item["call_id"])
 			if callID == "" {
-				return nil, fmt.Errorf("client tool_search_call is missing call_id")
+				return nil, nil, fmt.Errorf("client tool_search_call is missing call_id")
 			}
 			// tool_search 调用的 arguments 是 JSON 对象（如 {"query": ...}），
 			// 原文即为降级 function 调用的 arguments 字符串。
@@ -348,15 +356,32 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 		case "tool_search_output":
 			execution := rawString(item["execution"])
 			if err := validateClientToolSearchExecution(execution, capabilities); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			callID := rawString(item["call_id"])
 			if callID == "" {
-				return nil, fmt.Errorf("tool_search_output without call_id cannot be represented as a Chat Completions tool result")
+				return nil, nil, fmt.Errorf("tool_search_output without call_id cannot be represented as a Chat Completions tool result")
 			}
 			toolsRaw := bytesTrimSpace(item["tools"])
 			if len(toolsRaw) == 0 || string(toolsRaw) == "null" {
-				return nil, fmt.Errorf("tool_search_output %q is missing tools", callID)
+				outputRaw := bytesTrimSpace(item["output"])
+				if len(outputRaw) == 0 || string(outputRaw) == "null" {
+					return nil, nil, fmt.Errorf("tool_search_output %q is missing tools or output", callID)
+				}
+				delete(mediaByCallID, callID)
+				outputText, media, rewritten := extractToolOutputMedia(outputRaw)
+				if rewritten {
+					mediaByCallID[callID] = media
+				} else {
+					outputText = rawString(outputRaw)
+					if outputText == "" && string(outputRaw) != `""` {
+						outputText = string(outputRaw)
+					}
+				}
+				content, _ := json.Marshal(outputText)
+				messages = append(messages, ChatMessage{Role: "tool", ToolCallID: callID, Content: content})
+				pendingReasoning = ""
+				continue
 			}
 			// A later copy with the same call_id updates the current tool registry,
 			// but it is not a second Chat tool result for the original call. Keep the
@@ -378,15 +403,25 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 			continue
 		case "function_call_output", "custom_tool_call_output":
 			outputRaw := bytesTrimSpace(item["output"])
-			outputText := rawString(outputRaw)
-			if outputText == "" && len(outputRaw) > 0 && string(outputRaw) != "null" && string(outputRaw) != `""` {
-				// 对象/数组形式的工具输出整体字符串化。
-				outputText = string(outputRaw)
+			callID := rawString(item["call_id"])
+			delete(mediaByCallID, callID)
+
+			outputText, media, rewritten := extractToolOutputMedia(outputRaw)
+			if rewritten {
+				if callID != "" {
+					mediaByCallID[callID] = media
+				}
+			} else {
+				outputText = rawString(outputRaw)
+				if outputText == "" && len(outputRaw) > 0 && string(outputRaw) != "null" && string(outputRaw) != `""` {
+					// 对象/数组形式的输出（如 tool_search 的结果列表）整体字符串化。
+					outputText = string(outputRaw)
+				}
 			}
 			content, _ := json.Marshal(outputText)
 			messages = append(messages, ChatMessage{
 				Role:       "tool",
-				ToolCallID: rawString(item["call_id"]),
+				ToolCallID: callID,
 				Content:    content,
 			})
 			pendingReasoning = ""
@@ -403,7 +438,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 				ImageURL: item["image_url"],
 			})
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			messages = append(messages, ChatMessage{Role: "user", Content: content})
 			pendingReasoning = ""
@@ -429,7 +464,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 		}
 		chatContent, err := responsesContentToChatContent(content, role)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		messages = append(messages, ChatMessage{Role: role, Content: chatContent})
 		// Reasoning only survives across an assistant text message.
@@ -438,7 +473,141 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 		}
 	}
 
-	return messages, nil
+	return messages, mediaByCallID, nil
+}
+
+// extractToolOutputMedia rewrites only recognized image nodes. Media-free
+// outputs return rewritten=false so the caller can preserve their original
+// bytes and prompt-cache prefix.
+func extractToolOutputMedia(outputRaw json.RawMessage) (string, []ChatContentPart, bool) {
+	outputRaw = bytesTrimSpace(outputRaw)
+	if len(outputRaw) == 0 || string(outputRaw) == "null" {
+		return "", nil, false
+	}
+
+	var outputString string
+	if err := json.Unmarshal(outputRaw, &outputString); err == nil {
+		if isToolOutputImageDataURL(outputString) {
+			return toolOutputMediaMarker, []ChatContentPart{toolOutputImagePart(outputString)}, true
+		}
+
+		nested, ok := decodeToolOutputJSON([]byte(outputString))
+		if !ok {
+			return "", nil, false
+		}
+		rewritten, media, changed := rewriteToolOutputMediaValue(nested)
+		if !changed {
+			return "", nil, false
+		}
+		encoded, err := json.Marshal(rewritten)
+		if err != nil {
+			return "", nil, false
+		}
+		return string(encoded), media, true
+	}
+
+	value, ok := decodeToolOutputJSON(outputRaw)
+	if !ok {
+		return "", nil, false
+	}
+	rewritten, media, changed := rewriteToolOutputMediaValue(value)
+	if !changed {
+		return "", nil, false
+	}
+	encoded, err := json.Marshal(rewritten)
+	if err != nil {
+		return "", nil, false
+	}
+	return string(encoded), media, true
+}
+
+func decodeToolOutputJSON(raw []byte) (any, bool) {
+	if !json.Valid(raw) {
+		return nil, false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, false
+	}
+	return value, true
+}
+
+func rewriteToolOutputMediaValue(value any) (any, []ChatContentPart, bool) {
+	switch typed := value.(type) {
+	case []any:
+		var media []ChatContentPart
+		changed := false
+		for i, item := range typed {
+			rewritten, itemMedia, itemChanged := rewriteToolOutputMediaValue(item)
+			if !itemChanged {
+				continue
+			}
+			typed[i] = rewritten
+			media = append(media, itemMedia...)
+			changed = true
+		}
+		return typed, media, changed
+	case map[string]any:
+		if imageURL, ok := recognizedToolOutputImageURL(typed); ok {
+			return map[string]any{
+				"type": "input_text",
+				"text": toolOutputMediaMarker,
+			}, []ChatContentPart{toolOutputImagePart(imageURL)}, true
+		}
+
+		content, ok := typed["content"]
+		if !ok {
+			return typed, nil, false
+		}
+		rewritten, media, changed := rewriteToolOutputMediaValue(content)
+		if !changed {
+			return typed, nil, false
+		}
+		typed["content"] = rewritten
+		return typed, media, true
+	default:
+		return value, nil, false
+	}
+}
+
+func recognizedToolOutputImageURL(value map[string]any) (string, bool) {
+	partType, _ := value["type"].(string)
+	if partType != "input_image" && partType != "image_url" {
+		return "", false
+	}
+
+	switch imageURL := value["image_url"].(type) {
+	case string:
+		return imageURL, strings.TrimSpace(imageURL) != ""
+	case map[string]any:
+		url, _ := imageURL["url"].(string)
+		return url, strings.TrimSpace(url) != ""
+	default:
+		return "", false
+	}
+}
+
+func isToolOutputImageDataURL(value string) bool {
+	const prefix = "data:image/"
+	const separator = ";base64,"
+	if !strings.HasPrefix(value, prefix) {
+		return false
+	}
+	separatorIndex := strings.Index(value[len(prefix):], separator)
+	if separatorIndex <= 0 {
+		return false
+	}
+	payloadIndex := len(prefix) + separatorIndex + len(separator)
+	return payloadIndex < len(value)
+}
+
+func toolOutputImagePart(imageURL string) ChatContentPart {
+	return ChatContentPart{
+		Type:     "image_url",
+		ImageURL: &ChatImageURL{URL: imageURL},
+	}
 }
 
 // appendAssistantToolCall merges a tool call into the chat message list.
@@ -479,6 +648,10 @@ func appendAssistantToolCall(messages []ChatMessage, toolCall ChatToolCall, pend
 // tool replies and intervening messages are emitted in their natural position
 // but never between an assistant tool_calls message and its replies.
 func normalizeChatMessages(messages []ChatMessage) []ChatMessage {
+	return normalizeChatMessagesWithToolOutputMedia(messages, nil)
+}
+
+func normalizeChatMessagesWithToolOutputMedia(messages []ChatMessage, mediaByCallID toolOutputMediaByCallID) []ChatMessage {
 	// Index every tool reply by its tool_call_id (last wins on duplicates).
 	replies := make(map[string]ChatMessage)
 	for _, m := range messages {
@@ -524,6 +697,23 @@ func normalizeChatMessages(messages []ChatMessage) []ChatMessage {
 			out = append(out, m)
 			for _, tc := range kept {
 				out = append(out, replies[tc.ID])
+			}
+
+			var mediaParts []ChatContentPart
+			for _, tc := range kept {
+				media := mediaByCallID[tc.ID]
+				if len(media) == 0 {
+					continue
+				}
+				mediaParts = append(mediaParts, ChatContentPart{
+					Type: "text",
+					Text: fmt.Sprintf(toolOutputMediaAttribution, tc.ID),
+				})
+				mediaParts = append(mediaParts, media...)
+			}
+			if len(mediaParts) > 0 {
+				content, _ := json.Marshal(mediaParts)
+				out = append(out, ChatMessage{Role: "user", Content: content})
 			}
 		default:
 			out = append(out, m)

@@ -1,5 +1,76 @@
 # 上游合并记录
 
+## 2026-08-03 - 将上游 `main` 合并到 `dev-zz-develop`：利润控制、计费可靠性与管理端批量能力合流
+
+分支：
+
+- 目标：`dev-zz-develop`
+- 上游：`main`（与 `origin/main` 同为 `825ca7b1f`）
+- Base：`d29acc29a`
+- 合并前目标：`7d0201e49`
+- 上游 head：`825ca7b1f`
+- 结果提交：本次合并提交
+
+上游要点：
+
+- 新增分组级利润控制：按平台、分组倍率、账号成本倍率和安全缓冲计算准入阈值，并把 veto 传播到普通、OpenAI、图片与 WebSocket 调度；配套迁移 `192_group_profit_control.sql`、`193_group_profit_control_auth_cache_invalidation.sql`、预览命令与管理端配置。
+- 上游账单探测扩展到多 API Key 平台，可在受控开关、倍率上限和抑制策略下把官方声明倍率回写账号；账号编辑、批量探测和列表显示同步刷新倍率。
+- OpenAI 增强 reset-credit 恢复、刷新缓存、SSE `429`、Messages 临时错误 failover、请求取消、负载削峰、namespace 工具、工具输出媒体、WebSocket turn 计价和 compact 恢复；Anthropic 中断流保留已观察 usage。
+- 认证刷新 token 轮换避免并发竞态；支付退款补充余额不足强制确认和 Stripe 幂等；SMTP 测试与发送统一连接路径，内容审核可走配置代理，提示词审计增加窄范围阻断。
+- 管理端账号支持按完整筛选结果全选，Home 增加 compact preset；模型广场视觉与排序调整。上游版本推进到 `0.1.170`。
+
+合并策略：
+
+- 合并前读取 `branch-policy.md`、`maintenance/merge-main.md`、最近补丁 / 合并 / 变更记录、变更地图和验证矩阵；确认本地 `main` 与 `origin/main` 一致、目标工作区干净且 `origin/dev-zz` 没有待吸收提交。
+- 先以 merge-base `d29acc29a` 执行 `git merge-tree --write-tree --messages --name-only` 预演，再执行 `git merge --no-commit main`；预演与真实合并得到相同的 19 个冲突。
+- 接受上游利润控制、倍率回写治理、网关 / 支付 / 认证 / 邮件正确性、compact Home 和筛选结果全选；继续保留 dev-zz 企业成员原子结算、候选路由与最终归因、模型多协议交付、账号归档、共享模型目录、stone / neutral / emerald 视觉、长期数据保留和 `1.7.25` 版本线。
+
+冲突文件：
+
+- `backend/cmd/server/VERSION`
+- `backend/ent/client.go`
+- `backend/internal/handler/admin/setting_handler_platform_quota_test.go`
+- `backend/internal/handler/gateway_handler.go`
+- `backend/internal/handler/grok_media.go`
+- `backend/internal/handler/openai_gateway_handler.go`
+- `backend/internal/pkg/apicompat/chatcompletions_responses_bridge.go`
+- `backend/internal/service/admin_group.go`
+- `backend/internal/service/api_key_auth_cache_impl.go`
+- `backend/internal/service/openai_account_scheduler.go`
+- `backend/internal/service/openai_gateway_messages_chat_fallback.go`
+- `backend/internal/service/openai_gateway_scheduling.go`
+- `frontend/src/components/account/EditAccountModal.vue`
+- `frontend/src/components/modelPlaza/PlazaFilterBar.vue`
+- `frontend/src/components/modelPlaza/PlazaGroupSection.vue`
+- `frontend/src/components/modelPlaza/PlazaModelPricingTable.vue`
+- `frontend/src/components/modelPlaza/PlazaModelPricingTable.spec.ts`
+- `frontend/src/views/HomeView.vue`
+- `frontend/src/views/admin/AccountsView.vue`
+
+解决说明：
+
+- `VERSION` 保持 dev-zz `1.7.25`；Ent client 保留企业成员实体 hooks / interceptors，同时吸收新 Group 利润字段。认证快照提升到 `v21`，强制刷新并合并利润、计价、企业成员与 OpenAI Live 字段。
+- 普通网关、OpenAI 与 Grok media 同时接入利润 gate / veto 统计和上游 partial usage 记录，并保留企业成员候选编排、预算、最终 `ActiveGroup` 与媒体任务持久化。完整服务测试发现上游“计费失败写未结算日志”会破坏成员结算原子性，最终限定为普通请求保留未结算日志、企业成员继续 fail-closed 且不做独立 usage 写入。
+- OpenAI 调度同时保留 sticky 绑定与利润 veto；代理隔离 fail-open 只放宽隔离偏好，不丢失定价预检 bypass。Messages fallback 叠加 reasoning effort、Fast / Flex 和 business-limited 策略；WebSocket 继续锁定首 turn 的公共模型 / 上游模型映射。
+- Responses → Chat 工具桥保留 dev-zz 显式 `execution=client`、namespace、动态注册与资源边界，同时吸收上游工具输出文本 / 图片提取；带 `.tools` 的 `tool_search_output` 继续注册动态工具，只有 `.output` 时按工具结果回放。
+- Group 设置同时执行平台规范化、利润字段校验和 dev-zz OpenAI Messages dispatch 校验。账号编辑同时保存供应商、cache token 与受控账单倍率回写配置。
+- 模型广场继续使用 dev-zz 共享 marketplace 组件、Select 筛选和紧凑 stone / neutral / emerald 布局；已被共享目录替代的旧 Group/Pricing 组件保持删除，不恢复倍率筛选。Home 同时遵守自定义内容、compact preset 与模型广场入口开关。
+- 账号页吸收筛选结果全选和批量操作状态，但继续使用 dev-zz 归档生命周期，不把上游批量硬删除作为当前页面操作；成本视图、普通列表、供应商上下文和批量归档保持隔离。
+- 合并后的上游测试按当前构建边界修正：依赖 unit-only channel repository 的调度用例移入 `unit` 测试文件，构造器补齐企业预算 / Grok repository 参数，Home 与账号选择用例使用当前 Pinia、视觉根节点和共享 checkbox 合同。
+
+验证：
+
+- `apicompat` 工具输出媒体 / Tool Search / namespace 定向测试通过；service 默认与 `unit` 利润、reasoning、sticky、scheduler、Messages、账单探测、退款和取消定向测试通过。
+- handler、admin handler、`apicompat` 和 migrations 定向测试通过；覆盖利润 gate、平台设置、quota reset、工具输出、compact / cancellation 等冲突影响面。
+- `go test -tags=unit ./internal/service -count=1` 全包通过；handler、admin handler、routes、`apicompat` 和 migrations 的 `unit` 全包通过。
+- 前端冲突相关 8 个测试文件、109 条用例与关键回归 8 个测试文件、133 条用例通过；typecheck、ESLint 与生产构建通过，输出只有既有 browserslist、动态导入和大 chunk 提示。
+- Ent / Wire 重新生成完成，后端 `1.7.25` 二进制构建通过；docs-site 生产构建通过。Go 格式、staged whitespace 和冲突标记检查通过。
+
+未验证：
+
+- 真实 PostgreSQL 迁移、Redis 认证缓存失效、上游账单探测与倍率回写、OpenAI / Anthropic 流式错误、支付 / SMTP / 内容审核代理运行时。
+- 浏览器人工 compact Home、筛选结果全选、账号归档、模型广场与利润控制表单 smoke；Docker 镜像 / Compose 运行时未验证。
+
 ## 2026-07-31 - 将上游 `main` 合并到 `dev-zz-develop`：网关安全、订阅窗口与支付配置正确性合流
 
 分支：

@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -2489,4 +2491,63 @@ func TestUpdate_MappingConflict(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "MAPPING_PATTERN_CONFLICT")
+}
+
+// This test uses the unit-only channel repository helpers above, so it must live
+// in the unit-tagged suite instead of the default scheduler test file.
+func TestOpenAIGatewayService_SelectAccountWithScheduler_FailOpenPreservesPricingBypass(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
+	groupID := int64(5057)
+	proxyID := int64(5057)
+	channelSvc := newTestChannelService(makeStandardRepo(Channel{
+		ID:                 5057,
+		Status:             StatusActive,
+		GroupIDs:           []int64{groupID},
+		RestrictModels:     true,
+		BillingModelSource: BillingModelSourceRequested,
+		ModelPricing: []ChannelModelPricing{{
+			Platform: PlatformOpenAI,
+			Models:   []string{"priced-model"},
+		}},
+	}, map[int64]string{groupID: PlatformOpenAI}))
+	cfg := &config.Config{}
+	cfg.Gateway.Scheduling.LoadBatchEnabled = false
+	svc := &OpenAIGatewayService{
+		accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{{
+			ID: 505701, Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+			Status: StatusActive, Schedulable: true, Concurrency: 1,
+			GroupIDs: []int64{groupID}, ProxyID: &proxyID,
+		}}},
+		channelService:     channelSvc,
+		cfg:                cfg,
+		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+		openaiProxyStreamCircuit: newOpenAIProxyStreamCircuit(openAIProxyStreamCircuitSettings{
+			failureThreshold: 1,
+			failureWindow:    time.Minute,
+			quarantineTTL:    10 * time.Minute,
+			maxEntries:       16,
+		}),
+	}
+	tripped, _ := svc.openaiProxyStreamCircuit.recordFailure(proxyID, time.Now())
+	require.True(t, tripped)
+
+	selection, _, err := svc.selectAccountWithScheduler(
+		context.Background(), &groupID, "", "", "unpriced-model", nil,
+		OpenAIUpstreamTransportAny, "", "", false, PlatformOpenAI,
+		false, false, true,
+	)
+	require.NoError(t, err, "the quarantine retry must preserve the caller's pricing precheck bypass")
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, int64(505701), selection.Account.ID)
+
+	_, _, err = svc.selectAccountWithScheduler(
+		context.Background(), &groupID, "", "", "unpriced-model", nil,
+		OpenAIUpstreamTransportAny, "", "", false, PlatformOpenAI,
+		false, false, false,
+	)
+	require.ErrorIs(t, err, ErrNoAvailableAccounts,
+		"without the explicit bypass, the pricing restriction must still reject the model")
 }

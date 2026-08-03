@@ -1,5 +1,34 @@
 # 补丁记录
 
+## 2026-08-03 - 上游 main 同步：利润控制、账单倍率治理与管理端批量能力
+
+### 目标
+
+- 将 `main@825ca7b1f` 合入 `dev-zz-develop`，吸收分组利润准入、账单探测倍率回写、OpenAI / Anthropic usage 可靠性、认证 / 支付 / SMTP 正确性、compact Home 和筛选结果全选。
+- 保持 dev-zz 企业成员原子预算 / 计费 / 归因、模型多协议交付、账号归档、共享公开模型目录、长期证据、stone / neutral / emerald 视觉和 `1.7.25` 版本线不回退。
+
+### 主要变化
+
+- 分组可按平台开启利润控制并配置最低利润率与安全缓冲；调度在账号 slot 复核后按分组客户倍率和账号成本倍率 veto 不合格候选，普通、OpenAI、图片、WebSocket 和 failover 路径共用同一 gate。新增预览命令、管理端表单和 activity 指标。
+- 上游账单探测扩展到多 API Key 平台；只有显式允许、探测可信且倍率在上限内时才写回账号 `rate_multiplier`，列表、编辑和批量探测会刷新最新倍率。
+- OpenAI 补齐 reset-credit 缓存 / 恢复、Messages 临时错误切换、SSE `429`、请求取消、负载削峰、namespace 工具和工具输出媒体；Anthropic 中断流保留已观察 usage。Responses → Chat 仍要求 client 工具显式声明 `execution=client`。
+- 普通计费失败继续写 `ActualCost=0` 的未结算 usage 证据；企业成员因预算结算、usage 和最终归因必须原子化，任何事务仓储缺失 / 失败继续 fail-closed，不做独立 usage 写入。
+- 管理端账号支持按完整筛选结果全选并作用于既有批量编辑、探测和归档；Home 可启用 compact preset。账号仍以归档代替页面硬删除，公开模型列表仍复用共享 marketplace，不恢复上游已被替代的旧价格组件或倍率筛选。
+- 刷新 token 轮换避免并发竞态；退款余额不足要求显式强制确认，Stripe refund 保持幂等；SMTP 发送 / 测试共用连接路径，内容审核可使用配置代理，提示词审计支持窄范围阻断。
+
+### 数据与兼容性
+
+- 新增 `192_group_profit_control.sql` 与 `193_group_profit_control_auth_cache_invalidation.sql`；Group schema、Ent 生成物与 API DTO 增加利润字段。
+- 认证快照版本为 `v21`，合并保留利润控制、计价、企业成员和 OpenAI Live 字段并强制旧缓存回源。
+- `VERSION` 保持 `1.7.25`，不采用上游 `0.1.170`；没有新增前端或 Go 依赖。
+
+### 验证
+
+- 后端 service `unit` 全包通过；handler、admin handler、routes、`apicompat` 和 migrations 的关键定向 / `unit` 测试通过。
+- 前端冲突相关 8 个测试文件、109 条测试与关键回归 8 个测试文件、133 条测试通过；typecheck、ESLint 和生产构建通过。
+- Ent / Wire 重新生成、后端二进制构建、docs-site 生产构建、Go 格式、whitespace 和冲突标记检查通过。
+- 真实 PostgreSQL / Redis、上游账单 / 模型流、支付 / SMTP / 代理、浏览器和 Docker 运行时 smoke 未执行。
+
 ## 2026-07-31 - 上游 main 同步：网关安全、订阅窗口与支付配置正确性
 
 ### 目标
