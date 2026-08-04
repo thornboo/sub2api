@@ -35,12 +35,16 @@ func TestFilterPublicStandardGroups_ExcludesExclusiveAndSubscriptionGroups(t *te
 
 func TestBuildAvailableChannelCatalog_PublicUsesSharedDeliveryProjection(t *testing.T) {
 	inputPrice := 0.000001
+	imagePrice1K := 0.02
 	channels := []service.AvailableChannel{
 		{
 			Name:   "deepseek",
 			Status: service.StatusActive,
 			Groups: []service.AvailableGroupRef{
-				{ID: 1, Name: "public", Platform: service.PlatformOpenAI, SubscriptionType: service.SubscriptionTypeStandard},
+				{
+					ID: 1, Name: "public", Platform: service.PlatformOpenAI, SubscriptionType: service.SubscriptionTypeStandard,
+					ImageRateIndependent: true, ImageRateMultiplier: 0.5, ImagePrice1K: &imagePrice1K,
+				},
 				{ID: 2, Name: "exclusive", Platform: service.PlatformOpenAI, SubscriptionType: service.SubscriptionTypeStandard, IsExclusive: true},
 				{ID: 3, Name: "subscription", Platform: service.PlatformOpenAI, SubscriptionType: service.SubscriptionTypeSubscription},
 			},
@@ -100,6 +104,10 @@ func TestBuildAvailableChannelCatalog_PublicUsesSharedDeliveryProjection(t *test
 	section := out[0].Platforms[0]
 	require.Len(t, section.Groups, 1)
 	require.Equal(t, int64(1), section.Groups[0].ID)
+	require.True(t, section.Groups[0].ImageRateIndependent)
+	require.InDelta(t, 0.5, section.Groups[0].ImageRateMultiplier, 1e-12)
+	require.NotNil(t, section.Groups[0].ImagePrice1K)
+	require.InDelta(t, 0.02, *section.Groups[0].ImagePrice1K, 1e-12)
 	require.Len(t, section.SupportedModels, 1)
 	require.Equal(t, []int64{1}, section.SupportedModels[0].RouteGroupIDs)
 	require.Equal(t, []userSupportedEndpoint{{

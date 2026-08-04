@@ -284,7 +284,6 @@ import GroupBadge from '@/components/common/GroupBadge.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import {
-  BILLING_MODE_IMAGE,
   BILLING_MODE_TOKEN,
 } from '@/constants/channel'
 import type { GroupPlatform, SubscriptionType } from '@/types'
@@ -295,7 +294,7 @@ import {
   formatCompactRequestPrice,
   formatCompactTokenPrice,
   formatRateMultiplier,
-  resolveAvailableGroupRateMultiplier,
+  resolveAvailableGroupPriceMultiplier,
   type AvailableChannelPricingLabels,
 } from '@/utils/availableChannelsCatalog'
 import type { AvailableModelMarketplaceCard } from '@/utils/availableModelMarketplace'
@@ -346,9 +345,7 @@ function pricingUnit(pricing: UserSupportedModelPricing): string {
 }
 
 function requestPrice(card: AvailableModelMarketplaceCard, pricing: UserSupportedModelPricing): string {
-  const value = pricing.billing_mode === BILLING_MODE_IMAGE
-    ? pricing.image_output_price
-    : pricing.per_request_price
+  const value = pricing.per_request_price
   return `${formatCompactRequestPrice(displayPrice(card, value))} ${props.pricingLabels.unitPerRequest}`
 }
 
@@ -361,7 +358,7 @@ function tieredPricing(
   pricing: UserSupportedModelPricing,
 ): string {
   return formatAvailableChannelIntervals(
-    scalePricing(pricing, priceMultiplier(card)),
+    scalePricing(pricing, priceMultiplier(card, pricing)),
     props.pricingLabels,
     { compact: true },
   )
@@ -371,9 +368,16 @@ function displayPrice(card: AvailableModelMarketplaceCard, value: number | null)
   return value == null ? null : value * priceMultiplier(card)
 }
 
-function priceMultiplier(card: AvailableModelMarketplaceCard): number {
+function priceMultiplier(
+  card: AvailableModelMarketplaceCard,
+  pricing: UserSupportedModelPricing | null = card.pricingOptions[0] ?? null,
+): number {
   if (!props.applyRateMultiplier) return 1
-  return resolveAvailableGroupRateMultiplier(card.group, props.userGroupRates)
+  return resolveAvailableGroupPriceMultiplier(
+    card.group,
+    props.userGroupRates,
+    pricing?.billing_mode,
+  )
 }
 
 function hasAdjustedPrice(card: AvailableModelMarketplaceCard): boolean {

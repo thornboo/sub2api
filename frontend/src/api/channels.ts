@@ -15,6 +15,13 @@ export interface UserAvailableGroup {
   subscription_type: string
   /** 分组默认倍率。用户专属倍率（若有）通过 /groups/rates 获取后在前端 join。 */
   rate_multiplier: number
+  /** 图片计费使用独立倍率时，不再叠加分组或用户专属倍率。 */
+  image_rate_independent?: boolean
+  image_rate_multiplier?: number
+  /** 分组图片档位价；存在任一档时按实际计费回落规则生成 1K / 2K / 4K 展示价。 */
+  image_price_1k?: number | null
+  image_price_2k?: number | null
+  image_price_4k?: number | null
   peak_rate_enabled: boolean
   peak_start: string
   peak_end: string

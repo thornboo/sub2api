@@ -54,6 +54,30 @@ HTTP 首输出超时包含等待响应头的时间，只用于 native Responses�
 
 第一阶段只新增 OpenAI APIKey 账号的原生 Anthropic Messages 传输。`openai_responses_mode` 继续是账号级路由偏好，不迁入能力表；`AllowMessagesDispatch` 继续是分组是否允许 `/v1/messages` 的真相源。
 
+## 认证验证码提供商
+
+认证验证码保存在 DB settings 中，由“系统设置 → 安全”热配置，无需重启或数据库迁移。Cloudflare Turnstile、腾讯天御和阿里云验证码 2.0 同一时间最多启用一家；前端使用单选主控，服务端仍会拒绝多 provider 同时启用的 payload。
+
+| Provider | 关键设置 | 说明 |
+| --- | --- | --- |
+| Cloudflare Turnstile | `turnstile_enabled`、`turnstile_site_key`、`turnstile_secret_key` | 既有 provider |
+| 腾讯天御 | `tencent_captcha_enabled`、`tencent_captcha_app_id`、App Secret、Cloud Secret ID / Key | 前端 ticket + randstr，服务端调用腾讯 API 校验 |
+| 阿里云验证码 2.0 | `aliyun_captcha_enabled`、AccessKey ID / Secret、Scene ID、Prefix、Region | Region 只接受 `cn` / `sgp` 并决定前端脚本与服务端 endpoint |
+
+secret 在管理 API 只返回 configured 状态，公开设置只返回客户端初始化所需字段。自定义 CSP 时必须自行包含所选 provider 的官方脚本 / 样式 / frame 来源；默认 CSP 与 `deploy/config.example.yaml` 已覆盖腾讯、阿里和 Turnstile。
+
+## OpenAI Codex 出站身份与版本
+
+| 配置 / setting | 默认值 | 说明 |
+| --- | ---: | --- |
+| `gateway.disable_codex_identity_enforcement` | `false` | `false` 时统一重建 OAuth 出站 User-Agent、originator 与版本字段；只在上游策略变化需要回滚时关闭强制统一 |
+| `gateway.disable_codex_originator_normalization` | `false` | 旧兼容键；任一 disable 键为 `true` 都关闭强制统一，新部署不要继续使用旧键 |
+| `openai_codex_version_auto_sync_enabled` | `true` | DB setting；每 6 小时同步官方最新稳定版，启动带防抖 |
+| `openai_codex_client_version` | 空 | 管理员覆写；非空时优先于自动同步值 |
+| `openai_codex_client_version_synced` | 空 | runner 独占写入的最近同步值，管理端只读 |
+
+版本优先级为“管理员覆写 > 自动同步值 > 内置回退”。latest release 查询失败时会回退 release 列表；网络或存储失败保留当前可用版本，不阻断网关请求。
+
 ## OpenAI Live
 
 | 配置 / 字段 | 默认值 | 说明 |

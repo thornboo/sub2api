@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import AvailableModelMarketplace from '../AvailableModelMarketplace.vue'
 import type { AvailableModelMarketplaceCard } from '@/utils/availableModelMarketplace'
-import { BILLING_MODE_TOKEN } from '@/constants/channel'
+import { BILLING_MODE_IMAGE, BILLING_MODE_TOKEN } from '@/constants/channel'
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -258,5 +258,64 @@ describe('AvailableModelMarketplace', () => {
     expect(card.find('[data-testid="original-output-price"]').exists()).toBe(false)
     expect(card.find('[data-testid="price-discount"]').exists()).toBe(false)
     expect(card.find('[data-testid="price-group-rate"]').exists()).toBe(false)
+  })
+
+  it('uses image request tiers and the independent image multiplier', () => {
+    const imagePricing = {
+      billing_mode: BILLING_MODE_IMAGE,
+      input_price: null,
+      output_price: null,
+      cache_write_price: null,
+      cache_read_price: null,
+      image_input_price: null,
+      image_output_price: 0.00003,
+      per_request_price: 0.2,
+      intervals: [{
+        min_tokens: 0,
+        max_tokens: null,
+        tier_label: '1K',
+        input_price: null,
+        output_price: null,
+        cache_write_price: null,
+        cache_read_price: null,
+        per_request_price: 0.02,
+      }],
+    }
+    const imageGroup = {
+      ...publicGroup,
+      rate_multiplier: 0.1,
+      image_rate_independent: true,
+      image_rate_multiplier: 1,
+    }
+    const imageCard: AvailableModelMarketplaceCard = {
+      id: '1::gpt-image-2',
+      name: 'gpt-image-2',
+      group: imageGroup,
+      platforms: ['openai'],
+      channelNames: ['images'],
+      endpoints: [],
+      pricingOptions: [imagePricing],
+      routes: [{
+        id: 'image-route',
+        channelName: 'images',
+        channelDescription: '',
+        platform: 'openai',
+        group: imageGroup,
+        pricing: imagePricing,
+        endpoints: [],
+      }],
+    }
+
+    const wrapper = mountMarketplace({
+      cards: [imageCard],
+      applyRateMultiplier: true,
+      userGroupRates: { 1: 0.01 },
+    })
+    const text = wrapper.get('[data-testid="available-model-card"]').text()
+
+    expect(text).toContain('$0.2 / 次')
+    expect(text).toContain('1K: $0.02')
+    expect(text).not.toContain('$0.00003')
+    expect(text).not.toContain('$0.002')
   })
 })

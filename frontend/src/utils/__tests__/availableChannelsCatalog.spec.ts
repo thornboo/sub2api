@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { UserAvailableChannel } from '@/api/channels'
-import { BILLING_MODE_PER_REQUEST, BILLING_MODE_TOKEN } from '@/constants/channel'
+import { BILLING_MODE_IMAGE, BILLING_MODE_PER_REQUEST, BILLING_MODE_TOKEN } from '@/constants/channel'
 import {
   buildAvailableChannelCatalogRows,
   formatChannelStatus,
@@ -31,6 +31,71 @@ const labels: AvailableChannelPricingLabels = {
 }
 
 describe('availableChannelsCatalog', () => {
+	// Group-specific image pricing is resolved here so the table, export and
+	// marketplace share the settlement precedence instead of drifting apart.
+	it('uses group image tiers and the independent image multiplier without mutating channel pricing', () => {
+		const channelPricing = {
+			billing_mode: BILLING_MODE_IMAGE,
+			input_price: null,
+			output_price: null,
+			cache_write_price: null,
+			cache_read_price: null,
+			image_input_price: null,
+			image_output_price: 0.00003,
+			per_request_price: 0.2,
+			intervals: [{
+				min_tokens: 0,
+				max_tokens: null,
+				tier_label: '4K',
+				input_price: null,
+				output_price: null,
+				cache_write_price: null,
+				cache_read_price: null,
+				per_request_price: 0.3,
+			}],
+		}
+		const channels: UserAvailableChannel[] = [{
+			name: 'Image Channel',
+			description: '',
+			platforms: [{
+				platform: 'openai',
+				groups: [{
+					id: 1,
+					name: 'images',
+					platform: 'openai',
+					subscription_type: 'standard',
+					rate_multiplier: 0.1,
+					image_rate_independent: true,
+					image_rate_multiplier: 0.5,
+					image_price_1k: 0.02,
+					image_price_2k: null,
+					image_price_4k: null,
+					peak_rate_enabled: false,
+					peak_start: '',
+					peak_end: '',
+					peak_rate_multiplier: 1,
+					is_exclusive: false,
+				}],
+				supported_models: [{
+					name: 'gpt-image-2',
+					platform: 'openai',
+					pricing: channelPricing,
+				}],
+			}],
+		}]
+
+		const rows = buildAvailableChannelCatalogRows(channels, {
+			expandIntervals: true,
+			userGroupRates: { 1: 0.01 },
+		})
+
+		expect(rows.map((row) => row.intervalLabel)).toEqual(['1K', '2K', '4K'])
+		expect(rows.map((row) => row.effectiveRateMultiplier)).toEqual([0.5, 0.5, 0.5])
+		expect(rows.map(getRowPerRequestPrice)).toEqual([0.01, 0.1, 0.15])
+		expect(channelPricing.intervals).toHaveLength(1)
+		expect(channelPricing.intervals[0].tier_label).toBe('4K')
+	})
+
   it('flattens channel sections into model rows sorted by model then platform', () => {
     const channels: UserAvailableChannel[] = [
       {

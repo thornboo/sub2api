@@ -1,5 +1,73 @@
 # 上游合并记录
 
+## 2026-08-05 - 将上游 `main` 合并到 `dev-zz-develop`：认证验证码、Codex 身份与图片报价口径合流
+
+分支：
+
+- 目标：`dev-zz-develop`
+- 上游：`origin/main`（与本地 `main` 同为 `00b859617`）
+- Base：`825ca7b1f`
+- 合并前目标：`88f24f161`
+- 上游 head：`00b859617`
+- 结果提交：本次合并提交
+
+上游要点：
+
+- 认证人机验证扩展为互斥的 Cloudflare Turnstile、腾讯天御与阿里云验证码 2.0；认证动作和 OAuth 登录启动 / 待建账号流程统一取得并校验 proof，管理端可保存 provider 凭据且审计不继承已存 secret。
+- Codex 出站身份统一由生效版本派生，默认自动跟随官方最新稳定版并允许管理员覆写；版本同步使用 latest 主路径、列表回退、6 小时间隔和启动防抖。WebSocket 租约丢失保留 terminal event，提示词审计补齐 Responses 文本解析。
+- 模型广场图片报价修复为与实收一致的分组档位和独立倍率；订阅续费串行化，管理端消费排行补充用户名，Anthropic OAuth authorize endpoint 切换到 `claude.com/cai`，Grok CLI 固定版本更新。
+- 上游版本推进到 `0.1.171`，并更新赞助商列表与静态资源。
+
+合并策略：
+
+- 合并前完整读取 `docs-site/dev-zz` 的分支策略、上游合并流程、变更地图、最近补丁 / 合并 / 变更记录、共享模型目录设计和验证矩阵；确认工作区干净、本地 `main` 与 `origin/main` 一致，`origin/dev-zz` 没有待吸收提交。
+- 先以 merge-base `825ca7b1f` 执行 `git merge-tree --write-tree --messages --name-only` 预演，再执行 `git merge --no-commit origin/main`；预演与真实合并得到相同的 17 个冲突。
+- 接受上游验证码、Codex 身份 / 版本同步、订阅并发、WebSocket、提示词审计、OAuth、排行和依赖更新；继续保留 dev-zz 共享公开模型目录、LinuxDo / 微信登录注册入口隐藏策略、企业成员合同、stone / neutral / emerald 视觉、长期数据保留和 `1.7.27` 版本线。
+
+冲突文件：
+
+- `backend/cmd/server/VERSION`
+- `backend/cmd/server/wire_gen.go`
+- `backend/go.sum`
+- `backend/internal/handler/admin/setting_handler_platform_quota_test.go`
+- `backend/internal/handler/admin/setting_handler_update.go`
+- `backend/internal/handler/model_plaza_handler.go`
+- `backend/internal/handler/model_plaza_handler_test.go`
+- `backend/internal/service/channel_plaza.go`
+- `backend/internal/service/channel_plaza_test.go`
+- `backend/internal/service/setting_service.go`
+- `frontend/src/api/modelPlaza.ts`
+- `frontend/src/components/modelPlaza/PlazaGroupSection.vue`
+- `frontend/src/components/modelPlaza/PlazaModelPricingTable.vue`
+- `frontend/src/components/modelPlaza/PlazaModelPricingTable.spec.ts`
+- `frontend/src/views/admin/SettingsView.vue`
+- `frontend/src/views/auth/LoginView.vue`
+- `frontend/src/views/auth/RegisterView.vue`
+
+解决说明：
+
+- `VERSION` 保持 dev-zz `1.7.27`，不采用上游 `0.1.171`；Wire 根据合并后的 provider graph 重新生成，`go.sum` 同时保留 dev-zz 与新增腾讯 / 阿里验证码 SDK 的依赖校验。
+- 设置更新继续使用 dev-zz 的提前审计和额外变更记录，同时改用上游的脱敏 `auditReq`，避免未提交的已存腾讯 secret 被误计入审计 diff。设置服务同时保留模型原生多协议缓存和新增 Codex 版本缓存 / singleflight。
+- 公开模型列表和登录可用渠道继续复用 `buildAvailableChannelCatalog`、`AvailableModelMarketplace` 与共享报价工具；旧 `channel_plaza` service、`PlazaGroupSection` 和 `PlazaModelPricingTable` 保持删除，不恢复第二套模型 / 价格 / 端点规则。
+- 上游图片报价修复迁入共享目录：用户分组 DTO 增加图片独立倍率和 `1K / 2K / 4K` 档位价；模型广场、价格表格与导出统一按“分组档位 > 渠道同档位 > 渠道默认按次价”回落，并在独立图片倍率启用时只乘 `image_rate_multiplier`。`image_output_price` 不再被模型卡片误当单张图片价格。
+- 管理端设置页同时保留模型原生多协议保存状态和新增验证码 provider 主选择器。登录 / 注册页吸收 action captcha 与 OAuth start API，但继续隐藏 LinuxDo 和微信入口；对应后端能力、回调页和可复用 OAuth 组件不删除。
+- 上游订阅续费锁、WebSocket terminal event、Responses 审计解析、Codex 身份和 OAuth endpoint 修复按原设计吸收；本轮没有数据库迁移，新增依赖仅来自腾讯与阿里云验证码服务端 SDK。
+
+验证：
+
+- 前端全量 Vitest 通过：259 个测试文件、1739 条用例；覆盖共享图片档位 / 独立倍率、公开模型卡片、验证码和设置冲突面。
+- 后端 `mise x -C backend -- go test -tags unit ./... -count=1` 与 `mise x -C backend -- go test ./... -count=1` 全量通过；`go vet ./...` 和 `go build ./cmd/server` 通过。
+- 本次冲突 / 上游能力的聚焦 `-race` 用例通过，覆盖共享图片价格投影、Codex 版本同步、订阅续期、验证码服务以及 OAuth / 模型广场 handler。
+- 前端 typecheck、全量 ESLint 与生产构建通过；输出只有既有 browserslist、动态 / 静态重复导入和大 chunk 提示。
+- Wire 根据合并后 provider graph 重新生成完成；docs-site 生产构建通过。Go 格式、staged whitespace、冲突标记与未解决索引检查通过。
+
+未验证：
+
+- 真实腾讯天御 / 阿里云验证码、Cloudflare Turnstile、外部 OAuth、GitHub 官方 release API 与上游 Codex / WebSocket 流量。
+- 真实 PostgreSQL / Redis 与 integration testcontainers 运行时；integration 标签测试二进制编译通过，但当前环境在 `TestMain` 因找不到 rootless Docker 而无法启动容器。
+- service 包宽范围组合 `-race` 仍会命中既有测试基建竞争：多个并行测试共同调用全局 `gin.SetMode`，与同时创建 Gin engine 的用例发生读写竞争；本次变更对应的聚焦 race 用例已单独通过，本轮不扩展到无关测试基建重构。
+- 浏览器人工登录 / 注册验证码、管理设置、公开模型页与图片模型报价 smoke；Docker 镜像 / Compose 运行时未验证。
+
 ## 2026-08-03 - 将上游 `main` 合并到 `dev-zz-develop`：利润控制、计费可靠性与管理端批量能力合流
 
 分支：

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { UserAvailableChannel } from '@/api/channels'
-import { BILLING_MODE_TOKEN } from '@/constants/channel'
+import { BILLING_MODE_IMAGE, BILLING_MODE_TOKEN } from '@/constants/channel'
 import { buildAvailableModelMarketplaceCards } from '../availableModelMarketplace'
 
 const publicGroup = {
@@ -129,6 +129,61 @@ const channels: UserAvailableChannel[] = [
 ]
 
 describe('buildAvailableModelMarketplaceCards', () => {
+	it('aggregates group-specific image tiers using settlement fallback precedence', () => {
+		const imageChannels: UserAvailableChannel[] = [{
+			name: 'images',
+			description: '',
+			platforms: [{
+				platform: 'openai',
+				groups: [{
+					...publicGroup,
+					image_rate_independent: true,
+					image_rate_multiplier: 0.5,
+					image_price_1k: 0.02,
+					image_price_2k: null,
+					image_price_4k: null,
+				}],
+				supported_models: [{
+					name: 'gpt-image-2',
+					platform: 'openai',
+					pricing: {
+						billing_mode: BILLING_MODE_IMAGE,
+						input_price: null,
+						output_price: null,
+						cache_write_price: null,
+						cache_read_price: null,
+						image_input_price: null,
+						image_output_price: 0.00003,
+						per_request_price: 0.2,
+						intervals: [{
+							min_tokens: 0,
+							max_tokens: null,
+							tier_label: '4K',
+							input_price: null,
+							output_price: null,
+							cache_write_price: null,
+							cache_read_price: null,
+							per_request_price: 0.3,
+						}],
+					},
+				}],
+			}],
+		}]
+
+		const [card] = buildAvailableModelMarketplaceCards(imageChannels)
+
+		expect(card.pricingOptions).toHaveLength(1)
+		expect(card.pricingOptions[0]?.intervals.map((interval) => [
+			interval.tier_label,
+			interval.per_request_price,
+		])).toEqual([
+			['1K', 0.02],
+			['2K', 0.2],
+			['4K', 0.3],
+		])
+		expect(card.routes[0].pricing).toEqual(card.pricingOptions[0])
+	})
+
   it('separates the same model by group while aggregating routes inside each group', () => {
     const cards = buildAvailableModelMarketplaceCards(channels)
     const minimaxCards = cards.filter(card => card.name === 'MiniMax-M3')

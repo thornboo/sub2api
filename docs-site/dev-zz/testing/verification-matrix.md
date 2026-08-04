@@ -247,10 +247,17 @@
 | 公开模型列表、筛选与失败重试 | `pnpm --dir frontend exec vitest run src/components/modelPlaza/__tests__/ModelPlazaContent.spec.ts` |
 | Home 公开模型列表入口与开关 | `pnpm --dir frontend exec vitest run src/views/__tests__/HomeModelCatalogLink.spec.ts src/router/__tests__/feature-access.spec.ts` |
 | 可用渠道模型表格/导出 | `pnpm --dir frontend test:run src/utils/__tests__/availableChannelsCatalog.spec.ts` |
+| 模型广场图片档位、独立倍率与卡片渲染 | `pnpm --dir frontend exec vitest run src/utils/__tests__/availableModelMarketplace.spec.ts src/components/channels/__tests__/AvailableModelMarketplace.spec.ts` |
 | 注册可选返佣码与强制邀请码 / Turnstile 互斥 | `pnpm --dir frontend exec vitest run src/views/auth/__tests__/RegisterView.spec.ts` |
 | 模型目录/推荐工具 | `pnpm --dir frontend test:run src/components/account/__tests__/modelCatalog.spec.ts src/components/account/__tests__/channelModelRecommendations.spec.ts` |
 | 账号模型映射弹窗 | `pnpm --dir frontend test:run src/components/account/__tests__/EditAccountModal.spec.ts` |
 | 后端模型探测 | `mise x -C backend -- go test ./internal/handler/admin ./internal/server -run 'ProbeModels|Admin' -count=1` |
+
+必要人工核对：
+
+- 图片模型只把 `per_request_price` 和 `intervals[].per_request_price` 当作单张图片价格；`image_output_price` 仍是图片输出 Token 价。
+- 分组存在任一图片档位价时，`1K / 2K / 4K` 依次按“分组档位 > 渠道同档位 > 渠道默认按次价”回落，模型卡片、价格表格和导出结果一致。
+- `image_rate_independent=true` 时图片价格只乘 `image_rate_multiplier`，不能再叠加用户专属倍率或分组默认倍率。
 
 ## 上游供应商与成本边界
 

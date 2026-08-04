@@ -10,7 +10,7 @@
 - 模型广场与价格表格共享 `frontend/src/utils/availableChannelCallability.ts` 的可调用分组判断，避免新旧响应兼容口径漂移。
 - 一张卡片只代表一个“分组 + 模型”组合；同一分组内的同名模型跨渠道聚合，不同分组分别展示。卡片只展示该分组下存在稳定交付路由的渠道、计费摘要及已确认可原生交付的 API 端点，不把其他分组的能力或网关兼容转换能力混入。
 - 前端表格组件为 `frontend/src/components/channels/AvailableChannelModelsTable.vue`。
-- 前端扁平化、排序、分组范围过滤、价格格式化和 Excel 导出集中在 `frontend/src/utils/availableChannelsCatalog.ts`。
+- 前端扁平化、排序、分组范围过滤、分组图片档位价、计费倍率、价格格式化和 Excel 导出集中在 `frontend/src/utils/availableChannelsCatalog.ts`。
 - 用户侧数据源仍是 `GET /api/v1/channels/available`。
 - 管理员导出可额外使用 `GET /api/v1/admin/channels/available-catalog` 读取完整可见目录。
 - 已有单测覆盖 `availableChannelsCatalog` 的价格格式化、分组范围过滤、阶梯价格展开、启用/禁用渠道状态过滤和导出行生成。
@@ -110,7 +110,9 @@ GET /api/v1/admin/channels/available-catalog
 
 模型卡片的价格摘要来自渠道模型定价和展示回落逻辑，并应用当前分组对当前用户生效的倍率；公开模型列表固定使用公开分组默认倍率。它表达当前目录口径下的客户价格，但真实扣费仍以请求最终命中的分组、计费模型和计费记录为准。
 
-价格表格和导出使用与模型卡片相同的倍率优先级：当前用户专属倍率优先，否则使用分组默认倍率。每一行只对应一个计价分组，输入、输出、缓存、图片和按次价格都显示 `渠道模型定价 × 该分组生效倍率`，价格排序也按这一生效价执行。管理员全量目录导出没有目标用户上下文，因此使用各分组默认倍率。
+价格表格和导出使用与模型卡片相同的倍率优先级。Token 和普通按次模型使用“当前用户专属倍率优先，否则分组默认倍率”；图片模型在分组开启 `image_rate_independent` 时改用 `image_rate_multiplier`，不再叠加用户专属倍率或分组默认倍率。管理员全量目录导出没有目标用户上下文，因此普通计费使用各分组默认倍率，图片独立倍率仍按分组图片配置执行。
+
+图片计费存在任一分组档位价时，模型广场、价格表格和导出共同生成 `1K / 2K / 4K` 展示档位。每档基础价按“分组图片档位价 > 渠道同名档位价 > 渠道默认按次价”回落；没有任何可用基础价的档位不展示。该转换只克隆展示数据，不修改共享渠道定价；`image_output_price` 是图片输出 Token 单价，不能冒充单张图片按次价。
 
 可调用分组兼容顺序在模型广场、价格表格和导出中完全一致：响应包含 `route_group_ids` 时以它为权威（包括显式空数组）；旧响应缺少该字段时才按 `supported_endpoints[].group_ids` 回退；两个字段都缺失时保留全局回滚开关所需的旧目录行为。
 
@@ -164,7 +166,7 @@ GET /api/v1/admin/channels/available-catalog
 - 只有定价、没有稳定账号路由的模型不在用户侧伪装成可用；管理员侧必须能看到“无可用路由”诊断。
 - 卡片显示模型价格摘要；发现多个不同报价时不擅自选取最低价，而是明确提示切换价格表格精确比较。
 - 用户可以切换到表格视图并直接比较模型价格。
-- 价格表格中的同一模型跨渠道、跨计价分组、跨阶梯报价保持独立行，并按该行分组对当前用户的生效倍率计算价格；不在 `route_group_ids` 中的分组不会生成该模型报价行。
+- 价格表格中的同一模型跨渠道、跨计价分组、跨阶梯报价保持独立行，并按该行分组对当前用户的生效倍率计算价格；图片独立倍率与 `1K / 2K / 4K` 档位回落必须和真实计费口径一致；不在 `route_group_ids` 中的分组不会生成该模型报价行。
 - 管理员全量目录对每个模型都返回数组形态的 `route_group_ids`；无路由模型仍保留在接口诊断数据中，但不会产生任何生效报价行。
 - 缺少 `route_group_ids` 的旧响应在模型广场、表格和导出中统一按端点分组回退，避免三个视图对同一响应得出不同可调用分组。
 - 导出行与当前筛选、分组范围和价格状态一致。
@@ -177,6 +179,7 @@ GET /api/v1/admin/channels/available-catalog
 
 ```bash
 pnpm --dir frontend test:run src/utils/__tests__/availableChannelsCatalog.spec.ts
+pnpm --dir frontend exec vitest run src/utils/__tests__/availableModelMarketplace.spec.ts src/components/channels/__tests__/AvailableModelMarketplace.spec.ts
 pnpm --dir frontend test:run src/utils/__tests__/availableChannelCallability.spec.ts
 pnpm --dir frontend typecheck
 pnpm --dir frontend lint:check
@@ -189,6 +192,7 @@ go -C backend test -tags=unit ./internal/handler/admin
 - 同一分组中的同一模型同时由多个渠道提供时，模型广场只显示一张模型卡片；切换到其他分组时独立展示。
 - 窄屏下长模型名不会把卡片横向撑开，协议标签仍保持可见。
 - 平台、计费模式、分组范围、价格状态筛选。
+- 图片模型的分组档位覆盖、渠道档位 / 默认按次价回落，以及图片独立倍率不会叠加用户专属倍率。
 - 表头排序。
 - 普通用户导出当前可见报价。
 - 管理员导出全量目录和降级提示。

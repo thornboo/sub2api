@@ -6,9 +6,10 @@ import type {
 } from '@/api/channels'
 import type { BillingMode } from '@/constants/channel'
 import { resolveAvailableModelGroupContexts } from '@/utils/availableChannelCallability'
-import type {
-  AvailableChannelGroupScope,
-  AvailableChannelPriceStatus,
+import {
+  resolveAvailableGroupDisplayPricing,
+  type AvailableChannelGroupScope,
+  type AvailableChannelPriceStatus,
 } from '@/utils/availableChannelsCatalog'
 
 export interface AvailableModelRoute {
@@ -64,11 +65,12 @@ export function buildAvailableModelMarketplaceCards(
       section.supported_models.forEach((model, modelIndex) => {
         if (options.billingMode && model.pricing?.billing_mode !== options.billingMode) return
 
-        const hasPricing = modelHasPricing(model.pricing)
-        if (priceStatus === 'priced' && !hasPricing) return
-        if (priceStatus === 'unpriced' && hasPricing) return
-
         resolveAvailableModelGroupContexts(model, groups).forEach(({ group, endpoints }) => {
+          const pricing = resolveAvailableGroupDisplayPricing(model.pricing, group)
+          const hasPricing = modelHasPricing(pricing)
+          if (priceStatus === 'priced' && !hasPricing) return
+          if (priceStatus === 'unpriced' && hasPricing) return
+
           const id = `${group.id}::${model.name}`
           const card = cards.get(id) ?? createMutableCard(model.name, group)
           card.platforms.set(section.platform, section.platform)
@@ -76,14 +78,14 @@ export function buildAvailableModelMarketplaceCards(
           endpoints.forEach(endpoint => {
             card.endpoints.set(endpointKey(endpoint), endpoint)
           })
-          card.pricingOptions.set(pricingKey(model.pricing), model.pricing)
+          card.pricingOptions.set(pricingKey(pricing), pricing)
           card.routes.push({
             id: [group.id, channelIndex, sectionIndex, modelIndex, channel.name, section.platform, model.name].join('::'),
             channelName: channel.name,
             channelDescription: channel.description,
             platform: section.platform,
             group,
-            pricing: model.pricing,
+            pricing,
             endpoints,
           })
           cards.set(id, card)

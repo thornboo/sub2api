@@ -130,11 +130,12 @@ export function buildAvailableChannelCatalogRows(
           || Array.isArray(model.supported_endpoints)
         if (modelGroups.length === 0 && (sectionGroups.length > 0 || callabilityMetadataPresent)) return
 
-        const intervals = expandIntervals ? getValuedIntervals(model.pricing) : []
         const groupRows = modelGroups.length > 0 ? modelGroups.map((group) => [group]) : [[]]
 
         groupRows.forEach((rowGroups, groupIndex) => {
           const group = rowGroups[0] ?? null
+          const pricing = resolveAvailableGroupDisplayPricing(model.pricing, group)
+          const intervals = expandIntervals ? getValuedIntervals(pricing) : []
           const baseRow = {
             channelName: channel.name,
             channelDescription: channel.description || '',
@@ -142,8 +143,12 @@ export function buildAvailableChannelCatalogRows(
             platform: section.platform,
             modelName: model.name,
             groups: rowGroups,
-            effectiveRateMultiplier: resolveAvailableGroupRateMultiplier(group, options.userGroupRates),
-            pricing: model.pricing,
+            effectiveRateMultiplier: resolveAvailableGroupPriceMultiplier(
+              group,
+              options.userGroupRates,
+              pricing?.billing_mode,
+            ),
+            pricing,
           }
 
           const pushRow = (interval: UserPricingInterval | null, intervalIndex: number) => {
@@ -162,7 +167,7 @@ export function buildAvailableChannelCatalogRows(
               ].join('::'),
               interval,
               intervalLabel: formatAvailableChannelIntervalLabel(interval),
-              priceStatus: rowHasPricing({ pricing: model.pricing, interval }) ? 'priced' : 'unpriced',
+              priceStatus: rowHasPricing({ pricing, interval }) ? 'priced' : 'unpriced',
             }
             if (priceStatus !== 'all' && row.priceStatus !== priceStatus) return
             rows.push(row)
@@ -249,6 +254,61 @@ export function resolveAvailableGroupRateMultiplier(
 ): number {
   if (!group) return 1
   return userGroupRates[group.id] ?? group.rate_multiplier ?? 1
+}
+
+/**
+ * Resolve the multiplier used by the actual billing path. Image models can opt
+ * into a dedicated multiplier which replaces, rather than compounds with, the
+ * group or user-specific token multiplier.
+ */
+export function resolveAvailableGroupPriceMultiplier(
+  group: UserAvailableGroup | null | undefined,
+  userGroupRates: Record<number, number> = {},
+  billingMode?: BillingMode | null,
+): number {
+  if (billingMode === BILLING_MODE_IMAGE && group?.image_rate_independent) {
+    return group.image_rate_multiplier ?? 1
+  }
+  return resolveAvailableGroupRateMultiplier(group, userGroupRates)
+}
+
+/**
+ * Build group-specific image tiers using the same precedence as settlement:
+ * group tier price, channel tier price, then the channel default request price.
+ * A clone is returned so shared channel pricing remains immutable.
+ */
+export function resolveAvailableGroupDisplayPricing(
+  pricing: UserSupportedModelPricing | null,
+  group: UserAvailableGroup | null | undefined,
+): UserSupportedModelPricing | null {
+  if (pricing?.billing_mode !== BILLING_MODE_IMAGE || !group) return pricing
+
+  const groupTiers = [
+    { label: '1K', price: group.image_price_1k },
+    { label: '2K', price: group.image_price_2k },
+    { label: '4K', price: group.image_price_4k },
+  ]
+  if (groupTiers.every((tier) => tier.price == null)) return pricing
+
+  const intervals = groupTiers.flatMap(({ label, price }) => {
+    const channelTierPrice = arrayOrEmpty(pricing.intervals).find(
+      (interval) => interval.tier_label === label && interval.per_request_price != null,
+    )?.per_request_price
+    const effectivePrice = price ?? channelTierPrice ?? pricing.per_request_price
+    if (effectivePrice == null) return []
+    return [{
+      min_tokens: 0,
+      max_tokens: null,
+      tier_label: label,
+      input_price: null,
+      output_price: null,
+      cache_write_price: null,
+      cache_read_price: null,
+      per_request_price: effectivePrice,
+    } satisfies UserPricingInterval]
+  })
+
+  return { ...pricing, intervals }
 }
 
 export function formatRateMultiplier(rate: number | null | undefined): string {

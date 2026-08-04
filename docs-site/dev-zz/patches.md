@@ -1,5 +1,32 @@
 # 补丁记录
 
+## 2026-08-05 - 上游 main 同步：认证验证码、Codex 身份与共享图片报价
+
+### 目标
+
+- 将 `main@00b859617` 合入 `dev-zz-develop`，吸收多 provider 人机验证、Codex 官方版本同步 / 出站身份、订阅续费并发、WebSocket、提示词审计、OAuth 和管理排行修复。
+- 保持 dev-zz 的共享公开模型目录、登录 / 注册入口策略、企业成员合同、长期数据保留和 `1.7.27` 发布线不回退。
+
+### 主要变化
+
+- 管理端验证码配置收敛为 Cloudflare Turnstile、腾讯天御、阿里云验证码 2.0 三选一；服务端拒绝同时启用多家，secret 只返回 configured 状态且不会被局部设置请求带入审计。登录、注册、找回 / 验证动作以及 OAuth 登录启动 / 待建账号继续使用统一 action proof 合同。
+- Codex OAuth 出站的 User-Agent、originator 和版本字段由同一生效版本重建；默认每 6 小时同步官方最新稳定版，管理员手工版本优先。新增 `gateway.disable_codex_identity_enforcement` 回滚开关，旧 `disable_codex_originator_normalization` 继续兼容。
+- 图片模型报价修复落在 dev-zz 共享可用渠道目录，而不是恢复上游旧 `channel_plaza`：分组图片档位、独立倍率通过客户安全 DTO 投影，模型广场、价格表格和导出复用同一价格解析；单张图片价格只来自按次 / 档位字段，不把图片输出 Token 单价当按次价。
+- 订阅续费使用仓储锁串行化；OpenAI WebSocket 租约丢失保留 terminal event，提示词审计解析 Responses output text；管理消费排行显示用户名，Anthropic OAuth endpoint 和 Grok CLI 固定版本同步更新。
+- 登录 / 注册页面继续不展示 LinuxDo 和微信入口，但保留后端、回调页与共享组件能力，避免入口策略被上游模板冲突覆盖。
+
+### 数据与兼容性
+
+- 无数据库迁移。后端新增腾讯云、阿里云验证码 SDK 依赖；默认 CSP 增加对应官方脚本、样式与 frame 来源。
+- `VERSION` 保持 `1.7.27`；上游 `0.1.171` 不进入 fork 发布线。
+- 客户目录分组 DTO 新增图片独立倍率与档位价字段；旧响应字段缺失时继续按既有分组倍率和渠道定价工作。
+
+### 验证
+
+- 前端全量 259 个测试文件、1739 条测试通过；新增共享图片报价单测覆盖分组 `1K` 覆盖、`2K` 默认按次回落、`4K` 渠道档位回落、独立倍率和输入不可变。
+- 后端默认与 `unit` 全量测试、`go vet ./...` 和 server build 通过；共享目录 handler / service 用例覆盖图片配置投影。
+- 前端 typecheck、全量 ESLint、生产构建和 docs-site 生产构建通过；Wire 已按合并后 provider graph 重新生成。
+
 ## 2026-08-03 - 可用渠道价格表格统一客户生效价
 
 ### 目标
