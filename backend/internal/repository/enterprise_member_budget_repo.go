@@ -725,12 +725,15 @@ func (r *enterpriseMemberBudgetRepository) BatchAdjustUsage(ctx context.Context,
 	updatedByID := make(map[int64]service.BatchEnterpriseMemberUsageUpdate, len(ordered))
 	for _, target := range ordered {
 		var currentVersion int64
+		// Usage adjustments need the same member-level policy mutex as request
+		// reservations, but must not block KEY SHARE locks acquired by budget
+		// child-table foreign keys in concurrent settlement transactions.
 		if err := tx.QueryRowContext(ctx, `
 			SELECT version
 			FROM enterprise_members
 			WHERE id = $1 AND enterprise_user_id = $2
 			  AND deleted_at IS NULL AND removed_at IS NULL
-			FOR UPDATE`, target.ID, ownerID).Scan(&currentVersion); err != nil {
+			FOR NO KEY UPDATE`, target.ID, ownerID).Scan(&currentVersion); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return nil, service.ErrEnterpriseMemberNotFound
 			}

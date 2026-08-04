@@ -58,7 +58,7 @@ func TestEnterpriseMemberBatchAdjustUsageRollsBackWhenDeltaWouldBecomeNegative(t
 	mock.ExpectQuery("SELECT .* FROM enterprise_member_audit_logs").
 		WithArgs(int64(7), int64(11), "batch-key:11").
 		WillReturnError(sql.ErrNoRows)
-	mock.ExpectQuery("SELECT version FROM enterprise_members").
+	mock.ExpectQuery(`(?s)SELECT version.*FROM enterprise_members.*FOR NO KEY UPDATE`).
 		WithArgs(int64(11), int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow(int64(3)))
 	mock.ExpectExec("INSERT INTO enterprise_member_budget_periods").
@@ -95,7 +95,7 @@ func TestEnterpriseMemberBatchAdjustUsageAppliesDeltaToEffectiveWindowUsage(t *t
 	mock.ExpectQuery("SELECT .* FROM enterprise_member_audit_logs").
 		WithArgs(int64(7), int64(11), "batch-key:11").
 		WillReturnError(sql.ErrNoRows)
-	mock.ExpectQuery("SELECT version FROM enterprise_members").
+	mock.ExpectQuery(`(?s)SELECT version.*FROM enterprise_members.*FOR NO KEY UPDATE`).
 		WithArgs(int64(11), int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow(int64(3)))
 	mock.ExpectExec("INSERT INTO enterprise_member_budget_periods").

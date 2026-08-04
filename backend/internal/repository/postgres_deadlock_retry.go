@@ -41,7 +41,8 @@ func withPostgresDeadlockRetryConfig[T any](
 		}
 		if attempt >= maxRetries {
 			logger.LegacyPrintf("repository.postgres", "postgres deadlock retry exhausted: operation=%s attempts=%d", operationName, attempt+1)
-			return result, err
+			var zero T
+			return zero, err
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			var zero T

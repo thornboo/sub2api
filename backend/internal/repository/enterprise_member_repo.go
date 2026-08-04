@@ -287,6 +287,12 @@ func (r *enterpriseMemberRepository) DeletePermanently(ctx context.Context, owne
 	if r == nil || r.db == nil {
 		return nil, errors.New("enterprise member repository sql db is nil")
 	}
+	return withPostgresDeadlockRetry(ctx, "enterprise_member_delete_permanently", func() (*service.EnterpriseMemberDeletionResult, error) {
+		return r.deletePermanentlyOnce(ctx, ownerID, memberID)
+	})
+}
+
+func (r *enterpriseMemberRepository) deletePermanentlyOnce(ctx context.Context, ownerID, memberID int64) (*service.EnterpriseMemberDeletionResult, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -736,11 +742,14 @@ func (r *enterpriseMemberRepository) AdoptKey(ctx context.Context, ownerID, memb
 	var memberStatus string
 	var memberDeletedAt sql.NullTime
 	var currentVersion int64
+	// Adoption changes only non-key member policy state. NO KEY UPDATE keeps
+	// policy mutations serialized while allowing concurrent billing foreign-key
+	// checks to take KEY SHARE after they have updated the API key row.
 	if err := tx.QueryRowContext(ctx, `
 		SELECT status, deleted_at, version
 		FROM enterprise_members
 		WHERE id = $1 AND enterprise_user_id = $2
-		FOR UPDATE`, memberID, ownerID).Scan(&memberStatus, &memberDeletedAt, &currentVersion); err != nil {
+		FOR NO KEY UPDATE`, memberID, ownerID).Scan(&memberStatus, &memberDeletedAt, &currentVersion); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, service.ErrEnterpriseMemberNotFound
 		}

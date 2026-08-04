@@ -16,7 +16,7 @@ func TestEnterpriseMemberRepositoryAdoptKeyPreservesOriginalGroupAtomically(t *t
 
 	const ownerID, memberID, keyID, groupID, version int64 = 11, 22, 33, 44, 5
 	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT status, deleted_at, version\s+FROM enterprise_members`).
+	mock.ExpectQuery(`(?s)SELECT status, deleted_at, version\s+FROM enterprise_members.*FOR NO KEY UPDATE`).
 		WithArgs(memberID, ownerID).
 		WillReturnRows(sqlmock.NewRows([]string{"status", "deleted_at", "version"}).AddRow("active", nil, version))
 	mock.ExpectQuery(`SELECT group_id, member_id, status, deleted_at\s+FROM api_keys`).
@@ -55,7 +55,7 @@ func TestEnterpriseMemberRepositoryAdoptKeyRejectsStaleVersionBeforeKeyMutation(
 	t.Cleanup(func() { _ = db.Close() })
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT status, deleted_at, version\s+FROM enterprise_members`).
+	mock.ExpectQuery(`(?s)SELECT status, deleted_at, version\s+FROM enterprise_members.*FOR NO KEY UPDATE`).
 		WithArgs(int64(22), int64(11)).
 		WillReturnRows(sqlmock.NewRows([]string{"status", "deleted_at", "version"}).AddRow("active", nil, int64(8)))
 	mock.ExpectRollback()
@@ -72,7 +72,7 @@ func TestEnterpriseMemberRepositoryAdoptKeyRejectsLostGroupAuthorization(t *test
 	t.Cleanup(func() { _ = db.Close() })
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT status, deleted_at, version\s+FROM enterprise_members`).
+	mock.ExpectQuery(`(?s)SELECT status, deleted_at, version\s+FROM enterprise_members.*FOR NO KEY UPDATE`).
 		WithArgs(int64(22), int64(11)).
 		WillReturnRows(sqlmock.NewRows([]string{"status", "deleted_at", "version"}).AddRow("active", nil, int64(7)))
 	mock.ExpectQuery(`SELECT group_id, member_id, status, deleted_at\s+FROM api_keys`).

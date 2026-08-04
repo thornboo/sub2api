@@ -49,18 +49,15 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 		if err := validateEnterpriseMemberUsageBillingCommand(cmd); err != nil {
 			return nil, err
 		}
-	} else {
-		return r.applyOnce(ctx, cmd)
-	}
-
-	settlementPayload, err := marshalEnterpriseMemberSettlementPayload(cmd)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := withPostgresDeadlockRetry(ctx, "usage_billing_stage_enterprise_member_settlement", func() (struct{}, error) {
-		return struct{}{}, r.stageEnterpriseMemberSettlement(ctx, cmd, settlementPayload)
-	}); err != nil {
-		return nil, err
+		settlementPayload, err := marshalEnterpriseMemberSettlementPayload(cmd)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := withPostgresDeadlockRetry(ctx, "usage_billing_stage_enterprise_member_settlement", func() (struct{}, error) {
+			return struct{}{}, r.stageEnterpriseMemberSettlement(ctx, cmd, settlementPayload)
+		}); err != nil {
+			return nil, err
+		}
 	}
 
 	return withPostgresDeadlockRetry(ctx, "usage_billing_apply", func() (*service.UsageBillingApplyResult, error) {
@@ -129,6 +126,12 @@ func cloneUsageBillingCommandForAttempt(cmd *service.UsageBillingCommand) *servi
 	}
 	attempt := *cmd
 	if cmd.UsageLog != nil {
+		// Persistence may replace top-level UsageLog fields such as ID,
+		// CreatedAt, and normalized request metadata. It must treat data behind
+		// pointer and map fields as immutable: this one-level copy intentionally
+		// shares those read-only values. For member billing, the durable settlement
+		// payload is frozen before any attempt starts, so it never depends on these
+		// mutations.
 		usageLog := *cmd.UsageLog
 		attempt.UsageLog = &usageLog
 	}

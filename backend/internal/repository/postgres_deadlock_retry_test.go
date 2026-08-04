@@ -39,6 +39,16 @@ func TestWithPostgresDeadlockRetryStopsAfterRetryLimit(t *testing.T) {
 	require.Equal(t, 3, attempts)
 }
 
+func TestWithPostgresDeadlockRetryReturnsZeroResultAfterRetryLimit(t *testing.T) {
+	deadlockErr := &pq.Error{Code: "40P01"}
+	result, err := withPostgresDeadlockRetryConfig(context.Background(), "test", 1, func(int) time.Duration { return 0 }, func() (int, error) {
+		return 42, deadlockErr
+	})
+
+	require.Same(t, deadlockErr, err)
+	require.Zero(t, result)
+}
+
 func TestWithPostgresDeadlockRetryDoesNotRetryOtherErrors(t *testing.T) {
 	wantErr := errors.New("not retryable")
 	attempts := 0

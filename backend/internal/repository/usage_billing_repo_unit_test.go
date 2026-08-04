@@ -272,6 +272,34 @@ func TestUsageBillingRepositoryApply_RetriesMemberDeadlockWithNewTransaction(t *
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestUsageBillingRepositoryApply_RetriesNonMemberDeadlockWithNewTransaction(t *testing.T) {
+	ctx := context.Background()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	deadlockErr := &pq.Error{Code: "40P01"}
+	stopErr := errors.New("stop after retry")
+	mock.ExpectBegin()
+	mock.ExpectQuery(`(?s)INSERT INTO usage_billing_dedup`).
+		WillReturnError(deadlockErr)
+	mock.ExpectRollback()
+	mock.ExpectBegin()
+	mock.ExpectQuery(`(?s)INSERT INTO usage_billing_dedup`).
+		WillReturnError(stopErr)
+	mock.ExpectRollback()
+
+	result, err := (&usageBillingRepository{db: db}).Apply(ctx, &service.UsageBillingCommand{
+		RequestID: "req-non-member-deadlock-retry",
+		APIKeyID:  5,
+		UserID:    7,
+	})
+
+	require.Nil(t, result)
+	require.ErrorIs(t, err, stopErr)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestUsageBillingRepositoryApply_RetriesLateDeadlockWithoutRestagingMutatedUsageLog(t *testing.T) {
 	ctx := context.Background()
 	db, mock, err := sqlmock.New()
@@ -281,13 +309,20 @@ func TestUsageBillingRepositoryApply_RetriesLateDeadlockWithoutRestagingMutatedU
 	memberID := int64(44)
 	createdAt := time.Date(2026, time.August, 4, 14, 30, 0, 0, time.UTC)
 	deadlockErr := &pq.Error{Code: "40P01"}
+	scheduleMeta := &service.UsageScheduleMeta{
+		Provider:          "openai",
+		CandidateCount:    2,
+		SelectedAccountID: 9,
+	}
 	usageLog := &service.UsageLog{
-		UserID:    7,
-		APIKeyID:  5,
-		AccountID: 9,
-		RequestID: "req-late-deadlock",
-		Model:     "gpt-test",
-		MemberID:  &memberID,
+		UserID:             7,
+		APIKeyID:           5,
+		AccountID:          9,
+		RequestID:          "req-late-deadlock",
+		Model:              "gpt-test",
+		MemberID:           &memberID,
+		ScheduleMeta:       scheduleMeta,
+		ImageSizeBreakdown: map[string]int{"1024x1024": 1},
 	}
 	cmd := &service.UsageBillingCommand{
 		RequestID:             "req-late-deadlock",
@@ -360,6 +395,12 @@ func TestUsageBillingRepositoryApply_RetriesLateDeadlockWithoutRestagingMutatedU
 	require.False(t, result.Applied)
 	require.Zero(t, usageLog.ID, "rolled-back attempt must not leak its usage log ID")
 	require.True(t, usageLog.CreatedAt.IsZero(), "rolled-back attempt must not leak its usage log timestamp")
+	require.Equal(t, &service.UsageScheduleMeta{
+		Provider:          "openai",
+		CandidateCount:    2,
+		SelectedAccountID: 9,
+	}, usageLog.ScheduleMeta, "failed attempts must not mutate data behind UsageLog pointers")
+	require.Equal(t, map[string]int{"1024x1024": 1}, usageLog.ImageSizeBreakdown, "failed attempts must not mutate UsageLog maps")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

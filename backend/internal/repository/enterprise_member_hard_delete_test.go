@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -9,6 +10,33 @@ import (
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
+
+func TestEnterpriseMemberDeletePermanentlyRetriesDeadlockWithNewTransaction(t *testing.T) {
+	t.Parallel()
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	deadlockErr := &pq.Error{Code: "40P01"}
+	stopErr := errors.New("stop after retry")
+	mock.ExpectBegin()
+	mock.ExpectQuery(`FROM enterprise_members\s+WHERE id = \$1 AND enterprise_user_id = \$2\s+AND deleted_at IS NOT NULL AND removed_at IS NULL\s+FOR UPDATE`).
+		WithArgs(int64(11), int64(7)).
+		WillReturnError(deadlockErr)
+	mock.ExpectRollback()
+	mock.ExpectBegin()
+	mock.ExpectQuery(`FROM enterprise_members\s+WHERE id = \$1 AND enterprise_user_id = \$2\s+AND deleted_at IS NOT NULL AND removed_at IS NULL\s+FOR UPDATE`).
+		WithArgs(int64(11), int64(7)).
+		WillReturnError(stopErr)
+	mock.ExpectRollback()
+
+	repo := &enterpriseMemberRepository{db: db}
+	result, err := repo.DeletePermanently(t.Context(), 7, 11)
+	require.Nil(t, result)
+	require.ErrorIs(t, err, stopErr)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
 
 func TestEnterpriseMemberHardDeleteRequiresArchivedMember(t *testing.T) {
 	t.Parallel()
