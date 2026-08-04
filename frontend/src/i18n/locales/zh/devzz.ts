@@ -456,6 +456,9 @@ export default {
             endpointUnavailable: '仅存在兼容转换路由，未发布原生端点',
             priceVariants: '{count} 种报价',
             priceVariantsHint: '不同渠道的价格配置不同，请切换价格表格精确比较。',
+            originalPrice: '原价',
+            savings: '节省 {percent}%',
+            currentGroupRate: '当前分组 {rate}',
             tieredPricing: '阶梯计费'
         },
         platformFilter: {

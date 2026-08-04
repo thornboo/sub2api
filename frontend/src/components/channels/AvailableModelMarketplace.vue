@@ -104,33 +104,106 @@
               </div>
             </header>
 
-            <section class="mt-2.5 rounded-lg bg-stone-50 px-2.5 py-2 dark:bg-black/15">
+            <section class="mt-2.5 rounded-lg bg-stone-50 px-2.5 py-2.5 dark:bg-black/15">
               <template v-if="card.pricingOptions.length === 1">
-                <div v-if="card.pricingOptions[0]" class="flex min-h-7 items-center justify-between gap-2">
-                  <div class="min-w-0">
-                    <span class="text-[9px] font-semibold uppercase tracking-[0.1em] text-stone-400 dark:text-stone-500">
-                      {{ formatBillingMode(card.pricingOptions[0], pricingLabels) }}
-                    </span>
-                    <span class="ml-1 text-[9px] text-stone-400 dark:text-stone-500">{{ pricingUnit(card.pricingOptions[0]) }}</span>
-                    <p v-if="hasTieredPricing(card.pricingOptions[0])" class="mt-0.5 truncate text-[9px] text-stone-500 dark:text-stone-400" :title="tieredPricing(card, card.pricingOptions[0])">
+                <div v-if="card.pricingOptions[0]">
+                  <template v-if="card.pricingOptions[0]?.billing_mode === BILLING_MODE_TOKEN">
+                    <div class="grid grid-cols-2 divide-x divide-stone-200/80 dark:divide-white/[0.08]">
+                      <div class="min-w-0 pr-2.5">
+                        <div class="text-[10px] font-medium text-stone-500 dark:text-stone-400">
+                          {{ t('availableChannels.pricing.inputPrice') }}
+                        </div>
+                        <strong
+                          data-testid="effective-input-price"
+                          class="mt-0.5 block truncate font-mono text-lg font-bold leading-6 tracking-tight text-stone-950 dark:text-stone-100"
+                        >
+                          {{ formatCompactTokenPrice(displayPrice(card, card.pricingOptions[0]?.input_price ?? null)) }}
+                        </strong>
+                        <div
+                          v-if="showOriginalPrice(card, card.pricingOptions[0]?.input_price ?? null)"
+                          class="mt-0.5 flex min-w-0 items-baseline gap-1 text-[10px] text-stone-400 dark:text-stone-500"
+                        >
+                          <span>{{ t('availableChannels.modelMarketplace.originalPrice') }}</span>
+                          <del
+                            data-testid="original-input-price"
+                            class="truncate font-mono decoration-stone-400/80 dark:decoration-stone-500"
+                          >
+                            {{ formatCompactTokenPrice(card.pricingOptions[0]?.input_price ?? null) }}
+                          </del>
+                        </div>
+                      </div>
+
+                      <div class="min-w-0 pl-2.5">
+                        <div class="text-[10px] font-medium text-stone-500 dark:text-stone-400">
+                          {{ t('availableChannels.pricing.outputPrice') }}
+                        </div>
+                        <strong
+                          data-testid="effective-output-price"
+                          class="mt-0.5 block truncate font-mono text-lg font-bold leading-6 tracking-tight text-stone-950 dark:text-stone-100"
+                        >
+                          {{ formatCompactTokenPrice(displayPrice(card, card.pricingOptions[0]?.output_price ?? null)) }}
+                        </strong>
+                        <div
+                          v-if="showOriginalPrice(card, card.pricingOptions[0]?.output_price ?? null)"
+                          class="mt-0.5 flex min-w-0 items-baseline gap-1 text-[10px] text-stone-400 dark:text-stone-500"
+                        >
+                          <span>{{ t('availableChannels.modelMarketplace.originalPrice') }}</span>
+                          <del
+                            data-testid="original-output-price"
+                            class="truncate font-mono decoration-stone-400/80 dark:decoration-stone-500"
+                          >
+                            {{ formatCompactTokenPrice(card.pricingOptions[0]?.output_price ?? null) }}
+                          </del>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="mt-2.5 flex min-w-0 items-center justify-between gap-2 border-t border-stone-200/80 pt-2 dark:border-white/[0.08]">
+                      <div class="min-w-0 truncate text-[9px] text-stone-400 dark:text-stone-500">
+                        <span class="font-semibold uppercase tracking-[0.1em]">
+                          {{ formatBillingMode(card.pricingOptions[0], pricingLabels) }}
+                        </span>
+                        <span class="ml-1">{{ pricingUnit(card.pricingOptions[0]) }}</span>
+                      </div>
+
+                      <span
+                        v-if="isDiscountedPrice(card)"
+                        data-testid="price-discount"
+                        class="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+                      >
+                        {{ t('availableChannels.modelMarketplace.savings', { percent: discountPercent(card) }) }}
+                      </span>
+                      <span
+                        v-else-if="hasAdjustedPrice(card)"
+                        data-testid="price-group-rate"
+                        class="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
+                      >
+                        {{ t('availableChannels.modelMarketplace.currentGroupRate', { rate: formattedPriceMultiplier(card) }) }}
+                      </span>
+                    </div>
+
+                    <p
+                      v-if="hasTieredPricing(card.pricingOptions[0])"
+                      class="mt-1.5 truncate text-[9px] text-stone-500 dark:text-stone-400"
+                      :title="tieredPricing(card, card.pricingOptions[0])"
+                    >
                       {{ t('availableChannels.modelMarketplace.tieredPricing') }} · {{ tieredPricing(card, card.pricingOptions[0]) }}
                     </p>
-                  </div>
+                  </template>
 
-                  <div v-if="card.pricingOptions[0]?.billing_mode === BILLING_MODE_TOKEN" class="flex shrink-0 items-baseline gap-2 font-mono">
-                    <div class="whitespace-nowrap text-[10px] text-stone-500 dark:text-stone-400">
-                      {{ t('availableChannels.pricing.inputPrice') }}
-                      <strong class="ml-0.5 text-[13px] text-stone-950 dark:text-stone-100">{{ formatCompactTokenPrice(displayPrice(card, card.pricingOptions[0]?.input_price ?? null)) }}</strong>
+                  <div v-else class="flex min-h-7 items-center justify-between gap-2">
+                    <div class="min-w-0">
+                      <span class="text-[9px] font-semibold uppercase tracking-[0.1em] text-stone-400 dark:text-stone-500">
+                        {{ formatBillingMode(card.pricingOptions[0], pricingLabels) }}
+                      </span>
+                      <span class="ml-1 text-[9px] text-stone-400 dark:text-stone-500">{{ pricingUnit(card.pricingOptions[0]) }}</span>
+                      <p v-if="hasTieredPricing(card.pricingOptions[0])" class="mt-0.5 truncate text-[9px] text-stone-500 dark:text-stone-400" :title="tieredPricing(card, card.pricingOptions[0])">
+                        {{ t('availableChannels.modelMarketplace.tieredPricing') }} · {{ tieredPricing(card, card.pricingOptions[0]) }}
+                      </p>
                     </div>
-                    <span class="h-3 w-px bg-stone-200 dark:bg-white/10" />
-                    <div class="whitespace-nowrap text-[10px] text-stone-500 dark:text-stone-400">
-                      {{ t('availableChannels.pricing.outputPrice') }}
-                      <strong class="ml-0.5 text-[13px] text-stone-950 dark:text-stone-100">{{ formatCompactTokenPrice(displayPrice(card, card.pricingOptions[0]?.output_price ?? null)) }}</strong>
+                    <div class="shrink-0 font-mono text-[13px] font-semibold text-stone-950 dark:text-stone-100">
+                      {{ requestPrice(card, card.pricingOptions[0]) }}
                     </div>
-                  </div>
-
-                  <div v-else class="shrink-0 font-mono text-[13px] font-semibold text-stone-950 dark:text-stone-100">
-                    {{ requestPrice(card, card.pricingOptions[0]) }}
                   </div>
                 </div>
                 <div v-else class="flex min-h-7 items-center text-xs text-stone-500 dark:text-stone-400">
@@ -221,6 +294,7 @@ import {
   formatBillingMode,
   formatCompactRequestPrice,
   formatCompactTokenPrice,
+  formatRateMultiplier,
   resolveAvailableGroupRateMultiplier,
   type AvailableChannelPricingLabels,
 } from '@/utils/availableChannelsCatalog'
@@ -240,6 +314,7 @@ const { t } = useI18n()
 const { copyToClipboard } = useClipboard()
 
 const MAX_VISIBLE_CHANNELS = 2
+const RATE_COMPARISON_EPSILON = 1e-9
 
 interface AvailableModelGroupSection {
   group: UserAvailableGroup
@@ -299,6 +374,30 @@ function displayPrice(card: AvailableModelMarketplaceCard, value: number | null)
 function priceMultiplier(card: AvailableModelMarketplaceCard): number {
   if (!props.applyRateMultiplier) return 1
   return resolveAvailableGroupRateMultiplier(card.group, props.userGroupRates)
+}
+
+function hasAdjustedPrice(card: AvailableModelMarketplaceCard): boolean {
+  return Math.abs(priceMultiplier(card) - 1) > RATE_COMPARISON_EPSILON
+}
+
+function showOriginalPrice(
+  card: AvailableModelMarketplaceCard,
+  value: number | null,
+): boolean {
+  return value != null && hasAdjustedPrice(card)
+}
+
+function isDiscountedPrice(card: AvailableModelMarketplaceCard): boolean {
+  return hasAdjustedPrice(card) && priceMultiplier(card) < 1
+}
+
+function formattedPriceMultiplier(card: AvailableModelMarketplaceCard): string {
+  return formatRateMultiplier(priceMultiplier(card))
+}
+
+function discountPercent(card: AvailableModelMarketplaceCard): string {
+  const percentage = Math.max(0, (1 - priceMultiplier(card)) * 100)
+  return Number(percentage.toFixed(2)).toString()
 }
 
 function scalePricing(

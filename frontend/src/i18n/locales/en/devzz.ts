@@ -456,6 +456,9 @@ export default {
             endpointUnavailable: 'Only a compatibility route exists; no native endpoint is published',
             priceVariants: '{count} price variants',
             priceVariantsHint: 'Channel prices differ. Switch to the pricing table for an exact comparison.',
+            originalPrice: 'Original',
+            savings: 'Save {percent}%',
+            currentGroupRate: 'Current group {rate}',
             tieredPricing: 'Tiered pricing'
         },
         platformFilter: {

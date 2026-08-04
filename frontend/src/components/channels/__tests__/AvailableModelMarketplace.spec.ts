@@ -190,8 +190,14 @@ describe('AvailableModelMarketplace', () => {
   it('can display effective prices using the group or user multiplier', () => {
     const groupRate = mountMarketplace({ applyRateMultiplier: true })
     const publicSection = groupRate.get('[data-group-id="1"]')
-    expect(publicSection.text()).toContain('$0.64')
-    expect(publicSection.text()).toContain('$3.2')
+    expect(publicSection.get('[data-testid="effective-input-price"]').text()).toBe('$0.64')
+    expect(publicSection.get('[data-testid="effective-output-price"]').text()).toBe('$3.2')
+    expect(publicSection.get('[data-testid="original-input-price"]').text()).toBe('$0.8')
+    expect(publicSection.get('[data-testid="original-output-price"]').text()).toBe('$4')
+    expect(publicSection.get('[data-testid="price-discount"]').text()).toBe(
+      'availableChannels.modelMarketplace.savings:20',
+    )
+    expect(publicSection.find('[data-testid="price-group-rate"]').exists()).toBe(false)
     groupRate.unmount()
 
     const userRate = mountMarketplace({
@@ -199,7 +205,58 @@ describe('AvailableModelMarketplace', () => {
       userGroupRates: { 1: 0.5 },
     })
     const userPublicSection = userRate.get('[data-group-id="1"]')
-    expect(userPublicSection.text()).toContain('$0.4')
-    expect(userPublicSection.text()).toContain('$2')
+    expect(userPublicSection.get('[data-testid="effective-input-price"]').text()).toBe('$0.4')
+    expect(userPublicSection.get('[data-testid="effective-output-price"]').text()).toBe('$2')
+    expect(userPublicSection.get('[data-testid="original-input-price"]').text()).toBe('$0.8')
+    expect(userPublicSection.get('[data-testid="original-output-price"]').text()).toBe('$4')
+    expect(userPublicSection.get('[data-testid="price-discount"]').text()).toBe(
+      'availableChannels.modelMarketplace.savings:50',
+    )
+  })
+
+  it('labels group surcharges without presenting them as savings', () => {
+    const surchargeCard: AvailableModelMarketplaceCard = {
+      ...cards[0],
+      group: {
+        ...cards[0].group,
+        rate_multiplier: 2.5,
+      },
+    }
+    const wrapper = mountMarketplace({
+      cards: [surchargeCard],
+      applyRateMultiplier: true,
+    })
+    const card = wrapper.get('[data-testid="available-model-card"]')
+
+    expect(card.get('[data-testid="effective-input-price"]').text()).toBe('$2')
+    expect(card.get('[data-testid="effective-output-price"]').text()).toBe('$10')
+    expect(card.get('[data-testid="original-input-price"]').text()).toBe('$0.8')
+    expect(card.get('[data-testid="original-output-price"]').text()).toBe('$4')
+    expect(card.get('[data-testid="price-group-rate"]').text()).toBe(
+      'availableChannels.modelMarketplace.currentGroupRate:2.5x',
+    )
+    expect(card.find('[data-testid="price-discount"]').exists()).toBe(false)
+  })
+
+  it('does not repeat an identical original price for a 1x rate', () => {
+    const standardCard: AvailableModelMarketplaceCard = {
+      ...cards[0],
+      group: {
+        ...cards[0].group,
+        rate_multiplier: 1,
+      },
+    }
+    const wrapper = mountMarketplace({
+      cards: [standardCard],
+      applyRateMultiplier: true,
+    })
+    const card = wrapper.get('[data-testid="available-model-card"]')
+
+    expect(card.get('[data-testid="effective-input-price"]').text()).toBe('$0.8')
+    expect(card.get('[data-testid="effective-output-price"]').text()).toBe('$4')
+    expect(card.find('[data-testid="original-input-price"]').exists()).toBe(false)
+    expect(card.find('[data-testid="original-output-price"]').exists()).toBe(false)
+    expect(card.find('[data-testid="price-discount"]').exists()).toBe(false)
+    expect(card.find('[data-testid="price-group-rate"]').exists()).toBe(false)
   })
 })
