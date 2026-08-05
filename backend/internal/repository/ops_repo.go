@@ -190,7 +190,7 @@ func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {
 		opsNullString(input.UpstreamErrorsJSON),
 		opsNullString(input.RoutingPlanSource),
 		opsNullInt64(input.RoutingSnapshotAgeMs),
-		opsNullString(input.RoutingAttemptsJSON),
+		opsRoutingAttemptsJSON(input.RoutingAttemptsJSON),
 		opsNullInt64(input.AuthLatencyMs),
 		opsNullInt64(input.RoutingLatencyMs),
 		opsNullInt64(input.UpstreamLatencyMs),
@@ -1411,6 +1411,15 @@ func opsNullString(v any) any {
 	default:
 		return sql.NullString{}
 	}
+}
+
+// opsRoutingAttemptsJSON preserves the non-null JSON-array invariant for the
+// fixed-column INSERT above. An explicit SQL NULL bypasses the column default.
+func opsRoutingAttemptsJSON(v *string) any {
+	if v == nil || strings.TrimSpace(*v) == "" {
+		return sql.NullString{String: "[]", Valid: true}
+	}
+	return sql.NullString{String: strings.TrimSpace(*v), Valid: true}
 }
 
 func opsNullInt64(v *int64) any {

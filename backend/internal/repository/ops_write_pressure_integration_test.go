@@ -43,6 +43,15 @@ func TestOpsRepositoryBatchInsertErrorLogs(t *testing.T) {
 	var count int
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM ops_error_logs WHERE request_id IN ('batch-ops-1', 'batch-ops-2')").Scan(&count))
 	require.Equal(t, 2, count)
+
+	var emptyRoutingAttempts int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM ops_error_logs
+		WHERE request_id IN ('batch-ops-1', 'batch-ops-2')
+		  AND routing_attempts = '[]'::jsonb
+	`).Scan(&emptyRoutingAttempts))
+	require.Equal(t, 2, emptyRoutingAttempts)
 }
 
 func TestEnqueueSchedulerOutbox_DeduplicatesIdempotentEvents(t *testing.T) {

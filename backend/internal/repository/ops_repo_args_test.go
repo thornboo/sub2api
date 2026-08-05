@@ -70,3 +70,21 @@ func TestOpsInsertErrorLogArgsPersistsRoutingEvidence(t *testing.T) {
 	require.Equal(t, sql.NullInt64{Int64: snapshotAge, Valid: true}, args[44])
 	require.Equal(t, sql.NullString{String: attemptsJSON, Valid: true}, args[45])
 }
+
+func TestOpsInsertErrorLogArgsDefaultsRoutingEvidenceToEmptyArray(t *testing.T) {
+	blank := "  "
+	tests := []struct {
+		name string
+		raw  *string
+	}{
+		{name: "nil"},
+		{name: "blank", raw: &blank},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := opsInsertErrorLogArgs(&service.OpsInsertErrorLogInput{RoutingAttemptsJSON: tt.raw})
+			require.Equal(t, sql.NullString{String: "[]", Valid: true}, args[45])
+		})
+	}
+}
