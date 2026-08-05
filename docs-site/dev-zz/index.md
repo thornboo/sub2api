@@ -38,6 +38,7 @@
 | 已落地 | [管理员用量分析下钻](./features/admin-usage-profile-drilldown.md) | 管理员侧用户 / API Key 下钻入口、日期回写和月粒度趋势已实现。 |
 | 已落地 + 目标设计 | [企业用量分析中心](./features/enterprise-usage-analytics.md) | 现有 owner Key analytics 已落地；成员 → Key → 实际分组的完整分析合同已确认、待实现。 |
 | 目标设计 | [企业用户成员管理](./features/enterprise-member-management.md) | 不可登录成员、聚合 Key、请求级 ActiveGroup、强成员预算、导入账本和权限撤销传播的完整目标架构。 |
+| 本地验证完成 / 待发布验证 | [企业成员模型感知路由与跨分组故障转移治理](./features/enterprise-member-model-aware-routing-governance.md) | 记录 2026-08-05 生产路由异常的根因；阶段 0-4 的精确发布模型规划、持久 revision/outbox/PubSub/atomic mirror、generation LKG、Composite 文本预览、非文本 evaluator coverage、typed attempt、Ops routing attempts、alias review、readiness/rollout/auto-stop 管理能力已在本地实现，并通过后端全量、13 个 PG/Redis 集成、focused race、前端全量、docs build、diff/privacy/secret scans；commit、release、deploy、生产 7d/30d/canary 证据、默认 enforce 和 shadow 退役仍待真实发布窗口证据。 |
 | 部分落地 | [用量账本与已删除 Key 证据完整性](./features/usage-ledger-evidence-integrity.md) | 阶段 1 管理员证据视图已实现；快照字段和外键约束仍是方案。 |
 | 方案稿 | [上游账号生命周期与数据保留策略](./features/account-lifecycle-data-retention.md) | 定义账号停用、归档和永久删除/Purge 的数据保留、统计变化、权限和验收口径。 |
 | 部分落地 | [上游供应商资金池与成本账本](./features/upstream-cost-pools-and-ledger.md) | 阶段 1 后端兼容层、供应商生命周期、严格创建 / 审计保留、默认结算 Modal、真实快照隔离、简化充值录入和账号供应商归属已落地；本期仍仅支持正向账本子集，资金池高级管理、合池、余额迁移和 usage 成本证据仍是后续阶段。 |

@@ -731,17 +731,19 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 		usageLog.APIKey.MemberID = nil
 	}
 	return &AdminUsageLog{
-		UsageLog:              usageLog,
-		AccountID:             l.AccountID,
-		UpstreamModel:         l.UpstreamModel,
-		ChannelID:             l.ChannelID,
-		ModelMappingChain:     l.ModelMappingChain,
-		BillingTier:           l.BillingTier,
-		AccountRateMultiplier: l.AccountRateMultiplier,
-		AccountStatsCost:      l.AccountStatsCost,
-		ScheduleMeta:          UsageScheduleMetaFromService(l.ScheduleMeta),
-		IPAddress:             l.IPAddress,
-		Account:               AccountSummaryFromService(l.Account),
+		UsageLog:               usageLog,
+		AccountID:              l.AccountID,
+		UpstreamModel:          l.UpstreamModel,
+		ChannelID:              l.ChannelID,
+		ModelMappingChain:      l.ModelMappingChain,
+		BillingTier:            l.BillingTier,
+		AccountRateMultiplier:  l.AccountRateMultiplier,
+		AccountStatsCost:       l.AccountStatsCost,
+		ScheduleMeta:           UsageScheduleMetaFromService(l.ScheduleMeta),
+		RoutePlanSource:        l.RoutePlanSource,
+		RoutePlanSnapshotAgeMs: l.RoutePlanSnapshotAgeMs,
+		IPAddress:              l.IPAddress,
+		Account:                AccountSummaryFromService(l.Account),
 	}
 }
 
@@ -764,6 +766,12 @@ func UsageScheduleMetaFromService(meta *service.UsageScheduleMeta) *UsageSchedul
 		UpstreamProtocol:     meta.UpstreamProtocol,
 		ProtocolDeliveryMode: meta.ProtocolDeliveryMode,
 		CapabilitySource:     meta.CapabilitySource,
+		ShadowDiffType:       meta.ShadowDiffType,
+		ShadowReasonCodes:    append([]string(nil), meta.ShadowReasonCodes...),
+		ShadowPlanSource:     meta.ShadowPlanSource,
+		ShadowLegacyGroups:   meta.ShadowLegacyGroups,
+		ShadowPlannedGroups:  meta.ShadowPlannedGroups,
+		ShadowPrunedGroups:   meta.ShadowPrunedGroups,
 	}
 }
 

@@ -1003,7 +1003,7 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 		c.Next()
 	})
 	if mode == "enterprise_group_fallback" {
-		router.Use(middleware.ResolveEnterpriseMemberGroup(nil, cfg, middleware.AnthropicErrorWriter))
+		router.Use(middleware.ResolveEnterpriseMemberGroup(nil, nil, nil, cfg, middleware.AnthropicErrorWriter))
 	}
 	router.POST("/openai/v1/responses", h.Responses)
 	router.GET("/openai/v1/responses", h.ResponsesWebSocket)

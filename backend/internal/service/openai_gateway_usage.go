@@ -298,6 +298,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ImageSizeBreakdown:  result.ImageSizeBreakdown,
 	}
 	applyAPIKeyUsageAttribution(usageLog, apiKey)
+	ApplyUsageRoutingPlanEvidence(ctx, usageLog)
 	isVideoUsage := isGrokVideoUsageResult(result, billingModels)
 	if isVideoUsage {
 		usageLog.VideoCount = result.VideoCount
@@ -329,6 +330,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if input.CyberBlocked {
 		usageLog.RequestType = RequestTypeCyberBlocked
 	}
+	ApplyUsageRoutingShadowSuccessEvidence(ctx, usageLog)
 	usageLog.OpenAIWSMode = result.OpenAIWSMode
 	usageLog.DurationMs = &durationMs
 	usageLog.FirstTokenMs = result.FirstTokenMs

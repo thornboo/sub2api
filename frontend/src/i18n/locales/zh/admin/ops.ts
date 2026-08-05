@@ -334,6 +334,18 @@ export default {
           expand: '响应内容（点击展开）',
           collapse: '响应内容（点击收起）'
         },
+        enterpriseRoute: {
+          title: '企业成员路由',
+          planned: '规划候选',
+          pruned: '裁剪候选',
+          attempts: '真实尝试',
+          responsibility: '终态责任',
+          group: '分组',
+          outcome: '结果',
+          reason: '原因',
+          replay: '可重放',
+          lkgSourceWithAge: 'last_known_good · {age}秒'
+        },
         loading: '加载中…',
         requestId: '请求 ID',
         time: '时间',

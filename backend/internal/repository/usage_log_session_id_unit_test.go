@@ -32,8 +32,8 @@ func newSessionIDUsageLog(sessionID *string) *service.UsageLog {
 // arg slice / arg-type table so the five INSERT column lists stay in sync. session_id
 // is the penultimate arg (created_at is always last).
 func TestPrepareUsageLogInsert_SessionIDArgWiring(t *testing.T) {
-	require.Len(t, usageLogInsertArgTypes, 61,
-		"arg-type table must preserve enterprise attribution and schedule_meta while adding session_id")
+	require.Len(t, usageLogInsertArgTypes, 63,
+		"arg-type table must preserve enterprise attribution, schedule_meta, route_plan fields and session_id")
 
 	sessionID := "sess-persisted-123"
 	prepared := prepareUsageLogInsert(newSessionIDUsageLog(&sessionID))

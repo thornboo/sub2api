@@ -1051,6 +1051,8 @@ func (s *GatewayService) buildRecordUsageLog(
 		CreatedAt:             time.Now(),
 	}
 	applyAPIKeyUsageAttribution(usageLog, apiKey)
+	ApplyUsageRoutingPlanEvidence(ctx, usageLog)
+	ApplyUsageRoutingShadowSuccessEvidence(ctx, usageLog)
 	if result.ImageCount > 0 && (cost == nil || cost.BillingMode != string(BillingModeToken)) {
 		usageLog.RateMultiplier = imageMultiplier
 	}

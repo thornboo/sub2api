@@ -144,6 +144,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 
 	if endpoint.IsGenerationRequest() {
 		if !service.GroupAllowsImageGeneration(apiKey.Group) {
+			markEnterpriseMemberGroupRetry(c, apiKey, service.OpsGroupRetryReasonCapabilityMismatch)
 			h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 			return
 		}

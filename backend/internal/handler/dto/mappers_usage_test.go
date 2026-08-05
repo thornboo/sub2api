@@ -145,6 +145,12 @@ func TestUsageLogFromServiceAdmin_IncludesScheduleMetaAdminOnly(t *testing.T) {
 			TopK:                2,
 			SelectedAccountID:   9,
 			SelectedAccountType: service.AccountTypeAPIKey,
+			ShadowDiffType:      service.UsageShadowDiffLegacySuccessNewPruned,
+			ShadowReasonCodes:   []string{"model_unpublished"},
+			ShadowPlanSource:    "live",
+			ShadowLegacyGroups:  2,
+			ShadowPlannedGroups: 1,
+			ShadowPrunedGroups:  1,
 		},
 	}
 
@@ -157,13 +163,78 @@ func TestUsageLogFromServiceAdmin_IncludesScheduleMetaAdminOnly(t *testing.T) {
 	require.Equal(t, "load_balance", adminDTO.ScheduleMeta.Layer)
 	require.Equal(t, 3, adminDTO.ScheduleMeta.CandidateCount)
 	require.Equal(t, int64(9), adminDTO.ScheduleMeta.SelectedAccountID)
+	require.Equal(t, service.UsageShadowDiffLegacySuccessNewPruned, adminDTO.ScheduleMeta.ShadowDiffType)
+	require.Equal(t, []string{"model_unpublished"}, adminDTO.ScheduleMeta.ShadowReasonCodes)
 
 	userJSON, err := json.Marshal(userDTO)
 	require.NoError(t, err)
 	require.NotContains(t, string(userJSON), "schedule_meta")
+	require.NotContains(t, string(userJSON), "shadow_diff_type")
+	require.NotContains(t, string(userJSON), "model_unpublished")
 
 	adminJSON, err := json.Marshal(adminDTO)
 	require.NoError(t, err)
+	require.Contains(t, string(adminJSON), `"schedule_meta"`)
+	require.Contains(t, string(adminJSON), `"candidate_count":3`)
+	require.Contains(t, string(adminJSON), `"shadow_diff_type":"legacy_success_new_pruned"`)
+	require.Contains(t, string(adminJSON), `"shadow_reason_codes":["model_unpublished"]`)
+	require.NotContains(t, string(adminJSON), "member_code")
+	require.NotContains(t, string(adminJSON), "member_name")
+}
+
+func TestUsageLogFromServiceAdmin_IncludesRoutePlanEvidenceAdminOnly(t *testing.T) {
+	t.Parallel()
+
+	age := int64(345)
+	upstreamEndpoint := "/v1/internal/upstream"
+	log := &service.UsageLog{
+		RequestID:              "req_route_plan",
+		Model:                  "gpt-5.6-terra",
+		RoutePlanSource:        "last_known_good",
+		RoutePlanSnapshotAgeMs: &age,
+		UpstreamEndpoint:       &upstreamEndpoint,
+		ScheduleMeta: &service.UsageScheduleMeta{
+			CandidateCount:      3,
+			SelectedAccountID:   42,
+			ShadowDiffType:      "legacy_success_new_pruned",
+			ShadowReasonCodes:   []string{"model_unpublished"},
+			ShadowLegacyGroups:  5,
+			ShadowPlannedGroups: 2,
+			ShadowPrunedGroups:  3,
+		},
+	}
+
+	userDTO := UsageLogFromService(log)
+	adminDTO := UsageLogFromServiceAdmin(log)
+
+	require.Equal(t, "last_known_good", adminDTO.RoutePlanSource)
+	require.NotNil(t, adminDTO.RoutePlanSnapshotAgeMs)
+	require.Equal(t, age, *adminDTO.RoutePlanSnapshotAgeMs)
+	require.NotNil(t, adminDTO.ScheduleMeta)
+	require.Equal(t, 3, adminDTO.ScheduleMeta.CandidateCount)
+	require.EqualValues(t, 42, adminDTO.ScheduleMeta.SelectedAccountID)
+	require.Equal(t, upstreamEndpoint, *adminDTO.UpstreamEndpoint)
+
+	userJSON, err := json.Marshal(userDTO)
+	require.NoError(t, err)
+	for _, forbidden := range []string{
+		"route_plan_source",
+		"route_plan_snapshot_age_ms",
+		"upstream_endpoint",
+		"schedule_meta",
+		"candidate_count",
+		"selected_account_id",
+		"legacy_success_new_pruned",
+		"shadow_pruned_groups",
+	} {
+		require.NotContains(t, string(userJSON), forbidden)
+	}
+
+	adminJSON, err := json.Marshal(adminDTO)
+	require.NoError(t, err)
+	require.Contains(t, string(adminJSON), `"route_plan_source":"last_known_good"`)
+	require.Contains(t, string(adminJSON), `"route_plan_snapshot_age_ms":345`)
+	require.Contains(t, string(adminJSON), `"upstream_endpoint":"/v1/internal/upstream"`)
 	require.Contains(t, string(adminJSON), `"schedule_meta"`)
 	require.Contains(t, string(adminJSON), `"candidate_count":3`)
 }

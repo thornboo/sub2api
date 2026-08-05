@@ -93,6 +93,8 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // inbound_endpoint
 			sqlmock.AnyArg(), // upstream_endpoint
 			sqlmock.AnyArg(), // schedule_meta
+			sqlmock.AnyArg(), // route_plan_source
+			sqlmock.AnyArg(), // route_plan_snapshot_age_ms
 			log.CacheTTLOverridden,
 			log.LongContextBillingApplied,
 			sqlmock.AnyArg(), // channel_id
@@ -114,6 +116,23 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 	require.True(t, log.Stream)
 	require.True(t, log.OpenAIWSMode)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUsageScheduleMetaFromNullJSONKeepsShadowDiffOnlyPayload(t *testing.T) {
+	t.Parallel()
+
+	got := usageScheduleMetaFromNullJSON(sql.NullString{
+		Valid:  true,
+		String: `{"shadow_diff_type":"legacy_success_new_pruned","shadow_reason_codes":["model_unpublished"],"shadow_plan_source":"live","shadow_legacy_groups":2,"shadow_planned_groups":1,"shadow_pruned_groups":1}`,
+	})
+
+	require.NotNil(t, got)
+	require.Equal(t, service.UsageShadowDiffLegacySuccessNewPruned, got.ShadowDiffType)
+	require.Equal(t, []string{"model_unpublished"}, got.ShadowReasonCodes)
+	require.Equal(t, "live", got.ShadowPlanSource)
+	require.Equal(t, 2, got.ShadowLegacyGroups)
+	require.Equal(t, 1, got.ShadowPlannedGroups)
+	require.Equal(t, 1, got.ShadowPrunedGroups)
 }
 
 func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
@@ -187,6 +206,8 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(),
 			sqlmock.AnyArg(),
 			sqlmock.AnyArg(), // schedule_meta
+			sqlmock.AnyArg(), // route_plan_source
+			sqlmock.AnyArg(), // route_plan_snapshot_age_ms
 			log.CacheTTLOverridden,
 			log.LongContextBillingApplied,
 			sqlmock.AnyArg(), // channel_id
@@ -850,6 +871,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
+			sql.NullString{}, // route_plan_source
+			sql.NullInt64{},  // route_plan_snapshot_age_ms
 			false,
 			false,
 			sql.NullInt64{},
@@ -929,6 +952,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
+			sql.NullString{}, // route_plan_source
+			sql.NullInt64{},  // route_plan_snapshot_age_ms
 			false,
 			false,
 			sql.NullInt64{},   // channel_id
@@ -991,6 +1016,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
+			sql.NullString{}, // route_plan_source
+			sql.NullInt64{},  // route_plan_snapshot_age_ms
 			false,
 			false,
 			sql.NullInt64{},   // channel_id
@@ -1053,6 +1080,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{Valid: true, String: `{"provider":"openai","layer":"load_balance","candidate_count":3}`},
+			sql.NullString{}, // route_plan_source
+			sql.NullInt64{},  // route_plan_snapshot_age_ms
 			false,
 			false,
 			sql.NullInt64{},   // channel_id

@@ -48,7 +48,7 @@ func (h *BatchImageHandler) Submit(c *gin.Context) {
 	got, err := h.service.Submit(c.Request.Context(), owner, req, c.GetHeader("Idempotency-Key"))
 	if err != nil {
 		if errors.Is(err, service.ErrBatchImageNoAccountAvailable) {
-			service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapacityExhausted)
+			markEnterpriseMemberGroupRetryFromContext(c, service.OpsGroupRetryReasonCapacityExhausted)
 		}
 		batchImageError(c, err)
 		return

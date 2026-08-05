@@ -136,6 +136,11 @@ type UsageLog struct {
 	UpstreamEndpoint *string
 	// ScheduleMeta records non-sensitive scheduler diagnostics for admin troubleshooting.
 	ScheduleMeta *UsageScheduleMeta
+	// RoutePlanSource records the execution plan source for enterprise-member
+	// model-aware routing. It is admin-only and empty for legacy/shadow-only
+	// execution.
+	RoutePlanSource        string
+	RoutePlanSnapshotAgeMs *int64
 
 	GroupID            *int64
 	SubscriptionID     *int64
@@ -244,20 +249,30 @@ func usageGroupID(ctx context.Context, apiKey *APIKey) *int64 {
 }
 
 type UsageScheduleMeta struct {
-	Provider             string  `json:"provider,omitempty"`
-	Layer                string  `json:"layer,omitempty"`
-	StickyPreviousHit    bool    `json:"sticky_previous_hit,omitempty"`
-	StickySessionHit     bool    `json:"sticky_session_hit,omitempty"`
-	CandidateCount       int     `json:"candidate_count,omitempty"`
-	TopK                 int     `json:"top_k,omitempty"`
-	LatencyMs            int64   `json:"latency_ms,omitempty"`
-	LoadSkew             float64 `json:"load_skew,omitempty"`
-	SelectedAccountID    int64   `json:"selected_account_id,omitempty"`
-	SelectedAccountType  string  `json:"selected_account_type,omitempty"`
-	InboundProtocol      string  `json:"inbound_protocol,omitempty"`
-	UpstreamProtocol     string  `json:"upstream_protocol,omitempty"`
-	ProtocolDeliveryMode string  `json:"protocol_delivery_mode,omitempty"`
-	CapabilitySource     string  `json:"capability_source,omitempty"`
+	Provider               string   `json:"provider,omitempty"`
+	Layer                  string   `json:"layer,omitempty"`
+	StickyPreviousHit      bool     `json:"sticky_previous_hit,omitempty"`
+	StickySessionHit       bool     `json:"sticky_session_hit,omitempty"`
+	CandidateCount         int      `json:"candidate_count,omitempty"`
+	TopK                   int      `json:"top_k,omitempty"`
+	LatencyMs              int64    `json:"latency_ms,omitempty"`
+	LoadSkew               float64  `json:"load_skew,omitempty"`
+	SelectedAccountID      int64    `json:"selected_account_id,omitempty"`
+	SelectedAccountType    string   `json:"selected_account_type,omitempty"`
+	InboundProtocol        string   `json:"inbound_protocol,omitempty"`
+	UpstreamProtocol       string   `json:"upstream_protocol,omitempty"`
+	ProtocolDeliveryMode   string   `json:"protocol_delivery_mode,omitempty"`
+	CapabilitySource       string   `json:"capability_source,omitempty"`
+	ShadowPlanEvaluated    bool     `json:"shadow_plan_evaluated,omitempty"`
+	ShadowGroupKept        bool     `json:"shadow_group_kept,omitempty"`
+	ShadowEvaluationError  bool     `json:"shadow_evaluation_error,omitempty"`
+	ShadowPlannerLatencyMs int64    `json:"shadow_planner_latency_ms,omitempty"`
+	ShadowDiffType         string   `json:"shadow_diff_type,omitempty"`
+	ShadowReasonCodes      []string `json:"shadow_reason_codes,omitempty"`
+	ShadowPlanSource       string   `json:"shadow_plan_source,omitempty"`
+	ShadowLegacyGroups     int      `json:"shadow_legacy_groups,omitempty"`
+	ShadowPlannedGroups    int      `json:"shadow_planned_groups,omitempty"`
+	ShadowPrunedGroups     int      `json:"shadow_pruned_groups,omitempty"`
 }
 
 func UsageScheduleMetaWithProtocol(meta *UsageScheduleMeta, inbound, upstream ModelProtocol, deliveryMode, capabilitySource string) *UsageScheduleMeta {

@@ -973,6 +973,114 @@ export interface OpsErrorLog {
 
 }
 
+export interface OpsEnterpriseMemberRoutePrunedGroup {
+  group_id?: number | null
+  group_name?: string
+  reason?: string
+}
+
+export interface OpsEnterpriseMemberRouteAttempt {
+  stage?: 'planned_candidate' | 'pruned_candidate' | 'actual_attempt' | string
+  group_id?: number | null
+  group_name?: string
+  model_owner_group_id?: number | null
+  attempt_number?: number | null
+  candidate_index?: number | null
+  status_code?: number | null
+  platform?: string
+  requested_model?: string
+  mapped_model?: string
+  reason?: string
+  outcome?: string
+  safe_to_replay?: boolean | null
+  response_committed?: boolean | null
+  outcome_unknown?: boolean | null
+  unsafe_reason?: string
+  source?: 'live' | 'last_known_good' | string
+  lkg_age_seconds?: number | null
+}
+
+export interface OpsEnterpriseMemberRouteTrace {
+  planned_group_ids?: number[]
+  planned_groups?: Array<{ group_id?: number | null; group_name?: string }>
+  pruned_groups?: OpsEnterpriseMemberRoutePrunedGroup[]
+  attempts?: OpsEnterpriseMemberRouteAttempt[]
+  final_responsibility?: string
+  terminal_responsibility?: string
+  source?: 'live' | 'last_known_good' | string
+  lkg_age_seconds?: number | null
+}
+
+export type EnterpriseMemberModelAliasReviewStatus =
+  | 'pending'
+  | 'registered'
+  | 'rejected_invalid'
+  | 'obsolete'
+  | 'needs_owner_action'
+  | string
+
+export interface EnterpriseMemberModelAliasReviewItem {
+  public_model: string
+  public_model_norm?: string
+  endpoint?: string
+  legacy_outcome?: string
+  planned_outcome?: string
+  reason_codes?: string[]
+  final_group_id?: number | null
+  channel_id?: number | null
+  request_count_7d?: number
+  request_count_30d?: number
+  success_count_7d?: number
+  success_count_30d?: number
+  affected_enterprise_count_7d?: number
+  affected_enterprise_count_30d?: number
+  last_seen_at?: string
+  review_status?: EnterpriseMemberModelAliasReviewStatus
+  reviewed_by?: number | null
+  reviewed_at?: string | null
+  review_note?: string
+  stable_route_evidence?: string
+}
+
+export interface EnterpriseMemberModelAliasReviewListResponse {
+  items: EnterpriseMemberModelAliasReviewItem[]
+}
+
+export interface EnterpriseMemberModelAliasReviewRequest {
+  public_model: string
+  endpoint?: string
+  status: EnterpriseMemberModelAliasReviewStatus
+  final_group_id?: number | null
+  channel_id?: number | null
+  review_note?: string
+}
+
+export interface EnterpriseMemberModelAliasReviewRecord {
+  id: number
+  public_model: string
+  public_model_norm?: string
+  endpoint?: string
+  status: EnterpriseMemberModelAliasReviewStatus
+  final_group_id?: number | null
+  channel_id?: number | null
+  review_note?: string
+  validation_evidence?: unknown
+  reviewed_by?: number | null
+  reviewed_at?: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+export interface EnterpriseMemberModelAliasReadinessSummary {
+  ready: boolean
+  blocking_unreviewed_active_7d?: number
+  blocking_unreviewed_active_30d?: number
+  legacy_success_new_pruned_active_7d?: number
+  legacy_success_new_pruned_active_30d?: number
+  generated_at?: string
+  reason?: string
+}
+
 export interface OpsErrorDetail extends OpsErrorLog {
   error_body: string
 
@@ -992,6 +1100,21 @@ export interface OpsErrorDetail extends OpsErrorLog {
 
   // Bound (non-deleted) key prefix, snapshotted at error time
   api_key_prefix?: string | null
+
+  // Enterprise-member route diagnostics. routing_* mirrors the persisted
+  // backend DTO; enterprise_member_route* remains for older rows.
+  routing_plan_source?: 'live' | 'last_known_good' | string
+  routing_snapshot_age_ms?: number | null
+  routing_attempts?: OpsEnterpriseMemberRouteAttempt[]
+
+  enterprise_member_route?: OpsEnterpriseMemberRouteTrace | null
+  enterprise_member_route_plan?: OpsEnterpriseMemberRouteTrace | null
+  enterprise_member_planned_group_ids?: number[]
+  enterprise_member_pruned_groups?: OpsEnterpriseMemberRoutePrunedGroup[]
+  enterprise_member_route_attempts?: OpsEnterpriseMemberRouteAttempt[]
+  enterprise_member_route_source?: 'live' | 'last_known_good' | string
+  enterprise_member_route_lkg_age_seconds?: number | null
+  enterprise_member_final_responsibility?: string
 }
 
 export type OpsErrorLogsResponse = PaginatedResponse<OpsErrorLog>
@@ -1219,6 +1342,31 @@ export async function listRequestDetails(params: OpsRequestDetailsParams): Promi
   return data
 }
 
+export async function getEnterpriseMemberModelAliasReviews(limit = 100): Promise<EnterpriseMemberModelAliasReviewListResponse> {
+  const { data } = await apiClient.get<EnterpriseMemberModelAliasReviewListResponse>(
+    '/admin/ops/enterprise-members/model-aliases',
+    { params: { limit } },
+  )
+  return data
+}
+
+export async function getEnterpriseMemberModelAliasReadiness(): Promise<EnterpriseMemberModelAliasReadinessSummary> {
+  const { data } = await apiClient.get<EnterpriseMemberModelAliasReadinessSummary>(
+    '/admin/ops/enterprise-members/model-aliases/readiness',
+  )
+  return data
+}
+
+export async function reviewEnterpriseMemberModelAlias(
+  request: EnterpriseMemberModelAliasReviewRequest,
+): Promise<EnterpriseMemberModelAliasReviewRecord> {
+  const { data } = await apiClient.put<EnterpriseMemberModelAliasReviewRecord>(
+    '/admin/ops/enterprise-members/model-aliases/review',
+    request,
+  )
+  return data
+}
+
 // Alert rules
 export async function listAlertRules(): Promise<AlertRule[]> {
   const { data } = await apiClient.get<AlertRule[]>('/admin/ops/alert-rules')
@@ -1381,6 +1529,9 @@ export const opsAPI = {
   listRequestErrorUpstreamErrors,
 
   listRequestDetails,
+  getEnterpriseMemberModelAliasReviews,
+  getEnterpriseMemberModelAliasReadiness,
+  reviewEnterpriseMemberModelAlias,
   listAlertRules,
   createAlertRule,
   updateAlertRule,

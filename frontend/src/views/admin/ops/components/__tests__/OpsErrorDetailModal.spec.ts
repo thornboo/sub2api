@@ -33,6 +33,22 @@ const BaseDialogStub = {
 
 const IconStub = { template: '<span />' }
 
+function mountModal() {
+  return mount(OpsErrorDetailModal, {
+    props: {
+      show: true,
+      errorId: 1,
+      errorType: 'request'
+    },
+    global: {
+      stubs: {
+        BaseDialog: BaseDialogStub,
+        Icon: IconStub
+      }
+    }
+  })
+}
+
 function makeErrorDetail(overrides: Partial<OpsErrorDetail> = {}): OpsErrorDetail {
   return {
     id: 1,
@@ -80,19 +96,7 @@ describe('OpsErrorDetailModal', () => {
       total: 1
     })
 
-    const wrapper = mount(OpsErrorDetailModal, {
-      props: {
-        show: true,
-        errorId: 1,
-        errorType: 'request'
-      },
-      global: {
-        stubs: {
-          BaseDialog: BaseDialogStub,
-          Icon: IconStub
-        }
-      }
-    })
+    const wrapper = mountModal()
 
     await flushPromises()
 
@@ -109,5 +113,255 @@ describe('OpsErrorDetailModal', () => {
     expect(responseBlocks[1].classes()).toContain('ops-response-block')
     expect(responseBlocks[1].classes()).toContain('overflow-y-auto')
     expect(responseBlocks[1].classes()).not.toContain('overflow-auto')
+  })
+
+  it('renders enterprise member route trace only when present', async () => {
+    vi.mocked(opsAPI.getRequestErrorDetail).mockResolvedValueOnce(
+      makeErrorDetail({
+        enterprise_member_route: {
+          planned_group_ids: [11, 12],
+          pruned_groups: [{ group_id: 11, group_name: 'mimo', reason: 'model_unpublished' }],
+          attempts: [
+            {
+              group_id: 12,
+              group_name: 'glm',
+              attempt_number: 1,
+              outcome: 'terminal_failure',
+              reason: 'capability_mismatch',
+              safe_to_replay: false,
+              source: 'last_known_good',
+              lkg_age_seconds: 42
+            }
+          ],
+          final_responsibility: 'client',
+          source: 'last_known_good',
+          lkg_age_seconds: 42
+        }
+      })
+    )
+    vi.mocked(opsAPI.listRequestErrorUpstreamErrors).mockResolvedValue({ items: [], total: 0 })
+
+    const wrapper = mountModal()
+
+    await flushPromises()
+
+    const routeTrace = wrapper.get('[data-testid="enterprise-member-route-trace"]')
+    expect(routeTrace.text()).toContain('#11')
+    expect(routeTrace.text()).toContain('#12')
+    expect(routeTrace.text()).toContain('model_unpublished')
+    expect(routeTrace.text()).toContain('glm')
+    expect(routeTrace.text()).toContain('client')
+    expect(routeTrace.text()).toContain('admin.ops.errorDetail.enterpriseRoute.lkgSourceWithAge')
+
+    vi.mocked(opsAPI.getRequestErrorDetail).mockResolvedValueOnce(makeErrorDetail({ id: 3 }))
+    await wrapper.setProps({ errorId: 3 })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="enterprise-member-route-trace"]').exists()).toBe(false)
+  })
+
+  const persistedRoutingFixtures: Array<{
+    name: string
+    model: string
+    source: string
+    ageMs?: number
+    attempts: NonNullable<OpsErrorDetail['routing_attempts']>
+    expected: string[]
+  }> = [
+    {
+      name: 'gpt-image-1.5 unpublished image model',
+      model: 'gpt-image-1.5',
+      source: 'live',
+      attempts: [
+        {
+          stage: 'pruned_candidate',
+          outcome: 'pruned',
+          group_id: 31,
+          model_owner_group_id: 91,
+          requested_model: 'gpt-image-1.5',
+          reason: 'model_unpublished'
+        }
+      ],
+      expected: ['pruned:#31', '#91', 'gpt-image-1.5', 'model_unpublished']
+    },
+    {
+      name: 'glm-5.2 stays on GLM owner group',
+      model: 'glm-5.2',
+      source: 'live',
+      attempts: [
+        {
+          stage: 'planned_candidate',
+          outcome: 'planned',
+          group_id: 42,
+          model_owner_group_id: 42,
+          requested_model: 'glm-5.2'
+        },
+        {
+          stage: 'actual_attempt',
+          outcome: 'selected',
+          group_id: 42,
+          model_owner_group_id: 42,
+          attempt_number: 1,
+          requested_model: 'glm-5.2',
+          mapped_model: 'glm-5.2',
+          safe_to_replay: true
+        }
+      ],
+      expected: ['planned:#42', 'actual:#42', '#42', 'glm-5.2']
+    },
+    {
+      name: 'minimax-m3 terminal evidence keeps owner separate',
+      model: 'minimax-m3',
+      source: 'live',
+      attempts: [
+        {
+          stage: 'planned_candidate',
+          outcome: 'planned',
+          group_id: 52,
+          model_owner_group_id: 52,
+          requested_model: 'minimax-m3'
+        },
+        {
+          stage: 'actual_attempt',
+          outcome: 'terminal_failure',
+          group_id: 53,
+          model_owner_group_id: 52,
+          attempt_number: 1,
+          requested_model: 'minimax-m3',
+          reason: 'capacity_exhausted',
+          safe_to_replay: false,
+          response_committed: false
+        }
+      ],
+      expected: ['planned:#52', 'terminal:#53', '#52', 'terminal_failure', 'capacity_exhausted']
+    },
+    {
+      name: 'gpt-5.6-terra last known good snapshot age',
+      model: 'gpt-5.6-terra',
+      source: 'last_known_good',
+      ageMs: 42000,
+      attempts: [
+        {
+          stage: 'planned_candidate',
+          outcome: 'planned',
+          group_id: 62,
+          model_owner_group_id: 62,
+          requested_model: 'gpt-5.6-terra'
+        },
+        {
+          stage: 'pruned_candidate',
+          outcome: 'pruned',
+          group_id: 63,
+          model_owner_group_id: 99,
+          requested_model: 'gpt-5.6-terra',
+          reason: 'endpoint_capability'
+        }
+      ],
+      expected: ['planned:#62', 'pruned:#63', '#99', 'gpt-5.6-terra', 'admin.ops.errorDetail.enterpriseRoute.lkgSourceWithAge']
+    }
+  ]
+
+  for (const fixture of persistedRoutingFixtures) {
+    it(`renders persisted routing_attempts for ${fixture.name}`, async () => {
+      vi.mocked(opsAPI.getRequestErrorDetail).mockResolvedValueOnce(
+        makeErrorDetail({
+          model: fixture.model,
+          requested_model: fixture.model,
+          routing_plan_source: fixture.source,
+          routing_snapshot_age_ms: fixture.ageMs,
+          routing_attempts: fixture.attempts
+        })
+      )
+      vi.mocked(opsAPI.listRequestErrorUpstreamErrors).mockResolvedValue({ items: [], total: 0 })
+
+      const wrapper = mountModal()
+
+      await flushPromises()
+
+      const routeTrace = wrapper.get('[data-testid="enterprise-member-route-trace"]')
+      const text = routeTrace.text()
+      for (const expected of fixture.expected) {
+        expect(text).toContain(expected)
+      }
+    })
+  }
+
+  it('prefers persisted routing fields over legacy enterprise member route fields', async () => {
+    vi.mocked(opsAPI.getRequestErrorDetail).mockResolvedValueOnce(
+      makeErrorDetail({
+        routing_plan_source: 'live',
+        routing_attempts: [
+          {
+            stage: 'actual_attempt',
+            outcome: 'selected',
+            group_id: 77,
+            model_owner_group_id: 88,
+            requested_model: 'glm-5.2'
+          }
+        ],
+        enterprise_member_route: {
+          attempts: [{ group_id: 11, group_name: 'legacy-mimo', outcome: 'terminal_failure' }],
+          final_responsibility: 'legacy-final',
+          source: 'last_known_good',
+          lkg_age_seconds: 9
+        }
+      })
+    )
+    vi.mocked(opsAPI.listRequestErrorUpstreamErrors).mockResolvedValue({ items: [], total: 0 })
+
+    const wrapper = mountModal()
+
+    await flushPromises()
+
+    const text = wrapper.get('[data-testid="enterprise-member-route-trace"]').text()
+    expect(text).toContain('actual:#77')
+    expect(text).toContain('#88')
+    expect(text).not.toContain('legacy-mimo')
+  })
+
+  it('does not render empty routing arrays or sensitive routing payload fields', async () => {
+    vi.mocked(opsAPI.getRequestErrorDetail).mockResolvedValueOnce(
+      makeErrorDetail({
+        id: 4,
+        routing_attempts: []
+      })
+    )
+    vi.mocked(opsAPI.listRequestErrorUpstreamErrors).mockResolvedValue({ items: [], total: 0 })
+
+    const emptyWrapper = mountModal()
+    await flushPromises()
+    expect(emptyWrapper.find('[data-testid="enterprise-member-route-trace"]').exists()).toBe(false)
+
+    vi.mocked(opsAPI.getRequestErrorDetail).mockResolvedValueOnce(
+      makeErrorDetail({
+        id: 5,
+        routing_plan_source: 'live',
+        routing_attempts: [
+          {
+            stage: 'actual_attempt',
+            outcome: 'terminal_failure',
+            group_id: 81,
+            model_owner_group_id: 82,
+            requested_model: 'gpt-5.6-terra',
+            reason: 'capability_mismatch',
+            api_key: 'sk-secret-route-key',
+            body: '{"token":"secret-body"}',
+            credentials: { bearer: 'secret-credentials' },
+            member: { code: 'secret-member' }
+          } as NonNullable<OpsErrorDetail['routing_attempts']>[number] & Record<string, unknown>
+        ]
+      })
+    )
+
+    const privacyWrapper = mountModal()
+    await flushPromises()
+
+    const text = privacyWrapper.get('[data-testid="enterprise-member-route-trace"]').text()
+    expect(text).toContain('terminal:#81')
+    expect(text).toContain('#82')
+    expect(text).not.toContain('sk-secret-route-key')
+    expect(text).not.toContain('secret-body')
+    expect(text).not.toContain('secret-credentials')
+    expect(text).not.toContain('secret-member')
   })
 })

@@ -154,7 +154,7 @@ func TestChannelHandlerGetModelDeliveryMapsAdminProjection(t *testing.T) {
 		Mode:     string(service.ModelDeliveryModeNative),
 		GroupIDs: []int64{20},
 	}}, model.Endpoints)
-	require.Len(t, model.Protocols, len(service.AllModelProtocols))
+	require.Len(t, model.Protocols, 3)
 	require.Equal(t, "available", model.Protocols[0].Status)
 	require.Equal(t, string(service.ModelDeliveryModeNative), model.Protocols[0].Mode)
 	require.Equal(t, string(service.ModelProtocolAnthropicMessages), model.Protocols[0].UpstreamProtocol)
@@ -175,7 +175,7 @@ func TestChannelHandlerGetModelDeliveryMapsAdminProjection(t *testing.T) {
 	require.Equal(t, "MiniMax-M3", compatGroup.Routes[0].ChannelMappedModel)
 	require.Equal(t, "compat-upstream", compatGroup.Routes[0].UpstreamModel)
 	require.Empty(t, compatGroup.Routes[0].Endpoints)
-	require.Len(t, compatGroup.Routes[0].Protocols, len(service.AllModelProtocols))
+	require.Len(t, compatGroup.Routes[0].Protocols, 3)
 	require.Equal(t, "blocked", compatGroup.Routes[0].Protocols[0].Status)
 	require.Equal(t, "MiniMax-M3", compatGroup.Routes[0].Protocols[0].ChannelMappedModel)
 	require.Equal(t, "compat-upstream", compatGroup.Routes[0].Protocols[0].UpstreamModel)
@@ -196,7 +196,7 @@ func TestChannelHandlerGetModelDeliveryMapsAdminProjection(t *testing.T) {
 		Mode:     string(service.ModelDeliveryModeNative),
 		Source:   "admin_override",
 	}}, nativeGroup.Routes[0].Endpoints)
-	require.Len(t, nativeGroup.Routes[0].Protocols, len(service.AllModelProtocols))
+	require.Len(t, nativeGroup.Routes[0].Protocols, 3)
 	require.Equal(t, "available", nativeGroup.Routes[0].Protocols[0].Status)
 	require.Equal(t, "MiniMax-M3", nativeGroup.Routes[0].Protocols[0].ChannelMappedModel)
 	require.Equal(t, "native-upstream", nativeGroup.Routes[0].Protocols[0].UpstreamModel)

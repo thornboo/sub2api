@@ -54,6 +54,17 @@ HTTP 首输出超时包含等待响应头的时间，只用于 native Responses�
 
 第一阶段只新增 OpenAI APIKey 账号的原生 Anthropic Messages 传输。`openai_responses_mode` 继续是账号级路由偏好，不迁入能力表；`AllowMessagesDispatch` 继续是分组是否允许 `/v1/messages` 的真相源。
 
+## 企业成员模型感知准入
+
+| 配置 / setting | 默认值 | 说明 |
+| --- | ---: | --- |
+| `gateway.enterprise_member_model_admission_mode` | `shadow_published` | 部署级默认值。支持 `legacy_order_only`、`shadow_published`、`enforce_published`；当前新安装默认仍受 phase5 gate 约束保持 shadow，不得在没有生产证据时改成 enforce |
+| DB setting `enterprise_member_model_admission_mode` | 继承部署默认 | 管理端保存后的准入模式。服务端 readiness、rollout 和 auto-stop 不满足时，即使 DB 或配置写入 enforce，运行时也会安全降级为 shadow |
+| DB setting `enterprise_member_model_admission_rollout_policy` | `{}` | 管理端 rollout policy；可按企业 owner ID、成员 ID、稳定哈希百分比和 salt 控制 enforce 覆盖，`auto_stop=true` 表示手动停止 |
+| DB setting `enterprise_member_model_admission_legacy_retirement_target` | 空 | legacy 退役目标，只接受 `YYYY-MM-DD` 或 `vX.Y.Z`；当前只记录 phase5 准备状态，不代表旧模式已退役 |
+
+readiness 由服务端统一计算：routing revision mirror、非文本 evaluator coverage、alias audit、shadow/canary/evidence pipeline、rollout expansion evidence 和 auto-stop 任一不满足时，enforce 不能扩大或持久化。`DefaultEnterpriseMemberModelAdmissionModeForNewInstall()` 当前仍由 `phase5_production_gate_pending` 返回 `shadow_published`；只有全量 enforce 稳定一个真实发布窗口并完成发布复核后，才能把 phase5 gate 改为已验证并调整默认值。
+
 ## 认证验证码提供商
 
 认证验证码保存在 DB settings 中，由“系统设置 → 安全”热配置，无需重启或数据库迁移。Cloudflare Turnstile、腾讯天御和阿里云验证码 2.0 同一时间最多启用一家；前端使用单选主控，服务端仍会拒绝多 provider 同时启用的 payload。
@@ -240,6 +251,11 @@ runner 每分钟检查到期账号，单轮最多 20 个、并发 4、单请求�
 | `backend/migrations/193_ops_failure_classification_v2_indexes_notx.sql` | 以 `_notx` 方式并发建立 Ops 客户可见性、SLA 影响、失败域、类别、原因和时间组合索引 |
 | `backend/migrations/196_upstream_binding_price_reference_currency.sql` | 给账号成本绑定增加 `CNY` / `USD` 分组计价基准和管理员确认状态；既有绑定保留旧美元公式但标记为未确认，不进入成本优先排序或调度 |
 | `backend/migrations/197_account_model_protocol_capabilities.sql` | 新增账号模型协议能力表、精确/默认模型唯一约束和协议/状态约束；只迁移明确的 `openai_responses_supported` 观察，不把 `openai_responses_mode` 当成能力事实 |
+| `backend/migrations/199_routing_eligibility_revision.sql` | 为企业成员模型感知路由新增持久 routing eligibility revision、独立 outbox、writer coverage 触发器和 pending/published 索引 |
+| `backend/migrations/200_enterprise_member_alias_review_ledger.sql` | 新增企业成员 alias review ledger；只保存管理员处置和验证证据，不作为运行时准入源 |
+| `backend/migrations/201_ops_routing_attempts.sql` | 给 Ops 错误和成功 usage 增加路由计划来源、LKG 快照年龄与 bounded routing attempts 证据字段；CHECK 约束以 `NOT VALID` 安装，避免启动迁移扫描历史大表 |
+| `backend/migrations/201a_ops_routing_attempts_indexes_notx.sql` | 以 `_notx` 模式并发建立 Ops/usage 路由证据索引；运行器在重试前清理同名 invalid index，避免 `IF NOT EXISTS` 错误跳过失败产物 |
+| `backend/migrations/202_account_model_protocol_capabilities_non_text.sql` | 扩展协议能力约束到 Embeddings、Images、Live、Batch Images、Grok Video 和 Gemini Native，供非文本 evaluator coverage 使用 |
 
 `152` 使用 `CREATE INDEX CONCURRENTLY`，不能放进普通事务迁移。后续合并上游迁移时，需保留 `_notx` 约定，避免长事务锁表。
 
@@ -268,6 +284,8 @@ runner 每分钟检查到期账号，单轮最多 20 个、并发 4、单请求�
 `191` 只改变 `enterprise_member_import_usage_baselines` 中六个外部聚合 Token 字段：从 `BIGINT` 无损升级为 `NUMERIC(21,2)`，继续保持非负、原 `BIGINT` 上界和追加只读约束。单行持久化值继续受列上限约束，多行汇总使用不套用单行上限的精确十进制聚合；预览、完成结果和成员预算汇总 API 以规范化十进制字符串传输，避免 JavaScript `number` 改写大数。`usage_logs` 中来自真实模型请求的 Token 计数仍为整数，不能把迁移聚合小数伪造成请求明细。该迁移会取得表级变更锁，且旧版进程仍按 `int64` 读取这些列；升级时必须先排空旧版导入 worker、停止旧版应用实例，再执行迁移并启动同版本新实例，不能把 `191` 放进新旧二进制并存的滚动窗口。
 
 `192` / `193` 形成 Ops 分类 v2 的滚动兼容边界：`192` 新增的错误日志字段均可空，应用继续双写旧 `is_business_limited`，旧版本因此可以安全读取同一数据库；回填只处理最近 31 天且只写确定性规则，无法判断的记录保持 `sla_impact=NULL` 并进入未分类计数。回填中的 `cyber_policy` / `cyber_policy_session_blocked` 固定归为 customer + permission + `endpoint_not_allowed` 且不计 SLA；上游余额/额度证据优先于通用 401/403，通用 provider 4xx、5xx 和证据不足的 provider 终态分别写入 `provider_4xx`、`provider_5xx`、`provider_error_unknown`。hourly/daily 表新增计数列和独立 `classification_version`：旧桶标记为 v1 并从旧 headline 计数初始化连续性，读取到 v1 桶时自动回退 raw；若滚动部署中的旧实例在迁移后继续写入 v1 行，该行会进入未分类，所在桶按参与错误行的最小版本保持 v1，不能伪装成完整 v2。晚写 v1 的非 recovered HTTP 200 流式终态行保持客户可见并以未知 SLA 处理，严格 recovered 行不进入客户失败。preagg 读取还会检查相同稳定段是否存在原始 v1 行，因此旧版本聚合器留下的表面 v2 桶也不会被信任。聚合任务按 31 天窗口逐步重建迁移已回填数据的 v2 桶；迁移后晚写的 v1 行不会被猜测升级，保留 raw 回退直至离开查询窗口或另行确定性回填。发布后仍需用相同时间窗口执行 raw/preagg 对账。`193` 使用 `CREATE INDEX CONCURRENTLY`，不能放进普通事务迁移；customer-visible、SLA 和 v1 探针索引复用读取侧兼容表达式，domain/category/reason 索引不使用会漏掉 v1 行的 `customer_visible IS TRUE` partial 条件。回滚应用版本时保留新列、索引和已写分类证据，不执行破坏性降级。
+
+`199`–`202` 是企业成员模型感知路由治理的本地实现迁移。`199` 让配置事实、revision 和 outbox 在同一数据库事务内提交，并用 Redis Pub/Sub 作为快速传播路径；生产进程仍必须以数据库全量对账作为 mirror 新鲜度权威。`200` 的 review ledger 只保存 shadow 观察后的人工处置和 `registered` 验证证据，不能让 review 状态绕过真实 mapping/pricing 和稳定交付投影。`201` 的 routing attempts 必须保持 bounded、脱敏、低基数；旧 Ops 行为空数组时继续兼容展示，成功 usage 的计划来源只进入管理员证据面。为避免应用启动时扫描历史大表，`201` 的新增 CHECK 约束以 `NOT VALID` 安装，只立即约束新写入；生产发布后必须先审计历史行，再在低峰维护窗口执行 `VALIDATE CONSTRAINT`。`201a` 使用 `_notx` 并发建立索引，不得合回普通事务迁移；迁移运行器会在重试前检查并删除这两个同名 invalid index，防止上次中断产物被 `IF NOT EXISTS` 误当成成功索引。发布前仍应在生产同量级副本验证耗时、临时磁盘峰值和中断重试。`202` 只扩展协议枚举，为非文本 evaluator coverage 提供 schema 前提，不等于 Embeddings、Images、Live、Batch、Video 或 Gemini Native 已完成生产 enforce 灰度。
 
 ## 破坏性迁移与升级前检查
 

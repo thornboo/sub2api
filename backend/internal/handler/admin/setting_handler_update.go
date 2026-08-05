@@ -20,6 +20,8 @@ import (
 	"github.com/gin-gonic/gin/binding"
 )
 
+const updateSettingsRequestBodyMaxBytes int64 = 4 << 20
+
 // UpdateSettingsRequest 更新设置请求
 type UpdateSettingsRequest struct {
 	// 注册设置
@@ -242,20 +244,23 @@ type UpdateSettingsRequest struct {
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
-	NativeModelProtocolRoutingEnabled      *bool   `json:"native_model_protocol_routing_enabled"`
-	EnableFingerprintUnification           *bool   `json:"enable_fingerprint_unification"`
-	EnableMetadataPassthrough              *bool   `json:"enable_metadata_passthrough"`
-	EnableCCHSigning                       *bool   `json:"enable_cch_signing"`
-	EnableClaudeOAuthSystemPromptInjection *bool   `json:"enable_claude_oauth_system_prompt_injection"`
-	ClaudeOAuthSystemPrompt                *string `json:"claude_oauth_system_prompt"`
-	ClaudeOAuthSystemPromptBlocks          *string `json:"claude_oauth_system_prompt_blocks"`
-	EnableAnthropicCacheTTL1hInjection     *bool   `json:"enable_anthropic_cache_ttl_1h_injection"`
-	RewriteMessageCacheControl             *bool   `json:"rewrite_message_cache_control"`
-	EnableClientDatelineNormalization      *bool   `json:"enable_client_dateline_normalization"`
-	AntigravityUserAgentVersion            *string `json:"antigravity_user_agent_version"`
-	OpenAICodexUserAgent                   *string `json:"openai_codex_user_agent"`
-	OpenAICodexClientVersion               *string `json:"openai_codex_client_version"`
-	OpenAICodexVersionAutoSyncEnabled      *bool   `json:"openai_codex_version_auto_sync_enabled"`
+	NativeModelProtocolRoutingEnabled                    *bool                                                `json:"native_model_protocol_routing_enabled"`
+	EnterpriseMemberModelAdmissionMode                   *string                                              `json:"enterprise_member_model_admission_mode"`
+	EnterpriseMemberModelAdmissionRollout                *service.EnterpriseMemberModelAdmissionRolloutPolicy `json:"enterprise_member_model_admission_rollout_policy"`
+	EnterpriseMemberModelAdmissionLegacyRetirementTarget *string                                              `json:"enterprise_member_model_admission_legacy_retirement_target"`
+	EnableFingerprintUnification                         *bool                                                `json:"enable_fingerprint_unification"`
+	EnableMetadataPassthrough                            *bool                                                `json:"enable_metadata_passthrough"`
+	EnableCCHSigning                                     *bool                                                `json:"enable_cch_signing"`
+	EnableClaudeOAuthSystemPromptInjection               *bool                                                `json:"enable_claude_oauth_system_prompt_injection"`
+	ClaudeOAuthSystemPrompt                              *string                                              `json:"claude_oauth_system_prompt"`
+	ClaudeOAuthSystemPromptBlocks                        *string                                              `json:"claude_oauth_system_prompt_blocks"`
+	EnableAnthropicCacheTTL1hInjection                   *bool                                                `json:"enable_anthropic_cache_ttl_1h_injection"`
+	RewriteMessageCacheControl                           *bool                                                `json:"rewrite_message_cache_control"`
+	EnableClientDatelineNormalization                    *bool                                                `json:"enable_client_dateline_normalization"`
+	AntigravityUserAgentVersion                          *string                                              `json:"antigravity_user_agent_version"`
+	OpenAICodexUserAgent                                 *string                                              `json:"openai_codex_user_agent"`
+	OpenAICodexClientVersion                             *string                                              `json:"openai_codex_client_version"`
+	OpenAICodexVersionAutoSyncEnabled                    *bool                                                `json:"openai_codex_version_auto_sync_enabled"`
 
 	// codex_cli_only 加固（global-only）
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -473,16 +478,94 @@ func settingsAuditRequest(req UpdateSettingsRequest) UpdateSettingsRequest {
 	return req
 }
 
+func isValidEnterpriseMemberModelAdmissionMode(raw string) bool {
+	switch service.EnterpriseMemberModelAdmissionMode(strings.ToLower(strings.TrimSpace(raw))) {
+	case service.EnterpriseMemberModelAdmissionLegacyOrderOnly,
+		service.EnterpriseMemberModelAdmissionShadowPublished,
+		service.EnterpriseMemberModelAdmissionEnforcePublished:
+		return true
+	default:
+		return false
+	}
+}
+
+func writeUpdateSettingsBindError(c *gin.Context, err error) {
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		response.ErrorWithDetails(
+			c,
+			http.StatusRequestEntityTooLarge,
+			"settings request body is too large",
+			"REQUEST_BODY_TOO_LARGE",
+			map[string]string{"limit_bytes": strconv.FormatInt(maxBytesErr.Limit, 10)},
+		)
+		return
+	}
+	response.BadRequest(c, "Invalid request: "+err.Error())
+}
+
 func (h *SettingHandler) UpdateSettings(c *gin.Context) {
+	if c.Request == nil || c.Request.Body == nil {
+		response.BadRequest(c, "Invalid request: empty request body")
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, updateSettingsRequestBodyMaxBytes)
+
 	var sentFields map[string]json.RawMessage
 	if err := c.ShouldBindBodyWith(&sentFields, binding.JSON); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		writeUpdateSettingsBindError(c, err)
 		return
 	}
 	var req UpdateSettingsRequest
 	if err := c.ShouldBindBodyWith(&req, binding.JSON); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		writeUpdateSettingsBindError(c, err)
 		return
+	}
+	if req.EnterpriseMemberModelAdmissionMode != nil {
+		if !isValidEnterpriseMemberModelAdmissionMode(*req.EnterpriseMemberModelAdmissionMode) {
+			response.BadRequest(c, "enterprise_member_model_admission_mode must be legacy_order_only, shadow_published, or enforce_published")
+			return
+		}
+		mode, _ := service.NormalizeEnterpriseMemberModelAdmissionModeForSettings(*req.EnterpriseMemberModelAdmissionMode)
+		readiness := service.CurrentEnterpriseMemberModelAdmissionEnforceReadiness()
+		rolloutPolicy := service.DefaultEnterpriseMemberModelAdmissionRolloutPolicy()
+		if req.EnterpriseMemberModelAdmissionRollout != nil {
+			rolloutPolicy = *req.EnterpriseMemberModelAdmissionRollout
+		}
+		rolloutPolicy, rolloutErr := service.NormalizeEnterpriseMemberModelAdmissionRolloutPolicy(rolloutPolicy)
+		if rolloutErr != nil {
+			response.BadRequest(c, "enterprise_member_model_admission_rollout_policy is invalid: "+rolloutErr.Error())
+			return
+		}
+		if mode == service.EnterpriseMemberModelAdmissionEnforcePublished &&
+			!readiness.CanaryReady {
+			response.ErrorWithDetails(
+				c,
+				http.StatusConflict,
+				"enterprise member enforce admission canary gate is not ready",
+				"ENFORCE_NOT_READY",
+				map[string]string{"blocked_reason": readiness.Reason},
+			)
+			return
+		}
+		if mode == service.EnterpriseMemberModelAdmissionEnforcePublished &&
+			rolloutPolicy.Percentage > 0 &&
+			!readiness.ExpansionReady {
+			response.ErrorWithDetails(
+				c,
+				http.StatusConflict,
+				"enterprise member enforce admission expansion gate is not ready",
+				"ENFORCE_EXPANSION_NOT_READY",
+				map[string]string{"blocked_reason": readiness.Reason},
+			)
+			return
+		}
+	}
+	if req.EnterpriseMemberModelAdmissionLegacyRetirementTarget != nil {
+		if _, _, err := service.ValidateEnterpriseMemberModelAdmissionLegacyRetirementTarget(*req.EnterpriseMemberModelAdmissionLegacyRetirementTarget); err != nil {
+			response.BadRequest(c, "enterprise_member_model_admission_legacy_retirement_target must be an ISO date YYYY-MM-DD or semantic version vX.Y.Z")
+			return
+		}
 	}
 	auditReq := settingsAuditRequest(req)
 	omitted := omittedSettingKeys(sentFields)
@@ -1685,6 +1768,35 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.NativeModelProtocolRoutingSource
 		}(),
+		EnterpriseMemberModelAdmissionMode: func() string {
+			if req.EnterpriseMemberModelAdmissionMode != nil {
+				mode, _ := service.NormalizeEnterpriseMemberModelAdmissionModeForSettings(*req.EnterpriseMemberModelAdmissionMode)
+				return string(mode)
+			}
+			return previousSettings.EnterpriseMemberModelAdmissionMode
+		}(),
+		EnterpriseMemberModelAdmissionSource: func() string {
+			if req.EnterpriseMemberModelAdmissionMode != nil {
+				return "settings"
+			}
+			return previousSettings.EnterpriseMemberModelAdmissionSource
+		}(),
+		EnterpriseMemberModelAdmissionRollout: func() service.EnterpriseMemberModelAdmissionRolloutState {
+			if req.EnterpriseMemberModelAdmissionRollout != nil {
+				return service.EnterpriseMemberModelAdmissionRolloutState{
+					Policy: *req.EnterpriseMemberModelAdmissionRollout,
+					Source: "settings",
+				}
+			}
+			return previousSettings.EnterpriseMemberModelAdmissionRollout
+		}(),
+		EnterpriseMemberModelAdmissionLegacyRetirementTarget: func() string {
+			if req.EnterpriseMemberModelAdmissionLegacyRetirementTarget != nil {
+				target, _, _ := service.ValidateEnterpriseMemberModelAdmissionLegacyRetirementTarget(*req.EnterpriseMemberModelAdmissionLegacyRetirementTarget)
+				return target
+			}
+			return previousSettings.EnterpriseMemberModelAdmissionLegacyRetirementTarget
+		}(),
 		EnableFingerprintUnification: func() bool {
 			if req.EnableFingerprintUnification != nil {
 				return *req.EnableFingerprintUnification
@@ -2278,6 +2390,14 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		BackendModeEnabled:                                     updatedSettings.BackendModeEnabled,
 		NativeModelProtocolRoutingEnabled:                      updatedSettings.NativeModelProtocolRoutingEnabled,
 		NativeModelProtocolRoutingSource:                       updatedSettings.NativeModelProtocolRoutingSource,
+		EnterpriseMemberModelAdmissionMode:                     updatedSettings.EnterpriseMemberModelAdmissionMode,
+		EnterpriseMemberModelAdmissionSource:                   updatedSettings.EnterpriseMemberModelAdmissionSource,
+		EnterpriseMemberModelAdmissionEnforceReady:             updatedSettings.EnterpriseMemberModelAdmissionEnforceReady,
+		EnterpriseMemberModelAdmissionEnforceReason:            updatedSettings.EnterpriseMemberModelAdmissionEnforceReason,
+		EnterpriseMemberModelAdmissionReadiness:                updatedSettings.EnterpriseMemberModelAdmissionReadiness,
+		EnterpriseMemberModelAdmissionRollout:                  updatedSettings.EnterpriseMemberModelAdmissionRollout,
+		EnterpriseMemberModelAdmissionLegacy:                   updatedSettings.EnterpriseMemberModelAdmissionLegacy,
+		EnterpriseMemberModelAdmissionLegacyRetirementTarget:   updatedSettings.EnterpriseMemberModelAdmissionLegacyRetirementTarget,
 		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       updatedSettings.EnableCCHSigning,

@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -19,6 +20,14 @@ import (
 type ingressRejectSettingRepo struct {
 	service.SettingRepository
 	getValueCalls int
+}
+
+func stringPtr(value string) *string {
+	return &value
+}
+
+func int64Ptr(value int64) *int64 {
+	return &value
 }
 
 func (r *ingressRejectSettingRepo) GetValue(context.Context, string) (string, error) {
@@ -83,6 +92,8 @@ func TestEstimateOpsErrorLogJobBytesIncludesVariablePayloads(t *testing.T) {
 		ErrorBody:            strings.Repeat("x", 1024),
 		ErrorMessage:         "client error",
 		UserAgent:            "test-agent",
+		RoutingPlanSource:    "live",
+		RoutingAttemptsJSON:  stringPtr(`[{"stage":"actual_attempt","group_id":9}]`),
 		UpstreamErrorMessage: &message,
 		UpstreamErrorDetail:  &detail,
 		UpstreamErrorsJSON:   &events,
@@ -90,6 +101,99 @@ func TestEstimateOpsErrorLogJobBytesIncludesVariablePayloads(t *testing.T) {
 	if got := estimateOpsErrorLogJobBytes(entry); got <= base+1024 {
 		t.Fatalf("estimated bytes = %d, expected variable payloads above %d", got, base+1024)
 	}
+}
+
+func TestApplyOpsRoutingEvidenceFromContextCapturesActualAttemptOnly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	snapshotAgeMs := int64(3456)
+	active := &service.ActiveGroupContext{
+		MemberID:               77,
+		GroupID:                12,
+		Platform:               "openai",
+		RequestedModel:         "gpt-5.6-terra",
+		MappedModel:            "gpt-5.6-terra",
+		CandidateIndex:         2,
+		AttemptNumber:          1,
+		RoutePlanSource:        service.EnterpriseMemberRoutePlanSourceLastKnownGood,
+		RoutePlanSnapshotAgeMs: &snapshotAgeMs,
+		ModelPlanApplied:       true,
+	}
+	ctx := context.WithValue(c.Request.Context(), ctxkey.ActiveGroup, active)
+	c.Request = c.Request.WithContext(ctx)
+	service.MarkGroupAttemptResult(c, service.GroupAttemptResult{
+		GroupID:           12,
+		AttemptNumber:     1,
+		Outcome:           service.GroupAttemptOutcomeTerminalFailure,
+		Reason:            service.OpsGroupRetryReasonCapabilityMismatch,
+		SafeToReplay:      true,
+		ResponseCommitted: false,
+	})
+
+	entry := &service.OpsInsertErrorLogInput{
+		MemberID:           int64Ptr(77),
+		MemberCodeSnapshot: "secret-member-code",
+		MemberNameSnapshot: "secret-member-name",
+	}
+	applyOpsRoutingEvidenceFromContext(c, entry)
+	require.Equal(t, "last_known_good", entry.RoutingPlanSource)
+	require.NotNil(t, entry.RoutingSnapshotAgeMs)
+	require.Equal(t, snapshotAgeMs, *entry.RoutingSnapshotAgeMs)
+	require.Len(t, entry.RoutingAttempts, 1)
+
+	require.NoError(t, service.SanitizeOpsRoutingAttemptsForQueue(entry))
+	require.NotNil(t, entry.RoutingAttemptsJSON)
+	require.Contains(t, *entry.RoutingAttemptsJSON, `"group_id":12`)
+	require.Contains(t, *entry.RoutingAttemptsJSON, `"reason":"capability_mismatch"`)
+	require.NotContains(t, *entry.RoutingAttemptsJSON, "secret-member")
+	require.NotContains(t, *entry.RoutingAttemptsJSON, `"member_id"`)
+}
+
+func TestApplyOpsRoutingEvidenceFromContextPreservesHistoricalAttemptChain(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	service.AppendOpsRoutingAttempts(c, &service.OpsRoutingAttemptEvidence{
+		Stage:          service.OpsRoutingAttemptStageActualAttempt,
+		Outcome:        string(service.GroupAttemptOutcomeTerminalFailure),
+		GroupID:        11,
+		AttemptNumber:  1,
+		CandidateIndex: 0,
+		Platform:       "openai",
+		RequestedModel: "public-alias",
+		Reason:         string(service.OpsGroupRetryReasonCapabilityMismatch),
+		SafeToReplay:   boolPtr(true),
+	})
+
+	active := &service.ActiveGroupContext{
+		GroupID:        22,
+		Platform:       "anthropic",
+		RequestedModel: "public-alias",
+		MappedModel:    "public-alias",
+		CandidateIndex: 1,
+		AttemptNumber:  2,
+	}
+	ctx := context.WithValue(c.Request.Context(), ctxkey.ActiveGroup, active)
+	c.Request = c.Request.WithContext(ctx)
+
+	entry := &service.OpsInsertErrorLogInput{}
+	applyOpsRoutingEvidenceFromContext(c, entry)
+	require.Len(t, entry.RoutingAttempts, 2)
+	require.Equal(t, int64(11), entry.RoutingAttempts[0].GroupID)
+	require.Equal(t, string(service.GroupAttemptOutcomeTerminalFailure), entry.RoutingAttempts[0].Outcome)
+	require.Equal(t, int64(22), entry.RoutingAttempts[1].GroupID)
+	require.Equal(t, service.OpsRoutingAttemptOutcomeSelected, entry.RoutingAttempts[1].Outcome)
+
+	require.NoError(t, service.SanitizeOpsRoutingAttemptsForQueue(entry))
+	require.NotNil(t, entry.RoutingAttemptsJSON)
+	attempts, err := service.ParseOpsRoutingAttempts(*entry.RoutingAttemptsJSON)
+	require.NoError(t, err)
+	require.Len(t, attempts, 2)
+	require.Equal(t, int64(11), attempts[0].GroupID)
+	require.Equal(t, int64(22), attempts[1].GroupID)
 }
 
 func resetOpsErrorLoggerStateForTest(t *testing.T) {

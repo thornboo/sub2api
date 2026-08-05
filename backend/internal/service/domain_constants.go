@@ -549,6 +549,15 @@ const (
 	// When the DB value is absent, runtime behavior falls back to
 	// gateway.native_model_protocol_routing_enabled from the process configuration.
 	SettingKeyNativeModelProtocolRoutingEnabled = "native_model_protocol_routing_enabled"
+	// SettingKeyEnterpriseMemberModelAdmissionMode controls how enterprise-member
+	// multi-group routing uses exact published-model eligibility.
+	SettingKeyEnterpriseMemberModelAdmissionMode = "gateway.enterprise_member_model_admission_mode"
+	// SettingKeyEnterpriseMemberModelAdmissionRolloutPolicy stores the server-side
+	// allowlist and stable-hash rollout policy for enforce_published.
+	SettingKeyEnterpriseMemberModelAdmissionRolloutPolicy = "gateway.enterprise_member_model_admission_rollout_policy"
+	// SettingKeyEnterpriseMemberModelAdmissionLegacyRetirementTarget stores the
+	// explicit ISO date or version target for retiring legacy_order_only.
+	SettingKeyEnterpriseMemberModelAdmissionLegacyRetirementTarget = "gateway.enterprise_member_model_admission_legacy_retirement_target"
 	// SettingKeyEnableFingerprintUnification 是否统一 OAuth 账号的 X-Stainless-* 指纹头（默认 true）
 	SettingKeyEnableFingerprintUnification = "enable_fingerprint_unification"
 	// SettingKeyEnableMetadataPassthrough 是否透传客户端原始 metadata.user_id（默认 false）

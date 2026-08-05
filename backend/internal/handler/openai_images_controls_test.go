@@ -2,10 +2,12 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -46,4 +48,89 @@ func TestOpenAIGatewayHandlerImages_DisabledGroupRejectsBeforeScheduling(t *test
 	require.Equal(t, http.StatusForbidden, rec.Code)
 	require.Equal(t, "permission_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
 	require.Contains(t, rec.Body.String(), service.ImageGenerationPermissionMessage())
+	_, retryMarked := service.GroupAttemptResultFromContext(c)
+	require.False(t, retryMarked, "ordinary keys must keep existing non-enterprise retry semantics")
+}
+
+func TestOpenAIGatewayHandlerImages_DisabledEnterpriseGroupWithoutEnforcedPlanKeepsLegacySemantics(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw","size":"1024x1024"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	groupID := int64(111)
+	memberID := int64(444)
+	req = req.WithContext(context.WithValue(req.Context(), ctxkey.ActiveGroup, &service.ActiveGroupContext{
+		GroupID:       groupID,
+		AttemptNumber: 1,
+	}))
+	c.Request = req
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		ID:       222,
+		GroupID:  &groupID,
+		MemberID: &memberID,
+		Member:   &service.EnterpriseMember{ID: memberID, Status: service.EnterpriseMemberStatusActive},
+		Group: &service.Group{
+			ID:                   groupID,
+			AllowImageGeneration: false,
+		},
+		User: &service.User{ID: 333},
+	})
+	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 333, Concurrency: 1})
+
+	h := &OpenAIGatewayHandler{
+		gatewayService:      &service.OpenAIGatewayService{},
+		billingCacheService: &service.BillingCacheService{},
+		apiKeyService:       &service.APIKeyService{},
+		concurrencyHelper:   &ConcurrencyHelper{concurrencyService: &service.ConcurrencyService{}},
+	}
+
+	h.Images(c)
+
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	_, retryMarked := service.GroupAttemptResultFromContext(c)
+	require.False(t, retryMarked, "unsupported planner endpoints must not change behavior merely because the key is an enterprise member")
+}
+
+func TestMarkEnterpriseMemberGroupRetryRequiresAppliedEnforcePlan(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(111)
+	memberID := int64(444)
+	apiKey := &service.APIKey{
+		ID: 222, GroupID: &groupID, MemberID: &memberID,
+		Member: &service.EnterpriseMember{ID: memberID},
+	}
+
+	for _, test := range []struct {
+		name        string
+		mode        service.EnterpriseMemberModelAdmissionMode
+		planApplied bool
+		wantMarked  bool
+	}{
+		{name: "shadow plan", mode: service.EnterpriseMemberModelAdmissionShadowPublished, wantMarked: false},
+		{name: "enforce without supported planner", mode: service.EnterpriseMemberModelAdmissionEnforcePublished, wantMarked: false},
+		{name: "applied enforce plan", mode: service.EnterpriseMemberModelAdmissionEnforcePublished, planApplied: true, wantMarked: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			req = req.WithContext(context.WithValue(req.Context(), ctxkey.ActiveGroup, &service.ActiveGroupContext{
+				GroupID: groupID, AttemptNumber: 1,
+				RoutePlanMode: test.mode, ModelPlanApplied: test.planApplied,
+			}))
+			c.Request = req
+			c.Set(string(middleware2.ContextKeyAPIKey), apiKey)
+
+			markEnterpriseMemberGroupRetry(c, apiKey, service.OpsGroupRetryReasonCapabilityMismatch)
+
+			attempt, marked := service.GroupAttemptResultFromContext(c)
+			require.Equal(t, test.wantMarked, marked)
+			if test.wantMarked {
+				require.Equal(t, service.OpsGroupRetryReasonCapabilityMismatch, attempt.Reason)
+			}
+		})
+	}
 }

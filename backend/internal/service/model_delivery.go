@@ -36,6 +36,7 @@ type ModelDeliveryRoute struct {
 	GroupID            int64
 	GroupName          string
 	GroupPlatform      string
+	TargetPlatform     string
 	AccountID          int64
 	AccountName        string
 	ChannelMappedModel string
@@ -207,8 +208,16 @@ type ModelDeliveryService struct {
 	groupRepo       GroupRepository
 	channel         *ChannelService
 	capability      *ModelProtocolCapabilityService
+	composite       CompositeRoutePreviewer
 	routingSettings NativeModelProtocolRoutingSettingReader
 	cfg             *config.Config
+}
+
+type modelDeliveryResolveOptions struct {
+	purpose               ModelDeliveryEvaluationPurpose
+	dependencyErrorsFatal bool
+	protocols             []ModelProtocol
+	previewComposite      bool
 }
 
 // SetNativeModelProtocolRoutingSettingReader attaches the runtime-backed global
@@ -216,6 +225,14 @@ type ModelDeliveryService struct {
 func (s *ModelDeliveryService) SetNativeModelProtocolRoutingSettingReader(settings NativeModelProtocolRoutingSettingReader) {
 	if s != nil {
 		s.routingSettings = settings
+	}
+}
+
+// SetCompositeRoutePreviewer attaches the same route resolver used by runtime
+// dispatch, through its read-only admission contract.
+func (s *ModelDeliveryService) SetCompositeRoutePreviewer(previewer CompositeRoutePreviewer) {
+	if s != nil {
+		s.composite = previewer
 	}
 }
 
@@ -258,11 +275,57 @@ func (s *ModelDeliveryService) ResolveForGroups(ctx context.Context, groupIDs []
 	if err != nil {
 		return nil, fmt.Errorf("list active groups for model delivery: %w", err)
 	}
-	groupsByID := make(map[int64]*Group, len(activeGroups))
-	activeGroupIDs := make([]int64, 0, len(activeGroups))
+	groupSnapshots := make([]*Group, 0, len(activeGroups))
 	for i := range activeGroups {
 		group := &activeGroups[i]
 		if _, ok := requestedGroups[group.ID]; !ok || !group.IsActive() {
+			continue
+		}
+		groupSnapshots = append(groupSnapshots, group)
+	}
+	return s.resolveForGroupSnapshots(ctx, groupSnapshots, modelList, modelDeliveryResolveOptions{
+		purpose: ModelDeliveryEvaluationPurposeCatalog,
+	})
+}
+
+// ResolveForEnterpriseMemberRoute evaluates one request protocol against only
+// the already-authorized group snapshots. Composite groups are previewed per
+// candidate and per endpoint using the runtime resolver, without installing a
+// route decision into the request context.
+func (s *ModelDeliveryService) ResolveForEnterpriseMemberRoute(ctx context.Context, groups []*Group, model string, protocol ModelProtocol) (*ModelDeliveryProjection, error) {
+	model = strings.TrimSpace(model)
+	if model == "" || !isKnownModelProtocol(protocol) {
+		return &ModelDeliveryProjection{Models: make(map[string]map[int64]*ModelDeliveryGroupProjection)}, nil
+	}
+	groupSnapshots := make([]*Group, 0, len(groups))
+	seen := make(map[int64]struct{}, len(groups))
+	for _, group := range groups {
+		if !IsGroupContextValid(group) || !group.IsActive() {
+			continue
+		}
+		if _, ok := seen[group.ID]; ok {
+			continue
+		}
+		seen[group.ID] = struct{}{}
+		groupSnapshots = append(groupSnapshots, group)
+	}
+	return s.resolveForGroupSnapshots(ctx, groupSnapshots, []string{model}, modelDeliveryResolveOptions{
+		purpose:               ModelDeliveryEvaluationPurposeEnterpriseAdmission,
+		dependencyErrorsFatal: true,
+		protocols:             []ModelProtocol{protocol},
+		previewComposite:      true,
+	})
+}
+
+func (s *ModelDeliveryService) resolveForGroupSnapshots(ctx context.Context, groups []*Group, modelList []string, options modelDeliveryResolveOptions) (*ModelDeliveryProjection, error) {
+	result := &ModelDeliveryProjection{Models: make(map[string]map[int64]*ModelDeliveryGroupProjection)}
+	if s == nil || s.accountRepo == nil || s.groupRepo == nil || len(groups) == 0 || len(modelList) == 0 {
+		return result, nil
+	}
+	groupsByID := make(map[int64]*Group, len(groups))
+	activeGroupIDs := make([]int64, 0, len(groups))
+	for _, group := range groups {
+		if group == nil || group.ID <= 0 || !group.IsActive() {
 			continue
 		}
 		groupsByID[group.ID] = group
@@ -287,7 +350,7 @@ func (s *ModelDeliveryService) ResolveForGroups(ctx context.Context, groupIDs []
 			continue
 		}
 		for _, groupID := range activeGroupIDs {
-			if accountBelongsToDeliveryGroup(account, groupID) {
+			if accountBelongsToDeliveryGroup(account, groupID) && accountMatchesStableDeliveryGroupPolicy(account, groupsByID[groupID]) {
 				accountsByGroup[groupID] = append(accountsByGroup[groupID], account)
 			}
 		}
@@ -300,10 +363,20 @@ func (s *ModelDeliveryService) ResolveForGroups(ctx context.Context, groupIDs []
 
 	nativeRoutingEnabled := s.nativeRoutingEnabled(ctx)
 	result.NativeRoutingEnabled = nativeRoutingEnabled
+	protocols := modelDeliveryProtocols(options.protocols)
+	if len(protocols) == 0 {
+		return result, nil
+	}
 	capabilitiesByAccount := make(map[int64][]AccountModelProtocolCapability)
+	if nativeRoutingEnabled && s.capability == nil && options.dependencyErrorsFatal {
+		return nil, fmt.Errorf("model delivery capability service is not configured")
+	}
 	if nativeRoutingEnabled && s.capability != nil {
 		capabilitiesByAccount, err = s.capability.listMany(ctx, accountIDs)
 		if err != nil {
+			if options.dependencyErrorsFatal {
+				return nil, fmt.Errorf("load model protocol capabilities for enterprise admission: %w", err)
+			}
 			slog.Warn("model_delivery_capability_evidence_unavailable", "error", err)
 			result.Warnings = append(result.Warnings, "Native protocol evidence is temporarily unavailable; strict OpenAI API-key routes are omitted")
 			capabilitiesByAccount = make(map[int64][]AccountModelProtocolCapability)
@@ -321,28 +394,65 @@ func (s *ModelDeliveryService) ResolveForGroups(ctx context.Context, groupIDs []
 				Endpoints:   make(map[ModelProtocol]ModelDeliveryMode),
 				Decisions:   make(map[ModelProtocol]ModelDeliveryDecision),
 			}
-			channelMapping, err := s.resolveChannelMapping(ctx, group.ID, model)
-			if err != nil {
-				return nil, fmt.Errorf("resolve channel model for group %d and model %q: %w", group.ID, model, err)
+			candidateContext := WithoutCompositeRouteDecision(ctx)
+			targetPlatform := group.Platform
+			routeTargetPlatform := ""
+			deliveryModel := model
+			if group.Platform == PlatformComposite {
+				if !options.previewComposite || s.composite == nil {
+					return nil, fmt.Errorf("enterprise member stable route evaluator unavailable for platform %s", PlatformComposite)
+				}
+				endpoint := compositeRouteEndpointForModelProtocol(protocols[0])
+				decision, previewErr := s.composite.Preview(candidateContext, group.ID, model, endpoint)
+				if previewErr != nil {
+					return nil, fmt.Errorf("preview composite route for group %d, model %q and endpoint %s: %w", group.ID, model, endpoint, previewErr)
+				}
+				if !decision.Matched || decision.Source != CompositeRouteSourceExplicit || !isConcreteRequestPlatform(decision.TargetPlatform) {
+					addUnavailableProtocolDecision(projection, model, protocols[0], ModelDeliveryReasonCapabilityUnsupported)
+					storeModelDeliveryGroupProjection(result, model, groupID, projection)
+					continue
+				}
+				targetPlatform = decision.TargetPlatform
+				routeTargetPlatform = decision.TargetPlatform
+				deliveryModel = strings.TrimSpace(decision.UpstreamModel)
+				if deliveryModel == "" {
+					deliveryModel = model
+				}
+				candidateContext = WithCompositeRouteDecision(candidateContext, decision)
 			}
-			channelMappedModel := effectiveChannelMappedModel(model, channelMapping)
-			messagesMappedModel := ResolveOpenAIMessagesDeliveryModel(group, model, channelMapping)
+			for _, protocol := range protocols {
+				if !groupSupportsEnterpriseMemberAdmissionProtocol(group, protocol, targetPlatform) {
+					addUnavailableProtocolDecision(projection, model, protocol, ModelDeliveryReasonGroupProtocolDisabled)
+				}
+			}
+			channelMapping, err := s.resolveChannelMapping(candidateContext, group.ID, deliveryModel)
+			if err != nil {
+				return nil, fmt.Errorf("resolve channel model for group %d and model %q: %w", group.ID, deliveryModel, err)
+			}
+			channelMappedModel := effectiveChannelMappedModel(deliveryModel, channelMapping)
+			messagesMappedModel := ResolveOpenAIMessagesDeliveryModel(group, deliveryModel, channelMapping)
 			for _, account := range accountsByGroup[groupID] {
-				stableRoute := accountMatchesDeliveryPlatform(account, group.Platform) &&
-					(accountSupportsDeliveryModel(account, channelMappedModel) ||
-						(group.AllowMessagesDispatch && accountSupportsDeliveryModel(account, messagesMappedModel)))
+				if !accountMatchesDeliveryPlatform(account, targetPlatform) {
+					continue
+				}
+				stableRoute := accountSupportsDeliveryModel(account, channelMappedModel) ||
+					(group.AllowMessagesDispatch && accountSupportsDeliveryModel(account, messagesMappedModel))
 				route := ModelDeliveryRoute{
 					PublicModel:        model,
 					GroupID:            group.ID,
 					GroupName:          group.Name,
 					GroupPlatform:      group.Platform,
+					TargetPlatform:     routeTargetPlatform,
 					AccountID:          account.ID,
 					AccountName:        account.Name,
 					ChannelMappedModel: channelMappedModel,
 					UpstreamModel:      resolveFinalDeliveryModel(account, channelMappedModel),
 					Decisions:          make(map[ModelProtocol]ModelDeliveryDecision),
 				}
-				for _, protocol := range AllModelProtocols {
+				for _, protocol := range protocols {
+					if !groupSupportsEnterpriseMemberAdmissionProtocol(group, protocol, targetPlatform) {
+						continue
+					}
 					protocolMappedModel := channelMappedModel
 					if protocol == ModelProtocolAnthropicMessages {
 						protocolMappedModel = messagesMappedModel
@@ -351,11 +461,12 @@ func (s *ModelDeliveryService) ResolveForGroups(ctx context.Context, groupIDs []
 						Account:               account,
 						PublicModel:           model,
 						ChannelMappedModel:    protocolMappedModel,
-						GroupPlatform:         group.Platform,
+						GroupPlatform:         targetPlatform,
 						AllowMessagesDispatch: group.AllowMessagesDispatch,
 						InboundProtocol:       protocol,
 						NativeRoutingEnabled:  nativeRoutingEnabled,
 						Capabilities:          capabilitiesByAccount[account.ID],
+						Purpose:               options.purpose,
 					})
 					route.Decisions[protocol] = decision
 					projection.Decisions[protocol] = mergeModelDeliveryDecision(projection.Decisions[protocol], decision)
@@ -374,7 +485,7 @@ func (s *ModelDeliveryService) ResolveForGroups(ctx context.Context, groupIDs []
 				}
 			}
 			if len(projection.Routes) == 0 {
-				for _, protocol := range AllModelProtocols {
+				for _, protocol := range protocols {
 					noRouteDecision := blockModelDeliveryDecision(ModelDeliveryDecision{
 						PublicModel:     model,
 						InboundProtocol: protocol,
@@ -382,10 +493,7 @@ func (s *ModelDeliveryService) ResolveForGroups(ctx context.Context, groupIDs []
 					projection.Decisions[protocol] = mergeModelDeliveryDecision(projection.Decisions[protocol], noRouteDecision)
 				}
 			}
-			if result.Models[model] == nil {
-				result.Models[model] = make(map[int64]*ModelDeliveryGroupProjection)
-			}
-			result.Models[model][groupID] = projection
+			storeModelDeliveryGroupProjection(result, model, groupID, projection)
 		}
 	}
 	return result, nil
@@ -407,6 +515,100 @@ func effectiveChannelMappedModel(publicModel string, mapping ChannelMappingResul
 		return mapped
 	}
 	return strings.TrimSpace(publicModel)
+}
+
+func modelDeliveryProtocols(requested []ModelProtocol) []ModelProtocol {
+	if len(requested) == 0 {
+		return append([]ModelProtocol(nil), CatalogModelProtocols...)
+	}
+	seen := make(map[ModelProtocol]struct{}, len(requested))
+	result := make([]ModelProtocol, 0, len(requested))
+	for _, protocol := range requested {
+		if !isKnownModelProtocol(protocol) {
+			continue
+		}
+		if _, ok := seen[protocol]; ok {
+			continue
+		}
+		seen[protocol] = struct{}{}
+		result = append(result, protocol)
+	}
+	return result
+}
+
+func isKnownModelProtocol(protocol ModelProtocol) bool {
+	for _, candidate := range AllModelProtocols {
+		if candidate == protocol {
+			return true
+		}
+	}
+	return false
+}
+
+func compositeRouteEndpointForModelProtocol(protocol ModelProtocol) string {
+	switch protocol {
+	case ModelProtocolAnthropicMessages:
+		return CompositeRouteEndpointMessages
+	case ModelProtocolOpenAIChat:
+		return CompositeRouteEndpointChatCompletions
+	case ModelProtocolOpenAIResponses:
+		return CompositeRouteEndpointResponses
+	case ModelProtocolOpenAIEmbeddings:
+		return CompositeRouteEndpointEmbeddings
+	case ModelProtocolOpenAIImages:
+		return CompositeRouteEndpointImages
+	case ModelProtocolOpenAILive:
+		return CompositeRouteEndpointLive
+	case ModelProtocolBatchImages:
+		return CompositeRouteEndpointBatchImages
+	case ModelProtocolGrokVideo:
+		return CompositeRouteEndpointVideo
+	case ModelProtocolGeminiNative:
+		return CompositeRouteEndpointGemini
+	default:
+		return CompositeRouteEndpointAny
+	}
+}
+
+func groupSupportsEnterpriseMemberAdmissionProtocol(group *Group, protocol ModelProtocol, targetPlatform string) bool {
+	if group == nil {
+		return false
+	}
+	switch protocol {
+	case ModelProtocolOpenAIImages:
+		if !GroupAllowsImageGeneration(group) {
+			return false
+		}
+		return targetPlatform == PlatformOpenAI || targetPlatform == PlatformGrok
+	case ModelProtocolOpenAILive:
+		return group.AllowLive && targetPlatform == PlatformOpenAI
+	case ModelProtocolBatchImages:
+		return GroupAllowsImageGeneration(group) && group.AllowBatchImageGeneration && targetPlatform == PlatformGemini
+	case ModelProtocolGrokVideo:
+		return targetPlatform == PlatformGrok
+	default:
+		return true
+	}
+}
+
+func addUnavailableProtocolDecision(projection *ModelDeliveryGroupProjection, publicModel string, protocol ModelProtocol, reason ModelDeliveryReasonCode) {
+	if projection == nil || !isKnownModelProtocol(protocol) {
+		return
+	}
+	projection.Decisions[protocol] = blockModelDeliveryDecision(ModelDeliveryDecision{
+		PublicModel:     publicModel,
+		InboundProtocol: protocol,
+	}, reason)
+}
+
+func storeModelDeliveryGroupProjection(result *ModelDeliveryProjection, publicModel string, groupID int64, projection *ModelDeliveryGroupProjection) {
+	if result == nil {
+		return
+	}
+	if result.Models[publicModel] == nil {
+		result.Models[publicModel] = make(map[int64]*ModelDeliveryGroupProjection)
+	}
+	result.Models[publicModel][groupID] = projection
 }
 
 func mergeModelDeliveryMode(current, next ModelDeliveryMode) ModelDeliveryMode {
@@ -473,6 +675,18 @@ func PublicPathForModelProtocol(protocol ModelProtocol) string {
 		return "/v1/chat/completions"
 	case ModelProtocolOpenAIResponses:
 		return "/v1/responses"
+	case ModelProtocolOpenAIEmbeddings:
+		return "/v1/embeddings"
+	case ModelProtocolOpenAIImages:
+		return "/v1/images/generations"
+	case ModelProtocolOpenAILive:
+		return "/v1/live"
+	case ModelProtocolBatchImages:
+		return "/v1/images/batches"
+	case ModelProtocolGrokVideo:
+		return "/v1/videos/generations"
+	case ModelProtocolGeminiNative:
+		return "/v1beta/models/{model}:generateContent"
 	default:
 		return ""
 	}
@@ -497,6 +711,19 @@ func accountBelongsToDeliveryGroup(account *Account, groupID int64) bool {
 		}
 	}
 	return false
+}
+
+func accountMatchesStableDeliveryGroupPolicy(account *Account, group *Group) bool {
+	if account == nil || group == nil {
+		return false
+	}
+	if group.RequireOAuthOnly && groupSupportsOAuthOnlyFilter(group.Platform) && account.Type == AccountTypeAPIKey {
+		return false
+	}
+	if group.RequirePrivacySet && !account.IsPrivacySet() {
+		return false
+	}
+	return true
 }
 
 func accountMatchesDeliveryPlatform(account *Account, platform string) bool {

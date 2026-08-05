@@ -35,15 +35,27 @@ func OrchestrateEnterpriseMemberGroups(next gin.HandlerFunc) gin.HandlerFunc {
 		baseErrors := len(c.Errors)
 		originalWriter := c.Writer
 		requestedModel, _ := baseContext.Value(ctxkey.Model).(string)
+		attemptedGroups := make(map[int64]bool, len(plan.candidates))
 
 		for {
 			restoreRequestBody(c.Request, body)
+			activeGroupID := int64(0)
+			duplicateGroupAttempt := false
+			if active, ok := service.ActiveGroupFromContext(c.Request.Context()); ok {
+				activeGroupID = active.GroupID
+				duplicateGroupAttempt = attemptedGroups[activeGroupID]
+				attemptedGroups[activeGroupID] = true
+			}
 			tx := newEnterpriseMemberTransactionalWriter(originalWriter)
 			c.Writer = tx
 			next(c)
 
-			_, retryable := service.OpsGroupRetryReasonFromContext(c)
-			if tx.committed || !retryable || service.IsEnterpriseMemberBudgetOutcomeAmbiguous(c) || plan.current+1 >= len(plan.candidates) {
+			attempt, retryable := service.GroupAttemptResultForReplay(c, tx.committed)
+			if activeGroupID > 0 && attempt.GroupID != 0 && attempt.GroupID != activeGroupID {
+				retryable = false
+			}
+			nextCandidate := nextEnterpriseMemberUnattemptedCandidateIndex(plan, attemptedGroups)
+			if duplicateGroupAttempt || tx.committed || !retryable || nextCandidate < 0 {
 				tx.commitBuffered()
 				c.Writer = originalWriter
 				return
@@ -52,9 +64,14 @@ func OrchestrateEnterpriseMemberGroups(next gin.HandlerFunc) gin.HandlerFunc {
 			// The failed attempt never escaped to the client. Restore request-local
 			// handler state, retain only the middleware baseline, and activate the
 			// next immutable group snapshot.
+			service.AppendCurrentOpsRoutingAttempt(c, attempt)
+			routingAttempts := service.OpsRoutingAttemptsFromContext(c)
 			upstreamErrors, hasUpstreamErrors := c.Get(service.OpsUpstreamErrorsKey)
 			c.Writer = originalWriter
 			c.Keys = cloneGinKeys(baseKeys)
+			if len(routingAttempts) > 0 {
+				c.Set(service.OpsRoutingAttemptsKey, routingAttempts)
+			}
 			if hasUpstreamErrors {
 				c.Set(service.OpsUpstreamErrorsKey, upstreamErrors)
 			}
@@ -62,9 +79,23 @@ func OrchestrateEnterpriseMemberGroups(next gin.HandlerFunc) gin.HandlerFunc {
 				c.Errors = c.Errors[:baseErrors]
 			}
 			c.Request = c.Request.WithContext(baseContext)
-			activateEnterpriseMemberGroupCandidate(c, plan, plan.current+1, requestedModel)
+			activateEnterpriseMemberGroupCandidate(c, plan, nextCandidate, requestedModel)
 		}
 	}
+}
+
+func nextEnterpriseMemberUnattemptedCandidateIndex(plan *enterpriseMemberGroupPlan, attemptedGroups map[int64]bool) int {
+	if plan == nil {
+		return -1
+	}
+	for i := plan.current + 1; i < len(plan.candidates); i++ {
+		groupID := plan.candidates[i].group.ID
+		if groupID <= 0 || attemptedGroups[groupID] {
+			continue
+		}
+		return i
+	}
+	return -1
 }
 
 func enterpriseMemberGroupPlanFromContext(c *gin.Context) (*enterpriseMemberGroupPlan, bool) {

@@ -582,6 +582,9 @@ type AdminUsageLog struct {
 	AccountStatsCost *float64 `json:"account_stats_cost,omitempty"`
 	// ScheduleMeta 调度诊断信息（仅管理员可见）。
 	ScheduleMeta *UsageScheduleMeta `json:"schedule_meta,omitempty"`
+	// RoutePlanSource 是企业成员模型感知路由的执行计划来源（仅管理员可见）。
+	RoutePlanSource        string `json:"route_plan_source,omitempty"`
+	RoutePlanSnapshotAgeMs *int64 `json:"route_plan_snapshot_age_ms,omitempty"`
 
 	// IPAddress 用户请求 IP
 	IPAddress *string `json:"ip_address,omitempty"`
@@ -591,20 +594,26 @@ type AdminUsageLog struct {
 }
 
 type UsageScheduleMeta struct {
-	Provider             string  `json:"provider,omitempty"`
-	Layer                string  `json:"layer,omitempty"`
-	StickyPreviousHit    bool    `json:"sticky_previous_hit,omitempty"`
-	StickySessionHit     bool    `json:"sticky_session_hit,omitempty"`
-	CandidateCount       int     `json:"candidate_count,omitempty"`
-	TopK                 int     `json:"top_k,omitempty"`
-	LatencyMs            int64   `json:"latency_ms,omitempty"`
-	LoadSkew             float64 `json:"load_skew,omitempty"`
-	SelectedAccountID    int64   `json:"selected_account_id,omitempty"`
-	SelectedAccountType  string  `json:"selected_account_type,omitempty"`
-	InboundProtocol      string  `json:"inbound_protocol,omitempty"`
-	UpstreamProtocol     string  `json:"upstream_protocol,omitempty"`
-	ProtocolDeliveryMode string  `json:"protocol_delivery_mode,omitempty"`
-	CapabilitySource     string  `json:"capability_source,omitempty"`
+	Provider             string   `json:"provider,omitempty"`
+	Layer                string   `json:"layer,omitempty"`
+	StickyPreviousHit    bool     `json:"sticky_previous_hit,omitempty"`
+	StickySessionHit     bool     `json:"sticky_session_hit,omitempty"`
+	CandidateCount       int      `json:"candidate_count,omitempty"`
+	TopK                 int      `json:"top_k,omitempty"`
+	LatencyMs            int64    `json:"latency_ms,omitempty"`
+	LoadSkew             float64  `json:"load_skew,omitempty"`
+	SelectedAccountID    int64    `json:"selected_account_id,omitempty"`
+	SelectedAccountType  string   `json:"selected_account_type,omitempty"`
+	InboundProtocol      string   `json:"inbound_protocol,omitempty"`
+	UpstreamProtocol     string   `json:"upstream_protocol,omitempty"`
+	ProtocolDeliveryMode string   `json:"protocol_delivery_mode,omitempty"`
+	CapabilitySource     string   `json:"capability_source,omitempty"`
+	ShadowDiffType       string   `json:"shadow_diff_type,omitempty"`
+	ShadowReasonCodes    []string `json:"shadow_reason_codes,omitempty"`
+	ShadowPlanSource     string   `json:"shadow_plan_source,omitempty"`
+	ShadowLegacyGroups   int      `json:"shadow_legacy_groups,omitempty"`
+	ShadowPlannedGroups  int      `json:"shadow_planned_groups,omitempty"`
+	ShadowPrunedGroups   int      `json:"shadow_pruned_groups,omitempty"`
 }
 
 type UsageCleanupFilters struct {

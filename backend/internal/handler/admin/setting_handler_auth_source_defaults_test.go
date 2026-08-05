@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -291,6 +292,351 @@ func TestSettingHandler_UpdateSettings_OmittedNativeRoutingKeepsConfigFallback(t
 	require.True(t, ok)
 	require.Equal(t, true, data["native_model_protocol_routing_enabled"])
 	require.Equal(t, "config", data["native_model_protocol_routing_source"])
+}
+
+func TestSettingHandler_UpdateSettings_RejectsEnterpriseMemberEnforceBeforeReadiness(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &settingHandlerRepoStub{values: map[string]string{
+		service.SettingKeyPromoCodeEnabled: "true",
+	}}
+	cfg := &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}}
+	svc := service.NewSettingService(repo, cfg)
+	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+
+	rawBody, err := json.Marshal(map[string]any{
+		"promo_code_enabled":                     true,
+		"enterprise_member_model_admission_mode": string(service.EnterpriseMemberModelAdmissionEnforcePublished),
+		"enterprise_member_model_admission_rollout_policy": map[string]any{
+			"enterprise_user_ids": []int64{42},
+			"member_ids":          []int64{},
+			"percentage":          0,
+			"salt":                "test",
+			"auto_stop":           false,
+		},
+	})
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.UpdateSettings(c)
+
+	require.Equal(t, http.StatusConflict, rec.Code)
+	_, persisted := repo.values[service.SettingKeyEnterpriseMemberModelAdmissionMode]
+	require.False(t, persisted)
+
+	var resp response.Response
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, "ENFORCE_NOT_READY", resp.Reason)
+	require.Equal(t, service.EnterpriseMemberModelAdmissionEnforceBlockedReason, resp.Metadata["blocked_reason"])
+}
+
+func TestSettingHandler_UpdateSettings_RejectsEnterpriseMemberEnforceWithManualAutoStopBeforeReadiness(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &settingHandlerRepoStub{values: map[string]string{
+		service.SettingKeyPromoCodeEnabled: "true",
+	}}
+	cfg := &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}}
+	svc := service.NewSettingService(repo, cfg)
+	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+
+	rawBody, err := json.Marshal(map[string]any{
+		"promo_code_enabled":                     true,
+		"enterprise_member_model_admission_mode": string(service.EnterpriseMemberModelAdmissionEnforcePublished),
+		"enterprise_member_model_admission_rollout_policy": map[string]any{
+			"enterprise_user_ids": []int64{42},
+			"member_ids":          []int64{},
+			"percentage":          0,
+			"salt":                "test",
+			"auto_stop":           true,
+		},
+	})
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.UpdateSettings(c)
+
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Nil(t, repo.lastUpdates)
+	_, persistedMode := repo.values[service.SettingKeyEnterpriseMemberModelAdmissionMode]
+	require.False(t, persistedMode)
+	_, persistedPolicy := repo.values[service.SettingKeyEnterpriseMemberModelAdmissionRolloutPolicy]
+	require.False(t, persistedPolicy)
+
+	var resp response.Response
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, "ENFORCE_NOT_READY", resp.Reason)
+	require.Equal(t, service.EnterpriseMemberModelAdmissionEnforceBlockedReason, resp.Metadata["blocked_reason"])
+}
+
+func TestSettingHandler_UpdateSettings_RejectsOversizedEnterpriseMemberAdmissionRolloutPolicy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &settingHandlerRepoStub{values: map[string]string{
+		service.SettingKeyPromoCodeEnabled: "true",
+	}}
+	cfg := &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}}
+	svc := service.NewSettingService(repo, cfg)
+	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+
+	enterpriseUserIDs := make([]int64, 1025)
+	for i := range enterpriseUserIDs {
+		enterpriseUserIDs[i] = int64(i + 1)
+	}
+	rawBody, err := json.Marshal(map[string]any{
+		"promo_code_enabled":                     true,
+		"enterprise_member_model_admission_mode": string(service.EnterpriseMemberModelAdmissionShadowPublished),
+		"enterprise_member_model_admission_rollout_policy": map[string]any{
+			"enterprise_user_ids": enterpriseUserIDs,
+			"member_ids":          []int64{},
+			"percentage":          0,
+			"salt":                "test",
+			"auto_stop":           false,
+		},
+	})
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.UpdateSettings(c)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Nil(t, repo.lastUpdates)
+	_, persistedPolicy := repo.values[service.SettingKeyEnterpriseMemberModelAdmissionRolloutPolicy]
+	require.False(t, persistedPolicy)
+}
+
+func TestSettingHandler_UpdateSettings_RejectsOversizedRequestBeforeJSONDecode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := &SettingHandler{}
+	body := `{"home_content":"` + strings.Repeat("x", int(updateSettingsRequestBodyMaxBytes)) + `"}`
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.UpdateSettings(c)
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	var resp response.Response
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, "REQUEST_BODY_TOO_LARGE", resp.Reason)
+	require.Equal(t, "4194304", resp.Metadata["limit_bytes"])
+}
+
+func TestSettingHandler_UpdateSettings_RejectsEnterpriseMemberEnforceWithoutRolloutTargetBeforeReadiness(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, tc := range []struct {
+		name string
+		body map[string]any
+	}{
+		{
+			name: "missing rollout",
+			body: map[string]any{
+				"promo_code_enabled":                     true,
+				"enterprise_member_model_admission_mode": string(service.EnterpriseMemberModelAdmissionEnforcePublished),
+			},
+		},
+		{
+			name: "empty rollout",
+			body: map[string]any{
+				"promo_code_enabled":                     true,
+				"enterprise_member_model_admission_mode": string(service.EnterpriseMemberModelAdmissionEnforcePublished),
+				"enterprise_member_model_admission_rollout_policy": map[string]any{
+					"enterprise_user_ids": []int64{},
+					"member_ids":          []int64{},
+					"percentage":          0,
+					"salt":                "test",
+					"auto_stop":           false,
+				},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &settingHandlerRepoStub{values: map[string]string{
+				service.SettingKeyPromoCodeEnabled: "true",
+			}}
+			cfg := &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}}
+			svc := service.NewSettingService(repo, cfg)
+			handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+
+			rawBody, err := json.Marshal(tc.body)
+			require.NoError(t, err)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			handler.UpdateSettings(c)
+
+			require.Equal(t, http.StatusConflict, rec.Code)
+			require.Nil(t, repo.lastUpdates)
+			_, persisted := repo.values[service.SettingKeyEnterpriseMemberModelAdmissionMode]
+			require.False(t, persisted)
+
+			var resp response.Response
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.Equal(t, "ENFORCE_NOT_READY", resp.Reason)
+			require.Equal(t, service.EnterpriseMemberModelAdmissionEnforceBlockedReason, resp.Metadata["blocked_reason"])
+		})
+	}
+}
+
+func TestSettingHandler_UpdateSettings_RejectsInvalidEnterpriseMemberModelAdmissionMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &settingHandlerRepoStub{values: map[string]string{
+		service.SettingKeyPromoCodeEnabled: "true",
+	}}
+	cfg := &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}}
+	svc := service.NewSettingService(repo, cfg)
+	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+
+	rawBody, err := json.Marshal(map[string]any{
+		"promo_code_enabled":                     true,
+		"enterprise_member_model_admission_mode": "not-a-mode",
+	})
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.UpdateSettings(c)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Nil(t, repo.lastUpdates)
+	_, persisted := repo.values[service.SettingKeyEnterpriseMemberModelAdmissionMode]
+	require.False(t, persisted)
+}
+
+func TestSettingHandler_UpdateSettings_OmittedEnterpriseMemberAdmissionKeepsConfigFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &settingHandlerRepoStub{values: map[string]string{
+		service.SettingKeyPromoCodeEnabled: "true",
+	}}
+	cfg := &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}}
+	cfg.Gateway.EnterpriseMemberModelAdmissionMode = string(service.EnterpriseMemberModelAdmissionLegacyOrderOnly)
+	svc := service.NewSettingService(repo, cfg)
+	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+
+	rawBody, err := json.Marshal(map[string]any{"promo_code_enabled": true})
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.UpdateSettings(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	_, persisted := repo.lastUpdates[service.SettingKeyEnterpriseMemberModelAdmissionMode]
+	require.False(t, persisted)
+
+	var resp response.Response
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	data, ok := resp.Data.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, string(service.EnterpriseMemberModelAdmissionLegacyOrderOnly), data["enterprise_member_model_admission_mode"])
+	require.Equal(t, "config", data["enterprise_member_model_admission_source"])
+}
+
+func TestSettingHandler_UpdateSettings_OmittedEnterpriseMemberAdmissionDoesNotPersistBlockedConfigEnforce(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &settingHandlerRepoStub{values: map[string]string{
+		service.SettingKeyPromoCodeEnabled: "true",
+	}}
+	cfg := &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}}
+	cfg.Gateway.EnterpriseMemberModelAdmissionMode = string(service.EnterpriseMemberModelAdmissionEnforcePublished)
+	svc := service.NewSettingService(repo, cfg)
+	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+
+	rawBody, err := json.Marshal(map[string]any{"promo_code_enabled": true})
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.UpdateSettings(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	_, persisted := repo.lastUpdates[service.SettingKeyEnterpriseMemberModelAdmissionMode]
+	require.False(t, persisted)
+
+	var resp response.Response
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	data, ok := resp.Data.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, string(service.EnterpriseMemberModelAdmissionShadowPublished), data["enterprise_member_model_admission_mode"])
+	require.Equal(t, "rollout_shadow", data["enterprise_member_model_admission_source"])
+}
+
+func TestSettingHandler_UpdateSettings_PersistsEnterpriseMemberLegacyRetirementTarget(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &settingHandlerRepoStub{values: map[string]string{
+		service.SettingKeyPromoCodeEnabled: "true",
+	}}
+	cfg := &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}}
+	svc := service.NewSettingService(repo, cfg)
+	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+
+	rawBody, err := json.Marshal(map[string]any{
+		"promo_code_enabled": true,
+		"enterprise_member_model_admission_legacy_retirement_target": "v1.8.0",
+	})
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.UpdateSettings(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "v1.8.0", repo.values[service.SettingKeyEnterpriseMemberModelAdmissionLegacyRetirementTarget])
+
+	var resp response.Response
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	data, ok := resp.Data.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "v1.8.0", data["enterprise_member_model_admission_legacy_retirement_target"])
+	legacy, ok := data["enterprise_member_model_admission_legacy"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "scheduled", legacy["retirement_status"])
+	require.Equal(t, false, legacy["phase5_ready"])
+	require.Equal(t, service.EnterpriseMemberModelAdmissionPhase5GatePendingReason, legacy["phase5_reason"])
+}
+
+func TestSettingHandler_UpdateSettings_RejectsInvalidEnterpriseMemberLegacyRetirementTarget(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &settingHandlerRepoStub{values: map[string]string{
+		service.SettingKeyPromoCodeEnabled: "true",
+	}}
+	cfg := &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}}
+	svc := service.NewSettingService(repo, cfg)
+	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+
+	rawBody, err := json.Marshal(map[string]any{
+		"promo_code_enabled": true,
+		"enterprise_member_model_admission_legacy_retirement_target": "later",
+	})
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.UpdateSettings(c)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	_, persisted := repo.values[service.SettingKeyEnterpriseMemberModelAdmissionLegacyRetirementTarget]
+	require.False(t, persisted)
 }
 
 func TestDiffSettings_TracksNativeRoutingOverrideSourceChange(t *testing.T) {

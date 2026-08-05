@@ -9,19 +9,25 @@ import (
 // ActiveGroupContext is the immutable request-level group decision consumed by
 // routing, scheduling, usage, billing, and operational logging.
 type ActiveGroupContext struct {
-	LogicalRequestID string  `json:"logical_request_id"`
-	AttemptID        string  `json:"attempt_id"`
-	MemberID         int64   `json:"member_id"`
-	MemberVersion    int64   `json:"member_version"`
-	GroupID          int64   `json:"group_id"`
-	Platform         string  `json:"platform"`
-	RateMultiplier   float64 `json:"rate_multiplier"`
-	SubscriptionType string  `json:"subscription_type"`
-	Endpoint         string  `json:"endpoint"`
-	RequestedModel   string  `json:"requested_model"`
-	MappedModel      string  `json:"mapped_model"`
-	CandidateIndex   int     `json:"candidate_index"`
-	AttemptNumber    int     `json:"attempt_number"`
+	LogicalRequestID string                             `json:"logical_request_id"`
+	AttemptID        string                             `json:"attempt_id"`
+	MemberID         int64                              `json:"member_id"`
+	MemberVersion    int64                              `json:"member_version"`
+	GroupID          int64                              `json:"group_id"`
+	Platform         string                             `json:"platform"`
+	RateMultiplier   float64                            `json:"rate_multiplier"`
+	SubscriptionType string                             `json:"subscription_type"`
+	Endpoint         string                             `json:"endpoint"`
+	RequestedModel   string                             `json:"requested_model"`
+	MappedModel      string                             `json:"mapped_model"`
+	CandidateIndex   int                                `json:"candidate_index"`
+	AttemptNumber    int                                `json:"attempt_number"`
+	RoutePlanMode    EnterpriseMemberModelAdmissionMode `json:"route_plan_mode,omitempty"`
+	RoutePlanSource  EnterpriseMemberRoutePlanSource    `json:"route_plan_source,omitempty"`
+	// RoutePlanSnapshotAgeMs is populated only for restored last-known-good
+	// plans when the planner can report a bounded snapshot age.
+	RoutePlanSnapshotAgeMs *int64 `json:"route_plan_snapshot_age_ms,omitempty"`
+	ModelPlanApplied       bool   `json:"model_plan_applied,omitempty"`
 }
 
 func ActiveGroupFromContext(ctx context.Context) (*ActiveGroupContext, bool) {

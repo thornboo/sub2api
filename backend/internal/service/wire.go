@@ -124,12 +124,55 @@ func ProvideModelDeliveryService(
 	groupRepo GroupRepository,
 	channel *ChannelService,
 	capability *ModelProtocolCapabilityService,
+	composite *CompositeRouteResolver,
 	cfg *config.Config,
 	settingService *SettingService,
 ) *ModelDeliveryService {
 	svc := NewModelDeliveryService(accountRepo, groupRepo, channel, capability, cfg)
 	svc.SetNativeModelProtocolRoutingSettingReader(settingService)
+	svc.SetCompositeRoutePreviewer(composite)
 	return svc
+}
+
+func ProvideRoutingEligibilityRuntime(
+	repo RoutingEligibilityRevisionRepository,
+	bus RoutingEligibilityEventBus,
+	channel *ChannelService,
+	capability *ModelProtocolCapabilityService,
+) *RoutingEligibilityRuntime {
+	runtime := NewRoutingEligibilityRuntime(repo, bus)
+	runtime.SetInvalidationHandler(func(scopes []RoutingEligibilityScope) {
+		invalidateChannel := false
+		invalidateCapability := false
+		for _, scope := range scopes {
+			switch scope.Type {
+			case RoutingEligibilityScopeChannel, RoutingEligibilityScopeGroup:
+				invalidateChannel = true
+			case RoutingEligibilityScopeAccount, RoutingEligibilityScopeProtocol:
+				invalidateCapability = true
+			}
+		}
+		if invalidateChannel && channel != nil {
+			channel.InvalidateRoutingEligibilityCache()
+		}
+		if invalidateCapability && capability != nil {
+			capability.InvalidateRoutingEligibilityCache()
+		}
+	})
+	runtime.Start()
+	return runtime
+}
+
+func ProvideEnterpriseMemberRoutePlanner(
+	channel *ChannelService,
+	delivery *ModelDeliveryService,
+	runtime *RoutingEligibilityRuntime,
+	readiness EnterpriseMemberModelAdmissionReadinessProvider,
+) *EnterpriseMemberRoutePlanner {
+	SetEnterpriseMemberModelAdmissionReadinessProvider(readiness)
+	planner := NewEnterpriseMemberRoutePlannerForChannel(channel, delivery)
+	planner.SetRoutingEligibilityRuntime(runtime)
+	return planner
 }
 
 // ProvideOpenAIGatewayService injects additive protocol capability routing while
@@ -837,6 +880,11 @@ var ProviderSet = wire.NewSet(
 	NewAccountService,
 	ProvideModelProtocolCapabilityService,
 	ProvideModelDeliveryService,
+	ProvideRoutingEligibilityRuntime,
+	ProvideEnterpriseMemberRoutePlanner,
+	ProvideEnterpriseMemberAliasReviewService,
+	NewEnterpriseMemberAdmissionEvidenceService,
+	ProvideEnterpriseMemberModelAdmissionReadinessProvider,
 	NewProxyService,
 	NewRedeemService,
 	NewPromoService,

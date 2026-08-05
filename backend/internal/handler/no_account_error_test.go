@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -43,6 +44,32 @@ func (f *fakeDiagnoser) DiagnoseModelAvailabilityForPlatform(
 }
 
 func ptrInt64(v int64) *int64 { return &v }
+
+type enterpriseMemberAdmissionModeStub service.EnterpriseMemberModelAdmissionMode
+
+func (s enterpriseMemberAdmissionModeStub) GetEnterpriseMemberModelAdmissionMode(context.Context) service.EnterpriseMemberModelAdmissionMode {
+	return service.EnterpriseMemberModelAdmissionMode(s)
+}
+
+type enterpriseMemberRoutePlannerFunc func(context.Context, service.EnterpriseMemberRouteInput) (*service.EnterpriseMemberRoutePlan, error)
+
+func (f enterpriseMemberRoutePlannerFunc) Plan(ctx context.Context, input service.EnterpriseMemberRouteInput) (*service.EnterpriseMemberRoutePlan, error) {
+	return f(ctx, input)
+}
+
+func attachAppliedEnterpriseMemberEnforcePlan(c *gin.Context, apiKey *service.APIKey) {
+	if c == nil || c.Request == nil || apiKey == nil || apiKey.GroupID == nil || apiKey.MemberID == nil {
+		return
+	}
+	c.Set(string(middleware2.ContextKeyAPIKey), apiKey)
+	c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.ActiveGroup, &service.ActiveGroupContext{
+		MemberID:         *apiKey.MemberID,
+		GroupID:          *apiKey.GroupID,
+		AttemptNumber:    1,
+		RoutePlanMode:    service.EnterpriseMemberModelAdmissionEnforcePublished,
+		ModelPlanApplied: true,
+	}))
+}
 
 // newTestGinContextWithRequest wraps the bare newTestGinContext helper
 // (defined in openai_gateway_cyber_test.go) by additionally attaching a stub
@@ -200,6 +227,7 @@ func TestClassifyNoAccountError_EnterpriseMemberModelMissMarksGroupCapabilityMis
 	fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: false}}
 	memberID := int64(9)
 	apiKey := &service.APIKey{GroupID: ptrInt64(7), MemberID: &memberID}
+	attachAppliedEnterpriseMemberEnforcePlan(c, apiKey)
 
 	cls := classifyNoAccountErrorFromGin(c, fd, apiKey, "gpt-5.4", "claude-opus-4-8", service.PlatformOpenAI)
 
@@ -242,8 +270,20 @@ func TestClassifyNoAccountError_EnterpriseMemberModelMissDrivesNextGroup(t *test
 		c.Set(string(middleware2.ContextKeyAPIKey), apiKey)
 		c.Next()
 	})
+	planner := enterpriseMemberRoutePlannerFunc(func(_ context.Context, input service.EnterpriseMemberRouteInput) (*service.EnterpriseMemberRoutePlan, error) {
+		require.Equal(t, "claude-opus-4-8", input.Model)
+		return &service.EnterpriseMemberRoutePlan{
+			Model: input.Model,
+			Candidates: []service.EnterpriseMemberRouteCandidateDecision{
+				{GroupID: 11, Reason: service.EnterpriseMemberRouteReasonEligible},
+				{GroupID: 22, Reason: service.EnterpriseMemberRouteReasonEligible},
+			},
+		}, nil
+	})
 	router.Use(middleware2.ResolveEnterpriseMemberGroup(
 		nil,
+		planner,
+		enterpriseMemberAdmissionModeStub(service.EnterpriseMemberModelAdmissionEnforcePublished),
 		&config.Config{RunMode: config.RunModeSimple},
 		middleware2.AnthropicErrorWriter,
 	))

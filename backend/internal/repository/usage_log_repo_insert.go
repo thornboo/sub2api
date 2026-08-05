@@ -76,6 +76,8 @@ var usageLogInsertArgTypes = [...]string{
 	"text",        // inbound_endpoint
 	"text",        // upstream_endpoint
 	"jsonb",       // schedule_meta
+	"text",        // route_plan_source
+	"bigint",      // route_plan_snapshot_age_ms
 	"boolean",     // cache_ttl_overridden
 	"boolean",     // long_context_billing_applied
 	"bigint",      // channel_id
@@ -282,6 +284,8 @@ func createUsageLogSingle(ctx context.Context, sqlq sqlExecutor, log *service.Us
 			inbound_endpoint,
 			upstream_endpoint,
 			schedule_meta,
+			route_plan_source,
+			route_plan_snapshot_age_ms,
 			cache_ttl_overridden,
 			long_context_billing_applied,
 			channel_id,
@@ -297,7 +301,7 @@ func createUsageLogSingle(ctx context.Context, sqlq sqlExecutor, log *service.Us
 			$13, $14, $15, $16,
 			$17, $18, $19, $20,
 			$21, $22, $23, $24, $25, $26,
-			$27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61
+			$27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 		RETURNING id, created_at
@@ -755,6 +759,8 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			inbound_endpoint,
 			upstream_endpoint,
 			schedule_meta,
+			route_plan_source,
+			route_plan_snapshot_age_ms,
 			cache_ttl_overridden,
 			long_context_billing_applied,
 			channel_id,
@@ -849,6 +855,8 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				inbound_endpoint,
 				upstream_endpoint,
 				schedule_meta,
+				route_plan_source,
+				route_plan_snapshot_age_ms,
 				cache_ttl_overridden,
 				long_context_billing_applied,
 				channel_id,
@@ -912,6 +920,8 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				inbound_endpoint,
 				upstream_endpoint,
 				schedule_meta,
+				route_plan_source,
+				route_plan_snapshot_age_ms,
 				cache_ttl_overridden,
 				long_context_billing_applied,
 				channel_id,
@@ -1015,6 +1025,8 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			inbound_endpoint,
 			upstream_endpoint,
 			schedule_meta,
+			route_plan_source,
+			route_plan_snapshot_age_ms,
 			cache_ttl_overridden,
 			long_context_billing_applied,
 			channel_id,
@@ -1104,6 +1116,8 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			inbound_endpoint,
 			upstream_endpoint,
 			schedule_meta,
+			route_plan_source,
+			route_plan_snapshot_age_ms,
 			cache_ttl_overridden,
 			long_context_billing_applied,
 			channel_id,
@@ -1167,6 +1181,8 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			inbound_endpoint,
 			upstream_endpoint,
 			schedule_meta,
+			route_plan_source,
+			route_plan_snapshot_age_ms,
 			cache_ttl_overridden,
 			long_context_billing_applied,
 			channel_id,
@@ -1238,6 +1254,8 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			inbound_endpoint,
 			upstream_endpoint,
 			schedule_meta,
+			route_plan_source,
+			route_plan_snapshot_age_ms,
 			cache_ttl_overridden,
 			long_context_billing_applied,
 			channel_id,
@@ -1253,7 +1271,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			$13, $14, $15, $16,
 			$17, $18, $19, $20,
 			$21, $22, $23, $24, $25, $26,
-			$27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61
+			$27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 	`, prepared.args...)
@@ -1292,6 +1310,8 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 	inboundEndpoint := nullString(log.InboundEndpoint)
 	upstreamEndpoint := nullString(log.UpstreamEndpoint)
 	scheduleMeta := nullUsageScheduleMetaJSON(log.ScheduleMeta)
+	routePlanSource := opsNullString(log.RoutePlanSource)
+	routePlanSnapshotAgeMs := opsNullInt64(log.RoutePlanSnapshotAgeMs)
 	channelID := nullInt64(log.ChannelID)
 	modelMappingChain := nullString(log.ModelMappingChain)
 	billingTier := nullString(log.BillingTier)
@@ -1368,6 +1388,8 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			inboundEndpoint,
 			upstreamEndpoint,
 			scheduleMeta,
+			routePlanSource,
+			routePlanSnapshotAgeMs,
 			log.CacheTTLOverridden,
 			log.LongContextBillingApplied,
 			channelID,

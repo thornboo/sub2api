@@ -190,6 +190,9 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		ops.GET("/enterprise-members/metrics", h.Admin.Ops.GetEnterpriseMemberMetrics)
 		ops.GET("/enterprise-members/ambiguous-receipts", h.Admin.Ops.ListEnterpriseMemberAmbiguousReceipts)
 		ops.POST("/enterprise-members/ambiguous-receipts/:id/reconcile", h.Admin.Ops.ResolveEnterpriseMemberAmbiguousReceipt)
+		ops.GET("/enterprise-members/model-aliases", h.Admin.Ops.ListEnterpriseMemberModelAliases)
+		ops.GET("/enterprise-members/model-aliases/readiness", h.Admin.Ops.GetEnterpriseMemberModelAliasReadiness)
+		ops.PUT("/enterprise-members/model-aliases/review", h.Admin.Ops.ReviewEnterpriseMemberModelAlias)
 
 		// Alerts (rules + events)
 		ops.GET("/alert-rules", h.Admin.Ops.ListAlertRules)

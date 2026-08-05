@@ -2,6 +2,10 @@
 
 ## 2026-08-05
 
+- 企业成员模型感知路由治理阶段 0-4 在本地实现并通过最终本地验证：精确发布模型规划、routing eligibility revision/outbox/PubSub/atomic mirror、generation LKG、Composite 文本预览、非文本 evaluator coverage、typed attempt、Ops routing attempts、alias review ledger、readiness/rollout/auto-stop 管理能力和 legacy 退役准备已进入当前工作区。
+- 最终本地验证已通过：后端 `go generate`、`make test-unit`、`go test ./... -count=1`、`go vet ./...`、`golangci-lint run ./...`（0 issues），18 个 Colima/Testcontainers PostgreSQL 16/Redis 顶层测试（14 个 routing eligibility + 4 个 migration runner），focused race，前端 typecheck/lint/完整测试（259 个测试文件、1758 条测试）/build，docs build，`git diff --check`，隐私/脱敏专项测试及新增差异的高置信度密钥模式扫描。
+- 新增迁移 `199_routing_eligibility_revision.sql`、`200_enterprise_member_alias_review_ledger.sql`、`201_ops_routing_attempts.sql`、`201a_ops_routing_attempts_indexes_notx.sql`、`202_account_model_protocol_capabilities_non_text.sql`。这些迁移支撑本地治理代码和管理证据，但不代表生产数据库已应用、生产 enforce 已灰度或新安装默认值已切到 enforce；`201` 历史 CHECK 验证和 `201a` 生产同量级并发索引演练仍是发布门。
+- `gateway.enterprise_member_model_admission_mode` / DB setting 继续默认 `shadow_published`；`enforce_published` 仍必须通过服务端 readiness、rollout、auto-stop、alias/evidence 门和真实生产发布窗口。当前尚未 commit、release、deploy，也尚未取得生产 7d/30d/canary release-window 证据；阶段 5 只完成本地退役准备，shadow 双算和旧候选分支不得在生产窗口验证前删除。
 - 同步上游 `main`（`00b859617`）到 `dev-zz-develop`：认证验证码扩展为互斥的 Cloudflare Turnstile、腾讯天御与阿里云验证码 2.0，认证动作、OAuth 登录启动和待建账号使用统一 proof；管理端 secret 继续只暴露 configured 状态，局部保存审计不会继承已存凭据。
 - Codex OAuth 出站身份统一由生效版本重建，默认自动同步官方最新稳定版并允许管理员覆写；同时吸收 WebSocket terminal event、Responses 提示词审计解析、订阅续费串行化、消费排行用户名、Anthropic OAuth endpoint 和 Grok CLI 版本修复。
 - 模型广场图片报价修复迁入 dev-zz 共享目录：分组图片档位按“分组价 > 渠道同档价 > 渠道默认按次价”回落，图片独立倍率替代普通分组 / 用户倍率；模型广场、价格表格与导出使用同一实现，不恢复已删除的旧 `channel_plaza` 和价格组件，也不把图片输出 Token 单价当作单张图片价格。

@@ -62,6 +62,17 @@ const (
 	// failure. Only the closed reason set below may authorize replay against the
 	// next ordered enterprise-member group.
 	OpsGroupRetryReasonKey = "ops_group_retry_reason"
+	// OpsGroupAttemptResultKey records the replay contract consumed by
+	// enterprise-member group orchestration. The legacy reason key remains for
+	// compatibility with existing handler call sites and ops diagnostics.
+	OpsGroupAttemptResultKey = "ops_group_attempt_result"
+	// EnterpriseMemberExternalTaskCommittedKey marks request-local side effects
+	// that outlive the current handler attempt, such as an async task row.
+	EnterpriseMemberExternalTaskCommittedKey = "enterprise_member_external_task_committed"
+	// EnterpriseMemberWSTurnCommittedKey marks WebSocket turns that have been
+	// accepted by an upstream connection and cannot be safely replayed on a
+	// different group.
+	EnterpriseMemberWSTurnCommittedKey = "enterprise_member_ws_turn_committed"
 )
 
 type OpsGroupRetryReason string
@@ -133,6 +144,7 @@ func MarkOpsGroupRetry(c *gin.Context, reason OpsGroupRetryReason) {
 		return
 	}
 	c.Set(OpsGroupRetryReasonKey, reason)
+	MarkGroupAttemptResult(c, NewGroupAttemptResultFromContext(c, reason))
 }
 
 func (r OpsGroupRetryReason) Valid() bool {

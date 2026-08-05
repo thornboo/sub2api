@@ -378,9 +378,9 @@ func (h *GatewayHandler) handleCCFailoverExhausted(c *gin.Context, lastErr *serv
 		return
 	}
 	if reason, ok := service.OpsGroupRetryReasonForFailoverError(lastErr); ok {
-		service.MarkOpsGroupRetry(c, reason)
+		markEnterpriseMemberGroupRetryFromContext(c, reason)
 	} else if lastErr == nil {
-		service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapacityExhausted)
+		markEnterpriseMemberGroupRetryFromContext(c, service.OpsGroupRetryReasonCapacityExhausted)
 	}
 	if lastErr != nil {
 		copyFailoverRetryAfter(c, lastErr.ResponseHeaders)

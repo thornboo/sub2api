@@ -18,6 +18,9 @@ const {
   getStreamTimeoutSettings,
   getRectifierSettings,
   getBetaPolicySettings,
+  getEnterpriseMemberModelAliasReviews,
+  getEnterpriseMemberModelAliasReadiness,
+  reviewEnterpriseMemberModelAlias,
   getUpstreamBillingProbeSettings,
   updateUpstreamBillingProbeSettings,
   getOllamaCloudUsageSettings,
@@ -52,6 +55,9 @@ const {
   getStreamTimeoutSettings: vi.fn(),
   getRectifierSettings: vi.fn(),
   getBetaPolicySettings: vi.fn(),
+  getEnterpriseMemberModelAliasReviews: vi.fn(),
+  getEnterpriseMemberModelAliasReadiness: vi.fn(),
+  reviewEnterpriseMemberModelAlias: vi.fn(),
   getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({
     enabled: true,
     interval_minutes: 30,
@@ -93,6 +99,11 @@ vi.mock("@/api", () => ({
       getStreamTimeoutSettings,
       getRectifierSettings,
       getBetaPolicySettings,
+    },
+    ops: {
+      getEnterpriseMemberModelAliasReviews,
+      getEnterpriseMemberModelAliasReadiness,
+      reviewEnterpriseMemberModelAlias,
     },
     accounts: {
       getUpstreamBillingProbeSettings,
@@ -327,11 +338,72 @@ const SelectStub = defineComponent({
             {
               key: `${String(option.value ?? "")}:${String(option.label ?? "")}`,
               value: option.value as string,
+              disabled: Boolean(option.disabled),
             },
             String(option.label ?? ""),
           ),
         ),
       );
+  },
+});
+
+const ConfirmDialogStub = defineComponent({
+  props: {
+    show: {
+      type: Boolean,
+      default: false,
+    },
+    title: {
+      type: String,
+      default: "",
+    },
+    message: {
+      type: String,
+      default: "",
+    },
+    confirmText: {
+      type: String,
+      default: "",
+    },
+    danger: {
+      type: Boolean,
+      default: false,
+    },
+  },
+  emits: ["confirm", "cancel"],
+  setup(props, { emit }) {
+    return () =>
+      props.show
+        ? h(
+            "div",
+            {
+              class: "confirm-dialog-stub",
+              "data-danger": props.danger ? "true" : "false",
+            },
+            [
+              h("div", { class: "confirm-title" }, props.title),
+              h("div", { class: "confirm-message" }, props.message),
+              h(
+                "button",
+                {
+                  type: "button",
+                  "data-testid": "confirm-dialog-confirm",
+                  onClick: () => emit("confirm"),
+                },
+                props.confirmText,
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  "data-testid": "confirm-dialog-cancel",
+                  onClick: () => emit("cancel"),
+                },
+                "cancel",
+              ),
+            ],
+          )
+        : null;
   },
 });
 
@@ -459,6 +531,44 @@ const baseSettingsResponse = {
   identity_patch_prompt: "",
   native_model_protocol_routing_enabled: false,
   native_model_protocol_routing_source: "config",
+  enterprise_member_model_admission_mode: "shadow_published" as const,
+  enterprise_member_model_admission_source: "config",
+  enterprise_member_model_admission_enforce_ready: false,
+  enterprise_member_model_admission_enforce_reason: "phase3_prerequisites_incomplete",
+  enterprise_member_model_admission_readiness: {
+    ready: false,
+    reason: "phase3_prerequisites_incomplete",
+    source: "server_default",
+    auto_stopped: false,
+    conditions: [],
+  },
+  enterprise_member_model_admission_rollout: {
+    policy: {
+      enterprise_user_ids: [],
+      member_ids: [],
+      percentage: 0,
+      salt: "enterprise-member-model-admission-v1",
+      auto_stop: false,
+    },
+    source: "default",
+    valid: true,
+    stable_hash_percent: 0,
+    auto_stopped: false,
+  },
+  enterprise_member_model_admission_legacy: {
+    deprecated: true,
+    emergency_rollback_only: true,
+    warning: false,
+    usage_total: 0,
+    retirement_target: "",
+    retirement_target_kind: "",
+    retirement_status: "not_scheduled",
+    retirement_reason: "retirement_target_missing",
+    phase5_ready: false,
+    phase5_reason: "phase5_production_gate_pending",
+    risk_reduction_only_notice: "legacy_order_only is deprecated",
+  },
+  enterprise_member_model_admission_legacy_retirement_target: "",
   ops_monitoring_enabled: false,
   ops_realtime_monitoring_enabled: false,
   ops_query_mode_default: "auto",
@@ -555,7 +665,7 @@ function mountView() {
         Select: SelectStub,
         Toggle: ToggleStub,
         Icon: true,
-        ConfirmDialog: true,
+        ConfirmDialog: ConfirmDialogStub,
         PaymentProviderList: true,
         PaymentProviderDialog: true,
         GroupBadge: true,
@@ -622,6 +732,9 @@ describe("admin SettingsView payment visible method controls", () => {
     getStreamTimeoutSettings.mockReset();
     getRectifierSettings.mockReset();
     getBetaPolicySettings.mockReset();
+    getEnterpriseMemberModelAliasReviews.mockReset();
+    getEnterpriseMemberModelAliasReadiness.mockReset();
+    reviewEnterpriseMemberModelAlias.mockReset();
     getUpstreamBillingProbeSettings.mockReset();
     updateUpstreamBillingProbeSettings.mockReset();
     getOllamaCloudUsageSettings.mockReset();
@@ -681,6 +794,22 @@ describe("admin SettingsView payment visible method controls", () => {
     getBetaPolicySettings.mockResolvedValue({
       rules: [],
     });
+    getEnterpriseMemberModelAliasReviews.mockResolvedValue({ items: [] });
+    getEnterpriseMemberModelAliasReadiness.mockResolvedValue({
+      ready: true,
+      blocking_unreviewed_active_7d: 0,
+      blocking_unreviewed_active_30d: 0,
+      reason: "ready",
+    });
+    reviewEnterpriseMemberModelAlias.mockImplementation(async (payload) => ({
+      id: 1,
+      public_model: payload.public_model,
+      public_model_norm: payload.public_model,
+      endpoint: payload.endpoint,
+      status: payload.status,
+      final_group_id: payload.final_group_id,
+      channel_id: payload.channel_id,
+    }));
     getUpstreamBillingProbeSettings.mockResolvedValue({
       enabled: true,
       interval_minutes: 30,
@@ -1171,6 +1300,399 @@ describe("admin SettingsView payment visible method controls", () => {
     );
   });
 
+  it("submits the effective enterprise member admission override", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      enterprise_member_model_admission_mode: "shadow_published",
+      enterprise_member_model_admission_source: "settings",
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enterprise_member_model_admission_mode: "shadow_published",
+      }),
+    );
+  });
+
+  it("submits enterprise member rollout policy using the backend request shape", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      enterprise_member_model_admission_mode: "shadow_published",
+      enterprise_member_model_admission_source: "settings",
+      enterprise_member_model_admission_rollout: {
+        policy: {
+          enterprise_user_ids: [9],
+          member_ids: [19],
+          percentage: 5,
+          salt: "old-salt",
+          auto_stop: false,
+        },
+        source: "settings",
+        valid: true,
+        stable_hash_percent: 5,
+        auto_stopped: false,
+      },
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    await wrapper
+      .get('[data-testid="enterprise-member-model-admission-enterprise-ids"]')
+      .setValue("12, 12 13");
+    await wrapper
+      .get('[data-testid="enterprise-member-model-admission-member-ids"]')
+      .setValue("21, 0, 22");
+    await wrapper
+      .get('[data-testid="enterprise-member-model-admission-percentage"]')
+      .setValue("35");
+    await wrapper
+      .get('[data-testid="enterprise-member-model-admission-salt"]')
+      .setValue("release-salt");
+    await wrapper
+      .get('[data-testid="enterprise-member-model-admission-auto-stop-toggle"]')
+      .setValue(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enterprise_member_model_admission_mode: "shadow_published",
+        enterprise_member_model_admission_rollout_policy: {
+          enterprise_user_ids: [12, 13],
+          member_ids: [21, 22],
+          percentage: 35,
+          salt: "release-salt",
+          auto_stop: true,
+        },
+      }),
+    );
+  });
+
+  it("renders and submits the enterprise member legacy retirement target", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      enterprise_member_model_admission_source: "settings",
+      enterprise_member_model_admission_legacy: {
+        deprecated: true,
+        emergency_rollback_only: true,
+        warning: true,
+        usage_total: 3,
+        retirement_target: "",
+        retirement_target_kind: "",
+        retirement_status: "not_scheduled",
+        retirement_reason: "retirement_target_missing",
+        phase5_ready: false,
+        phase5_reason: "phase5_production_gate_pending",
+        risk_reduction_only_notice: "legacy_order_only is deprecated",
+      },
+      enterprise_member_model_admission_legacy_retirement_target: "",
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    expect(
+      wrapper
+        .get('[data-testid="enterprise-member-model-admission-legacy-status"]')
+        .text(),
+    ).toContain(
+      "admin.settings.gatewayForwarding.enterpriseMemberAdmissionLegacyRetirementValue",
+    );
+    await wrapper
+      .get(
+        '[data-testid="enterprise-member-model-admission-legacy-retirement-target"]',
+      )
+      .setValue("v1.8.0");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enterprise_member_model_admission_legacy_retirement_target: "v1.8.0",
+      }),
+    );
+  });
+
+  it("does not solidify an untouched config-sourced enterprise member admission default", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      enterprise_member_model_admission_mode: "shadow_published",
+      enterprise_member_model_admission_source: "config",
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings.mock.calls[0]?.[0]).not.toHaveProperty(
+      "enterprise_member_model_admission_mode",
+    );
+  });
+
+  it("does not persist a server-blocked config enforce fallback during an unrelated save", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      enterprise_member_model_admission_mode: "shadow_published",
+      enterprise_member_model_admission_source: "enforce_blocked",
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings.mock.calls[0]?.[0]).not.toHaveProperty(
+      "enterprise_member_model_admission_mode",
+    );
+  });
+
+  it("keeps the current admission mode when enforce confirmation is cancelled", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      enterprise_member_model_admission_enforce_ready: true,
+      enterprise_member_model_admission_enforce_reason: "",
+    });
+    const wrapper = mountView();
+
+    await flushPromises();
+    const select = wrapper.get(
+      '[data-testid="enterprise-member-model-admission-select"]',
+    );
+
+    await select.setValue("enforce_published");
+    await flushPromises();
+
+    const dialog = wrapper.get(".confirm-dialog-stub");
+    expect(dialog.attributes("data-danger")).toBe("true");
+    await dialog.get('[data-testid="confirm-dialog-cancel"]').trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find(".confirm-dialog-stub").exists()).toBe(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0]).not.toHaveProperty(
+      "enterprise_member_model_admission_mode",
+    );
+  });
+
+  it("submits enforce admission only after danger confirmation", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      enterprise_member_model_admission_enforce_ready: true,
+      enterprise_member_model_admission_enforce_reason: "",
+    });
+    const wrapper = mountView();
+
+    await flushPromises();
+    const select = wrapper.get(
+      '[data-testid="enterprise-member-model-admission-select"]',
+    );
+    await select.setValue("enforce_published");
+    await flushPromises();
+
+    const dialog = wrapper.get(".confirm-dialog-stub");
+    await dialog.get('[data-testid="confirm-dialog-confirm"]').trigger("click");
+    await flushPromises();
+
+    expect((select.element as HTMLSelectElement).value).toBe("enforce_published");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enterprise_member_model_admission_mode: "enforce_published",
+      }),
+    );
+  });
+
+  it("disables enforce admission while server readiness is false", async () => {
+    const wrapper = mountView();
+
+    await flushPromises();
+    const select = wrapper.get(
+      '[data-testid="enterprise-member-model-admission-select"]',
+    );
+    const enforceOption = select.get('option[value="enforce_published"]');
+
+    expect(enforceOption.attributes("disabled")).toBeDefined();
+    expect(
+      wrapper.get(
+        '[data-testid="enterprise-member-model-admission-enforce-blocked"]',
+      ).exists(),
+    ).toBe(true);
+  });
+
+  it("warns when enterprise member admission falls back from an invalid source", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      enterprise_member_model_admission_mode: "shadow_published",
+      enterprise_member_model_admission_source: "config_invalid",
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    expect(
+      wrapper
+        .get('[data-testid="enterprise-member-model-admission-source-warning"]')
+        .exists(),
+    ).toBe(true);
+  });
+
+  it("renders invalid enterprise member rollout policy reason from backend state", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      enterprise_member_model_admission_rollout: {
+        policy: {
+          percentage: 0,
+          salt: "enterprise-member-model-admission-v1",
+          auto_stop: false,
+        },
+        source: "settings",
+        valid: false,
+        reason: "rollout_policy_invalid",
+        stable_hash_percent: 0,
+        auto_stopped: false,
+      },
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+
+    expect(
+      wrapper.get('[data-testid="enterprise-member-model-admission-safety-reason"]').text(),
+    ).toContain("rollout_policy_invalid");
+  });
+
+  it("renders enterprise member admission readiness rollout and auto-stop state", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      enterprise_member_model_admission_enforce_ready: true,
+      enterprise_member_model_admission_enforce_reason: "",
+      enterprise_member_model_admission_readiness: {
+        ready: true,
+        reason: "",
+        source: "injected_provider",
+        auto_stopped: false,
+        conditions: [
+          {
+            name: "routing_revision_healthy",
+            ready: true,
+            details: "revision ok",
+          },
+        ],
+      },
+      enterprise_member_model_admission_rollout: {
+        policy: {
+          enterprise_user_ids: [11, 12],
+          member_ids: [21],
+          percentage: 25,
+          salt: "rollout-v1",
+          auto_stop: true,
+        },
+        source: "settings",
+        valid: true,
+        reason: "rollout_auto_stop",
+        matched: false,
+        hash_bucket: 52,
+        stable_hash_percent: 25,
+        auto_stopped: true,
+      },
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+
+    expect(
+      wrapper.get('[data-testid="enterprise-member-model-admission-readiness"]').text(),
+    ).toContain("admin.settings.gatewayForwarding.enterpriseMemberAdmissionReady");
+    expect(
+      wrapper.get('[data-testid="enterprise-member-model-admission-rollout"]').text(),
+    ).toContain("admin.settings.gatewayForwarding.enterpriseMemberAdmissionRolloutValue");
+    expect(
+      wrapper.get('[data-testid="enterprise-member-model-admission-auto-stop"]').text(),
+    ).toContain("rollout_auto_stop");
+    expect(
+      wrapper.get('[data-testid="enterprise-member-model-admission-safety-reason"]').text(),
+    ).toContain("rollout_auto_stop");
+    expect(
+      (
+        wrapper.get(
+          '[data-testid="enterprise-member-model-admission-enterprise-ids"]',
+        ).element as HTMLInputElement
+      ).value,
+    ).toBe("11, 12");
+  });
+
+  it("loads alias 7d and 30d review rows and submits review actions", async () => {
+    getEnterpriseMemberModelAliasReviews.mockResolvedValueOnce({
+      items: [
+        {
+          public_model: "glm-5.2",
+          public_model_norm: "glm-5.2",
+          endpoint: "/v1/responses",
+          planned_outcome: "pruned",
+          final_group_id: 12,
+          channel_id: 34,
+          request_count_7d: 7,
+          request_count_30d: 30,
+          review_status: "pending",
+        },
+      ],
+    });
+    reviewEnterpriseMemberModelAlias.mockResolvedValueOnce({
+      id: 1,
+      public_model: "glm-5.2",
+      public_model_norm: "glm-5.2",
+      endpoint: "/v1/responses",
+      final_group_id: 12,
+      channel_id: 34,
+      status: "registered",
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("glm-5.2");
+    expect(wrapper.text()).toContain("30");
+
+    const approveButton = wrapper
+      .findAll("button")
+      .find((button) =>
+        button.text().includes(
+          "admin.settings.gatewayForwarding.aliasApprove",
+        ),
+      );
+    expect(approveButton).toBeDefined();
+    await approveButton!.trigger("click");
+    await flushPromises();
+
+    expect(reviewEnterpriseMemberModelAlias).toHaveBeenCalledWith({
+      public_model: "glm-5.2",
+      endpoint: "/v1/responses",
+      status: "registered",
+      final_group_id: 12,
+      channel_id: 34,
+    });
+    expect(wrapper.text()).toContain("registered");
+  });
+
   it("submits message cache_control rewrite gateway setting", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,
@@ -1289,7 +1811,7 @@ describe("admin SettingsView payment visible method controls", () => {
           Select: SelectStub,
           Toggle: ToggleStub,
           Icon: true,
-          ConfirmDialog: true,
+          ConfirmDialog: ConfirmDialogStub,
           PaymentProviderList: PaymentProviderListStub,
           PaymentProviderDialog: true,
           GroupBadge: true,
@@ -1501,7 +2023,7 @@ describe("admin SettingsView payment visible method controls", () => {
           Select: SelectStub,
           Toggle: ToggleStub,
           Icon: true,
-          ConfirmDialog: true,
+          ConfirmDialog: ConfirmDialogStub,
           PaymentProviderList: PaymentProviderListCapture,
           PaymentProviderDialog: true,
           GroupBadge: true,

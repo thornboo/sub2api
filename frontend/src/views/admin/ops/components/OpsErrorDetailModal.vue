@@ -47,6 +47,87 @@
         </div>
       </div>
 
+      <div
+        v-if="hasEnterpriseMemberRouteTrace"
+        class="rounded-xl border border-sky-200/80 bg-sky-50/70 p-4 dark:border-sky-500/20 dark:bg-sky-500/[0.06]"
+        data-testid="enterprise-member-route-trace"
+      >
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 class="text-xs font-black uppercase tracking-wider text-sky-800 dark:text-sky-200">
+            {{ t('admin.ops.errorDetail.enterpriseRoute.title') }}
+          </h3>
+          <span class="rounded-full bg-white/80 px-2 py-1 font-mono text-[10px] font-bold text-sky-700 ring-1 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-500/25">
+            {{ enterpriseRouteSourceLabel }}
+          </span>
+        </div>
+        <div class="grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <div class="text-sky-500 dark:text-sky-300">{{ t('admin.ops.errorDetail.enterpriseRoute.planned') }}</div>
+            <div class="mt-1 break-all font-mono font-bold text-stone-900 dark:text-white">
+              {{ enterpriseRoutePlannedLabel }}
+            </div>
+          </div>
+          <div>
+            <div class="text-sky-500 dark:text-sky-300">{{ t('admin.ops.errorDetail.enterpriseRoute.pruned') }}</div>
+            <div class="mt-1 break-all font-mono font-bold text-stone-900 dark:text-white">
+              {{ enterpriseRoutePrunedLabel }}
+            </div>
+          </div>
+          <div>
+            <div class="text-sky-500 dark:text-sky-300">{{ t('admin.ops.errorDetail.enterpriseRoute.attempts') }}</div>
+            <div class="mt-1 break-all font-mono font-bold text-stone-900 dark:text-white">
+              {{ enterpriseRouteAttemptsLabel }}
+            </div>
+          </div>
+          <div>
+            <div class="text-sky-500 dark:text-sky-300">{{ t('admin.ops.errorDetail.enterpriseRoute.responsibility') }}</div>
+            <div class="mt-1 break-all font-mono font-bold text-stone-900 dark:text-white">
+              {{ enterpriseRouteResponsibilityLabel }}
+            </div>
+          </div>
+        </div>
+        <div v-if="enterpriseRouteAttempts.length" class="mt-3 overflow-x-auto">
+          <table class="min-w-full text-left text-xs">
+            <thead class="text-sky-500 dark:text-sky-300">
+              <tr>
+                <th class="px-2 py-1 font-bold">{{ t('admin.ops.errorDetail.phase') }}</th>
+                <th class="px-2 py-1 font-bold">{{ t('admin.ops.errorDetail.enterpriseRoute.group') }}</th>
+                <th class="px-2 py-1 font-bold">model_owner_group_id</th>
+                <th class="px-2 py-1 font-bold">{{ t('admin.ops.errorDetail.requestedModel') }}</th>
+                <th class="px-2 py-1 font-bold">{{ t('admin.ops.errorDetail.upstreamModel') }}</th>
+                <th class="px-2 py-1 font-bold">{{ t('admin.ops.errorDetail.enterpriseRoute.outcome') }}</th>
+                <th class="px-2 py-1 font-bold">{{ t('admin.ops.errorDetail.enterpriseRoute.reason') }}</th>
+                <th class="px-2 py-1 font-bold">{{ t('admin.ops.errorDetail.enterpriseRoute.replay') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="(attempt, idx) in enterpriseRouteAttempts"
+                :key="`${attempt.group_id ?? 'unknown'}-${idx}`"
+                class="border-t border-sky-100 dark:border-sky-500/20"
+              >
+                <td class="px-2 py-1 font-mono text-stone-700 dark:text-stone-200">
+                  {{ enterpriseRouteAttemptStageLabel(attempt) }}
+                </td>
+                <td class="px-2 py-1 font-mono text-stone-900 dark:text-white">
+                  {{ attempt.group_name || (attempt.group_id != null ? '#' + attempt.group_id : '—') }}
+                </td>
+                <td class="px-2 py-1 font-mono text-stone-700 dark:text-stone-200">
+                  {{ attempt.model_owner_group_id != null ? '#' + attempt.model_owner_group_id : '—' }}
+                </td>
+                <td class="px-2 py-1 font-mono text-stone-700 dark:text-stone-200">{{ attempt.requested_model || '—' }}</td>
+                <td class="px-2 py-1 font-mono text-stone-700 dark:text-stone-200">{{ attempt.mapped_model || '—' }}</td>
+                <td class="px-2 py-1 font-mono text-stone-700 dark:text-stone-200">{{ attempt.outcome || attempt.status_code || '—' }}</td>
+                <td class="px-2 py-1 font-mono text-stone-700 dark:text-stone-200">{{ attempt.reason || '—' }}</td>
+                <td class="px-2 py-1 text-stone-700 dark:text-stone-200">
+                  {{ attempt.safe_to_replay === true ? t('common.yes') : attempt.safe_to_replay === false ? t('common.no') : '—' }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Summary -->
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div class="rounded-xl bg-stone-50/80 p-4 dark:bg-white/[0.04]">
@@ -236,7 +317,13 @@ import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores'
-import { opsAPI, type OpsErrorDetail } from '@/api/admin/ops'
+import {
+  opsAPI,
+  type OpsErrorDetail,
+  type OpsEnterpriseMemberRouteAttempt,
+  type OpsEnterpriseMemberRoutePrunedGroup,
+  type OpsEnterpriseMemberRouteTrace
+} from '@/api/admin/ops'
 import { formatDateTime } from '@/utils/format'
 import { resolvePrimaryResponseBody, resolveUpstreamPayload } from '../utils/errorDetailResponse'
 
@@ -282,6 +369,153 @@ const slaImpactClass = computed(() => {
   if (detail.value?.sla_impact === true) return 'bg-red-500/10 text-red-700 ring-red-500/20 dark:text-red-300'
   if (detail.value?.sla_impact === false) return 'bg-stone-500/10 text-stone-700 ring-stone-500/20 dark:text-stone-300'
   return 'bg-amber-500/10 text-amber-700 ring-amber-500/20 dark:text-amber-300'
+})
+
+function hasRouteAttempts(attempts: OpsEnterpriseMemberRouteAttempt[] | undefined): attempts is OpsEnterpriseMemberRouteAttempt[] {
+  return Array.isArray(attempts) && attempts.length > 0
+}
+
+function routeAttemptGroupLabel(attempt: OpsEnterpriseMemberRouteAttempt): string {
+  return attempt.group_name || (attempt.group_id != null ? `#${attempt.group_id}` : '—')
+}
+
+function routeAttemptIsTerminal(attempt: OpsEnterpriseMemberRouteAttempt): boolean {
+  return String(attempt.outcome || '').trim() === 'terminal_failure'
+}
+
+function enterpriseRouteAttemptStageLabel(attempt: OpsEnterpriseMemberRouteAttempt): string {
+  if (routeAttemptIsTerminal(attempt)) return 'terminal'
+  switch (String(attempt.stage || '').trim()) {
+    case 'planned_candidate':
+      return 'planned'
+    case 'pruned_candidate':
+      return 'pruned'
+    case 'actual_attempt':
+      return 'actual'
+    default:
+      return attempt.stage || '—'
+  }
+}
+
+function routingSnapshotAgeSeconds(ms: number | null | undefined): number | null {
+  if (typeof ms !== 'number' || !Number.isFinite(ms)) return null
+  return Math.round(ms / 1000)
+}
+
+function plannedGroupIDsFromAttempts(attempts: OpsEnterpriseMemberRouteAttempt[]): number[] {
+  const ids: number[] = []
+  const seen = new Set<number>()
+  for (const attempt of attempts) {
+    if (attempt.stage !== 'planned_candidate' || attempt.group_id == null || seen.has(attempt.group_id)) continue
+    ids.push(attempt.group_id)
+    seen.add(attempt.group_id)
+  }
+  return ids
+}
+
+function prunedGroupsFromAttempts(attempts: OpsEnterpriseMemberRouteAttempt[]): OpsEnterpriseMemberRoutePrunedGroup[] {
+  return attempts
+    .filter((attempt) => attempt.stage === 'pruned_candidate')
+    .map((attempt) => ({
+      group_id: attempt.group_id,
+      group_name: attempt.group_name,
+      reason: attempt.reason || attempt.outcome
+    }))
+}
+
+const enterpriseRouteTrace = computed<OpsEnterpriseMemberRouteTrace | null>(() => {
+  const d = detail.value
+  if (!d) return null
+  const persistedAttempts = hasRouteAttempts(d.routing_attempts) ? d.routing_attempts : undefined
+  const nested = d.enterprise_member_route || d.enterprise_member_route_plan || null
+  const trace: OpsEnterpriseMemberRouteTrace = {
+    ...(nested || {}),
+    planned_group_ids:
+      persistedAttempts != null
+        ? plannedGroupIDsFromAttempts(persistedAttempts)
+        : nested?.planned_group_ids || d.enterprise_member_planned_group_ids,
+    pruned_groups:
+      persistedAttempts != null
+        ? prunedGroupsFromAttempts(persistedAttempts)
+        : nested?.pruned_groups || d.enterprise_member_pruned_groups,
+    attempts: persistedAttempts || nested?.attempts || d.enterprise_member_route_attempts,
+    source: d.routing_plan_source || nested?.source || d.enterprise_member_route_source,
+    lkg_age_seconds:
+      routingSnapshotAgeSeconds(d.routing_snapshot_age_ms) ??
+      nested?.lkg_age_seconds ??
+      d.enterprise_member_route_lkg_age_seconds,
+    final_responsibility:
+      nested?.final_responsibility ||
+      nested?.terminal_responsibility ||
+      d.enterprise_member_final_responsibility
+  }
+  if (
+    trace.source ||
+    trace.final_responsibility ||
+    trace.lkg_age_seconds != null ||
+    (trace.planned_group_ids?.length || 0) > 0 ||
+    (trace.planned_groups?.length || 0) > 0 ||
+    (trace.pruned_groups?.length || 0) > 0 ||
+    (trace.attempts?.length || 0) > 0
+  ) {
+    return trace
+  }
+  return null
+})
+
+const hasEnterpriseMemberRouteTrace = computed(() => enterpriseRouteTrace.value !== null)
+
+const enterpriseRouteAttempts = computed<OpsEnterpriseMemberRouteAttempt[]>(
+  () => enterpriseRouteTrace.value?.attempts || []
+)
+
+const enterpriseRoutePrunedGroups = computed<OpsEnterpriseMemberRoutePrunedGroup[]>(
+  () => enterpriseRouteTrace.value?.pruned_groups || []
+)
+
+const enterpriseRoutePlannedLabel = computed(() => {
+  const trace = enterpriseRouteTrace.value
+  const ids = trace?.planned_group_ids || []
+  if (ids.length) return ids.map((id) => `#${id}`).join(', ')
+  const groups = trace?.planned_groups || []
+  if (groups.length) {
+    return groups
+      .map((group) => group.group_name || (group.group_id != null ? `#${group.group_id}` : '—'))
+      .join(', ')
+  }
+  return '—'
+})
+
+const enterpriseRoutePrunedLabel = computed(() => {
+  const pruned = enterpriseRoutePrunedGroups.value
+  if (!pruned.length) return '—'
+  return pruned
+    .map((group) => `${group.group_name || (group.group_id != null ? `#${group.group_id}` : '—')}:${group.reason || 'unknown'}`)
+    .join(', ')
+})
+
+const enterpriseRouteAttemptsLabel = computed(() => {
+  const attempts = enterpriseRouteAttempts.value
+  if (!attempts.length) return '—'
+  return attempts
+    .map((attempt) => `${enterpriseRouteAttemptStageLabel(attempt)}:${routeAttemptGroupLabel(attempt)}`)
+    .join(' → ')
+})
+
+const enterpriseRouteResponsibilityLabel = computed(
+  () => enterpriseRouteTrace.value?.final_responsibility || '—'
+)
+
+const enterpriseRouteSourceLabel = computed(() => {
+  const trace = enterpriseRouteTrace.value
+  const source = trace?.source || '—'
+  const age = trace?.lkg_age_seconds
+  if (source === 'last_known_good' && typeof age === 'number') {
+    return t('admin.ops.errorDetail.enterpriseRoute.lkgSourceWithAge', {
+      age: String(age)
+    })
+  }
+  return source
 })
 
 

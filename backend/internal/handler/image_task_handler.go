@@ -72,6 +72,7 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		return
 	}
 	if !service.GroupAllowsImageGeneration(apiKey.Group) {
+		markEnterpriseMemberGroupRetry(c, apiKey, service.OpsGroupRetryReasonCapabilityMismatch)
 		imageTaskJSONError(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
 	}
@@ -117,6 +118,7 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		imageTaskError(c, err)
 		return
 	}
+	service.MarkEnterpriseMemberExternalTaskCommitted(c)
 	// From this point onward, every receipt transition must be fenced by this
 	// task ID. The outer request middleware may still safely release failures
 	// that occur before task creation, but it must not perform its generic

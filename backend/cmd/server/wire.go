@@ -86,6 +86,7 @@ func provideCleanup(
 	apiKeyService *service.APIKeyService,
 	authCacheInvalidationWorker *service.AuthCacheInvalidationWorker,
 	schedulerSnapshot *service.SchedulerSnapshotService,
+	routingEligibility *service.RoutingEligibilityRuntime,
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
 	codexVersionSync *service.OpenAICodexVersionSyncService,
@@ -211,6 +212,12 @@ func provideCleanup(
 			{"SchedulerSnapshotService", func() error {
 				if schedulerSnapshot != nil {
 					schedulerSnapshot.Stop()
+				}
+				return nil
+			}},
+			{"RoutingEligibilityRuntime", func() error {
+				if routingEligibility != nil {
+					routingEligibility.Stop()
 				}
 				return nil
 			}},

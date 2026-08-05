@@ -392,6 +392,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// 分组中所有 Codex 请求被 403（#4447），并误占生图并发槽位。
 	imageIntent := service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, body)
 	if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
+		markEnterpriseMemberGroupRetry(c, apiKey, service.OpsGroupRetryReasonCapabilityMismatch)
 		h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
 	}
@@ -1897,7 +1898,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return
 	}
 	if apiKey.MemberID != nil {
-		if !middleware2.ActivateEnterpriseMemberGroupForModel(c, reqModel) {
+		activation := middleware2.ActivateEnterpriseMemberGroupForRequestResult(c, reqModel, firstMessage)
+		if !activation.Activated {
+			if activation.Failure == middleware2.EnterpriseMemberGroupActivationFailureEligibilityUnavailable {
+				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "model routing eligibility is temporarily unavailable; please reconnect")
+				return
+			}
 			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "no authorized enterprise member group supports this model")
 			return
 		}
@@ -2942,7 +2948,7 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 	}
 	if !streamStarted {
 		if reason, ok := service.OpsGroupRetryReasonForFailoverError(failoverErr); ok {
-			service.MarkOpsGroupRetry(c, reason)
+			markEnterpriseMemberGroupRetryFromContext(c, reason)
 		}
 	}
 	if failoverErr.IsOpenAIRequestBodyTooLarge() {
@@ -3005,7 +3011,7 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 
 func (h *OpenAIGatewayHandler) handleAccountCapabilityMismatchExhausted(c *gin.Context, capabilityErr *service.AccountCapabilityMismatchError, streamStarted bool) {
 	if !streamStarted {
-		service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
+		markEnterpriseMemberGroupRetryFromContext(c, service.OpsGroupRetryReasonCapabilityMismatch)
 	}
 	message := "No available OpenAI account can preserve the requested Responses API features"
 	if capabilityErr != nil && strings.TrimSpace(capabilityErr.Message) != "" {
@@ -3071,7 +3077,7 @@ func isSafeRetryAfter(value string) bool {
 func (h *OpenAIGatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCode int, streamStarted bool) {
 	if !streamStarted {
 		if reason, ok := service.OpsGroupRetryReasonForStatus(statusCode); ok {
-			service.MarkOpsGroupRetry(c, reason)
+			markEnterpriseMemberGroupRetryFromContext(c, reason)
 		}
 	}
 	status, errType, errMsg := h.mapUpstreamError(statusCode)

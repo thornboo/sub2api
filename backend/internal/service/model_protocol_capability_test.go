@@ -1660,6 +1660,290 @@ func TestModelDeliveryCapabilityLookupFailureDoesNotCreateStrictRoute(t *testing
 	require.Empty(t, projection.CallableGroupIDs("MiniMax-M3"))
 }
 
+func TestEnterpriseMemberModelDeliveryUsesAuthorizedSnapshotsAndLegacyCompatibility(t *testing.T) {
+	t.Parallel()
+	group := &Group{
+		ID: 10, Name: "OpenAI", Platform: PlatformOpenAI,
+		Status: StatusActive, Hydrated: true,
+	}
+	groupRepo := &modelProtocolCatalogGroupRepoStub{
+		groups:     []Group{{ID: 999, Name: "unrelated", Platform: PlatformOpenAI, Status: StatusActive}},
+		accountIDs: []int64{82},
+	}
+	accountRepo := &modelProtocolCatalogAccountRepoStub{accounts: []*Account{{
+		ID: 82, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, GroupIDs: []int64{10},
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceChatCompletions),
+		},
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"published-model": "upstream-model"},
+		},
+	}}}
+	svc := NewModelDeliveryService(accountRepo, groupRepo, nil, nil, &config.Config{})
+
+	for _, protocol := range []ModelProtocol{ModelProtocolOpenAIChat, ModelProtocolOpenAIResponses} {
+		projection, err := svc.ResolveForEnterpriseMemberRoute(context.Background(), []*Group{group}, "published-model", protocol)
+		require.NoError(t, err)
+		require.Contains(t, projection.Group("published-model", 10).Endpoints, protocol)
+	}
+	require.Zero(t, groupRepo.listCalls, "request-path projection must not scan all active groups")
+}
+
+func TestEnterpriseMemberModelDeliveryAppliesStableGroupAccountPolicies(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		group    *Group
+		accounts []*Account
+		wantID   int64
+	}{
+		{
+			name: "oauth only excludes API key",
+			group: &Group{
+				ID: 10, Name: "OpenAI", Platform: PlatformOpenAI, Status: StatusActive, Hydrated: true, RequireOAuthOnly: true,
+			},
+			accounts: []*Account{
+				{ID: 81, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, GroupIDs: []int64{10}, Credentials: map[string]any{"model_mapping": map[string]any{"published-model": "api-key-upstream"}}},
+				{ID: 82, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, GroupIDs: []int64{10}, Credentials: map[string]any{"model_mapping": map[string]any{"published-model": "oauth-upstream"}}},
+			},
+			wantID: 82,
+		},
+		{
+			name: "privacy requirement excludes unset account",
+			group: &Group{
+				ID: 20, Name: "OpenAI privacy", Platform: PlatformOpenAI, Status: StatusActive, Hydrated: true, RequirePrivacySet: true,
+			},
+			accounts: []*Account{
+				{ID: 91, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, GroupIDs: []int64{20}, Extra: map[string]any{"privacy_mode": "failed"}, Credentials: map[string]any{"model_mapping": map[string]any{"published-model": "unset-upstream"}}},
+				{ID: 92, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, GroupIDs: []int64{20}, Extra: map[string]any{"privacy_mode": PrivacyModeTrainingOff}, Credentials: map[string]any{"model_mapping": map[string]any{"published-model": "private-upstream"}}},
+			},
+			wantID: 92,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			accountIDs := make([]int64, 0, len(tt.accounts))
+			for _, account := range tt.accounts {
+				accountIDs = append(accountIDs, account.ID)
+			}
+			groupRepo := &modelProtocolCatalogGroupRepoStub{accountIDs: accountIDs}
+			accountRepo := &modelProtocolCatalogAccountRepoStub{accounts: tt.accounts}
+			svc := NewModelDeliveryService(accountRepo, groupRepo, nil, nil, &config.Config{})
+
+			projection, err := svc.ResolveForEnterpriseMemberRoute(context.Background(), []*Group{tt.group}, "published-model", ModelProtocolOpenAIResponses)
+			require.NoError(t, err)
+			groupProjection := projection.Group("published-model", tt.group.ID)
+			require.NotNil(t, groupProjection)
+			require.Len(t, groupProjection.Routes, 1)
+			require.Equal(t, tt.wantID, groupProjection.Routes[0].AccountID)
+		})
+	}
+}
+
+func TestEnterpriseMemberModelDeliverySupportsGrokCompatibility(t *testing.T) {
+	t.Parallel()
+	group := &Group{
+		ID: 20, Name: "Grok", Platform: PlatformGrok,
+		Status: StatusActive, Hydrated: true,
+	}
+	groupRepo := &modelProtocolCatalogGroupRepoStub{accountIDs: []int64{92}}
+	accountRepo := &modelProtocolCatalogAccountRepoStub{accounts: []*Account{{
+		ID: 92, Platform: PlatformGrok, Type: AccountTypeOAuth,
+		Status: StatusActive, Schedulable: true, GroupIDs: []int64{20},
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"grok-route-model": "grok-upstream-model"},
+		},
+	}}}
+	svc := NewModelDeliveryService(accountRepo, groupRepo, nil, nil, &config.Config{})
+
+	for _, protocol := range []ModelProtocol{ModelProtocolOpenAIChat, ModelProtocolOpenAIResponses} {
+		projection, err := svc.ResolveForEnterpriseMemberRoute(context.Background(), []*Group{group}, "grok-route-model", protocol)
+		require.NoError(t, err)
+		require.Contains(t, projection.Group("grok-route-model", 20).Endpoints, protocol)
+	}
+}
+
+func TestEnterpriseMemberModelDeliveryFailsOnCapabilityDependencyError(t *testing.T) {
+	t.Parallel()
+	group := &Group{
+		ID: 10, Name: "OpenAI", Platform: PlatformOpenAI,
+		Status: StatusActive, Hydrated: true,
+	}
+	groupRepo := &modelProtocolCatalogGroupRepoStub{accountIDs: []int64{82}}
+	accountRepo := &modelProtocolCatalogAccountRepoStub{accounts: []*Account{{
+		ID: 82, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, GroupIDs: []int64{10},
+	}}}
+	capRepo := &modelProtocolCapabilityRepoStub{listManyErr: errors.New("capability repository unavailable")}
+	cfg := &config.Config{}
+	cfg.Gateway.NativeModelProtocolRoutingEnabled = true
+	capability := NewModelProtocolCapabilityService(capRepo, accountRepo, groupRepo, nil, cfg)
+	svc := NewModelDeliveryService(accountRepo, groupRepo, nil, capability, cfg)
+
+	projection, err := svc.ResolveForEnterpriseMemberRoute(context.Background(), []*Group{group}, "published-model", ModelProtocolOpenAIResponses)
+	require.Error(t, err)
+	require.Nil(t, projection)
+	require.Contains(t, err.Error(), "load model protocol capabilities for enterprise admission")
+}
+
+func TestEnterpriseMemberModelDeliveryFailsClosedWhenCompositeEvaluatorIsUnavailable(t *testing.T) {
+	t.Parallel()
+	svc := NewModelDeliveryService(
+		&modelProtocolCatalogAccountRepoStub{},
+		&modelProtocolCatalogGroupRepoStub{},
+		nil,
+		nil,
+		&config.Config{},
+	)
+
+	projection, err := svc.ResolveForEnterpriseMemberRoute(context.Background(), []*Group{{
+		ID: 30, Name: "Composite", Platform: PlatformComposite,
+		Status: StatusActive, Hydrated: true,
+	}}, "published-model", ModelProtocolOpenAIResponses)
+	require.Error(t, err)
+	require.Nil(t, projection)
+	require.Contains(t, err.Error(), "evaluator unavailable")
+}
+
+func TestEnterpriseMemberModelDeliveryCompositePreviewUsesPerCandidateTarget(t *testing.T) {
+	t.Parallel()
+	groups := []*Group{
+		{ID: 30, Name: "Composite OpenAI", Platform: PlatformComposite, Status: StatusActive, Hydrated: true},
+		{ID: 31, Name: "Composite Anthropic", Platform: PlatformComposite, Status: StatusActive, Hydrated: true},
+	}
+	groupRepo := &modelProtocolCatalogGroupRepoStub{accountIDs: []int64{301, 311}}
+	accountRepo := &modelProtocolCatalogAccountRepoStub{accounts: []*Account{
+		{
+			ID: 301, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Status: StatusActive, Schedulable: true, GroupIDs: []int64{30},
+			Credentials: map[string]any{"model_mapping": map[string]any{"gpt-5": "gpt-5-upstream"}},
+		},
+		{
+			ID: 311, Platform: PlatformAnthropic, Type: AccountTypeAPIKey,
+			Status: StatusActive, Schedulable: true, GroupIDs: []int64{31},
+			Credentials: map[string]any{"model_mapping": map[string]any{"claude-sonnet-4-6": "claude-upstream"}},
+		},
+	}}
+	resolver := NewCompositeRouteResolver(compositeRouteRepoStub{routes: []CompositeModelRoute{
+		{ID: 1, GroupID: 30, PublicModel: "shared-alias", MatchType: CompositeRouteMatchExact, TargetPlatform: PlatformOpenAI, UpstreamModel: "gpt-5", Endpoint: CompositeRouteEndpointResponses, Enabled: true},
+		{ID: 2, GroupID: 31, PublicModel: "shared-alias", MatchType: CompositeRouteMatchExact, TargetPlatform: PlatformAnthropic, UpstreamModel: "claude-sonnet-4-6", Endpoint: CompositeRouteEndpointResponses, Enabled: true},
+	}})
+	svc := NewModelDeliveryService(accountRepo, groupRepo, nil, nil, &config.Config{})
+	svc.SetCompositeRoutePreviewer(resolver)
+	ctx := WithCompositeRouteDecision(context.Background(), CompositeRouteDecision{
+		Matched:        true,
+		Source:         CompositeRouteSourceExplicit,
+		GroupID:        999,
+		PublicModel:    "stale-public",
+		TargetPlatform: PlatformGemini,
+		UpstreamModel:  "stale-upstream",
+		Endpoint:       CompositeRouteEndpointResponses,
+	})
+
+	projection, err := svc.ResolveForEnterpriseMemberRoute(ctx, groups, "shared-alias", ModelProtocolOpenAIResponses)
+
+	require.NoError(t, err)
+	require.Zero(t, groupRepo.listCalls)
+	openAIProjection := projection.Group("shared-alias", 30)
+	require.NotNil(t, openAIProjection)
+	require.True(t, enterpriseMemberRouteProjectionSupportsProtocol(openAIProjection, ModelProtocolOpenAIResponses))
+	require.Equal(t, PlatformOpenAI, openAIProjection.Routes[0].TargetPlatform)
+	require.Equal(t, "gpt-5-upstream", openAIProjection.Routes[0].UpstreamModel)
+	anthropicProjection := projection.Group("shared-alias", 31)
+	require.NotNil(t, anthropicProjection)
+	require.True(t, enterpriseMemberRouteProjectionSupportsProtocol(anthropicProjection, ModelProtocolOpenAIResponses))
+	require.Equal(t, PlatformAnthropic, anthropicProjection.Routes[0].TargetPlatform)
+	require.Equal(t, "claude-upstream", anthropicProjection.Routes[0].UpstreamModel)
+	platform, ok := ResolvedTargetPlatformFromContext(ctx)
+	require.True(t, ok)
+	require.Equal(t, PlatformGemini, platform, "qualification must not mutate the caller's route decision")
+}
+
+func TestEnterpriseMemberModelDeliveryCompositePreviewHonorsEndpointAndDependencyFailures(t *testing.T) {
+	t.Parallel()
+	group := &Group{ID: 30, Name: "Composite", Platform: PlatformComposite, Status: StatusActive, Hydrated: true}
+	groupRepo := &modelProtocolCatalogGroupRepoStub{accountIDs: []int64{301}}
+	accountRepo := &modelProtocolCatalogAccountRepoStub{accounts: []*Account{{
+		ID: 301, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, GroupIDs: []int64{30},
+	}}}
+
+	t.Run("endpoint mismatch is not an eligible route", func(t *testing.T) {
+		resolver := NewCompositeRouteResolver(compositeRouteRepoStub{
+			routes: []CompositeModelRoute{{
+				ID: 1, GroupID: 30, PublicModel: "ambiguous-alias", MatchType: CompositeRouteMatchExact,
+				TargetPlatform: PlatformOpenAI, UpstreamModel: "gpt-5", Endpoint: CompositeRouteEndpointChatCompletions, Enabled: true,
+			}},
+		})
+		svc := NewModelDeliveryService(accountRepo, groupRepo, nil, nil, &config.Config{})
+		svc.SetCompositeRoutePreviewer(resolver)
+
+		projection, err := svc.ResolveForEnterpriseMemberRoute(context.Background(), []*Group{group}, "ambiguous-alias", ModelProtocolOpenAIResponses)
+
+		require.NoError(t, err)
+		groupProjection := projection.Group("ambiguous-alias", 30)
+		require.NotNil(t, groupProjection)
+		require.False(t, enterpriseMemberRouteProjectionSupportsProtocol(groupProjection, ModelProtocolOpenAIResponses))
+	})
+
+	t.Run("repository failure is a qualification dependency error", func(t *testing.T) {
+		wantErr := errors.New("composite repository unavailable")
+		resolver := NewCompositeRouteResolver(compositeRouteRepoStub{err: wantErr})
+		svc := NewModelDeliveryService(accountRepo, groupRepo, nil, nil, &config.Config{})
+		svc.SetCompositeRoutePreviewer(resolver)
+
+		projection, err := svc.ResolveForEnterpriseMemberRoute(context.Background(), []*Group{group}, "ambiguous-alias", ModelProtocolOpenAIResponses)
+
+		require.ErrorIs(t, err, wantErr)
+		require.Nil(t, projection)
+	})
+
+	t.Run("missing target platform pool stays a persistent pool rejection", func(t *testing.T) {
+		resolver := NewCompositeRouteResolver(compositeRouteRepoStub{
+			routes: []CompositeModelRoute{{
+				ID: 2, GroupID: 30, PublicModel: "target-without-pool", MatchType: CompositeRouteMatchExact,
+				TargetPlatform: PlatformOpenAI, UpstreamModel: "gpt-5", Endpoint: CompositeRouteEndpointResponses, Enabled: true,
+			}},
+		})
+		wrongPlatformAccounts := &modelProtocolCatalogAccountRepoStub{accounts: []*Account{{
+			ID: 302, Platform: PlatformAnthropic, Type: AccountTypeAPIKey,
+			Status: StatusActive, Schedulable: true, GroupIDs: []int64{30},
+			Credentials: map[string]any{"model_mapping": map[string]any{"gpt-5": "gpt-5"}},
+		}}}
+		svc := NewModelDeliveryService(wrongPlatformAccounts, groupRepo, nil, nil, &config.Config{})
+		svc.SetCompositeRoutePreviewer(resolver)
+
+		projection, err := svc.ResolveForEnterpriseMemberRoute(context.Background(), []*Group{group}, "target-without-pool", ModelProtocolOpenAIResponses)
+
+		require.NoError(t, err)
+		decision := projection.Group("target-without-pool", 30).Decisions[ModelProtocolOpenAIResponses]
+		require.Contains(t, decision.ReasonCodes, ModelDeliveryReasonNoStableRoute)
+		require.NotContains(t, decision.ReasonCodes, ModelDeliveryReasonPlatformMismatch)
+	})
+}
+
+func TestEnterpriseMemberModelDeliveryCompositePreviewRejectsDetectorOnlyMatch(t *testing.T) {
+	t.Parallel()
+	group := &Group{ID: 30, Name: "Composite", Platform: PlatformComposite, Status: StatusActive, Hydrated: true}
+	groupRepo := &modelProtocolCatalogGroupRepoStub{accountIDs: []int64{301}}
+	accountRepo := &modelProtocolCatalogAccountRepoStub{accounts: []*Account{{
+		ID: 301, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, GroupIDs: []int64{30},
+		Credentials: map[string]any{"model_mapping": map[string]any{"gpt-5.6-terra": "gpt-5.6-terra"}},
+	}}}
+	svc := NewModelDeliveryService(accountRepo, groupRepo, nil, nil, &config.Config{})
+	svc.SetCompositeRoutePreviewer(NewCompositeRouteResolver(compositeRouteRepoStub{}))
+
+	projection, err := svc.ResolveForEnterpriseMemberRoute(context.Background(), []*Group{group}, "gpt-5.6-terra", ModelProtocolOpenAIResponses)
+
+	require.NoError(t, err)
+	groupProjection := projection.Group("gpt-5.6-terra", 30)
+	require.NotNil(t, groupProjection)
+	require.False(t, enterpriseMemberRouteProjectionSupportsProtocol(groupProjection, ModelProtocolOpenAIResponses))
+	require.Contains(t, groupProjection.Decisions[ModelProtocolOpenAIResponses].ReasonCodes, ModelDeliveryReasonCapabilityUnsupported)
+}
+
 func TestMergeModelDeliveryModePreservesMixedAccountRoutes(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, ModelDeliveryModeNative, mergeModelDeliveryMode("", ModelDeliveryModeNative))

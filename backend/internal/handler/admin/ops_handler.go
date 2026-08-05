@@ -16,6 +16,7 @@ import (
 type OpsHandler struct {
 	opsService          *service.OpsService
 	memberBudgetService *service.EnterpriseMemberBudgetService
+	aliasReviewService  *service.EnterpriseMemberAliasReviewService
 }
 
 type adminEnterpriseMemberAmbiguousReceipt struct {
@@ -245,11 +246,23 @@ func NewOpsHandler(opsService *service.OpsService, memberBudgetService ...*servi
 	return handler
 }
 
+func (h *OpsHandler) SetEnterpriseMemberAliasReviewService(aliasReviewService *service.EnterpriseMemberAliasReviewService) {
+	if h != nil {
+		h.aliasReviewService = aliasReviewService
+	}
+}
+
 // ProvideOpsHandler gives Wire an explicit non-variadic dependency contract
 // while keeping NewOpsHandler convenient for focused tests that do not need
 // enterprise-member receipt operations.
-func ProvideOpsHandler(opsService *service.OpsService, memberBudgetService *service.EnterpriseMemberBudgetService) *OpsHandler {
-	return NewOpsHandler(opsService, memberBudgetService)
+func ProvideOpsHandler(
+	opsService *service.OpsService,
+	memberBudgetService *service.EnterpriseMemberBudgetService,
+	aliasReviewService *service.EnterpriseMemberAliasReviewService,
+) *OpsHandler {
+	handler := NewOpsHandler(opsService, memberBudgetService)
+	handler.SetEnterpriseMemberAliasReviewService(aliasReviewService)
+	return handler
 }
 
 // GetEnterpriseMemberMetrics returns bounded process-local counters without

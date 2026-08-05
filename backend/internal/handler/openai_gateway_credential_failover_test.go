@@ -117,6 +117,13 @@ func TestGatewayResponsesFailoverExhaustionMarksEnterpriseGroupRetry(t *testing.
 		t.Run(tt.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			memberID := int64(9)
+			groupID := int64(7)
+			attachAppliedEnterpriseMemberEnforcePlan(c, &service.APIKey{
+				GroupID:  &groupID,
+				MemberID: &memberID,
+			})
 
 			(&GatewayHandler{}).handleResponsesFailoverExhausted(c, tt.failoverErr, false)
 

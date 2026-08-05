@@ -724,7 +724,21 @@ func usageScheduleMetaFromNullJSON(v sql.NullString) *service.UsageScheduleMeta 
 		out.LatencyMs == 0 &&
 		out.LoadSkew == 0 &&
 		out.SelectedAccountID == 0 &&
-		out.SelectedAccountType == "" {
+		out.SelectedAccountType == "" &&
+		out.InboundProtocol == "" &&
+		out.UpstreamProtocol == "" &&
+		out.ProtocolDeliveryMode == "" &&
+		out.CapabilitySource == "" &&
+		!out.ShadowPlanEvaluated &&
+		!out.ShadowGroupKept &&
+		!out.ShadowEvaluationError &&
+		out.ShadowPlannerLatencyMs == 0 &&
+		out.ShadowDiffType == "" &&
+		len(out.ShadowReasonCodes) == 0 &&
+		out.ShadowPlanSource == "" &&
+		out.ShadowLegacyGroups == 0 &&
+		out.ShadowPlannedGroups == 0 &&
+		out.ShadowPrunedGroups == 0 {
 		return nil
 	}
 	return &out
