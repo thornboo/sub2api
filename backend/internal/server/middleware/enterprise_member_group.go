@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"path"
 	"strings"
@@ -366,12 +367,9 @@ func EnforceEnterpriseMemberBudget(budgetService *service.EnterpriseMemberBudget
 			RequestID: requestID, APIKey: apiKey, RequestedModel: model, Method: c.Request.Method, Endpoint: c.Request.URL.Path, ContentType: c.GetHeader("Content-Type"), Body: body,
 		})
 		if err != nil {
-			status := http.StatusBadRequest
-			if service.IsEnterpriseMemberBudgetExceeded(err) {
-				status = http.StatusTooManyRequests
-			}
+			status, message := enterpriseMemberBudgetErrorResponse(c, err)
 			writeEnterpriseMemberBudgetErrorDetails(c, err)
-			writeError(c, status, enterpriseMemberBudgetClientMessage(err))
+			writeError(c, status, message)
 			c.Abort()
 			return
 		}
@@ -422,6 +420,37 @@ func writeEnterpriseMemberBudgetErrorDetails(c *gin.Context, err error) {
 			c.Header(header, value)
 		}
 	}
+}
+
+// enterpriseMemberBudgetErrorResponse attributes a reservation failure to the
+// party that caused it. Only errors carrying a domain reason are the caller's
+// fault; anything else is an infrastructure failure that must be logged and
+// reported as a platform error instead of a bare "internal error" 400.
+func enterpriseMemberBudgetErrorResponse(c *gin.Context, err error) (int, string) {
+	if service.IsEnterpriseMemberBudgetExceeded(err) {
+		return http.StatusTooManyRequests, enterpriseMemberBudgetClientMessage(err)
+	}
+	if !isClassifiedEnterpriseMemberBudgetError(err) {
+		logEnterpriseMemberBudgetInternalError(c, err)
+		return http.StatusInternalServerError, "Member budget authorization is temporarily unavailable"
+	}
+	return http.StatusBadRequest, enterpriseMemberBudgetClientMessage(err)
+}
+
+func isClassifiedEnterpriseMemberBudgetError(err error) bool {
+	appErr := infraerrors.FromError(err)
+	return appErr != nil && strings.TrimSpace(appErr.Reason) != ""
+}
+
+// logEnterpriseMemberBudgetInternalError preserves the original error, which
+// infraerrors.FromError would otherwise collapse into its unknown-error
+// fallback and drop before it reaches any log sink.
+func logEnterpriseMemberBudgetInternalError(c *gin.Context, err error) {
+	attrs := []any{"error", err}
+	if c != nil && c.Request != nil && c.Request.URL != nil {
+		attrs = append(attrs, "endpoint", c.Request.URL.Path, "method", c.Request.Method)
+	}
+	slog.Error("enterprise_member_budget_reserve_internal_error", attrs...)
 }
 
 func enterpriseMemberBudgetClientMessage(err error) string {
