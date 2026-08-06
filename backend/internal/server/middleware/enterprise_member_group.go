@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"path"
 	"strings"
@@ -692,12 +693,9 @@ func EnforceEnterpriseMemberBudget(budgetService *service.EnterpriseMemberBudget
 			RequestID: requestID, APIKey: apiKey, RequestedModel: model, Method: c.Request.Method, Endpoint: c.Request.URL.Path, ContentType: c.GetHeader("Content-Type"), Body: body,
 		})
 		if err != nil {
-			status := http.StatusBadRequest
-			if service.IsEnterpriseMemberBudgetExceeded(err) {
-				status = http.StatusTooManyRequests
-			}
+			status, message := enterpriseMemberBudgetErrorResponse(c, err)
 			writeEnterpriseMemberBudgetErrorDetails(c, err)
-			writeError(c, status, enterpriseMemberBudgetClientMessage(err))
+			writeError(c, status, message)
 			c.Abort()
 			return
 		}
@@ -748,6 +746,40 @@ func writeEnterpriseMemberBudgetErrorDetails(c *gin.Context, err error) {
 			c.Header(header, value)
 		}
 	}
+}
+
+// enterpriseMemberBudgetErrorResponse maps a reservation failure to its client
+// response. Classified budget errors keep their own status and message, while an
+// unclassified error is reported as a platform fault (500) instead of borrowing
+// the client-error default: a connection pool timeout inside the reservation
+// transaction is not a malformed request, and surfacing it as 400 with the bare
+// "internal error" fallback message hides the real cause from Ops.
+func enterpriseMemberBudgetErrorResponse(c *gin.Context, err error) (int, string) {
+	if service.IsEnterpriseMemberBudgetExceeded(err) {
+		return http.StatusTooManyRequests, enterpriseMemberBudgetClientMessage(err)
+	}
+	if !isClassifiedEnterpriseMemberBudgetError(err) {
+		logEnterpriseMemberBudgetInternalError(c, err)
+		return http.StatusInternalServerError, "Member budget authorization is temporarily unavailable"
+	}
+	return http.StatusBadRequest, enterpriseMemberBudgetClientMessage(err)
+}
+
+// isClassifiedEnterpriseMemberBudgetError reports whether the reservation layer
+// attached a domain reason. infraerrors.FromError synthesizes an empty-reason
+// wrapper for anything it does not recognize, so an empty reason is exactly the
+// unclassified case.
+func isClassifiedEnterpriseMemberBudgetError(err error) bool {
+	appErr := infraerrors.FromError(err)
+	return appErr != nil && strings.TrimSpace(appErr.Reason) != ""
+}
+
+func logEnterpriseMemberBudgetInternalError(c *gin.Context, err error) {
+	attrs := []any{"error", err}
+	if c != nil && c.Request != nil && c.Request.URL != nil {
+		attrs = append(attrs, "endpoint", c.Request.URL.Path, "method", c.Request.Method)
+	}
+	slog.Error("enterprise_member_budget_reserve_internal_error", attrs...)
 }
 
 func enterpriseMemberBudgetClientMessage(err error) string {

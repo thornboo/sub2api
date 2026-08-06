@@ -2,7 +2,10 @@ package middleware
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -78,6 +81,99 @@ func TestEnforceEnterpriseMemberBudgetExplainsAsyncTaskHoldRejection(t *testing.
 	require.Contains(t, response.Body.String(), "settled usage US$39.640000")
 	require.Contains(t, response.Body.String(), "active task holds US$253.380000")
 	require.NotContains(t, response.Body.String(), "metadata=map")
+}
+
+// TestEnforceEnterpriseMemberBudgetReportsUnclassifiedFailureAsPlatformFault
+// pins the incident signature: an infrastructure failure inside the reservation
+// transaction must not be reported as a client error, and must never surface the
+// bare infraerrors.UnknownMessage fallback to the caller.
+func TestEnforceEnterpriseMemberBudgetReportsUnclassifiedFailureAsPlatformFault(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name       string
+		reserveErr error
+	}{
+		{"connection pool exhausted", sql.ErrConnDone},
+		{"statement deadline exceeded", context.DeadlineExceeded},
+		{"opaque driver failure", errors.New("pq: sorry, too many clients already")},
+		{"wrapped begin transaction failure", fmt.Errorf("begin reservation tx: %w", sql.ErrConnDone)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			memberID := int64(8)
+			key := &service.APIKey{
+				ID: 17, UserID: 3, MemberID: &memberID,
+				Member: &service.EnterpriseMember{ID: memberID, EnterpriseUserID: 3, Status: service.EnterpriseMemberStatusActive},
+			}
+			repo := &enterpriseMemberBudgetMiddlewareRepo{reserveErr: tc.reserveErr}
+			budgetService := service.NewEnterpriseMemberBudgetService(repo, nil, nil)
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(string(ContextKeyAPIKey), key)
+				c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.ClientRequestID, "request-1"))
+				c.Next()
+			})
+			router.Use(EnforceEnterpriseMemberBudget(budgetService, &config.Config{RunMode: config.RunModeStandard}, AnthropicErrorWriter))
+			handlerReached := false
+			router.POST("/v1/responses", func(c *gin.Context) {
+				handlerReached = true
+				c.Status(http.StatusNoContent)
+			})
+
+			request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5","input":"hi"}`))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+
+			require.False(t, handlerReached, "request must abort in the middleware, matching the incident's NULL request_type")
+			require.Equal(t, http.StatusInternalServerError, response.Code,
+				"an infrastructure failure must be attributed to the platform, not the client")
+			require.NotContains(t, response.Body.String(), "internal error",
+				"the infraerrors.UnknownMessage fallback must not leak to clients")
+		})
+	}
+}
+
+// TestEnforceEnterpriseMemberBudgetKeepsClassifiedFailuresUnchanged guards the
+// blast radius of the status remap: errors that carry a domain reason must keep
+// the status and message they had before.
+func TestEnforceEnterpriseMemberBudgetKeepsClassifiedFailuresUnchanged(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name       string
+		reserveErr error
+		wantStatus int
+		wantCode   string
+	}{
+		{"unbounded request", service.ErrEnterpriseMemberBudgetUnbounded, http.StatusBadRequest, "ENTERPRISE_MEMBER_BUDGET_UNBOUNDED_REQUEST"},
+		{"request id conflict", service.ErrEnterpriseMemberBudgetConflict, http.StatusBadRequest, "ENTERPRISE_MEMBER_BUDGET_REQUEST_CONFLICT"},
+		{"budget exhausted", service.ErrEnterpriseMemberBudgetExceeded, http.StatusTooManyRequests, "ENTERPRISE_MEMBER_BUDGET_EXCEEDED"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			memberID := int64(8)
+			key := &service.APIKey{
+				ID: 17, UserID: 3, MemberID: &memberID,
+				Member: &service.EnterpriseMember{ID: memberID, EnterpriseUserID: 3, Status: service.EnterpriseMemberStatusActive},
+			}
+			repo := &enterpriseMemberBudgetMiddlewareRepo{reserveErr: tc.reserveErr}
+			budgetService := service.NewEnterpriseMemberBudgetService(repo, nil, nil)
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(string(ContextKeyAPIKey), key)
+				c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.ClientRequestID, "request-1"))
+				c.Next()
+			})
+			router.Use(EnforceEnterpriseMemberBudget(budgetService, &config.Config{RunMode: config.RunModeStandard}, AnthropicErrorWriter))
+			router.POST("/v1/responses", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+			request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5","input":"hi"}`))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+
+			require.Equal(t, tc.wantStatus, response.Code)
+			require.Equal(t, tc.wantCode, response.Header().Get("X-Sub2API-Error-Code"))
+		})
+	}
 }
 
 func TestGoogleErrorWriterExposesStructuredBudgetDetails(t *testing.T) {
