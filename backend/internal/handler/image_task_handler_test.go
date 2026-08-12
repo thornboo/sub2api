@@ -148,6 +148,7 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 	}
 
 	router := gin.New()
+	externalTaskCommitted := false
 	router.Use(func(c *gin.Context) {
 		groupID := int64(3)
 		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
@@ -157,6 +158,7 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 			Group:   &service.Group{ID: groupID, Platform: service.PlatformOpenAI, AllowImageGeneration: true},
 		})
 		c.Next()
+		externalTaskCommitted = service.HasEnterpriseMemberExternalTaskCommitted(c)
 	})
 	router.POST("/v1/images/generations/async", h.Submit)
 	router.GET("/v1/images/tasks/:task_id", h.Get)
@@ -170,6 +172,7 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	require.Equal(t, http.StatusAccepted, w.Code)
+	require.True(t, externalTaskCommitted, "a persisted async task must permanently close cross-group replay")
 	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
 	require.Equal(t, "3", w.Header().Get("Retry-After"))
 

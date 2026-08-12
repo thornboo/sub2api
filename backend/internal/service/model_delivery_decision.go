@@ -39,6 +39,13 @@ type ModelDeliveryDecision struct {
 	CapabilitySource   string
 }
 
+type ModelDeliveryEvaluationPurpose string
+
+const (
+	ModelDeliveryEvaluationPurposeCatalog             ModelDeliveryEvaluationPurpose = "catalog"
+	ModelDeliveryEvaluationPurposeEnterpriseAdmission ModelDeliveryEvaluationPurpose = "enterprise_admission"
+)
+
 type ModelDeliveryCandidateInput struct {
 	Account               *Account
 	PublicModel           string
@@ -48,6 +55,7 @@ type ModelDeliveryCandidateInput struct {
 	InboundProtocol       ModelProtocol
 	NativeRoutingEnabled  bool
 	Capabilities          []AccountModelProtocolCapability
+	Purpose               ModelDeliveryEvaluationPurpose
 }
 
 // EvaluateModelDeliveryCandidate is the single stable policy boundary shared
@@ -75,14 +83,39 @@ func EvaluateModelDeliveryCandidate(input ModelDeliveryCandidateInput) ModelDeli
 	}
 	decision.UpstreamModel = resolveFinalDeliveryModel(account, decision.ChannelMappedModel)
 
+	if isEnterpriseNonTextAdmissionProtocol(input.InboundProtocol) {
+		return evaluateNonTextDeliveryCandidate(input, decision)
+	}
 	if input.InboundProtocol == ModelProtocolAnthropicMessages {
 		return evaluateMessagesDeliveryCandidate(input, decision)
 	}
 	if input.InboundProtocol != ModelProtocolOpenAIChat && input.InboundProtocol != ModelProtocolOpenAIResponses {
 		return blockModelDeliveryDecision(decision, ModelDeliveryReasonCapabilityUnsupported)
 	}
-	if !input.NativeRoutingEnabled {
+	enterpriseAdmission := input.Purpose == ModelDeliveryEvaluationPurposeEnterpriseAdmission
+	if !input.NativeRoutingEnabled && !enterpriseAdmission {
 		return blockModelDeliveryDecision(decision, ModelDeliveryReasonGlobalRoutingDisabled)
+	}
+	if enterpriseAdmission && account.IsGrok() {
+		if !account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityChatCompletions) {
+			return blockModelDeliveryDecision(decision, ModelDeliveryReasonAccountTransportUnavailable)
+		}
+		decision.Eligible = true
+		decision.UpstreamProtocol = ModelProtocolOpenAIResponses
+		decision.Mode = ModelDeliveryModeCompatibility
+		decision.CapabilityState = ModelProtocolStateSupported
+		decision.CapabilitySource = "existing_grok_gateway_contract"
+		return decision
+	}
+	if enterpriseAdmission && supportsEstablishedGatewayTextContract(account.Platform) {
+		decision.Eligible = true
+		decision.Mode = ModelDeliveryModeCompatibility
+		decision.CapabilityState = ModelProtocolStateSupported
+		decision.CapabilitySource = "existing_gateway_contract"
+		if account.Platform == PlatformAnthropic {
+			decision.UpstreamProtocol = ModelProtocolAnthropicMessages
+		}
+		return decision
 	}
 	if !account.IsOpenAI() {
 		return blockModelDeliveryDecision(decision, ModelDeliveryReasonPlatformMismatch)
@@ -115,6 +148,12 @@ func EvaluateModelDeliveryCandidate(input ModelDeliveryCandidateInput) ModelDeli
 		return blockModelDeliveryDecision(decision, ModelDeliveryReasonAccountTransportUnavailable)
 	}
 	if decision.CapabilityState != ModelProtocolStateSupported {
+		if enterpriseAdmission && decision.CapabilityState == ModelProtocolStateUnknown {
+			decision.Eligible = true
+			decision.Mode = ModelDeliveryModeCompatibility
+			decision.CapabilitySource = "existing_gateway_contract"
+			return decision
+		}
 		return blockForCapabilityState(decision)
 	}
 	decision.Eligible = true
@@ -125,9 +164,110 @@ func EvaluateModelDeliveryCandidate(input ModelDeliveryCandidateInput) ModelDeli
 	return decision
 }
 
+func isEnterpriseNonTextAdmissionProtocol(protocol ModelProtocol) bool {
+	switch protocol {
+	case ModelProtocolOpenAIEmbeddings,
+		ModelProtocolOpenAIImages,
+		ModelProtocolOpenAILive,
+		ModelProtocolBatchImages,
+		ModelProtocolGrokVideo,
+		ModelProtocolGeminiNative:
+		return true
+	default:
+		return false
+	}
+}
+
+func evaluateNonTextDeliveryCandidate(input ModelDeliveryCandidateInput, decision ModelDeliveryDecision) ModelDeliveryDecision {
+	account := input.Account
+	requiredCapability, requiresOpenAICapability := openAIEndpointCapabilityForModelProtocol(input.InboundProtocol)
+	switch input.InboundProtocol {
+	case ModelProtocolOpenAIEmbeddings:
+		if input.GroupPlatform != PlatformOpenAI || account.Platform != PlatformOpenAI {
+			return blockModelDeliveryDecision(decision, ModelDeliveryReasonPlatformMismatch)
+		}
+		if !account.SupportsOpenAIEndpointCapability(requiredCapability) {
+			return blockModelDeliveryDecision(decision, ModelDeliveryReasonAccountTransportUnavailable)
+		}
+		decision.UpstreamProtocol = ModelProtocolOpenAIEmbeddings
+		decision.Mode = ModelDeliveryModeNative
+		decision.CapabilityState = ModelProtocolStateSupported
+		decision.CapabilitySource = "openai_endpoint_capability"
+	case ModelProtocolOpenAIImages:
+		if input.GroupPlatform != PlatformOpenAI && input.GroupPlatform != PlatformGrok {
+			return blockModelDeliveryDecision(decision, ModelDeliveryReasonPlatformMismatch)
+		}
+		if account.Platform != input.GroupPlatform {
+			return blockModelDeliveryDecision(decision, ModelDeliveryReasonPlatformMismatch)
+		}
+		if input.GroupPlatform == PlatformGrok {
+			if !account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityGrokMediaGeneration) {
+				return blockModelDeliveryDecision(decision, ModelDeliveryReasonAccountTransportUnavailable)
+			}
+			decision.CapabilitySource = "grok_media_generation_capability"
+		} else {
+			decision.CapabilitySource = "existing_openai_images_contract"
+		}
+		decision.UpstreamProtocol = ModelProtocolOpenAIImages
+		decision.Mode = ModelDeliveryModeNative
+		decision.CapabilityState = ModelProtocolStateSupported
+	case ModelProtocolOpenAILive:
+		if input.GroupPlatform != PlatformOpenAI || account.Platform != PlatformOpenAI {
+			return blockModelDeliveryDecision(decision, ModelDeliveryReasonPlatformMismatch)
+		}
+		if !account.SupportsOpenAIEndpointCapability(requiredCapability) {
+			return blockModelDeliveryDecision(decision, ModelDeliveryReasonAccountTransportUnavailable)
+		}
+		decision.UpstreamProtocol = ModelProtocolOpenAILive
+		decision.Mode = ModelDeliveryModeNative
+		decision.CapabilityState = ModelProtocolStateSupported
+		decision.CapabilitySource = "openai_endpoint_capability"
+	case ModelProtocolBatchImages:
+		if input.GroupPlatform != PlatformGemini {
+			return blockModelDeliveryDecision(decision, ModelDeliveryReasonPlatformMismatch)
+		}
+		if account.Platform != PlatformGemini {
+			return blockModelDeliveryDecision(decision, ModelDeliveryReasonPlatformMismatch)
+		}
+		decision.UpstreamProtocol = ModelProtocolBatchImages
+		decision.Mode = ModelDeliveryModeNative
+		decision.CapabilityState = ModelProtocolStateSupported
+		decision.CapabilitySource = "batch_image_group_platform_contract"
+	case ModelProtocolGrokVideo:
+		if input.GroupPlatform != PlatformGrok || account.Platform != PlatformGrok {
+			return blockModelDeliveryDecision(decision, ModelDeliveryReasonPlatformMismatch)
+		}
+		if !account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityGrokMediaGeneration) {
+			return blockModelDeliveryDecision(decision, ModelDeliveryReasonAccountTransportUnavailable)
+		}
+		decision.UpstreamProtocol = ModelProtocolGrokVideo
+		decision.Mode = ModelDeliveryModeNative
+		decision.CapabilityState = ModelProtocolStateSupported
+		decision.CapabilitySource = "grok_media_generation_capability"
+	case ModelProtocolGeminiNative:
+		if input.GroupPlatform != PlatformGemini && input.GroupPlatform != PlatformAntigravity {
+			return blockModelDeliveryDecision(decision, ModelDeliveryReasonPlatformMismatch)
+		}
+		if account.Platform != input.GroupPlatform {
+			return blockModelDeliveryDecision(decision, ModelDeliveryReasonPlatformMismatch)
+		}
+		decision.UpstreamProtocol = ModelProtocolGeminiNative
+		decision.Mode = ModelDeliveryModeNative
+		decision.CapabilityState = ModelProtocolStateSupported
+		decision.CapabilitySource = "gemini_native_group_platform_contract"
+	default:
+		return blockModelDeliveryDecision(decision, ModelDeliveryReasonCapabilityUnsupported)
+	}
+	if requiresOpenAICapability && decision.CapabilityState != ModelProtocolStateSupported {
+		return blockForCapabilityState(decision)
+	}
+	decision.Eligible = true
+	return decision
+}
+
 func evaluateMessagesDeliveryCandidate(input ModelDeliveryCandidateInput, decision ModelDeliveryDecision) ModelDeliveryDecision {
 	account := input.Account
-	if !input.AllowMessagesDispatch && input.GroupPlatform == PlatformOpenAI {
+	if !input.AllowMessagesDispatch && (input.GroupPlatform == PlatformOpenAI || input.GroupPlatform == PlatformGrok) {
 		return blockModelDeliveryDecision(decision, ModelDeliveryReasonGroupProtocolDisabled)
 	}
 	if !account.IsOpenAI() {
@@ -193,6 +333,26 @@ func evaluateMessagesDeliveryCandidate(input ModelDeliveryCandidateInput, decisi
 		decision.CapabilitySource = "existing_gateway_contract"
 	}
 	return decision
+}
+
+func openAIEndpointCapabilityForModelProtocol(protocol ModelProtocol) (OpenAIEndpointCapability, bool) {
+	switch protocol {
+	case ModelProtocolOpenAIEmbeddings:
+		return OpenAIEndpointCapabilityEmbeddings, true
+	case ModelProtocolOpenAILive:
+		return OpenAIEndpointCapabilityLive, true
+	default:
+		return "", false
+	}
+}
+
+func supportsEstablishedGatewayTextContract(platform string) bool {
+	switch platform {
+	case PlatformAnthropic, PlatformGemini, PlatformAntigravity:
+		return true
+	default:
+		return false
+	}
 }
 
 func strictOpenAIAPIKeyProtocolRouting(input ModelDeliveryCandidateInput) bool {
@@ -313,6 +473,10 @@ func accountSupportsOpenAITransport(account *Account, protocol ModelProtocol) bo
 		return account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityChatCompletions)
 	case ModelProtocolOpenAIResponses:
 		return account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityResponses)
+	case ModelProtocolOpenAIEmbeddings:
+		return account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityEmbeddings)
+	case ModelProtocolOpenAILive:
+		return account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityLive)
 	default:
 		return false
 	}

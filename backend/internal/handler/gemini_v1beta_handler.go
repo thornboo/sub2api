@@ -43,7 +43,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
 	if !hasForcePlatform && effectiveAPIKeyPlatform(c, apiKey) != service.PlatformGemini {
 		if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
-			service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
+			markEnterpriseMemberGroupRetryFromContext(c, service.OpsGroupRetryReasonCapabilityMismatch)
 		}
 		googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
 		return
@@ -71,7 +71,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 
 	res, err := h.geminiCompatService.ForwardAIStudioGET(c.Request.Context(), account, "/v1beta/models")
 	if err != nil {
-		service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonTransientUpstream)
+		markEnterpriseMemberGroupRetryFromContext(c, service.OpsGroupRetryReasonTransientUpstream)
 		googleError(c, http.StatusBadGateway, err.Error())
 		return
 	}
@@ -134,7 +134,7 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 
 	res, err := h.geminiCompatService.ForwardAIStudioGET(c.Request.Context(), account, "/v1beta/models/"+modelName)
 	if err != nil {
-		service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonTransientUpstream)
+		markEnterpriseMemberGroupRetryFromContext(c, service.OpsGroupRetryReasonTransientUpstream)
 		googleError(c, http.StatusBadGateway, err.Error())
 		return
 	}

@@ -5237,6 +5237,291 @@
                 </div>
               </div>
 
+              <div
+                id="gateway-enterprise-member-model-admission"
+                class="rounded-2xl border border-gray-200 bg-white/70 p-4 transition-colors dark:border-dark-700 dark:bg-dark-800/60 sm:p-5"
+                data-testid="enterprise-member-model-admission"
+              >
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+                        {{ t("admin.settings.gatewayForwarding.enterpriseMemberModelAdmission") }}
+                      </h3>
+                      <span
+                        class="rounded-full border px-2 py-0.5 text-[11px] font-semibold"
+                        :class="enterpriseMemberModelAdmissionBadgeClass"
+                      >
+                        {{ enterpriseMemberModelAdmissionCurrentLabel }}
+                      </span>
+                      <span class="text-[11px] text-gray-500 dark:text-gray-400">
+                        {{ enterpriseMemberModelAdmissionSourceLabel }}
+                      </span>
+                    </div>
+                    <p class="mt-1.5 max-w-3xl text-xs leading-5 text-gray-600 dark:text-gray-300">
+                      {{ enterpriseMemberModelAdmissionCurrentHint }}
+                    </p>
+                    <p
+                      v-if="enterpriseMemberModelAdmissionSourceInvalid"
+                      class="mt-2 text-xs font-medium text-red-600 dark:text-red-400"
+                      data-testid="enterprise-member-model-admission-source-warning"
+                    >
+                      {{ t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionSourceWarning") }}
+                    </p>
+                    <p class="mt-2 max-w-3xl text-xs leading-5 text-amber-700 dark:text-amber-300">
+                      {{ t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionRiskReductionOnly") }}
+                    </p>
+                  </div>
+                  <div class="w-full shrink-0 lg:w-72">
+                    <Select
+                      :model-value="form.enterprise_member_model_admission_mode"
+                      :options="enterpriseMemberModelAdmissionOptions"
+                      :aria-label="t('admin.settings.gatewayForwarding.enterpriseMemberModelAdmission')"
+                      data-testid="enterprise-member-model-admission-select"
+                      @update:model-value="handleEnterpriseMemberModelAdmissionChange"
+                    />
+                    <p
+                      v-if="!form.enterprise_member_model_admission_enforce_ready"
+                      class="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300"
+                      data-testid="enterprise-member-model-admission-enforce-blocked"
+                    >
+                      {{ t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionEnforceBlocked") }}
+                    </p>
+                  </div>
+                </div>
+                <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div class="rounded-xl border border-gray-100 bg-gray-50/70 p-3 dark:border-dark-700 dark:bg-dark-900/50">
+                    <div class="text-[11px] font-semibold uppercase text-gray-400">
+                      {{ t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionReadiness") }}
+                    </div>
+                    <div
+                      class="mt-1 text-sm font-semibold"
+                      :class="form.enterprise_member_model_admission_enforce_ready ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'"
+                      data-testid="enterprise-member-model-admission-readiness"
+                    >
+                      {{
+                        form.enterprise_member_model_admission_enforce_ready
+                          ? t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionReady")
+                          : t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionNotReady")
+                      }}
+                    </div>
+                    <div
+                      v-if="enterpriseMemberReadinessConditions.length"
+                      class="mt-2 space-y-1 text-xs text-gray-600 dark:text-gray-300"
+                    >
+                      <div
+                        v-for="condition in enterpriseMemberReadinessConditions"
+                        :key="condition.name || condition.key"
+                        class="flex items-start gap-2"
+                      >
+                        <span
+                          class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full"
+                          :class="condition.ready ? 'bg-emerald-500' : 'bg-amber-500'"
+                        />
+                        <span>{{ enterpriseMemberReadinessConditionLabel(condition) }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="rounded-xl border border-gray-100 bg-gray-50/70 p-3 dark:border-dark-700 dark:bg-dark-900/50">
+                    <div class="text-[11px] font-semibold uppercase text-gray-400">
+                      {{ t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionRollout") }}
+                    </div>
+                    <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white" data-testid="enterprise-member-model-admission-rollout">
+                      {{ enterpriseMemberAdmissionRolloutLabel }}
+                    </div>
+                    <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {{ enterpriseMemberAdmissionRolloutDetail }}
+                    </div>
+                  </div>
+                  <div class="rounded-xl border border-gray-100 bg-gray-50/70 p-3 dark:border-dark-700 dark:bg-dark-900/50">
+                    <div class="text-[11px] font-semibold uppercase text-gray-400">
+                      {{ t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionAutoStop") }}
+                    </div>
+                    <div
+                      class="mt-1 text-sm font-semibold"
+                      :class="enterpriseMemberAdmissionRollout.auto_stopped ? 'text-red-700 dark:text-red-300' : 'text-gray-900 dark:text-white'"
+                      data-testid="enterprise-member-model-admission-auto-stop"
+                    >
+                      {{ enterpriseMemberAdmissionAutoStopLabel }}
+                    </div>
+                    <div v-if="enterpriseMemberAdmissionRollout.reason" class="mt-1 text-xs text-amber-700 dark:text-amber-300" data-testid="enterprise-member-model-admission-safety-reason">
+                      {{ enterpriseMemberAdmissionRollout.reason }}
+                    </div>
+                  </div>
+                  <div class="rounded-xl border border-amber-100 bg-amber-50/70 p-3 dark:border-amber-500/20 dark:bg-amber-950/20">
+                    <div class="text-[11px] font-semibold uppercase text-amber-500 dark:text-amber-300">
+                      {{ t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionLegacyDeprecation") }}
+                    </div>
+                    <div
+                      class="mt-1 text-sm font-semibold text-amber-800 dark:text-amber-200"
+                      data-testid="enterprise-member-model-admission-legacy-status"
+                    >
+                      {{ enterpriseMemberAdmissionLegacyRetirementLabel }}
+                    </div>
+                    <div class="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                      {{ t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionLegacyUsage", { count: enterpriseMemberAdmissionLegacyStatus.usage_total }) }}
+                    </div>
+                    <div class="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                      {{ enterpriseMemberAdmissionLegacyStatus.phase5_reason }}
+                    </div>
+                  </div>
+                </div>
+                <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <label class="block text-xs font-medium text-gray-600 dark:text-gray-300">
+                    {{ t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionLegacyRetirementTarget") }}
+                    <input
+                      v-model="form.enterprise_member_model_admission_legacy_retirement_target"
+                      type="text"
+                      class="form-input mt-1 w-full"
+                      data-testid="enterprise-member-model-admission-legacy-retirement-target"
+                      :placeholder="t('admin.settings.gatewayForwarding.enterpriseMemberAdmissionLegacyRetirementPlaceholder')"
+                      @input="enterpriseMemberModelAdmissionTouched = true"
+                    />
+                    <span class="mt-1 block text-[11px] leading-4 text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionLegacyRetirementHint") }}
+                    </span>
+                  </label>
+                  <label class="block text-xs font-medium text-gray-600 dark:text-gray-300">
+                    {{ t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionEnterpriseIds") }}
+                    <input
+                      v-model="enterpriseMemberAdmissionEnterpriseIDsInput"
+                      type="text"
+                      class="form-input mt-1 w-full"
+                      data-testid="enterprise-member-model-admission-enterprise-ids"
+                      :placeholder="t('admin.settings.gatewayForwarding.enterpriseMemberAdmissionIdsPlaceholder')"
+                      @input="enterpriseMemberModelAdmissionTouched = true"
+                    />
+                  </label>
+                  <label class="block text-xs font-medium text-gray-600 dark:text-gray-300">
+                    {{ t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionMemberIds") }}
+                    <input
+                      v-model="enterpriseMemberAdmissionMemberIDsInput"
+                      type="text"
+                      class="form-input mt-1 w-full"
+                      data-testid="enterprise-member-model-admission-member-ids"
+                      :placeholder="t('admin.settings.gatewayForwarding.enterpriseMemberAdmissionIdsPlaceholder')"
+                      @input="enterpriseMemberModelAdmissionTouched = true"
+                    />
+                  </label>
+                  <label class="block text-xs font-medium text-gray-600 dark:text-gray-300">
+                    {{ t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionPercentage") }}
+                    <input
+                      v-model.number="enterpriseMemberAdmissionPolicy.percentage"
+                      type="number"
+                      min="0"
+                      max="100"
+                      class="form-input mt-1 w-full"
+                      data-testid="enterprise-member-model-admission-percentage"
+                      @input="enterpriseMemberModelAdmissionTouched = true"
+                    />
+                  </label>
+                  <label class="block text-xs font-medium text-gray-600 dark:text-gray-300">
+                    {{ t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionSalt") }}
+                    <input
+                      v-model="enterpriseMemberAdmissionPolicy.salt"
+                      type="text"
+                      class="form-input mt-1 w-full"
+                      data-testid="enterprise-member-model-admission-salt"
+                      @input="enterpriseMemberModelAdmissionTouched = true"
+                    />
+                  </label>
+                </div>
+                <label class="mt-3 flex items-center gap-2 text-xs font-medium text-red-700 dark:text-red-300">
+                  <input
+                    v-model="enterpriseMemberAdmissionPolicy.auto_stop"
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                    data-testid="enterprise-member-model-admission-auto-stop-toggle"
+                    @change="enterpriseMemberModelAdmissionTouched = true"
+                  />
+                  {{ t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionManualStop") }}
+                </label>
+                <div class="mt-4 rounded-xl border border-gray-100 bg-white/70 p-3 dark:border-dark-700 dark:bg-dark-900/40">
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h4 class="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
+                        {{ t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionAliasReview") }}
+                      </h4>
+                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {{ t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionAliasReviewHint") }}
+                      </p>
+                      <p
+                        v-if="enterpriseMemberAliasReadiness"
+                        class="mt-1 text-xs text-gray-500 dark:text-gray-400"
+                        data-testid="enterprise-member-model-admission-alias-readiness"
+                      >
+                        {{ enterpriseMemberAliasReadinessLabel }}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="enterpriseMemberAliasReviewLoading"
+                      data-testid="enterprise-member-model-admission-alias-refresh"
+                      @click="loadEnterpriseMemberAliasReviews"
+                    >
+                      {{ t("common.refresh") }}
+                    </button>
+                  </div>
+                  <div v-if="enterpriseMemberAliasReviewError" class="mt-3 text-xs text-red-600 dark:text-red-400">
+                    {{ enterpriseMemberAliasReviewError }}
+                  </div>
+                  <div
+                    v-else-if="!enterpriseMemberAliasReviewLoading && enterpriseMemberAliasReviews.length === 0"
+                    class="mt-3 text-xs text-gray-500 dark:text-gray-400"
+                  >
+                    {{ t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionAliasEmpty") }}
+                  </div>
+                  <div v-else class="mt-3 overflow-x-auto">
+                    <table class="min-w-full text-left text-xs">
+                      <thead class="text-gray-400 dark:text-gray-500">
+                        <tr>
+                          <th class="px-2 py-1 font-semibold">{{ t("admin.settings.gatewayForwarding.aliasModel") }}</th>
+                          <th class="px-2 py-1 font-semibold">{{ t("admin.settings.gatewayForwarding.aliasTarget") }}</th>
+                          <th class="px-2 py-1 font-semibold">{{ t("admin.settings.gatewayForwarding.aliasUsage7d") }}</th>
+                          <th class="px-2 py-1 font-semibold">{{ t("admin.settings.gatewayForwarding.aliasUsage30d") }}</th>
+                          <th class="px-2 py-1 font-semibold">{{ t("admin.settings.gatewayForwarding.aliasStatus") }}</th>
+                          <th class="px-2 py-1 font-semibold">{{ t("admin.settings.gatewayForwarding.aliasActions") }}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr
+                          v-for="item in enterpriseMemberAliasReviews"
+                          :key="enterpriseMemberAliasReviewKey(item)"
+                          class="border-t border-gray-100 dark:border-dark-700"
+                        >
+                          <td class="px-2 py-2 font-mono text-gray-900 dark:text-white">{{ item.public_model }}</td>
+                          <td class="px-2 py-2 font-mono text-gray-600 dark:text-gray-300">{{ enterpriseMemberAliasTargetLabel(item) }}</td>
+                          <td class="px-2 py-2 text-gray-700 dark:text-gray-300">{{ item.request_count_7d ?? 0 }}</td>
+                          <td class="px-2 py-2 text-gray-700 dark:text-gray-300">{{ item.request_count_30d ?? 0 }}</td>
+                          <td class="px-2 py-2 text-gray-700 dark:text-gray-300">{{ item.review_status || "pending" }}</td>
+                          <td class="px-2 py-2">
+                            <div class="flex flex-wrap gap-1.5">
+                              <button
+                                type="button"
+                                class="btn btn-secondary btn-xs"
+                                :disabled="enterpriseMemberAliasReviewSubmitting === enterpriseMemberAliasReviewKey(item)"
+                                @click="reviewEnterpriseMemberAlias(item, 'approve')"
+                              >
+                                {{ t("admin.settings.gatewayForwarding.aliasApprove") }}
+                              </button>
+                              <button
+                                type="button"
+                                class="btn btn-secondary btn-xs"
+                                :disabled="enterpriseMemberAliasReviewSubmitting === enterpriseMemberAliasReviewKey(item)"
+                                @click="reviewEnterpriseMemberAlias(item, 'reject')"
+                              >
+                                {{ t("admin.settings.gatewayForwarding.aliasReject") }}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
               <!-- Fingerprint Unification -->
               <div class="flex items-center justify-between">
                 <div>
@@ -8742,6 +9027,15 @@
         @confirm="confirmNativeModelProtocolRouting"
         @cancel="cancelNativeModelProtocolRouting"
       />
+      <ConfirmDialog
+        :show="enterpriseMemberAdmissionConfirmOpen"
+        :title="t('admin.settings.gatewayForwarding.enterpriseMemberAdmissionEnforceConfirmTitle')"
+        :message="t('admin.settings.gatewayForwarding.enterpriseMemberAdmissionEnforceConfirmMessage')"
+        :confirm-text="t('admin.settings.gatewayForwarding.enterpriseMemberAdmissionEnforceConfirmAction')"
+        danger
+        @confirm="confirmEnterpriseMemberModelAdmissionEnforce"
+        @cancel="cancelEnterpriseMemberModelAdmissionEnforce"
+      />
       <!-- 关闭 step-up 开关等敏感保存操作触发的 TOTP 二次验证 -->
       <TotpStepUpDialog :controller="settingsStepUp" />
     </div>
@@ -8775,7 +9069,18 @@ import type {
   WebSearchEmulationConfig,
   WebSearchProviderConfig,
   WebSearchTestResult,
+  EnterpriseMemberModelAdmissionMode,
+  EnterpriseMemberModelAdmissionSource,
+  EnterpriseMemberModelAdmissionReadinessCondition,
+  EnterpriseMemberModelAdmissionReadiness,
+  EnterpriseMemberModelAdmissionRolloutPolicy,
+  EnterpriseMemberModelAdmissionRolloutState,
+  EnterpriseMemberModelAdmissionLegacyStatus,
 } from "@/api/admin/settings";
+import type {
+  EnterpriseMemberModelAliasReadinessSummary,
+  EnterpriseMemberModelAliasReviewItem,
+} from "@/api/admin/ops";
 import type {
   AdminGroup,
   LoginAgreementDocument,
@@ -9777,6 +10082,42 @@ const form = reactive<SettingsForm>({
   // Gateway forwarding behavior
   native_model_protocol_routing_enabled: false,
   native_model_protocol_routing_source: "config",
+  enterprise_member_model_admission_mode: "shadow_published" as EnterpriseMemberModelAdmissionMode,
+  enterprise_member_model_admission_source: "config" as EnterpriseMemberModelAdmissionSource,
+  enterprise_member_model_admission_enforce_ready: false,
+  enterprise_member_model_admission_enforce_reason: "phase3_prerequisites_incomplete",
+  enterprise_member_model_admission_readiness: {
+    ready: false,
+    conditions: [],
+  } as EnterpriseMemberModelAdmissionReadiness,
+  enterprise_member_model_admission_rollout: {
+    policy: {
+      enterprise_user_ids: [],
+      member_ids: [],
+      percentage: 0,
+      salt: "enterprise-member-model-admission-v1",
+      auto_stop: false,
+    },
+    source: "default",
+    valid: true,
+    stable_hash_percent: 0,
+    auto_stopped: false,
+  } as EnterpriseMemberModelAdmissionRolloutState,
+  enterprise_member_model_admission_legacy: {
+    deprecated: true,
+    emergency_rollback_only: true,
+    warning: false,
+    usage_total: 0,
+    retirement_target: "",
+    retirement_target_kind: "",
+    retirement_status: "not_scheduled",
+    retirement_reason: "retirement_target_missing",
+    phase5_ready: false,
+    phase5_reason: "phase5_production_gate_pending",
+    risk_reduction_only_notice:
+      "legacy_order_only is deprecated and must only shrink production risk as an emergency rollback; it must not be used to expand routing behavior.",
+  } as EnterpriseMemberModelAdmissionLegacyStatus,
+  enterprise_member_model_admission_legacy_retirement_target: "",
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
   enable_cch_signing: false,
@@ -9849,6 +10190,382 @@ function confirmNativeModelProtocolRouting(): void {
 
 function cancelNativeModelProtocolRouting(): void {
   nativeModelProtocolRoutingConfirmOpen.value = false;
+}
+
+const enterpriseMemberModelAdmissionTouched = ref(false);
+const enterpriseMemberAdmissionConfirmOpen = ref(false);
+const pendingEnterpriseMemberAdmissionMode =
+  ref<EnterpriseMemberModelAdmissionMode | null>(null);
+
+const enterpriseMemberModelAdmissionOptions = computed(() => [
+  {
+    value: "legacy_order_only",
+    label: t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionLegacy"),
+  },
+  {
+    value: "shadow_published",
+    label: t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionShadow"),
+  },
+  {
+    value: "enforce_published",
+    label: t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionEnforce"),
+    disabled: !form.enterprise_member_model_admission_enforce_ready,
+  },
+]);
+
+const enterpriseMemberModelAdmissionCurrentLabel = computed(() => {
+  const option = enterpriseMemberModelAdmissionOptions.value.find(
+    (item) => item.value === form.enterprise_member_model_admission_mode,
+  );
+  return (
+    option?.label ||
+    t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionShadow")
+  );
+});
+
+const enterpriseMemberModelAdmissionCurrentHint = computed(() => {
+  switch (form.enterprise_member_model_admission_mode) {
+    case "legacy_order_only":
+      return t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionLegacyHint");
+    case "enforce_published":
+      return t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionEnforceHint");
+    case "shadow_published":
+    default:
+      return t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionShadowHint");
+  }
+});
+
+const enterpriseMemberModelAdmissionBadgeClass = computed(() => {
+  switch (form.enterprise_member_model_admission_mode) {
+    case "legacy_order_only":
+      return "border-gray-200 bg-gray-50 text-gray-700 dark:border-dark-600 dark:bg-dark-900 dark:text-gray-300";
+    case "enforce_published":
+      return "border-red-200 bg-red-50 text-red-700 dark:border-red-500/25 dark:bg-red-950/30 dark:text-red-300";
+    case "shadow_published":
+    default:
+      return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/25 dark:bg-sky-950/30 dark:text-sky-300";
+  }
+});
+
+const enterpriseMemberModelAdmissionSourceInvalid = computed(() =>
+  ["settings_invalid", "config_invalid", "error_fallback"].includes(
+    String(form.enterprise_member_model_admission_source || ""),
+  ),
+);
+
+const enterpriseMemberModelAdmissionSourceLabel = computed(() => {
+  switch (form.enterprise_member_model_admission_source) {
+    case "settings":
+      return t("admin.settings.gatewayForwarding.sourceSettings");
+    case "settings_invalid":
+      return t("admin.settings.gatewayForwarding.sourceSettingsInvalid");
+    case "config_invalid":
+      return t("admin.settings.gatewayForwarding.sourceConfigInvalid");
+    case "error_fallback":
+      return t("admin.settings.gatewayForwarding.sourceErrorFallback");
+    case "enforce_blocked":
+      return t("admin.settings.gatewayForwarding.sourceEnforceBlocked");
+    case "config":
+    default:
+      return t("admin.settings.gatewayForwarding.sourceConfig");
+  }
+});
+
+const enterpriseMemberReadinessConditions = computed(
+  () =>
+    form.enterprise_member_model_admission_readiness?.conditions?.filter(
+      (condition) => condition && (condition.name || condition.key),
+    ) || [],
+);
+
+function enterpriseMemberReadinessConditionLabel(
+  condition: EnterpriseMemberModelAdmissionReadinessCondition,
+): string {
+  const label = condition.label || condition.name || condition.key || "";
+  const detail = condition.details || condition.detail || condition.reason || "";
+  return detail ? `${label}: ${detail}` : label;
+}
+
+const enterpriseMemberAdmissionRollout = computed<EnterpriseMemberModelAdmissionRolloutState>(
+  () =>
+    form.enterprise_member_model_admission_rollout || {
+      policy: {},
+      source: "default",
+      valid: true,
+      stable_hash_percent: 0,
+      auto_stopped: false,
+    },
+);
+
+const enterpriseMemberAdmissionPolicy = computed<EnterpriseMemberModelAdmissionRolloutPolicy>(
+  () => enterpriseMemberAdmissionRollout.value.policy || {},
+);
+
+const enterpriseMemberAdmissionRolloutLabel = computed(() => {
+  const rollout = enterpriseMemberAdmissionRollout.value;
+  const percentage =
+    typeof rollout.policy?.percentage === "number"
+      ? `${rollout.policy.percentage}%`
+      : "—";
+  return t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionRolloutValue", {
+    source: rollout.source || "default",
+    percentage,
+  });
+});
+
+const enterpriseMemberAdmissionRolloutDetail = computed(() => {
+  const rollout = enterpriseMemberAdmissionRollout.value;
+  const enterpriseCount = rollout.policy?.enterprise_user_ids?.length || 0;
+  const memberCount = rollout.policy?.member_ids?.length || 0;
+  return t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionRolloutDetail", {
+    enterprises: enterpriseCount,
+    members: memberCount,
+    bucket: typeof rollout.hash_bucket === "number" ? rollout.hash_bucket : "—",
+    matched: rollout.matched_by || (rollout.matched ? "matched" : "not_matched"),
+  });
+});
+
+const enterpriseMemberAdmissionAutoStopLabel = computed(() => {
+  const rollout = enterpriseMemberAdmissionRollout.value;
+  if (rollout.auto_stopped) {
+    return rollout.reason || t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionAutoStopped");
+  }
+  return rollout.policy?.auto_stop
+    ? t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionAutoStopArmed")
+    : t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionAutoStopOff");
+});
+
+const enterpriseMemberAdmissionLegacyStatus = computed<EnterpriseMemberModelAdmissionLegacyStatus>(
+  () =>
+    form.enterprise_member_model_admission_legacy || {
+      deprecated: true,
+      emergency_rollback_only: true,
+      warning: false,
+      usage_total: 0,
+      retirement_target: "",
+      retirement_target_kind: "",
+      retirement_status: "not_scheduled",
+      phase5_ready: false,
+      phase5_reason: "phase5_production_gate_pending",
+      risk_reduction_only_notice:
+        "legacy_order_only is deprecated and must only shrink production risk as an emergency rollback; it must not be used to expand routing behavior.",
+    },
+);
+
+const enterpriseMemberAdmissionLegacyRetirementLabel = computed(() =>
+  t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionLegacyRetirementValue", {
+    status: enterpriseMemberAdmissionLegacyStatus.value.retirement_status,
+    target:
+      enterpriseMemberAdmissionLegacyStatus.value.retirement_target ||
+      t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionRetirementNotScheduled"),
+  }),
+);
+
+const enterpriseMemberAdmissionEnterpriseIDsInput = computed({
+  get: () =>
+    (enterpriseMemberAdmissionPolicy.value.enterprise_user_ids || []).join(", "),
+  set: (value: string) => {
+    enterpriseMemberAdmissionPolicy.value.enterprise_user_ids =
+      parsePositiveIntegerList(value);
+  },
+});
+
+const enterpriseMemberAdmissionMemberIDsInput = computed({
+  get: () => (enterpriseMemberAdmissionPolicy.value.member_ids || []).join(", "),
+  set: (value: string) => {
+    enterpriseMemberAdmissionPolicy.value.member_ids =
+      parsePositiveIntegerList(value);
+  },
+});
+
+function parsePositiveIntegerList(value: string): number[] {
+  return Array.from(
+    new Set(
+      value
+        .split(/[,\s]+/)
+        .map((part) => Number(part.trim()))
+        .filter((id) => Number.isSafeInteger(id) && id > 0),
+    ),
+  );
+}
+
+function normalizeEnterpriseMemberAdmissionRolloutPolicy(
+  policy: EnterpriseMemberModelAdmissionRolloutPolicy | undefined,
+): EnterpriseMemberModelAdmissionRolloutPolicy {
+  const percentage = Number(policy?.percentage ?? 0);
+  return {
+    enterprise_user_ids: [...(policy?.enterprise_user_ids || [])],
+    member_ids: [...(policy?.member_ids || [])],
+    percentage: Number.isFinite(percentage)
+      ? Math.min(100, Math.max(0, Math.trunc(percentage)))
+      : 0,
+    salt: String(policy?.salt || "enterprise-member-model-admission-v1").trim(),
+    auto_stop: Boolean(policy?.auto_stop),
+  };
+}
+
+const enterpriseMemberAliasReviews = ref<EnterpriseMemberModelAliasReviewItem[]>([]);
+const enterpriseMemberAliasReadiness = ref<EnterpriseMemberModelAliasReadinessSummary | null>(null);
+const enterpriseMemberAliasReviewLoading = ref(false);
+const enterpriseMemberAliasReviewError = ref("");
+const enterpriseMemberAliasReviewSubmitting = ref<string | null>(null);
+
+function enterpriseMemberAliasReviewKey(
+  item: EnterpriseMemberModelAliasReviewItem,
+): string {
+  return `${item.public_model_norm || item.public_model}:${item.endpoint || ""}`;
+}
+
+function enterpriseMemberAliasTargetLabel(
+  item: EnterpriseMemberModelAliasReviewItem,
+): string {
+  const parts = [];
+  if (item.final_group_id) {
+    parts.push(`group:${item.final_group_id}`);
+  }
+  if (item.channel_id) {
+    parts.push(`channel:${item.channel_id}`);
+  }
+  return parts.length > 0 ? parts.join(" / ") : item.planned_outcome || "—";
+}
+
+const enterpriseMemberAliasReadinessLabel = computed(() => {
+  const readiness = enterpriseMemberAliasReadiness.value;
+  if (!readiness) {
+    return "";
+  }
+  const reason = readiness.reason || (readiness.ready ? "ready" : "not_ready");
+  return `${reason} · 7d ${readiness.blocking_unreviewed_active_7d ?? 0} / 30d ${readiness.blocking_unreviewed_active_30d ?? 0}`;
+});
+
+async function loadEnterpriseMemberAliasReviews(): Promise<void> {
+  enterpriseMemberAliasReviewLoading.value = true;
+  enterpriseMemberAliasReviewError.value = "";
+  try {
+    const [listResult, readinessResult] = await Promise.allSettled([
+      adminAPI.ops.getEnterpriseMemberModelAliasReviews(),
+      adminAPI.ops.getEnterpriseMemberModelAliasReadiness(),
+    ]);
+    if (listResult.status === "rejected") {
+      throw listResult.reason;
+    }
+    enterpriseMemberAliasReviews.value = listResult.value.items || [];
+    if (readinessResult.status === "fulfilled") {
+      enterpriseMemberAliasReadiness.value = readinessResult.value;
+    }
+  } catch (error) {
+    enterpriseMemberAliasReviews.value = [];
+    enterpriseMemberAliasReviewError.value = extractApiErrorMessage(
+      error,
+      t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionAliasLoadFailed"),
+    );
+  } finally {
+    enterpriseMemberAliasReviewLoading.value = false;
+  }
+}
+
+async function reviewEnterpriseMemberAlias(
+  item: EnterpriseMemberModelAliasReviewItem,
+  action: "approve" | "reject" | "ignore",
+): Promise<void> {
+  const key = enterpriseMemberAliasReviewKey(item);
+  enterpriseMemberAliasReviewSubmitting.value = key;
+  try {
+    const updated = await adminAPI.ops.reviewEnterpriseMemberModelAlias({
+      public_model: item.public_model,
+      endpoint: item.endpoint || "",
+      status: action === "approve" ? "registered" : "rejected_invalid",
+      final_group_id: item.final_group_id ?? null,
+      channel_id: item.channel_id ?? null,
+    });
+    enterpriseMemberAliasReviews.value = enterpriseMemberAliasReviews.value.map(
+      (entry) =>
+        enterpriseMemberAliasReviewKey(entry) === key
+          ? {
+              ...entry,
+              public_model: updated.public_model || entry.public_model,
+              public_model_norm:
+                updated.public_model_norm || entry.public_model_norm,
+              endpoint: updated.endpoint || entry.endpoint,
+              final_group_id: updated.final_group_id ?? entry.final_group_id,
+              channel_id: updated.channel_id ?? entry.channel_id,
+              review_status: updated.status,
+              reviewed_by: updated.reviewed_by,
+              reviewed_at: updated.reviewed_at,
+              review_note: updated.review_note,
+            }
+          : entry,
+    );
+    appStore.showSuccess(
+      t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionAliasReviewed"),
+    );
+  } catch (error) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionAliasReviewFailed"),
+      ),
+    );
+  } finally {
+    enterpriseMemberAliasReviewSubmitting.value = null;
+  }
+}
+
+function normalizeEnterpriseMemberAdmissionMode(
+  value: unknown,
+): EnterpriseMemberModelAdmissionMode {
+  switch (value) {
+    case "legacy_order_only":
+    case "enforce_published":
+    case "shadow_published":
+      return value;
+    default:
+      return "shadow_published";
+  }
+}
+
+function setEnterpriseMemberModelAdmissionMode(
+  mode: EnterpriseMemberModelAdmissionMode,
+): void {
+  form.enterprise_member_model_admission_mode = mode;
+  form.enterprise_member_model_admission_source = "settings";
+  enterpriseMemberModelAdmissionTouched.value = true;
+}
+
+function handleEnterpriseMemberModelAdmissionChange(value: unknown): void {
+  const mode = normalizeEnterpriseMemberAdmissionMode(value);
+  if (
+    mode === "enforce_published" &&
+    !form.enterprise_member_model_admission_enforce_ready
+  ) {
+    return;
+  }
+  if (mode === form.enterprise_member_model_admission_mode) {
+    return;
+  }
+  if (
+    mode === "enforce_published" &&
+    form.enterprise_member_model_admission_mode !== "enforce_published"
+  ) {
+    pendingEnterpriseMemberAdmissionMode.value = mode;
+    enterpriseMemberAdmissionConfirmOpen.value = true;
+    return;
+  }
+  setEnterpriseMemberModelAdmissionMode(mode);
+}
+
+function confirmEnterpriseMemberModelAdmissionEnforce(): void {
+  const mode = pendingEnterpriseMemberAdmissionMode.value;
+  if (mode === "enforce_published") {
+    setEnterpriseMemberModelAdmissionMode(mode);
+  }
+  pendingEnterpriseMemberAdmissionMode.value = null;
+  enterpriseMemberAdmissionConfirmOpen.value = false;
+}
+
+function cancelEnterpriseMemberModelAdmissionEnforce(): void {
+  pendingEnterpriseMemberAdmissionMode.value = null;
+  enterpriseMemberAdmissionConfirmOpen.value = false;
 }
 
 // 人机验证 UI 状态：单卡片「总开关 + 服务商单选」，落库仍是三个独立
@@ -10803,6 +11520,8 @@ async function loadSettings() {
       }
     }
     nativeModelProtocolRoutingTouched.value = false;
+    enterpriseMemberModelAdmissionTouched.value = false;
+    void loadEnterpriseMemberAliasReviews();
     form.schedule_strategy = normalizeScheduleStrategy(form.schedule_strategy);
     syncCaptchaProviderSelection();
     if (!form.claude_oauth_system_prompt_blocks?.trim()) {
@@ -11558,6 +12277,23 @@ async function saveSettings() {
       payload.native_model_protocol_routing_enabled =
         form.native_model_protocol_routing_enabled;
     }
+    if (
+      form.enterprise_member_model_admission_source === "settings" ||
+      enterpriseMemberModelAdmissionTouched.value
+    ) {
+      payload.enterprise_member_model_admission_mode =
+        normalizeEnterpriseMemberAdmissionMode(
+          form.enterprise_member_model_admission_mode,
+        );
+      payload.enterprise_member_model_admission_rollout_policy =
+        normalizeEnterpriseMemberAdmissionRolloutPolicy(
+          form.enterprise_member_model_admission_rollout?.policy,
+        );
+      payload.enterprise_member_model_admission_legacy_retirement_target =
+        String(
+          form.enterprise_member_model_admission_legacy_retirement_target || "",
+        ).trim();
+    }
 
     payload.default_platform_quotas = sanitizePlatformQuotasMap(form.default_platform_quotas);
     appendAuthSourceDefaultsToUpdateRequest(payload, authSourceDefaults);
@@ -11572,6 +12308,7 @@ async function saveSettings() {
       }
     }
     nativeModelProtocolRoutingTouched.value = false;
+    enterpriseMemberModelAdmissionTouched.value = false;
     Object.assign(authSourceDefaults, buildAuthSourceDefaultsState(updated));
     form.default_platform_quotas = normalizePlatformQuotasMap(updated.default_platform_quotas);
     registrationEmailSuffixWhitelistTags.value =

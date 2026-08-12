@@ -120,9 +120,19 @@ func TestPublicKeyUsageExportUsesEffectivePageSize(t *testing.T) {
 }
 
 func TestPublicKeyUsageDTOsOmitSecretsAndAccountCost(t *testing.T) {
+	upstreamEndpoint := "/v1/internal/upstream"
+	age := int64(345)
 	log := &service.UsageLog{
 		ID: 1, UserID: 2, APIKeyID: 3, AccountID: 4, RequestID: "request-1",
 		Model: "gpt-test", ActualCost: 1.25, AccountStatsCost: floatPointer(99), CreatedAt: time.Now(),
+		UpstreamEndpoint:       &upstreamEndpoint,
+		RoutePlanSource:        "last_known_good",
+		RoutePlanSnapshotAgeMs: &age,
+		ScheduleMeta: &service.UsageScheduleMeta{
+			CandidateCount:    3,
+			SelectedAccountID: 4,
+			ShadowDiffType:    "legacy_success_new_pruned",
+		},
 		APIKey:  &service.APIKey{ID: 3, UserID: 2, Key: "raw-key-canary", Name: "key"},
 		Account: &service.Account{ID: 4, Name: "upstream-account-canary"},
 	}
@@ -130,16 +140,35 @@ func TestPublicKeyUsageDTOsOmitSecretsAndAccountCost(t *testing.T) {
 	errorRecord := mapPublicKeyUsageError(&service.UserErrorRequest{
 		ID: 9, RequestID: "safe-request-id", Message: "safe error", Model: "gpt-test", CreatedAt: time.Now(),
 	})
+	csvText := strings.Join(publicKeyUsageCSVRow(mapPublicKeyUsageLog(log)), ",")
 	payload, err := json.Marshal(struct {
 		Record      publicKeyUsageRecord      `json:"record"`
 		ErrorRecord publicKeyUsageRecord      `json:"error_record"`
 		Models      []publicKeyUsageModelStat `json:"models"`
-	}{Record: mapPublicKeyUsageLog(log), ErrorRecord: errorRecord, Models: models})
+		CSV         string                    `json:"csv"`
+	}{Record: mapPublicKeyUsageLog(log), ErrorRecord: errorRecord, Models: models, CSV: csvText})
 	if err != nil {
 		t.Fatalf("marshal public DTO: %v", err)
 	}
-	text := string(payload)
-	for _, forbidden := range []string{"raw-key-canary", "upstream-account-canary", "account_cost", "account_id", "api_key_id", "user_id", "upstream_endpoint", "error_body"} {
+	text := string(payload) + csvText
+	for _, forbidden := range []string{
+		"raw-key-canary",
+		"upstream-account-canary",
+		"account_cost",
+		"account_id",
+		"api_key_id",
+		"user_id",
+		"upstream_endpoint",
+		"route_plan_source",
+		"route_plan_snapshot_age_ms",
+		"schedule_meta",
+		"candidate_count",
+		"selected_account_id",
+		"legacy_success_new_pruned",
+		"last_known_good",
+		"/v1/internal/upstream",
+		"error_body",
+	} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("public DTO contains forbidden value %q: %s", forbidden, text)
 		}
@@ -162,6 +191,7 @@ func TestPublicKeyUsageMemberBudgetUsesSettledSpendOnly(t *testing.T) {
 
 	if mapped == nil {
 		t.Fatal("expected member budget mapping")
+		return
 	}
 	if mapped.Monthly.Used != 39.64 {
 		t.Fatalf("monthly used = %v, want settled spend only", mapped.Monthly.Used)

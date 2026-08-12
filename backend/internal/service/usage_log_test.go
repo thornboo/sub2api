@@ -142,6 +142,155 @@ func TestUsageGroupIDPrefersRequestActiveGroupForMemberKey(t *testing.T) {
 	require.Equal(t, int64(11), *got)
 }
 
+func TestApplyUsageRoutingPlanEvidencePersistsLKGSnapshotAge(t *testing.T) {
+	t.Parallel()
+
+	snapshotAgeMs := int64(3456)
+	ctx := context.WithValue(context.Background(), ctxkey.ActiveGroup, &ActiveGroupContext{
+		ModelPlanApplied:       true,
+		RoutePlanSource:        EnterpriseMemberRoutePlanSourceLastKnownGood,
+		RoutePlanSnapshotAgeMs: &snapshotAgeMs,
+	})
+	usage := &UsageLog{}
+
+	ApplyUsageRoutingPlanEvidence(ctx, usage)
+
+	require.Equal(t, "last_known_good", usage.RoutePlanSource)
+	require.NotNil(t, usage.RoutePlanSnapshotAgeMs)
+	require.Equal(t, snapshotAgeMs, *usage.RoutePlanSnapshotAgeMs)
+}
+
+func TestApplyUsageRoutingPlanEvidenceLeavesLiveSnapshotAgeEmpty(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.WithValue(context.Background(), ctxkey.ActiveGroup, &ActiveGroupContext{
+		ModelPlanApplied: true,
+		RoutePlanSource:  EnterpriseMemberRoutePlanSourceLive,
+	})
+	usage := &UsageLog{}
+
+	ApplyUsageRoutingPlanEvidence(ctx, usage)
+
+	require.Equal(t, "live", usage.RoutePlanSource)
+	require.Nil(t, usage.RoutePlanSnapshotAgeMs)
+}
+
+func TestApplyUsageRoutingShadowSuccessEvidencePersistsPrunedLegacySuccess(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.WithValue(context.Background(), ctxkey.ActiveGroup, &ActiveGroupContext{
+		MemberID: 42,
+		GroupID:  11,
+	})
+	ctx = WithUsageRoutingShadowEvidence(ctx, UsageRoutingShadowEvidence{
+		Mode:            EnterpriseMemberModelAdmissionShadowPublished,
+		PlanSource:      EnterpriseMemberRoutePlanSourceLive,
+		Model:           "minimax-m3",
+		LegacyGroupIDs:  []int64{11, 12},
+		PlannedGroupIDs: []int64{12},
+		Rejected: []UsageRoutingShadowRejection{{
+			GroupID: 11,
+			Reason:  EnterpriseMemberRouteReasonModelUnpublished,
+		}, {
+			GroupID: 11,
+			Reason:  EnterpriseMemberRouteReasonModelUnpublished,
+		}},
+	})
+	usage := &UsageLog{}
+
+	ApplyUsageRoutingShadowSuccessEvidence(ctx, usage)
+
+	require.NotNil(t, usage.ScheduleMeta)
+	require.Equal(t, UsageShadowDiffLegacySuccessNewPruned, usage.ScheduleMeta.ShadowDiffType)
+	require.Equal(t, []string{"model_unpublished"}, usage.ScheduleMeta.ShadowReasonCodes)
+	require.Equal(t, "live", usage.ScheduleMeta.ShadowPlanSource)
+	require.Equal(t, 2, usage.ScheduleMeta.ShadowLegacyGroups)
+	require.Equal(t, 1, usage.ScheduleMeta.ShadowPlannedGroups)
+	require.Equal(t, 1, usage.ScheduleMeta.ShadowPrunedGroups)
+}
+
+func TestApplyUsageRoutingShadowSuccessEvidenceSkipsUnsafeCases(t *testing.T) {
+	t.Parallel()
+
+	base := func() context.Context {
+		ctx := context.WithValue(context.Background(), ctxkey.ActiveGroup, &ActiveGroupContext{
+			MemberID: 42,
+			GroupID:  11,
+		})
+		return WithUsageRoutingShadowEvidence(ctx, UsageRoutingShadowEvidence{
+			Mode:            EnterpriseMemberModelAdmissionShadowPublished,
+			PlanSource:      EnterpriseMemberRoutePlanSourceLive,
+			LegacyGroupIDs:  []int64{11, 12},
+			PlannedGroupIDs: []int64{12},
+			Rejected: []UsageRoutingShadowRejection{{
+				GroupID: 11,
+				Reason:  EnterpriseMemberRouteReasonModelUnpublished,
+			}},
+		})
+	}
+
+	tests := []struct {
+		name   string
+		ctx    context.Context
+		usage  UsageLog
+		mutate func(context.Context) context.Context
+	}{
+		{name: "legacy mode", mutate: func(ctx context.Context) context.Context {
+			return WithUsageRoutingShadowEvidence(ctx, UsageRoutingShadowEvidence{
+				Mode:            EnterpriseMemberModelAdmissionLegacyOrderOnly,
+				LegacyGroupIDs:  []int64{11, 12},
+				PlannedGroupIDs: []int64{12},
+				Rejected: []UsageRoutingShadowRejection{{
+					GroupID: 11,
+					Reason:  EnterpriseMemberRouteReasonModelUnpublished,
+				}},
+			})
+		}},
+		{name: "enforce mode", mutate: func(ctx context.Context) context.Context {
+			return WithUsageRoutingShadowEvidence(ctx, UsageRoutingShadowEvidence{
+				Mode:            EnterpriseMemberModelAdmissionEnforcePublished,
+				LegacyGroupIDs:  []int64{11, 12},
+				PlannedGroupIDs: []int64{12},
+				Rejected: []UsageRoutingShadowRejection{{
+					GroupID: 11,
+					Reason:  EnterpriseMemberRouteReasonModelUnpublished,
+				}},
+			})
+		}},
+		{name: "evaluation error", mutate: func(ctx context.Context) context.Context {
+			return WithUsageRoutingShadowEvidence(ctx, UsageRoutingShadowEvidence{
+				Mode:            EnterpriseMemberModelAdmissionShadowPublished,
+				LegacyGroupIDs:  []int64{11, 12},
+				PlannedGroupIDs: []int64{12},
+				EvaluationError: true,
+				Rejected: []UsageRoutingShadowRejection{{
+					GroupID: 11,
+					Reason:  EnterpriseMemberRouteReasonModelUnpublished,
+				}},
+			})
+		}},
+		{name: "ordinary key no active member", mutate: func(ctx context.Context) context.Context {
+			return context.WithValue(ctx, ctxkey.ActiveGroup, &ActiveGroupContext{GroupID: 11})
+		}},
+		{name: "cyber non-success", usage: UsageLog{RequestType: RequestTypeCyberBlocked}},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := base()
+			if tt.mutate != nil {
+				ctx = tt.mutate(ctx)
+			}
+			usage := tt.usage
+
+			ApplyUsageRoutingShadowSuccessEvidence(ctx, &usage)
+
+			require.Nil(t, usage.ScheduleMeta)
+		})
+	}
+}
+
 func TestUsageScheduleMetaFromOpenAIDecision(t *testing.T) {
 	t.Parallel()
 

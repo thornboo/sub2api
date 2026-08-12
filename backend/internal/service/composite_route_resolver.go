@@ -11,6 +11,14 @@ type CompositeRouteResolver struct {
 	repo CompositeModelRouteRepository
 }
 
+// CompositeRoutePreviewer resolves one candidate without installing the
+// decision into the caller's context. Enterprise admission uses this narrow
+// read-only contract so evaluating one authorized group cannot influence the
+// next candidate or the eventual runtime attempt.
+type CompositeRoutePreviewer interface {
+	Preview(ctx context.Context, groupID int64, model, endpoint string) (CompositeRouteDecision, error)
+}
+
 func NewCompositeRouteResolver(repo CompositeModelRouteRepository) *CompositeRouteResolver {
 	return &CompositeRouteResolver{repo: repo}
 }
@@ -90,6 +98,14 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 	}
 	decision.Reason = "no explicit route or built-in detector match"
 	return decision, nil
+}
+
+// Preview intentionally has the same matching semantics as Resolve while
+// remaining side-effect free. Resolve itself only reads repository state; the
+// separate method makes that admission-time contract explicit and prevents
+// callers from coupling qualification to WithCompositeRouteDecision.
+func (r *CompositeRouteResolver) Preview(ctx context.Context, groupID int64, model, endpoint string) (CompositeRouteDecision, error) {
+	return r.Resolve(ctx, groupID, model, endpoint)
 }
 
 func matchCompositeRoute(routes []CompositeModelRoute, model, endpoint string) (CompositeModelRoute, bool) {

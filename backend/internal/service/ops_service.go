@@ -583,6 +583,13 @@ func (s *OpsService) prepareErrorLogInput(ctx context.Context, entry *OpsInsertE
 	if err := sanitizeOpsUpstreamErrors(entry); err != nil {
 		return nil, false, err
 	}
+	entry.RoutingPlanSource = truncateString(opsRoutingEvidenceFirstToken(entry.RoutingPlanSource), 64)
+	if entry.RoutingSnapshotAgeMs != nil && *entry.RoutingSnapshotAgeMs < 0 {
+		entry.RoutingSnapshotAgeMs = nil
+	}
+	if err := sanitizeOpsRoutingAttempts(entry); err != nil {
+		return nil, false, err
+	}
 
 	return entry, true, nil
 }

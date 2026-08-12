@@ -96,6 +96,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	)
 
 	if !service.GroupAllowsImageGeneration(apiKey.Group) {
+		markEnterpriseMemberGroupRetry(c, apiKey, service.OpsGroupRetryReasonCapabilityMismatch)
 		h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
 	}

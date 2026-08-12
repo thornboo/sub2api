@@ -18,6 +18,16 @@ type EnterpriseMemberMetricsSnapshot struct {
 	RoutingActivationTotal            uint64            `json:"routing_activation_total"`
 	RoutingCrossGroupAttemptTotal     uint64            `json:"routing_cross_group_attempt_total"`
 	RoutingNoCandidateTotal           uint64            `json:"routing_no_candidate_total"`
+	RoutePlanningEvaluationTotal      uint64            `json:"route_planning_evaluation_total"`
+	RoutePlanningShadowTotal          uint64            `json:"route_planning_shadow_total"`
+	RoutePlanningEnforceTotal         uint64            `json:"route_planning_enforce_total"`
+	RoutePlanningErrorTotal           uint64            `json:"route_planning_error_total"`
+	RouteShadowDiffTotal              uint64            `json:"route_shadow_diff_total"`
+	RoutePlanningLiveTotal            uint64            `json:"route_planning_live_total"`
+	RoutePlanningLKGHitTotal          uint64            `json:"route_planning_lkg_hit_total"`
+	RoutePlanningLKGMissTotal         uint64            `json:"route_planning_lkg_miss_total"`
+	RoutePlanningLegacyEffectiveTotal uint64            `json:"route_planning_legacy_effective_total"`
+	RoutingRevisionUnavailableTotal   uint64            `json:"routing_revision_unavailable_total"`
 	BudgetReservationCreatedTotal     uint64            `json:"budget_reservation_created_total"`
 	BudgetReservationDeniedTotal      uint64            `json:"budget_reservation_denied_total"`
 	BudgetReservationErrorTotal       uint64            `json:"budget_reservation_error_total"`
@@ -49,47 +59,57 @@ type EnterpriseMemberMetricsSnapshot struct {
 }
 
 type enterpriseMemberMetrics struct {
-	authSuccess               atomic.Uint64
-	authRejected              atomic.Uint64
-	authRejectAccount         atomic.Uint64
-	authRejectMemberMissing   atomic.Uint64
-	authRejectMemberDisabled  atomic.Uint64
-	authRejectInvalidKeyShape atomic.Uint64
-	authRejectOther           atomic.Uint64
-	authCacheVersionMiss      atomic.Uint64
-	routingPlans              atomic.Uint64
-	routingCandidates         atomic.Uint64
-	routingActivations        atomic.Uint64
-	routingCrossGroupAttempts atomic.Uint64
-	routingNoCandidate        atomic.Uint64
-	budgetReservations        atomic.Uint64
-	budgetReservationDenied   atomic.Uint64
-	budgetReservationErrors   atomic.Uint64
-	budgetSettlements         atomic.Uint64
-	budgetSettlementOverruns  atomic.Uint64
-	budgetAmbiguous           atomic.Uint64
-	budgetReleases            atomic.Uint64
-	budgetReleaseErrors       atomic.Uint64
-	budgetExpiredRecovered    atomic.Uint64
-	budgetRecoveryErrors      atomic.Uint64
-	budgetReconcileRuns       atomic.Uint64
-	budgetReconcileErrors     atomic.Uint64
-	budgetPeriodsChecked      atomic.Uint64
-	budgetProjectionsRebuilt  atomic.Uint64
-	budgetEntriesCreated      atomic.Uint64
-	budgetLinksRepaired       atomic.Uint64
-	importPreviews            atomic.Uint64
-	importPreviewErrors       atomic.Uint64
-	importPreviewRows         atomic.Uint64
-	importPreviewInvalidRows  atomic.Uint64
-	importParseDurationCount  atomic.Uint64
-	importParseDurationMicros atomic.Uint64
-	importCommits             atomic.Uint64
-	importCommitRows          atomic.Uint64
-	importRollbacks           atomic.Uint64
-	importLeaseRenewals       atomic.Uint64
-	importLeaseRenewalErrors  atomic.Uint64
-	importLeaseLost           atomic.Uint64
+	authSuccess                atomic.Uint64
+	authRejected               atomic.Uint64
+	authRejectAccount          atomic.Uint64
+	authRejectMemberMissing    atomic.Uint64
+	authRejectMemberDisabled   atomic.Uint64
+	authRejectInvalidKeyShape  atomic.Uint64
+	authRejectOther            atomic.Uint64
+	authCacheVersionMiss       atomic.Uint64
+	routingPlans               atomic.Uint64
+	routingCandidates          atomic.Uint64
+	routingActivations         atomic.Uint64
+	routingCrossGroupAttempts  atomic.Uint64
+	routingNoCandidate         atomic.Uint64
+	routePlanningEvaluations   atomic.Uint64
+	routePlanningShadow        atomic.Uint64
+	routePlanningEnforce       atomic.Uint64
+	routePlanningErrors        atomic.Uint64
+	routeShadowDiffs           atomic.Uint64
+	routePlanningLive          atomic.Uint64
+	routePlanningLKGHits       atomic.Uint64
+	routePlanningLKGMisses     atomic.Uint64
+	routePlanningLegacy        atomic.Uint64
+	routingRevisionUnavailable atomic.Uint64
+	budgetReservations         atomic.Uint64
+	budgetReservationDenied    atomic.Uint64
+	budgetReservationErrors    atomic.Uint64
+	budgetSettlements          atomic.Uint64
+	budgetSettlementOverruns   atomic.Uint64
+	budgetAmbiguous            atomic.Uint64
+	budgetReleases             atomic.Uint64
+	budgetReleaseErrors        atomic.Uint64
+	budgetExpiredRecovered     atomic.Uint64
+	budgetRecoveryErrors       atomic.Uint64
+	budgetReconcileRuns        atomic.Uint64
+	budgetReconcileErrors      atomic.Uint64
+	budgetPeriodsChecked       atomic.Uint64
+	budgetProjectionsRebuilt   atomic.Uint64
+	budgetEntriesCreated       atomic.Uint64
+	budgetLinksRepaired        atomic.Uint64
+	importPreviews             atomic.Uint64
+	importPreviewErrors        atomic.Uint64
+	importPreviewRows          atomic.Uint64
+	importPreviewInvalidRows   atomic.Uint64
+	importParseDurationCount   atomic.Uint64
+	importParseDurationMicros  atomic.Uint64
+	importCommits              atomic.Uint64
+	importCommitRows           atomic.Uint64
+	importRollbacks            atomic.Uint64
+	importLeaseRenewals        atomic.Uint64
+	importLeaseRenewalErrors   atomic.Uint64
+	importLeaseLost            atomic.Uint64
 }
 
 var defaultEnterpriseMemberMetrics enterpriseMemberMetrics
@@ -105,6 +125,16 @@ func GetEnterpriseMemberMetricsSnapshot() EnterpriseMemberMetricsSnapshot {
 		RoutingActivationTotal:            m.routingActivations.Load(),
 		RoutingCrossGroupAttemptTotal:     m.routingCrossGroupAttempts.Load(),
 		RoutingNoCandidateTotal:           m.routingNoCandidate.Load(),
+		RoutePlanningEvaluationTotal:      m.routePlanningEvaluations.Load(),
+		RoutePlanningShadowTotal:          m.routePlanningShadow.Load(),
+		RoutePlanningEnforceTotal:         m.routePlanningEnforce.Load(),
+		RoutePlanningErrorTotal:           m.routePlanningErrors.Load(),
+		RouteShadowDiffTotal:              m.routeShadowDiffs.Load(),
+		RoutePlanningLiveTotal:            m.routePlanningLive.Load(),
+		RoutePlanningLKGHitTotal:          m.routePlanningLKGHits.Load(),
+		RoutePlanningLKGMissTotal:         m.routePlanningLKGMisses.Load(),
+		RoutePlanningLegacyEffectiveTotal: m.routePlanningLegacy.Load(),
+		RoutingRevisionUnavailableTotal:   m.routingRevisionUnavailable.Load(),
 		BudgetReservationCreatedTotal:     m.budgetReservations.Load(),
 		BudgetReservationDeniedTotal:      m.budgetReservationDenied.Load(),
 		BudgetReservationErrorTotal:       m.budgetReservationErrors.Load(),
@@ -140,6 +170,25 @@ func GetEnterpriseMemberMetricsSnapshot() EnterpriseMemberMetricsSnapshot {
 			"invalid_member_key_shape":    m.authRejectInvalidKeyShape.Load(),
 			"other":                       m.authRejectOther.Load(),
 		},
+	}
+}
+
+func RecordEnterpriseMemberLegacyAdmissionEffective() {
+	defaultEnterpriseMemberMetrics.routePlanningLegacy.Add(1)
+}
+
+func RecordEnterpriseMemberRoutePlanSource(source EnterpriseMemberRoutePlanSource, revisionUnavailable bool) {
+	m := &defaultEnterpriseMemberMetrics
+	switch source {
+	case EnterpriseMemberRoutePlanSourceLive:
+		m.routePlanningLive.Add(1)
+	case EnterpriseMemberRoutePlanSourceLastKnownGood:
+		m.routePlanningLKGHits.Add(1)
+	default:
+		m.routePlanningLKGMisses.Add(1)
+	}
+	if revisionUnavailable {
+		m.routingRevisionUnavailable.Add(1)
 	}
 }
 
@@ -184,6 +233,42 @@ func RecordEnterpriseMemberRoutingActivation(crossGroup bool) {
 	if crossGroup {
 		m.routingCrossGroupAttempts.Add(1)
 	}
+}
+
+// RecordEnterpriseMemberRoutePlanning records only closed, low-cardinality
+// admission facts. Model names, member identities and group IDs deliberately
+// remain outside metrics; exact group-order differences stay request-scoped.
+func RecordEnterpriseMemberRoutePlanning(mode EnterpriseMemberModelAdmissionMode, legacyGroupIDs, plannedGroupIDs []int64, err error) {
+	m := &defaultEnterpriseMemberMetrics
+	switch mode {
+	case EnterpriseMemberModelAdmissionShadowPublished:
+		m.routePlanningShadow.Add(1)
+	case EnterpriseMemberModelAdmissionEnforcePublished:
+		m.routePlanningEnforce.Add(1)
+	default:
+		return
+	}
+
+	m.routePlanningEvaluations.Add(1)
+	if err != nil {
+		m.routePlanningErrors.Add(1)
+		return
+	}
+	if mode == EnterpriseMemberModelAdmissionShadowPublished && !enterpriseMemberGroupIDSlicesEqual(legacyGroupIDs, plannedGroupIDs) {
+		m.routeShadowDiffs.Add(1)
+	}
+}
+
+func enterpriseMemberGroupIDSlicesEqual(left, right []int64) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func RecordEnterpriseMemberBudgetReservation(err error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -153,6 +154,51 @@ func TestUserUsageListRequestTypePriority(t *testing.T) {
 	require.NotNil(t, repo.listFilters.RequestType)
 	require.Equal(t, int16(service.RequestTypeWSV2), *repo.listFilters.RequestType)
 	require.Nil(t, repo.listFilters.Stream)
+}
+
+func TestUserUsageListHTTPRedactsRoutingEvidenceForOwnerAndMemberFilters(t *testing.T) {
+	age := int64(345)
+	upstreamEndpoint := "/v1/internal/upstream"
+	memberID := int64(77)
+	repo := &userUsageRepoCapture{
+		listRows: []service.UsageLog{{
+			ID: 1, UserID: 42, APIKeyID: 3, AccountID: 4, RequestID: "req-owner-route",
+			Model: "gpt-test", RequestedModel: "gpt-test", MemberID: &memberID,
+			UpstreamEndpoint:       &upstreamEndpoint,
+			RoutePlanSource:        "last_known_good",
+			RoutePlanSnapshotAgeMs: &age,
+			ScheduleMeta: &service.UsageScheduleMeta{
+				CandidateCount:    3,
+				SelectedAccountID: 4,
+				ShadowDiffType:    "legacy_success_new_pruned",
+			},
+			CreatedAt: time.Now(),
+		}},
+	}
+	router := newUserUsageRequestTypeTestRouterWithUserRepo(repo, &userUsageUserRepoStub{})
+
+	req := httptest.NewRequest(http.MethodGet, "/usage?member_id=77", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, [2]int64{42, 77}, repo.memberValidated)
+	body := rec.Body.String()
+	require.Contains(t, body, `"request_id":"req-owner-route"`)
+	for _, forbidden := range []string{
+		"route_plan_source",
+		"route_plan_snapshot_age_ms",
+		"upstream_endpoint",
+		"schedule_meta",
+		"candidate_count",
+		"selected_account_id",
+		"legacy_success_new_pruned",
+		"last_known_good",
+		"/v1/internal/upstream",
+	} {
+		require.NotContains(t, body, forbidden)
+	}
+	require.False(t, strings.Contains(body, `"account_id":4`), body)
 }
 
 func TestUserUsageListInvalidRequestType(t *testing.T) {

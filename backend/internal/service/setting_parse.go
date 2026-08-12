@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
@@ -849,6 +850,42 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		result.NativeModelProtocolRoutingEnabled = s.nativeModelProtocolRoutingConfigDefault()
 		result.NativeModelProtocolRoutingSource = "config"
 	}
+	var admissionRuntime EnterpriseMemberModelAdmissionRuntime
+	if v, ok := settings[SettingKeyEnterpriseMemberModelAdmissionMode]; ok && strings.TrimSpace(v) != "" {
+		mode, valid := normalizeEnterpriseMemberModelAdmissionMode(v)
+		source := "settings"
+		if valid {
+			result.EnterpriseMemberModelAdmissionSource = source
+		} else {
+			source = "settings_invalid"
+		}
+		rolloutPolicy, rolloutSource := enterpriseMemberModelAdmissionRolloutFromSettings(settings)
+		now := time.Now()
+		runtime := enforceSafeEnterpriseMemberModelAdmission(context.Background(), mode, source, rolloutPolicy, now, now.Add(enterpriseMemberModelAdmissionCacheTTL))
+		runtime.Rollout.Source = rolloutSource
+		runtime.Readiness.Snapshot = runtime.Snapshot
+		admissionRuntime = runtime
+		result.EnterpriseMemberModelAdmissionMode = string(runtime.Mode)
+		result.EnterpriseMemberModelAdmissionSource = runtime.Source
+		result.EnterpriseMemberModelAdmissionRollout = runtime.Rollout
+	} else {
+		mode, source := s.enterpriseMemberModelAdmissionConfigDefault()
+		rolloutPolicy, rolloutSource := enterpriseMemberModelAdmissionRolloutFromSettings(settings)
+		now := time.Now()
+		runtime := enforceSafeEnterpriseMemberModelAdmission(context.Background(), mode, source, rolloutPolicy, now, now.Add(enterpriseMemberModelAdmissionCacheTTL))
+		runtime.Rollout.Source = rolloutSource
+		runtime.Readiness.Snapshot = runtime.Snapshot
+		admissionRuntime = runtime
+		result.EnterpriseMemberModelAdmissionMode = string(runtime.Mode)
+		result.EnterpriseMemberModelAdmissionSource = runtime.Source
+		result.EnterpriseMemberModelAdmissionRollout = runtime.Rollout
+	}
+	readiness := admissionRuntime.Readiness
+	result.EnterpriseMemberModelAdmissionEnforceReady = readiness.Ready
+	result.EnterpriseMemberModelAdmissionEnforceReason = readiness.Reason
+	result.EnterpriseMemberModelAdmissionReadiness = readiness
+	result.EnterpriseMemberModelAdmissionLegacyRetirementTarget = strings.TrimSpace(settings[SettingKeyEnterpriseMemberModelAdmissionLegacyRetirementTarget])
+	result.EnterpriseMemberModelAdmissionLegacy = EnterpriseMemberModelAdmissionLegacyRetirementStatusForTarget(result.EnterpriseMemberModelAdmissionLegacyRetirementTarget)
 	if v, ok := settings[SettingKeyEnableFingerprintUnification]; ok && v != "" {
 		result.EnableFingerprintUnification = v == "true"
 	} else {

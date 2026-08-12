@@ -46,7 +46,7 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 			if c.Request.Context().Err() != nil {
 				return
 			}
-			service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapacityExhausted)
+			markEnterpriseMemberGroupRetryFromContext(c, service.OpsGroupRetryReasonCapacityExhausted)
 			if lastUpstreamErr != nil {
 				h.errorResponse(c, infraerrors.Code(lastUpstreamErr), "upstream_error", infraerrors.Message(lastUpstreamErr))
 				return
@@ -74,7 +74,7 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 				continue
 			}
 			if reason, ok := service.OpsGroupRetryReasonForStatus(infraerrors.Code(err)); ok {
-				service.MarkOpsGroupRetry(c, reason)
+				markEnterpriseMemberGroupRetryFromContext(c, reason)
 			}
 			h.errorResponse(c, infraerrors.Code(err), "upstream_error", infraerrors.Message(err))
 			return

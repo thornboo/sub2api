@@ -61,6 +61,8 @@ type SettingService struct {
 	openAICodexVersionSF            singleflight.Group
 	nativeModelProtocolRoutingCache atomic.Value // *cachedNativeModelProtocolRouting
 	nativeModelProtocolRoutingSF    singleflight.Group
+	enterpriseMemberAdmissionCache  atomic.Value // *cachedEnterpriseMemberModelAdmission
+	enterpriseMemberAdmissionSF     singleflight.Group
 	codexRestrictionPolicyCache     atomic.Value // *cachedCodexRestrictionPolicy
 	codexRestrictionPolicySF        singleflight.Group
 

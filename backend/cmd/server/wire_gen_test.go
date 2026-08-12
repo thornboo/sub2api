@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +20,17 @@ func TestProvideServiceBuildInfo(t *testing.T) {
 	out := provideServiceBuildInfo(in)
 	require.Equal(t, in.Version, out.Version)
 	require.Equal(t, in.BuildType, out.BuildType)
+}
+
+func TestWireGenUsesEnterpriseMemberAdmissionEvidenceRepository(t *testing.T) {
+	data, err := os.ReadFile("wire_gen.go")
+	require.NoError(t, err)
+	source := string(data)
+	require.Contains(t, source, "repository.NewEnterpriseMemberAdmissionEvidenceRepository")
+	require.Contains(t, source, "service.NewEnterpriseMemberAdmissionEvidenceService")
+	require.Contains(t, source, "service.ProvideEnterpriseMemberModelAdmissionReadinessProvider")
+	require.NotContains(t, source, "NewNoopEnterpriseMemberModelAdmissionAutoStopEvidenceProvider")
+	require.False(t, strings.Contains(source, "NoopEnterpriseMemberModelAdmissionAutoStop"))
 }
 
 func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
@@ -64,6 +77,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // apiKeyService
 		nil, // authCacheInvalidationWorker
 		schedulerSnapshotSvc,
+		nil, // routingEligibility
 		tokenRefreshSvc,
 		accountExpirySvc,
 		codexVersionSyncSvc,

@@ -4,7 +4,9 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
@@ -18,6 +20,7 @@ type adminUsageRepoCapture struct {
 	listParams                 pagination.PaginationParams
 	listFilters                usagestats.UsageLogFilters
 	listResolvesDeletedAPIKeys bool
+	listRows                   []service.UsageLog
 	statsFilters               usagestats.UsageLogFilters
 }
 
@@ -25,8 +28,8 @@ func (s *adminUsageRepoCapture) ListWithFilters(ctx context.Context, params pagi
 	s.listParams = params
 	s.listFilters = filters
 	s.listResolvesDeletedAPIKeys = service.ShouldResolveDeletedAPIKeysForUsageLogs(ctx)
-	return []service.UsageLog{}, &pagination.PaginationResult{
-		Total:    0,
+	return s.listRows, &pagination.PaginationResult{
+		Total:    int64(len(s.listRows)),
 		Page:     params.Page,
 		PageSize: params.PageSize,
 		Pages:    0,
@@ -72,6 +75,47 @@ func TestAdminUsageListEnablesDeletedAPIKeyEvidenceResolution(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.True(t, repo.listResolvesDeletedAPIKeys)
+}
+
+func TestAdminUsageListHTTPRetainsAllowedRoutingDiagnostics(t *testing.T) {
+	age := int64(345)
+	upstreamEndpoint := "/v1/internal/upstream"
+	repo := &adminUsageRepoCapture{
+		listRows: []service.UsageLog{{
+			ID: 1, UserID: 42, APIKeyID: 3, AccountID: 4, RequestID: "req-admin-route",
+			Model: "gpt-test", RequestedModel: "gpt-test",
+			UpstreamEndpoint:       &upstreamEndpoint,
+			RoutePlanSource:        "last_known_good",
+			RoutePlanSnapshotAgeMs: &age,
+			ScheduleMeta: &service.UsageScheduleMeta{
+				CandidateCount:    3,
+				SelectedAccountID: 4,
+				ShadowDiffType:    "legacy_success_new_pruned",
+			},
+			CreatedAt: time.Now(),
+		}},
+	}
+	router := newAdminUsageRequestTypeTestRouter(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	for _, allowed := range []string{
+		`"request_id":"req-admin-route"`,
+		`"route_plan_source":"last_known_good"`,
+		`"route_plan_snapshot_age_ms":345`,
+		`"upstream_endpoint":"/v1/internal/upstream"`,
+		`"schedule_meta"`,
+		`"candidate_count":3`,
+		`"selected_account_id":4`,
+		`"shadow_diff_type":"legacy_success_new_pruned"`,
+	} {
+		require.Contains(t, body, allowed)
+	}
+	require.False(t, strings.Contains(body, "raw-key-canary"), body)
 }
 
 func TestAdminUsageListUsesRequestedModelForDisplayModelFilter(t *testing.T) {

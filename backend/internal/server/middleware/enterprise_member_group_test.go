@@ -223,7 +223,7 @@ func TestResolveEnterpriseMemberGroupSelectsOrderedEligibleGroupAndReplaysBody(t
 		c.Set(string(ContextKeyAPIKey), key)
 		c.Next()
 	})
-	router.Use(ResolveEnterpriseMemberGroup(nil, &config.Config{RunMode: config.RunModeSimple}, AnthropicErrorWriter))
+	router.Use(ResolveEnterpriseMemberGroup(nil, nil, nil, &config.Config{RunMode: config.RunModeSimple}, AnthropicErrorWriter))
 	router.POST("/v1/chat/completions", func(c *gin.Context) {
 		requestKey, ok := GetAPIKeyFromContext(c)
 		require.True(t, ok)
@@ -325,14 +325,14 @@ func TestEnterpriseMemberGroupEligibleUsesBatchAndWebSocketCapabilities(t *testi
 	geminiBatch := &service.Group{ID: 1, Platform: service.PlatformGemini, Status: service.StatusActive, Hydrated: true, AllowImageGeneration: true, AllowBatchImageGeneration: true}
 	geminiDisabled := &service.Group{ID: 2, Platform: service.PlatformGemini, Status: service.StatusActive, Hydrated: true, AllowImageGeneration: true}
 	openAI := &service.Group{ID: 3, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true, AllowBatchImageGeneration: true}
-	require.True(t, enterpriseMemberGroupEligible(batchContext, user, geminiBatch, "imagen"))
-	require.False(t, enterpriseMemberGroupEligible(batchContext, user, geminiDisabled, "imagen"))
-	require.False(t, enterpriseMemberGroupEligible(batchContext, user, openAI, "imagen"))
+	require.True(t, enterpriseMemberGroupEligible(batchContext, user, geminiBatch))
+	require.False(t, enterpriseMemberGroupEligible(batchContext, user, geminiDisabled))
+	require.False(t, enterpriseMemberGroupEligible(batchContext, user, openAI))
 
 	wsContext, _ := gin.CreateTestContext(httptest.NewRecorder())
 	wsContext.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
-	require.True(t, enterpriseMemberGroupEligible(wsContext, user, openAI, ""))
-	require.False(t, enterpriseMemberGroupEligible(wsContext, user, geminiBatch, ""))
+	require.True(t, enterpriseMemberGroupEligible(wsContext, user, openAI))
+	require.False(t, enterpriseMemberGroupEligible(wsContext, user, geminiBatch))
 }
 
 func TestEnterpriseMemberGroupEligibleEnforcesEndpointCapabilities(t *testing.T) {
@@ -351,35 +351,35 @@ func TestEnterpriseMemberGroupEligibleEnforcesEndpointCapabilities(t *testing.T)
 	openAIImagesEnabled := activeGroup(service.PlatformOpenAI)
 	openAIImagesEnabled.AllowImageGeneration = true
 	images := testContext(http.MethodPost, "/v1/images/generations")
-	require.False(t, enterpriseMemberGroupEligible(images, user, openAIImagesDisabled, "gpt-image-1"))
-	require.True(t, enterpriseMemberGroupEligible(images, user, openAIImagesEnabled, "gpt-image-1"))
+	require.False(t, enterpriseMemberGroupEligible(images, user, openAIImagesDisabled))
+	require.True(t, enterpriseMemberGroupEligible(images, user, openAIImagesEnabled))
 
 	grokVideoDisabled := activeGroup(service.PlatformGrok)
 	grokVideoEnabled := activeGroup(service.PlatformGrok)
 	grokVideoEnabled.AllowImageGeneration = true
 	videos := testContext(http.MethodPost, "/v1/videos/generations")
-	require.False(t, enterpriseMemberGroupEligible(videos, user, grokVideoDisabled, "grok-imagine-video"))
-	require.True(t, enterpriseMemberGroupEligible(videos, user, grokVideoEnabled, "grok-imagine-video"))
+	require.False(t, enterpriseMemberGroupEligible(videos, user, grokVideoDisabled))
+	require.True(t, enterpriseMemberGroupEligible(videos, user, grokVideoEnabled))
 
 	openAIMessagesDisabled := activeGroup(service.PlatformOpenAI)
 	openAIMessagesEnabled := activeGroup(service.PlatformOpenAI)
 	openAIMessagesEnabled.AllowMessagesDispatch = true
 	messages := testContext(http.MethodPost, "/v1/messages")
-	require.False(t, enterpriseMemberGroupEligible(messages, user, openAIMessagesDisabled, "gpt-5"))
-	require.True(t, enterpriseMemberGroupEligible(messages, user, openAIMessagesEnabled, "gpt-5"))
+	require.False(t, enterpriseMemberGroupEligible(messages, user, openAIMessagesDisabled))
+	require.True(t, enterpriseMemberGroupEligible(messages, user, openAIMessagesEnabled))
 
 	embeddings := testContext(http.MethodPost, "/v1/embeddings")
-	require.True(t, enterpriseMemberGroupEligible(embeddings, user, activeGroup(service.PlatformOpenAI), "text-embedding-3-large"))
-	require.False(t, enterpriseMemberGroupEligible(embeddings, user, activeGroup(service.PlatformGrok), "text-embedding-3-large"))
+	require.True(t, enterpriseMemberGroupEligible(embeddings, user, activeGroup(service.PlatformOpenAI)))
+	require.False(t, enterpriseMemberGroupEligible(embeddings, user, activeGroup(service.PlatformGrok)))
 
 	alphaSearch := testContext(http.MethodPost, "/v1/alpha/search")
-	require.True(t, enterpriseMemberGroupEligible(alphaSearch, user, activeGroup(service.PlatformOpenAI), "gpt-5.6"))
-	require.False(t, enterpriseMemberGroupEligible(alphaSearch, user, activeGroup(service.PlatformGrok), "gpt-5.6"))
+	require.True(t, enterpriseMemberGroupEligible(alphaSearch, user, activeGroup(service.PlatformOpenAI)))
+	require.False(t, enterpriseMemberGroupEligible(alphaSearch, user, activeGroup(service.PlatformGrok)))
 
 	gemini := testContext(http.MethodPost, "/v1beta/models/gemini-2.5-pro:generateContent")
-	require.True(t, enterpriseMemberGroupEligible(gemini, user, activeGroup(service.PlatformGemini), "gemini-2.5-pro"))
-	require.True(t, enterpriseMemberGroupEligible(gemini, user, activeGroup(service.PlatformAntigravity), "gemini-2.5-pro"))
-	require.False(t, enterpriseMemberGroupEligible(gemini, user, activeGroup(service.PlatformOpenAI), "gemini-2.5-pro"))
+	require.True(t, enterpriseMemberGroupEligible(gemini, user, activeGroup(service.PlatformGemini)))
+	require.True(t, enterpriseMemberGroupEligible(gemini, user, activeGroup(service.PlatformAntigravity)))
+	require.False(t, enterpriseMemberGroupEligible(gemini, user, activeGroup(service.PlatformOpenAI)))
 }
 
 func TestEnterpriseMemberGroupEligibleIgnoresDisplayOnlyModelsList(t *testing.T) {
@@ -399,11 +399,11 @@ func TestEnterpriseMemberGroupEligibleIgnoresDisplayOnlyModelsList(t *testing.T)
 		},
 	}
 
-	require.True(t, enterpriseMemberGroupEligible(c, user, group, "claude-opus-4-8"),
+	require.True(t, enterpriseMemberGroupEligible(c, user, group),
 		"the custom /v1/models response list must not become a runtime scheduling authority")
 }
 
-func TestActivateEnterpriseMemberGroupForModelUsesFirstAuthorizedSnapshot(t *testing.T) {
+func TestActivateEnterpriseMemberGroupForModelUsesFirstModelEligibleCandidate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	memberID := int64(8)
 	key := &service.APIKey{ID: 17, UserID: 3, MemberID: &memberID, Member: &service.EnterpriseMember{ID: memberID, Version: 2}}
@@ -411,16 +411,49 @@ func TestActivateEnterpriseMemberGroupForModelUsesFirstAuthorizedSnapshot(t *tes
 	second := service.Group{ID: 12, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true, ModelsListConfig: service.GroupModelsListConfig{Enabled: true, Models: []string{"gpt-5"}}}
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
-	plan := &enterpriseMemberGroupPlan{apiKey: key, current: 0, candidates: []enterpriseMemberGroupCandidate{{group: first}, {group: second}}}
+	legacyCandidates := []enterpriseMemberGroupCandidate{{group: first, memberIndex: 0}, {group: second, memberIndex: 1}}
+	snapshotAgeMs := int64(2500)
+	plan := &enterpriseMemberGroupPlan{
+		apiKey:           key,
+		current:          0,
+		legacyCandidates: legacyCandidates,
+		candidates:       append([]enterpriseMemberGroupCandidate(nil), legacyCandidates...),
+		planner: enterpriseMemberRoutePlannerStub{plan: &service.EnterpriseMemberRoutePlan{
+			Model:  "gpt-5",
+			Source: service.EnterpriseMemberRoutePlanSourceLastKnownGood,
+			Candidates: []service.EnterpriseMemberRouteCandidateDecision{{
+				GroupID:                12,
+				Group:                  &second,
+				Reason:                 service.EnterpriseMemberRouteReasonEligible,
+				RoutePlanSnapshotAgeMs: &snapshotAgeMs,
+			}},
+		}},
+		admissionMode: service.EnterpriseMemberModelAdmissionEnforcePublished,
+	}
 	c.Set(enterpriseMemberGroupPlanKey, plan)
 
 	require.True(t, ActivateEnterpriseMemberGroupForModel(c, "gpt-5"))
 	requestKey, ok := GetAPIKeyFromContext(c)
 	require.True(t, ok)
-	require.Equal(t, int64(11), *requestKey.GroupID, "the display-only models list must not reorder runtime candidates")
+	require.Equal(t, int64(12), *requestKey.GroupID, "only the planner-qualified candidate may activate")
+	require.Len(t, requestKey.Member.Groups, 1)
+	require.Equal(t, int64(12), requestKey.Member.Groups[0].ID)
 	active, ok := service.ActiveGroupFromContext(c.Request.Context())
 	require.True(t, ok)
 	require.Equal(t, "gpt-5", active.RequestedModel)
+	require.Equal(t, 1, active.CandidateIndex, "the active context must preserve the original member binding index")
+	require.Equal(t, service.EnterpriseMemberRoutePlanSourceLastKnownGood, active.RoutePlanSource)
+	require.NotNil(t, active.RoutePlanSnapshotAgeMs)
+	require.Equal(t, snapshotAgeMs, *active.RoutePlanSnapshotAgeMs)
+}
+
+type enterpriseMemberRoutePlannerStub struct {
+	plan *service.EnterpriseMemberRoutePlan
+	err  error
+}
+
+func (s enterpriseMemberRoutePlannerStub) Plan(context.Context, service.EnterpriseMemberRouteInput) (*service.EnterpriseMemberRoutePlan, error) {
+	return s.plan, s.err
 }
 
 func TestActivateEnterpriseMemberGroupByIDRestoresOnlyAuthorizedCandidate(t *testing.T) {

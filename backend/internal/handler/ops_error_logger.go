@@ -226,6 +226,11 @@ func enqueueOpsErrorLog(ops *service.OpsService, entry *service.OpsInsertErrorLo
 		maybeLogOpsErrorLogDrop()
 		return
 	}
+	if err := service.SanitizeOpsRoutingAttemptsForQueue(entry); err != nil {
+		opsErrorLogDropped.Add(1)
+		maybeLogOpsErrorLogDrop()
+		return
+	}
 	select {
 	case <-opsErrorLogShutdownCh:
 		return
@@ -416,6 +421,10 @@ func estimateOpsErrorLogJobBytes(entry *service.OpsInsertErrorLogInput) int64 {
 	if entry.UpstreamErrorsJSON != nil {
 		size += len(*entry.UpstreamErrorsJSON)
 	}
+	size += len(entry.RoutingPlanSource)
+	if entry.RoutingAttemptsJSON != nil {
+		size += len(*entry.RoutingAttemptsJSON)
+	}
 	return int64(size)
 }
 
@@ -486,7 +495,7 @@ func markOpsRoutingCapacityLimited(c *gin.Context) {
 		return
 	}
 	c.Set(opsRoutingCapacityLimitedKey, true)
-	service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapacityExhausted)
+	markEnterpriseMemberGroupRetryFromContext(c, service.OpsGroupRetryReasonCapacityExhausted)
 }
 
 func markOpsRoutingCapacityLimitedIfNoAvailable(c *gin.Context, err error) {
@@ -983,6 +992,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			applyOpsFailureClassification(entry, recoveredClassification)
 			applyOpsLatencyFieldsFromContext(c, entry)
 			applyOpsUpstreamFieldsFromContext(c, entry)
+			applyOpsRoutingEvidenceFromContext(c, entry)
 
 			if apiKey != nil {
 				entry.APIKeyID = &apiKey.ID
@@ -1130,6 +1140,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		applyOpsFailureClassification(entry, failureClassification)
 		applyOpsLatencyFieldsFromContext(c, entry)
 		applyOpsUpstreamFieldsFromContext(c, entry)
+		applyOpsRoutingEvidenceFromContext(c, entry)
 
 		if apiKey != nil {
 			entry.APIKeyID = &apiKey.ID
@@ -1286,6 +1297,7 @@ func logOpsStreamError(c *gin.Context, ops *service.OpsService, wireStatus int) 
 	}
 	applyOpsFailureClassification(entry, failureClassification)
 	applyOpsLatencyFieldsFromContext(c, entry)
+	applyOpsRoutingEvidenceFromContext(c, entry)
 
 	if apiKey != nil {
 		entry.APIKeyID = &apiKey.ID
@@ -1395,6 +1407,96 @@ func applyOpsUpstreamFieldsFromContext(c *gin.Context, entry *service.OpsInsertE
 			}
 		}
 	}
+}
+
+func applyOpsRoutingEvidenceFromContext(c *gin.Context, entry *service.OpsInsertErrorLogInput) {
+	if c == nil || entry == nil {
+		return
+	}
+	if trace, ok := middleware2.GetEnterpriseMemberRouteShadowTrace(c); ok {
+		if entry.RoutingPlanSource == "" {
+			entry.RoutingPlanSource = string(trace.PlanSource)
+		}
+		for _, groupID := range trace.PlannedGroupIDs {
+			if groupID <= 0 {
+				continue
+			}
+			entry.RoutingAttempts = append(entry.RoutingAttempts, &service.OpsRoutingAttemptEvidence{
+				Stage:             service.OpsRoutingAttemptStagePlannedCandidate,
+				Outcome:           service.OpsRoutingAttemptOutcomePlanned,
+				GroupID:           groupID,
+				ModelOwnerGroupID: groupID,
+				RequestedModel:    trace.Model,
+			})
+		}
+		for _, rejected := range trace.Rejected {
+			if rejected.GroupID <= 0 {
+				continue
+			}
+			entry.RoutingAttempts = append(entry.RoutingAttempts, &service.OpsRoutingAttemptEvidence{
+				Stage:          service.OpsRoutingAttemptStagePrunedCandidate,
+				Outcome:        service.OpsRoutingAttemptOutcomePruned,
+				GroupID:        rejected.GroupID,
+				RequestedModel: trace.Model,
+				Reason:         string(rejected.Reason),
+			})
+		}
+	}
+
+	if history := service.OpsRoutingAttemptsFromContext(c); len(history) > 0 {
+		entry.RoutingAttempts = append(entry.RoutingAttempts, history...)
+	}
+
+	var actual *service.OpsRoutingAttemptEvidence
+	if c.Request != nil {
+		if active, ok := service.ActiveGroupFromContext(c.Request.Context()); ok && active != nil {
+			if entry.RoutingPlanSource == "" && active.ModelPlanApplied {
+				entry.RoutingPlanSource = string(active.RoutePlanSource)
+			}
+			if entry.RoutingSnapshotAgeMs == nil && active.RoutePlanSnapshotAgeMs != nil {
+				entry.RoutingSnapshotAgeMs = active.RoutePlanSnapshotAgeMs
+			}
+			actual = &service.OpsRoutingAttemptEvidence{
+				Stage:          service.OpsRoutingAttemptStageActualAttempt,
+				Outcome:        service.OpsRoutingAttemptOutcomeSelected,
+				GroupID:        active.GroupID,
+				AttemptNumber:  active.AttemptNumber,
+				CandidateIndex: active.CandidateIndex,
+				Platform:       active.Platform,
+				RequestedModel: active.RequestedModel,
+				MappedModel:    active.MappedModel,
+			}
+		}
+	}
+	if actual == nil && entry.GroupID != nil && *entry.GroupID > 0 {
+		actual = &service.OpsRoutingAttemptEvidence{
+			Stage:   service.OpsRoutingAttemptStageActualAttempt,
+			Outcome: service.OpsRoutingAttemptOutcomeSelected,
+			GroupID: *entry.GroupID,
+		}
+	}
+	if actual == nil {
+		return
+	}
+	if result, ok := service.GroupAttemptResultFromContext(c); ok {
+		actual.Outcome = string(result.Outcome)
+		actual.Reason = string(result.Reason)
+		actual.SafeToReplay = opsBoolPtr(result.SafeToReplay)
+		actual.ResponseCommitted = opsBoolPtr(result.ResponseCommitted)
+		actual.OutcomeUnknown = opsBoolPtr(result.OutcomeUnknown)
+		actual.UnsafeReason = string(result.UnsafeReason)
+		if actual.GroupID == 0 {
+			actual.GroupID = result.GroupID
+		}
+		if actual.AttemptNumber == 0 {
+			actual.AttemptNumber = result.AttemptNumber
+		}
+	}
+	entry.RoutingAttempts = append(entry.RoutingAttempts, actual)
+}
+
+func opsBoolPtr(value bool) *bool {
+	return &value
 }
 
 func getContextLatencyMs(c *gin.Context, key string) *int64 {

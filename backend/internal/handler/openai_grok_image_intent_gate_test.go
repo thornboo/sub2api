@@ -1,12 +1,14 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -75,7 +77,37 @@ func TestOpenAIGatewayHandlerResponses_PassiveNamespaceDoesNotTrigger403(t *test
 		"passive image_gen namespace with tool_choice=auto should not trigger 403 (#4447)")
 }
 
+func TestOpenAIGatewayHandlerResponses_ImagePermissionGateMarksOnlyEnterpriseMemberRetry(t *testing.T) {
+	body := `{"model":"gpt-image-2","input":"draw a cat"}`
+
+	ordinaryRecorder, ordinaryContext := runOpenAIResponsesImagePermissionGateContextTest(t, service.PlatformOpenAI, body, false)
+	require.Equal(t, http.StatusForbidden, ordinaryRecorder.Code)
+	_, ordinaryRetry := service.GroupAttemptResultFromContext(ordinaryContext)
+	require.False(t, ordinaryRetry, "ordinary keys must not gain enterprise cross-group replay state")
+
+	memberRecorder, memberContext := runOpenAIResponsesImagePermissionGateContextTest(t, service.PlatformOpenAI, body, true)
+	require.Equal(t, http.StatusForbidden, memberRecorder.Code)
+	attempt, memberRetry := service.GroupAttemptResultFromContext(memberContext)
+	require.True(t, memberRetry)
+	require.Equal(t, service.OpsGroupRetryReasonCapabilityMismatch, attempt.Reason)
+}
+
+func TestOpenAIGatewayHandlerResponses_ImagePermissionGateDoesNotChangeShadowRouting(t *testing.T) {
+	body := `{"model":"gpt-image-2","input":"draw a cat"}`
+
+	recorder, requestContext := runOpenAIResponsesImagePermissionGateContextTest(t, service.PlatformOpenAI, body, true, false)
+
+	require.Equal(t, http.StatusForbidden, recorder.Code)
+	_, retryMarked := service.GroupAttemptResultFromContext(requestContext)
+	require.False(t, retryMarked, "shadow mode must record planning evidence without changing the legacy terminal group")
+}
+
 func runOpenAIResponsesImagePermissionGateTest(t *testing.T, platform string, body string) *httptest.ResponseRecorder {
+	recorder, _ := runOpenAIResponsesImagePermissionGateContextTest(t, platform, body, false)
+	return recorder
+}
+
+func runOpenAIResponsesImagePermissionGateContextTest(t *testing.T, platform string, body string, enterpriseMember bool, modelPlanAppliedOverride ...bool) (*httptest.ResponseRecorder, *gin.Context) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -85,7 +117,7 @@ func runOpenAIResponsesImagePermissionGateTest(t *testing.T, platform string, bo
 
 	groupID := int64(6301)
 	userID := int64(6302)
-	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+	apiKey := &service.APIKey{
 		ID:      6303,
 		GroupID: &groupID,
 		Group: &service.Group{
@@ -94,7 +126,28 @@ func runOpenAIResponsesImagePermissionGateTest(t *testing.T, platform string, bo
 			AllowImageGeneration: false,
 		},
 		User: &service.User{ID: userID, Status: service.StatusActive},
-	})
+	}
+	if enterpriseMember {
+		memberID := int64(6304)
+		apiKey.MemberID = &memberID
+		apiKey.Member = &service.EnterpriseMember{ID: memberID, Status: service.EnterpriseMemberStatusActive}
+		modelPlanApplied := true
+		if len(modelPlanAppliedOverride) > 0 {
+			modelPlanApplied = modelPlanAppliedOverride[0]
+		}
+		mode := service.EnterpriseMemberModelAdmissionEnforcePublished
+		if !modelPlanApplied {
+			mode = service.EnterpriseMemberModelAdmissionShadowPublished
+		}
+		active := &service.ActiveGroupContext{
+			GroupID:          groupID,
+			AttemptNumber:    1,
+			RoutePlanMode:    mode,
+			ModelPlanApplied: modelPlanApplied,
+		}
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.ActiveGroup, active))
+	}
+	c.Set(string(middleware2.ContextKeyAPIKey), apiKey)
 	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: userID, Concurrency: 1})
 
 	h := &OpenAIGatewayHandler{
@@ -109,5 +162,5 @@ func runOpenAIResponsesImagePermissionGateTest(t *testing.T, platform string, bo
 	}
 
 	h.Responses(c)
-	return rec
+	return rec, c
 }

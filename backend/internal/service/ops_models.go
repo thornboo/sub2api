@@ -100,6 +100,11 @@ type OpsErrorLogDetail struct {
 	UpstreamErrorDetail  string `json:"upstream_error_detail,omitempty"`
 	UpstreamErrors       string `json:"upstream_errors,omitempty"` // JSON array (string) for display/parsing
 
+	// Routing evidence (admin/audit only).
+	RoutingPlanSource    string                       `json:"routing_plan_source,omitempty"`
+	RoutingSnapshotAgeMs *int64                       `json:"routing_snapshot_age_ms,omitempty"`
+	RoutingAttempts      []*OpsRoutingAttemptEvidence `json:"routing_attempts,omitempty"`
+
 	// Timings (optional)
 	AuthLatencyMs      *int64 `json:"auth_latency_ms"`
 	RoutingLatencyMs   *int64 `json:"routing_latency_ms"`

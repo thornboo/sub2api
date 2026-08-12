@@ -19,10 +19,14 @@ func TestGeminiV1BetaListModelsMarksCompositeCandidateForEnterpriseFallback(t *t
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
 	groupID := int64(11)
-	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
-		GroupID: &groupID,
-		Group:   &service.Group{ID: groupID, Platform: service.PlatformComposite},
-	})
+	memberID := int64(9)
+	apiKey := &service.APIKey{
+		GroupID:  &groupID,
+		MemberID: &memberID,
+		Group:    &service.Group{ID: groupID, Platform: service.PlatformComposite},
+	}
+	c.Set(string(middleware.ContextKeyAPIKey), apiKey)
+	attachAppliedEnterpriseMemberEnforcePlan(c, apiKey)
 
 	(&GatewayHandler{}).GeminiV1BetaListModels(c)
 

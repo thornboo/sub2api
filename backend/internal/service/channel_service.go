@@ -385,6 +385,14 @@ func (s *ChannelService) invalidateCache() {
 	}
 }
 
+// InvalidateRoutingEligibilityCache is used after a cluster channel/group
+// revision so another instance cannot retain a stale publication projection.
+func (s *ChannelService) InvalidateRoutingEligibilityCache() {
+	if s != nil {
+		s.invalidateCache()
+	}
+}
+
 // matchWildcard 在通配符定价中查找匹配项（最先匹配到优先）
 func (c *channelCache) matchWildcard(groupID int64, platform, modelLower string) *ChannelModelPricing {
 	gpKey := channelGroupPlatformKey{groupID: groupID, platform: platform}

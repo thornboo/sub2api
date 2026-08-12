@@ -127,6 +127,15 @@ type OpsInsertErrorLogInput struct {
 	// It is set by OpsService.RecordError before persisting.
 	UpstreamErrorsJSON *string
 
+	RoutingPlanSource    string
+	RoutingSnapshotAgeMs *int64
+	// RoutingAttempts captures only bounded routing diagnostics: planned,
+	// pruned and actually attempted group IDs plus closed terminal reasons.
+	RoutingAttempts []*OpsRoutingAttemptEvidence
+	// RoutingAttemptsJSON is the sanitized JSON string stored into
+	// ops_error_logs.routing_attempts. It is set before persistence.
+	RoutingAttemptsJSON *string
+
 	AuthLatencyMs      *int64
 	RoutingLatencyMs   *int64
 	UpstreamLatencyMs  *int64

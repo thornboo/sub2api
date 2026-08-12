@@ -58,10 +58,207 @@ type cachedNativeModelProtocolRouting struct {
 	expiresAt int64
 }
 
+type EnterpriseMemberModelAdmissionMode string
+
+const (
+	EnterpriseMemberModelAdmissionLegacyOrderOnly  EnterpriseMemberModelAdmissionMode = "legacy_order_only"
+	EnterpriseMemberModelAdmissionShadowPublished  EnterpriseMemberModelAdmissionMode = "shadow_published"
+	EnterpriseMemberModelAdmissionEnforcePublished EnterpriseMemberModelAdmissionMode = "enforce_published"
+)
+
+const (
+	EnterpriseMemberModelAdmissionLegacyRetirementStatusNotScheduled = "not_scheduled"
+	EnterpriseMemberModelAdmissionLegacyRetirementStatusScheduled    = "scheduled"
+	EnterpriseMemberModelAdmissionLegacyRetirementStatusInvalid      = "invalid"
+	EnterpriseMemberModelAdmissionLegacyRetirementKindDate           = "date"
+	EnterpriseMemberModelAdmissionLegacyRetirementKindVersion        = "version"
+	EnterpriseMemberModelAdmissionPhase5GatePendingReason            = "phase5_production_gate_pending"
+	EnterpriseMemberModelAdmissionDefaultCutoverGate                 = EnterpriseMemberModelAdmissionPhase5GatePendingReason
+	enterpriseMemberModelAdmissionDefaultCutoverReadyGate            = "phase5_production_evidence_verified_v1"
+)
+
+type EnterpriseMemberModelAdmissionLegacyRetirementStatus struct {
+	Deprecated              bool   `json:"deprecated"`
+	EmergencyRollbackOnly   bool   `json:"emergency_rollback_only"`
+	Warning                 bool   `json:"warning"`
+	UsageTotal              uint64 `json:"usage_total"`
+	RetirementTarget        string `json:"retirement_target"`
+	RetirementTargetKind    string `json:"retirement_target_kind"`
+	RetirementStatus        string `json:"retirement_status"`
+	RetirementReason        string `json:"retirement_reason"`
+	Phase5Ready             bool   `json:"phase5_ready"`
+	Phase5Reason            string `json:"phase5_reason"`
+	RiskReductionOnlyNotice string `json:"risk_reduction_only_notice"`
+}
+
+func DefaultEnterpriseMemberModelAdmissionModeForNewInstall() EnterpriseMemberModelAdmissionMode {
+	if EnterpriseMemberModelAdmissionDefaultCutoverGate == enterpriseMemberModelAdmissionDefaultCutoverReadyGate {
+		return EnterpriseMemberModelAdmissionEnforcePublished
+	}
+	return EnterpriseMemberModelAdmissionShadowPublished
+}
+
+func ValidateEnterpriseMemberModelAdmissionLegacyRetirementTarget(raw string) (string, string, error) {
+	target := strings.TrimSpace(raw)
+	if target == "" {
+		return "", "", nil
+	}
+	if _, err := time.Parse("2006-01-02", target); err == nil {
+		return target, EnterpriseMemberModelAdmissionLegacyRetirementKindDate, nil
+	}
+	version := strings.TrimPrefix(target, "v")
+	parts := strings.Split(version, ".")
+	if len(parts) == 3 {
+		valid := true
+		for _, part := range parts {
+			if part == "" {
+				valid = false
+				break
+			}
+			for _, ch := range part {
+				if ch < '0' || ch > '9' {
+					valid = false
+					break
+				}
+			}
+		}
+		if valid {
+			return target, EnterpriseMemberModelAdmissionLegacyRetirementKindVersion, nil
+		}
+	}
+	return "", "", fmt.Errorf("retirement target must be an ISO date YYYY-MM-DD or semantic version vX.Y.Z")
+}
+
+func EnterpriseMemberModelAdmissionLegacyRetirementStatusForTarget(raw string) EnterpriseMemberModelAdmissionLegacyRetirementStatus {
+	target, kind, err := ValidateEnterpriseMemberModelAdmissionLegacyRetirementTarget(raw)
+	status := EnterpriseMemberModelAdmissionLegacyRetirementStatus{
+		Deprecated:              true,
+		EmergencyRollbackOnly:   true,
+		UsageTotal:              GetEnterpriseMemberMetricsSnapshot().RoutePlanningLegacyEffectiveTotal,
+		RetirementTarget:        target,
+		RetirementTargetKind:    kind,
+		Phase5Ready:             false,
+		Phase5Reason:            EnterpriseMemberModelAdmissionPhase5GatePendingReason,
+		RiskReductionOnlyNotice: "legacy_order_only is deprecated and must only shrink production risk as an emergency rollback; it must not be used to expand routing behavior.",
+	}
+	switch {
+	case err != nil:
+		status.RetirementTarget = strings.TrimSpace(raw)
+		status.RetirementStatus = EnterpriseMemberModelAdmissionLegacyRetirementStatusInvalid
+		status.RetirementReason = "invalid_retirement_target"
+	case target == "":
+		status.RetirementStatus = EnterpriseMemberModelAdmissionLegacyRetirementStatusNotScheduled
+		status.RetirementReason = "retirement_target_missing"
+	default:
+		status.RetirementStatus = EnterpriseMemberModelAdmissionLegacyRetirementStatusScheduled
+	}
+	return status
+}
+
+// EnterpriseMemberModelAdmissionSettingReader keeps the enterprise member
+// router independent from the concrete settings service.
+type EnterpriseMemberModelAdmissionSettingReader interface {
+	GetEnterpriseMemberModelAdmissionMode(ctx context.Context) EnterpriseMemberModelAdmissionMode
+}
+
+type EnterpriseMemberModelAdmissionRequestResolver interface {
+	ResolveEnterpriseMemberModelAdmissionMode(ctx context.Context, input EnterpriseMemberModelAdmissionRolloutInput) EnterpriseMemberModelAdmissionRuntime
+}
+
+// EnterpriseMemberModelAdmissionRuntime is the effective mode plus source used
+// by admin surfaces and diagnostics.
+type EnterpriseMemberModelAdmissionRuntime struct {
+	Mode      EnterpriseMemberModelAdmissionMode
+	Source    string
+	Readiness EnterpriseMemberModelAdmissionEnforceReadiness
+	Rollout   EnterpriseMemberModelAdmissionRolloutState
+	Snapshot  EnterpriseMemberModelAdmissionGateSnapshot
+}
+
+func enforceSafeEnterpriseMemberModelAdmission(ctx context.Context, mode EnterpriseMemberModelAdmissionMode, source string, rollout EnterpriseMemberModelAdmissionRolloutPolicy, generatedAt, expiresAt time.Time) EnterpriseMemberModelAdmissionRuntime {
+	readiness := EvaluateEnterpriseMemberModelAdmissionEnforceReadiness(ctx)
+	rolloutState := EvaluateEnterpriseMemberModelAdmissionRollout(rollout, EnterpriseMemberModelAdmissionRolloutInput{})
+	snapshot := BuildEnterpriseMemberModelAdmissionGateSnapshot(readiness, rollout, source, generatedAt, expiresAt)
+	readiness.Snapshot = snapshot
+	runtime := EnterpriseMemberModelAdmissionRuntime{Mode: mode, Source: source, Readiness: readiness, Rollout: rolloutState, Snapshot: snapshot}
+	if mode == EnterpriseMemberModelAdmissionEnforcePublished && (!rolloutState.Valid || rolloutState.AutoStopped) {
+		if !rolloutState.Valid {
+			source = "rollout_invalid"
+		} else {
+			source = "auto_stop"
+		}
+		runtime.Mode = EnterpriseMemberModelAdmissionShadowPublished
+		runtime.Source = source
+		return runtime
+	}
+	if mode == EnterpriseMemberModelAdmissionEnforcePublished && !hasEnterpriseMemberModelAdmissionRolloutTarget(rollout) {
+		runtime.Mode = EnterpriseMemberModelAdmissionShadowPublished
+		runtime.Source = "rollout_shadow"
+		runtime.Rollout.Reason = EnterpriseMemberModelAdmissionRolloutNoTargetReason
+		return runtime
+	}
+	if mode == EnterpriseMemberModelAdmissionEnforcePublished && !readiness.CanaryReady {
+		blockSource := "enforce_blocked"
+		if readiness.AutoStop.Stopped {
+			blockSource = readinessAutoStopSource(readiness)
+		}
+		runtime.Mode = EnterpriseMemberModelAdmissionShadowPublished
+		runtime.Source = blockSource
+		return runtime
+	}
+	if mode == EnterpriseMemberModelAdmissionEnforcePublished && rollout.Percentage > 0 && !readiness.ExpansionReady {
+		runtime.Mode = EnterpriseMemberModelAdmissionShadowPublished
+		runtime.Source = "expansion_blocked"
+		return runtime
+	}
+	return runtime
+}
+
+type cachedEnterpriseMemberModelAdmission struct {
+	runtime       EnterpriseMemberModelAdmissionRuntime
+	rolloutPolicy EnterpriseMemberModelAdmissionRolloutPolicy
+	expiresAt     int64
+}
+
+func warnIfEnterpriseMemberLegacyAdmissionEffective(runtime EnterpriseMemberModelAdmissionRuntime) EnterpriseMemberModelAdmissionRuntime {
+	if runtime.Mode != EnterpriseMemberModelAdmissionLegacyOrderOnly {
+		return runtime
+	}
+	RecordEnterpriseMemberLegacyAdmissionEffective()
+	slog.Warn(
+		"deprecated enterprise member legacy admission mode is effective",
+		"mode", string(runtime.Mode),
+		"source", runtime.Source,
+		"phase5_gate", EnterpriseMemberModelAdmissionDefaultCutoverGate,
+	)
+	return runtime
+}
+
+func hasEnterpriseMemberModelAdmissionRolloutTarget(policy EnterpriseMemberModelAdmissionRolloutPolicy) bool {
+	normalized, err := NormalizeEnterpriseMemberModelAdmissionRolloutPolicy(policy)
+	if err != nil {
+		return false
+	}
+	return normalized.Percentage > 0 || len(normalized.EnterpriseUserIDs) > 0 || len(normalized.MemberIDs) > 0 || normalized.AutoStop
+}
+
+func readinessAutoStopSource(readiness EnterpriseMemberModelAdmissionEnforceReadiness) string {
+	if readiness.AutoStop.Source == EnterpriseMemberModelAdmissionAutoStopSourceManual {
+		return "manual_auto_stop"
+	}
+	return "metric_auto_stop"
+}
+
 const (
 	nativeModelProtocolRoutingCacheTTL  = 5 * time.Second
 	nativeModelProtocolRoutingErrorTTL  = 5 * time.Second
 	nativeModelProtocolRoutingDBTimeout = 5 * time.Second
+)
+
+const (
+	enterpriseMemberModelAdmissionCacheTTL  = 5 * time.Second
+	enterpriseMemberModelAdmissionErrorTTL  = 5 * time.Second
+	enterpriseMemberModelAdmissionDBTimeout = 5 * time.Second
 )
 
 var backendModeCache atomic.Value // *cachedBackendMode
@@ -790,6 +987,198 @@ func (s *SettingService) GetNativeModelProtocolRoutingRuntime(ctx context.Contex
 
 func (s *SettingService) IsNativeModelProtocolRoutingEnabled(ctx context.Context) bool {
 	return s.GetNativeModelProtocolRoutingRuntime(ctx).Enabled
+}
+
+func normalizeEnterpriseMemberModelAdmissionMode(raw string) (EnterpriseMemberModelAdmissionMode, bool) {
+	switch EnterpriseMemberModelAdmissionMode(strings.ToLower(strings.TrimSpace(raw))) {
+	case EnterpriseMemberModelAdmissionLegacyOrderOnly:
+		return EnterpriseMemberModelAdmissionLegacyOrderOnly, true
+	case EnterpriseMemberModelAdmissionShadowPublished, "":
+		return EnterpriseMemberModelAdmissionShadowPublished, true
+	case EnterpriseMemberModelAdmissionEnforcePublished:
+		return EnterpriseMemberModelAdmissionEnforcePublished, true
+	default:
+		return EnterpriseMemberModelAdmissionShadowPublished, false
+	}
+}
+
+func NormalizeEnterpriseMemberModelAdmissionModeForSettings(raw string) (EnterpriseMemberModelAdmissionMode, bool) {
+	return normalizeEnterpriseMemberModelAdmissionMode(raw)
+}
+
+func (s *SettingService) enterpriseMemberModelAdmissionConfigDefault() (EnterpriseMemberModelAdmissionMode, string) {
+	if s == nil || s.cfg == nil {
+		return EnterpriseMemberModelAdmissionShadowPublished, "config"
+	}
+	mode, ok := normalizeEnterpriseMemberModelAdmissionMode(s.cfg.Gateway.EnterpriseMemberModelAdmissionMode)
+	if !ok {
+		return EnterpriseMemberModelAdmissionShadowPublished, "config_invalid"
+	}
+	return mode, "config"
+}
+
+func enterpriseMemberModelAdmissionRolloutFromSettings(settings map[string]string) (EnterpriseMemberModelAdmissionRolloutPolicy, string) {
+	raw, ok := settings[SettingKeyEnterpriseMemberModelAdmissionRolloutPolicy]
+	if !ok || strings.TrimSpace(raw) == "" {
+		return DefaultEnterpriseMemberModelAdmissionRolloutPolicy(), "default"
+	}
+	policy, err := ParseEnterpriseMemberModelAdmissionRolloutPolicy(raw)
+	if err != nil {
+		return EnterpriseMemberModelAdmissionRolloutPolicy{Percentage: -1}, "settings_invalid"
+	}
+	return policy, "settings"
+}
+
+// GetEnterpriseMemberModelAdmissionRuntime returns the effective runtime mode.
+// Missing DB values inherit the deployment config, while unreadable settings use
+// the last known value or the migration-safe shadow default.
+func (s *SettingService) GetEnterpriseMemberModelAdmissionRuntime(ctx context.Context) EnterpriseMemberModelAdmissionRuntime {
+	mode, source := s.enterpriseMemberModelAdmissionConfigDefault()
+	defaultRollout := DefaultEnterpriseMemberModelAdmissionRolloutPolicy()
+	now := time.Now()
+	fallback := enforceSafeEnterpriseMemberModelAdmission(ctx, mode, source, defaultRollout, now, now.Add(enterpriseMemberModelAdmissionCacheTTL))
+	if s == nil || s.settingRepo == nil {
+		return fallbackWithAdmissionSnapshotAge(fallback)
+	}
+	if cached, ok := s.enterpriseMemberAdmissionCache.Load().(*cachedEnterpriseMemberModelAdmission); ok && cached != nil {
+		if time.Now().UnixNano() < cached.expiresAt {
+			return cachedEnterpriseMemberAdmissionRuntimeWithAge(cached)
+		}
+	}
+
+	value, _, _ := s.enterpriseMemberAdmissionSF.Do("enterprise_member_model_admission", func() (any, error) {
+		var stale *cachedEnterpriseMemberModelAdmission
+		if cached, ok := s.enterpriseMemberAdmissionCache.Load().(*cachedEnterpriseMemberModelAdmission); ok && cached != nil {
+			if time.Now().UnixNano() < cached.expiresAt {
+				return cachedEnterpriseMemberAdmissionRuntimeWithAge(cached), nil
+			}
+			stale = cached
+		}
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), enterpriseMemberModelAdmissionDBTimeout)
+		defer cancel()
+
+		raw, err := s.settingRepo.GetValue(dbCtx, SettingKeyEnterpriseMemberModelAdmissionMode)
+		runtime := fallback
+		rolloutPolicy := defaultRollout
+		rolloutSource := "default"
+		if rawRollout, rolloutErr := s.settingRepo.GetValue(dbCtx, SettingKeyEnterpriseMemberModelAdmissionRolloutPolicy); rolloutErr == nil {
+			if parsed, parseErr := ParseEnterpriseMemberModelAdmissionRolloutPolicy(rawRollout); parseErr == nil {
+				rolloutPolicy = parsed
+				rolloutSource = "settings"
+			} else {
+				rolloutPolicy = EnterpriseMemberModelAdmissionRolloutPolicy{Percentage: -1}
+				rolloutSource = "settings_invalid"
+			}
+		} else if !errors.Is(rolloutErr, ErrSettingNotFound) {
+			slog.Warn("failed to get enterprise member model admission rollout policy setting", "error", rolloutErr)
+			if stale != nil {
+				rolloutPolicy = stale.rolloutPolicy
+				rolloutSource = "stale"
+			}
+		}
+		ttl := enterpriseMemberModelAdmissionCacheTTL
+		switch {
+		case err == nil:
+			mode, ok := normalizeEnterpriseMemberModelAdmissionMode(raw)
+			runtime.Mode = mode
+			if ok {
+				runtime.Source = "settings"
+			} else {
+				runtime.Source = "settings_invalid"
+			}
+		case errors.Is(err, ErrSettingNotFound):
+			// Inherit config until an administrator explicitly persists a mode.
+		default:
+			slog.Warn("failed to get enterprise member model admission mode setting", "error", err)
+			if stale != nil {
+				runtime.Mode = EnterpriseMemberModelAdmissionShadowPublished
+				runtime.Source = "error_fallback"
+				rolloutPolicy = stale.rolloutPolicy
+			} else {
+				runtime.Mode = EnterpriseMemberModelAdmissionShadowPublished
+				runtime.Source = "error_fallback"
+			}
+			ttl = enterpriseMemberModelAdmissionErrorTTL
+		}
+		generatedAt := time.Now()
+		expiresAt := generatedAt.Add(ttl)
+		runtime = enforceSafeEnterpriseMemberModelAdmission(ctx, runtime.Mode, runtime.Source, rolloutPolicy, generatedAt, expiresAt)
+		runtime.Rollout.Source = rolloutSource
+		runtime.Readiness.Snapshot = runtime.Snapshot
+		s.enterpriseMemberAdmissionCache.Store(&cachedEnterpriseMemberModelAdmission{
+			runtime:       runtime,
+			rolloutPolicy: rolloutPolicy,
+			expiresAt:     expiresAt.UnixNano(),
+		})
+		return runtime, nil
+	})
+	if runtime, ok := value.(EnterpriseMemberModelAdmissionRuntime); ok {
+		return fallbackWithAdmissionSnapshotAge(runtime)
+	}
+	return fallbackWithAdmissionSnapshotAge(fallback)
+}
+
+func cachedEnterpriseMemberAdmissionRuntimeWithAge(cached *cachedEnterpriseMemberModelAdmission) EnterpriseMemberModelAdmissionRuntime {
+	if cached == nil {
+		return EnterpriseMemberModelAdmissionRuntime{Mode: EnterpriseMemberModelAdmissionShadowPublished, Source: "error_fallback"}
+	}
+	return fallbackWithAdmissionSnapshotAge(cached.runtime)
+}
+
+func fallbackWithAdmissionSnapshotAge(runtime EnterpriseMemberModelAdmissionRuntime) EnterpriseMemberModelAdmissionRuntime {
+	runtime.Snapshot = runtime.Snapshot.WithAge(time.Now())
+	runtime.Readiness.Snapshot = runtime.Snapshot
+	return warnIfEnterpriseMemberLegacyAdmissionEffective(runtime)
+}
+
+func (s *SettingService) GetEnterpriseMemberModelAdmissionMode(ctx context.Context) EnterpriseMemberModelAdmissionMode {
+	return s.GetEnterpriseMemberModelAdmissionRuntime(ctx).Mode
+}
+
+func (s *SettingService) ResolveEnterpriseMemberModelAdmissionMode(ctx context.Context, input EnterpriseMemberModelAdmissionRolloutInput) EnterpriseMemberModelAdmissionRuntime {
+	runtime := s.GetEnterpriseMemberModelAdmissionRuntime(ctx)
+	if runtime.Mode != EnterpriseMemberModelAdmissionEnforcePublished {
+		return runtime
+	}
+	rolloutState := EvaluateEnterpriseMemberModelAdmissionRollout(runtime.Rollout.Policy, input)
+	rolloutState.Source = runtime.Rollout.Source
+	runtime.Rollout = rolloutState
+	if !rolloutState.Valid {
+		runtime.Mode = EnterpriseMemberModelAdmissionShadowPublished
+		runtime.Source = "rollout_invalid"
+		return runtime
+	}
+	if rolloutState.AutoStopped {
+		runtime.Mode = EnterpriseMemberModelAdmissionShadowPublished
+		runtime.Source = "auto_stop"
+		return runtime
+	}
+	readiness := runtime.Readiness
+	runtime.Readiness = readiness
+	if !readiness.CanaryReady || readiness.AutoStop.Stopped {
+		runtime.Mode = EnterpriseMemberModelAdmissionShadowPublished
+		if readiness.AutoStop.Stopped {
+			runtime.Source = readinessAutoStopSource(readiness)
+		} else {
+			runtime.Source = "enforce_blocked"
+		}
+		return runtime
+	}
+	if !rolloutState.Matched {
+		runtime.Mode = EnterpriseMemberModelAdmissionShadowPublished
+		runtime.Source = "rollout_shadow"
+		return runtime
+	}
+	if rolloutState.MatchedBy == "stable_hash" && !readiness.ExpansionReady {
+		runtime.Mode = EnterpriseMemberModelAdmissionShadowPublished
+		runtime.Source = "expansion_blocked"
+		return runtime
+	}
+	runtime.Source = runtime.Source + ":rollout_" + rolloutState.MatchedBy
+	return runtime
 }
 
 type gatewayForwardingSettingsResult struct {

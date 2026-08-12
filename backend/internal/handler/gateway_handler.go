@@ -1921,7 +1921,7 @@ func (h *GatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotT
 func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, platform string, streamStarted bool) {
 	if !streamStarted {
 		if reason, ok := service.OpsGroupRetryReasonForFailoverError(failoverErr); ok {
-			service.MarkOpsGroupRetry(c, reason)
+			markEnterpriseMemberGroupRetryFromContext(c, reason)
 		}
 	}
 	statusCode := failoverErr.StatusCode
@@ -1969,7 +1969,7 @@ func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *se
 func (h *GatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCode int, streamStarted bool) {
 	if !streamStarted {
 		if reason, ok := service.OpsGroupRetryReasonForStatus(statusCode); ok {
-			service.MarkOpsGroupRetry(c, reason)
+			markEnterpriseMemberGroupRetryFromContext(c, reason)
 		}
 	}
 	status, errType, errMsg := h.mapUpstreamError(statusCode)

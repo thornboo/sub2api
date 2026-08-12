@@ -356,6 +356,72 @@ export function deriveWeChatConnectStoredMode(
  * System settings interface
  */
 export type ScheduleStrategy = "strict_priority" | "cost_first" | string;
+export type EnterpriseMemberModelAdmissionMode =
+  | "legacy_order_only"
+  | "shadow_published"
+  | "enforce_published";
+export type EnterpriseMemberModelAdmissionSource =
+  | "settings"
+  | "config"
+  | "settings_invalid"
+  | "config_invalid"
+  | "error_fallback"
+  | "enforce_blocked"
+  | string;
+
+export interface EnterpriseMemberModelAdmissionReadinessCondition {
+  name?: string;
+  key?: string;
+  ready: boolean;
+  label?: string;
+  reason?: string;
+  source?: string;
+  details?: string;
+  detail?: string;
+}
+
+export interface EnterpriseMemberModelAdmissionReadiness {
+  ready?: boolean;
+  reason?: string;
+  source?: string;
+  auto_stopped?: boolean;
+  conditions?: EnterpriseMemberModelAdmissionReadinessCondition[];
+  evaluated_at?: string;
+}
+
+export interface EnterpriseMemberModelAdmissionRolloutPolicy {
+  enterprise_user_ids?: number[];
+  member_ids?: number[];
+  percentage?: number;
+  salt?: string;
+  auto_stop?: boolean;
+}
+
+export interface EnterpriseMemberModelAdmissionRolloutState {
+  policy: EnterpriseMemberModelAdmissionRolloutPolicy;
+  source: "settings" | "config" | "default" | "runtime" | string;
+  valid: boolean;
+  reason?: string;
+  matched?: boolean;
+  matched_by?: string;
+  hash_bucket?: number;
+  stable_hash_percent: number;
+  auto_stopped: boolean;
+}
+
+export interface EnterpriseMemberModelAdmissionLegacyStatus {
+  deprecated: boolean;
+  emergency_rollback_only: boolean;
+  warning: boolean;
+  usage_total: number;
+  retirement_target: string;
+  retirement_target_kind: "date" | "version" | "" | string;
+  retirement_status: "not_scheduled" | "scheduled" | "invalid" | string;
+  retirement_reason?: string;
+  phase5_ready: boolean;
+  phase5_reason: string;
+  risk_reduction_only_notice: string;
+}
 
 export interface SystemSettings {
   // Registration settings
@@ -580,6 +646,14 @@ export interface SystemSettings {
   // Gateway forwarding behavior
   native_model_protocol_routing_enabled: boolean;
   native_model_protocol_routing_source: "settings" | "config" | string;
+  enterprise_member_model_admission_mode: EnterpriseMemberModelAdmissionMode;
+  enterprise_member_model_admission_source: EnterpriseMemberModelAdmissionSource;
+  enterprise_member_model_admission_enforce_ready: boolean;
+  enterprise_member_model_admission_enforce_reason: string;
+  enterprise_member_model_admission_readiness?: EnterpriseMemberModelAdmissionReadiness;
+  enterprise_member_model_admission_rollout?: EnterpriseMemberModelAdmissionRolloutState;
+  enterprise_member_model_admission_legacy?: EnterpriseMemberModelAdmissionLegacyStatus;
+  enterprise_member_model_admission_legacy_retirement_target: string;
   enable_fingerprint_unification: boolean;
   enable_metadata_passthrough: boolean;
   enable_cch_signing: boolean;
@@ -895,6 +969,9 @@ export interface UpdateSettingsRequest {
   allow_ungrouped_key_scheduling?: boolean;
   schedule_strategy?: ScheduleStrategy;
   native_model_protocol_routing_enabled?: boolean;
+  enterprise_member_model_admission_mode?: EnterpriseMemberModelAdmissionMode;
+  enterprise_member_model_admission_rollout_policy?: EnterpriseMemberModelAdmissionRolloutPolicy;
+  enterprise_member_model_admission_legacy_retirement_target?: string;
   enable_fingerprint_unification?: boolean;
   enable_metadata_passthrough?: boolean;
   enable_cch_signing?: boolean;

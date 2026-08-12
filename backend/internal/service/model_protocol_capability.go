@@ -21,10 +21,28 @@ const (
 	ModelProtocolAnthropicMessages ModelProtocol = "anthropic_messages"
 	ModelProtocolOpenAIChat        ModelProtocol = "openai_chat_completions"
 	ModelProtocolOpenAIResponses   ModelProtocol = "openai_responses"
+	ModelProtocolOpenAIEmbeddings  ModelProtocol = "openai_embeddings"
+	ModelProtocolOpenAIImages      ModelProtocol = "openai_images"
+	ModelProtocolOpenAILive        ModelProtocol = "openai_live"
+	ModelProtocolBatchImages       ModelProtocol = "batch_images"
+	ModelProtocolGrokVideo         ModelProtocol = "grok_video"
+	ModelProtocolGeminiNative      ModelProtocol = "gemini_native"
 	ModelProtocolWildcardModel                   = "*"
 )
 
 var AllModelProtocols = []ModelProtocol{
+	ModelProtocolAnthropicMessages,
+	ModelProtocolOpenAIChat,
+	ModelProtocolOpenAIResponses,
+	ModelProtocolOpenAIEmbeddings,
+	ModelProtocolOpenAIImages,
+	ModelProtocolOpenAILive,
+	ModelProtocolBatchImages,
+	ModelProtocolGrokVideo,
+	ModelProtocolGeminiNative,
+}
+
+var CatalogModelProtocols = []ModelProtocol{
 	ModelProtocolAnthropicMessages,
 	ModelProtocolOpenAIChat,
 	ModelProtocolOpenAIResponses,
@@ -163,6 +181,18 @@ func (s *ModelProtocolCapabilityService) invalidate(accountID int64) {
 	}
 	s.mu.Lock()
 	delete(s.cache, accountID)
+	s.mu.Unlock()
+}
+
+// InvalidateRoutingEligibilityCache clears all short-lived capability rows
+// after a cluster account/protocol revision. Local writes still invalidate the
+// exact account immediately.
+func (s *ModelProtocolCapabilityService) InvalidateRoutingEligibilityCache() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.cache = make(map[int64]modelProtocolCapabilityCacheEntry)
 	s.mu.Unlock()
 }
 

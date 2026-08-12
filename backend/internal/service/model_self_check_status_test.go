@@ -813,6 +813,7 @@ func assertFloatNear(t *testing.T, got *float64, want float64) {
 	t.Helper()
 	if got == nil {
 		t.Fatalf("float = nil, want %.4f", want)
+		return
 	}
 	if math.Abs(*got-want) > 0.0001 {
 		t.Fatalf("float = %.8f, want %.8f", *got, want)

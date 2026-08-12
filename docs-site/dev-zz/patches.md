@@ -1,5 +1,40 @@
 # 补丁记录
 
+## 2026-08-05 - 企业成员模型感知路由治理本地实现
+
+### 目标
+
+- 修复 2026-08-05 企业成员多分组路由样本暴露的模型无感知候选问题：未知或未发布模型不得按成员绑定顺序横扫无关分组。
+- 建立发布模型准入、稳定资格投影、revision/LKG、typed attempt、Ops 证据、alias review 和 enforce readiness/rollout/auto-stop 的本地治理闭环。
+- 明确保留生产边界：当前是本地实现与最终本地验证完成，不是 commit、release、deploy、生产灰度、默认 enforce 或 shadow 删除完成。
+
+### 主要变化
+
+- 阶段 0-4 本地代码已实现并通过最终本地验证：企业成员规划器按当前授权顺序只裁剪不扩权；三态 admission mode 继续以 `shadow_published` 为默认；服务端 readiness、rollout policy 和 auto-stop 共同决定 enforce 是否可扩大。
+- 管理设置更新在 JSON 解码前限制为 4 MiB；rollout policy 还分别限制 raw/normalized ID 数量、显式目标总数、salt 和 JSON 大小，避免管理员凭据被滥用时形成无界解码或持久化压力。
+- routing eligibility 使用 PostgreSQL revision/outbox + Redis Pub/Sub + 启动/定期全量对账 + atomic mirror；LKG 使用短 TTL、generation key、当前授权交集和实时 scheduler 复核，规划依赖失败时不恢复全授权分组扫描。
+- Composite 文本协议使用无副作用预览；Embeddings、Images、Live、Batch Images、Grok Video 和 Gemini Native 进入非文本 evaluator coverage，并通过 typed local gate 防御规划/执行竞态。
+- Ops 错误详情与成功 usage 增加脱敏计划来源、LKG 年龄和 bounded routing attempts 证据；alias review ledger 保存 `legacy_success_new_pruned` 的人工处置状态，但不参与运行时准入。
+- 管理端系统设置展示 admission mode、来源、readiness 条件、rollout、auto-stop、legacy retirement target 和 alias review；阶段 5 只完成本地退役准备，`phase5_production_gate_pending` 仍阻止新安装默认 enforce。
+
+### 数据与兼容性
+
+- 新增迁移：
+  - `backend/migrations/199_routing_eligibility_revision.sql`
+  - `backend/migrations/200_enterprise_member_alias_review_ledger.sql`
+  - `backend/migrations/201_ops_routing_attempts.sql`
+  - `backend/migrations/201a_ops_routing_attempts_indexes_notx.sql`
+  - `backend/migrations/202_account_model_protocol_capabilities_non_text.sql`
+- 新增 / 变更 setting：`gateway.enterprise_member_model_admission_mode`、`enterprise_member_model_admission_mode`、`enterprise_member_model_admission_rollout_policy`、`enterprise_member_model_admission_legacy_retirement_target`。
+- 普通 Key、单分组 Key、企业成员预算结算、owner 可见 usage、Key 自助查询和旧 Ops 行保持兼容；新 routing attempts 和 route plan 来源字段为空时按旧终态字段展示。
+
+### 验证
+
+- 最终本地验证通过：后端 `go generate`、`make test-unit`、`go test ./... -count=1`、`go vet ./...`、`golangci-lint run ./...`（0 issues）；18 个 Colima/Testcontainers PostgreSQL 16/Redis 顶层测试（14 个 routing eligibility + 4 个 migration runner）；focused race；前端 typecheck、lint、完整测试（259 个测试文件、1758 条测试）和 build；docs build；`git diff --check`；隐私/脱敏专项测试；新增差异的高置信度密钥模式扫描。未把环境中未安装的 gitleaks 等专用扫描器计作已执行证据。
+- 尚未完成 commit、正式发布流水线、生产数据库迁移、生产 7d/30d alias/canary release-window 证据收集、生产 enforce 灰度、默认值切换或 shadow 双算删除。
+- `201` 的 CHECK 约束以 `NOT VALID` 安装，历史行必须在低峰维护窗口审计并验证；`201a` 的并发索引重试会先清理同名 invalid index，但仍必须在生产同量级副本演练耗时、磁盘峰值和中断恢复。本地迁移 PASS 不能关闭这两项生产门。
+- 发布前仍必须按 [企业成员模型感知路由实施测试规格](./testing/enterprise-member-model-aware-routing-test-spec.md) 和 [验证矩阵](./testing/verification-matrix.md) 复核 release gate；本地 PASS 不能替代真实生产窗口证据。
+
 ## 2026-08-05 - 上游 main 同步：认证验证码、Codex 身份与共享图片报价
 
 ### 目标

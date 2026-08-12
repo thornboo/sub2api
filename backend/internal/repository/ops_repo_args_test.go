@@ -14,7 +14,7 @@ func TestOpsInsertErrorLogArgsPreservesExplicitZeroUpstreamStatus(t *testing.T) 
 	zero := 0
 	args := opsInsertErrorLogArgs(&service.OpsInsertErrorLogInput{UpstreamStatusCode: &zero})
 
-	require.Len(t, args, 50)
+	require.Len(t, args, 53)
 	encoded, ok := args[39].(sql.NullInt64)
 	require.True(t, ok)
 	require.True(t, encoded.Valid)
@@ -55,4 +55,36 @@ func TestOpsInsertErrorLogArgsPersistsV2Classification(t *testing.T) {
 	require.Equal(t, sql.NullString{String: service.OpsFailureDomainPlatform, Valid: true}, args[28])
 	require.Equal(t, sql.NullBool{Bool: true, Valid: true}, args[33])
 	require.Equal(t, sql.NullInt64{Int64: int64(service.OpsFailureClassificationVersion), Valid: true}, args[34])
+}
+
+func TestOpsInsertErrorLogArgsPersistsRoutingEvidence(t *testing.T) {
+	snapshotAge := int64(1234)
+	attemptsJSON := `[{"stage":"actual_attempt","group_id":9}]`
+	args := opsInsertErrorLogArgs(&service.OpsInsertErrorLogInput{
+		RoutingPlanSource:    "last_known_good",
+		RoutingSnapshotAgeMs: &snapshotAge,
+		RoutingAttemptsJSON:  &attemptsJSON,
+	})
+
+	require.Equal(t, sql.NullString{String: "last_known_good", Valid: true}, args[43])
+	require.Equal(t, sql.NullInt64{Int64: snapshotAge, Valid: true}, args[44])
+	require.Equal(t, sql.NullString{String: attemptsJSON, Valid: true}, args[45])
+}
+
+func TestOpsInsertErrorLogArgsDefaultsRoutingEvidenceToEmptyArray(t *testing.T) {
+	blank := "  "
+	tests := []struct {
+		name string
+		raw  *string
+	}{
+		{name: "nil"},
+		{name: "blank", raw: &blank},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := opsInsertErrorLogArgs(&service.OpsInsertErrorLogInput{RoutingAttemptsJSON: tt.raw})
+			require.Equal(t, sql.NullString{String: "[]", Valid: true}, args[45])
+		})
+	}
 }

@@ -334,6 +334,18 @@ export default {
           expand: 'Response (click to expand)',
           collapse: 'Response (click to collapse)'
         },
+        enterpriseRoute: {
+          title: 'Enterprise Member Routing',
+          planned: 'Planned candidates',
+          pruned: 'Pruned candidates',
+          attempts: 'Actual attempts',
+          responsibility: 'Terminal responsibility',
+          group: 'Group',
+          outcome: 'Outcome',
+          reason: 'Reason',
+          replay: 'Replayable',
+          lkgSourceWithAge: 'last_known_good · {age}s'
+        },
         loading: 'Loading…',
         requestId: 'Request ID',
         time: 'Time',

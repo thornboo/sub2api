@@ -352,6 +352,8 @@ APIKeyAuth
 
 资格探测应复用调度层的权威能力判断，避免 UI 展示列表、`supported_model_scopes` 和真实调度各自形成不同真相。动态容量不足不等于模型不支持：前者允许尝试下一个候选，后者应从候选中排除。
 
+2026-08-05 的生产样本确认发布版实现尚未完全满足本节合同：请求模型没有参与初始候选资格，导致无关授权分组被顺序激活，终态错误被最后一个候选覆盖。根因、模型准入策略、共享稳定资格评估、typed attempt、Ops 路由链、alias 审核和灰度方案见 [企业成员模型感知路由与跨分组故障转移治理](./enterprise-member-model-aware-routing-governance.md)。截至 2026-08-06，该专项方案阶段 0-4 已在本地实现并通过最终本地验证，但尚未 commit、release、deploy，也尚未取得生产 7d/30d/canary release-window 证据或执行默认值切换；它是本节的实施细化，不改变“成员以分组为授权单位”的领域边界。
+
 ### 7.4 排序
 
 - 主顺序：`member_group_bindings.sort_order ASC`。

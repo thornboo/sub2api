@@ -59,6 +59,9 @@ const latestAPIKeyIPIndexMigration = "174_add_usage_logs_api_key_latest_ip_index
 const latestAPIKeyIPIndex = "idx_usage_logs_api_key_latest_ip"
 const enterpriseMemberBaselineIdentityIndexMigration = "184_enterprise_member_baseline_identity_index_notx.sql"
 const enterpriseMemberBaselineIdentityIndex = "idx_api_keys_id_member_owner"
+const opsRoutingAttemptsIndexesMigration = "201a_ops_routing_attempts_indexes_notx.sql"
+const opsErrorRoutingPlanSourceIndex = "idx_ops_error_logs_routing_plan_source_created"
+const usageRoutingPlanSourceIndex = "idx_usage_logs_route_plan_source_created"
 
 type migrationChecksumCompatibilityRule struct {
 	fileChecksum       string
@@ -288,6 +291,11 @@ func prepareNonTransactionalMigration(ctx context.Context, db migrationConnectio
 		return dropInvalidIndexIfPresent(ctx, db, latestAPIKeyIPIndex)
 	case enterpriseMemberBaselineIdentityIndexMigration:
 		return dropInvalidIndexIfPresent(ctx, db, enterpriseMemberBaselineIdentityIndex)
+	case opsRoutingAttemptsIndexesMigration:
+		if err := dropInvalidIndexIfPresent(ctx, db, opsErrorRoutingPlanSourceIndex); err != nil {
+			return err
+		}
+		return dropInvalidIndexIfPresent(ctx, db, usageRoutingPlanSourceIndex)
 	default:
 		return nil
 	}

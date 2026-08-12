@@ -180,6 +180,8 @@ func TestCompositeRouteIsResolvedAgainForEachEnterpriseMemberCandidate(t *testin
 	})
 	router.Use(servermiddleware.ResolveEnterpriseMemberGroup(
 		nil,
+		nil,
+		nil,
 		&config.Config{RunMode: config.RunModeSimple},
 		servermiddleware.AnthropicErrorWriter,
 	))
@@ -271,6 +273,8 @@ func TestCompositeLiveRouteIsResolvedAgainForEachEnterpriseMemberCandidate(t *te
 		c.Next()
 	})
 	router.Use(servermiddleware.ResolveEnterpriseMemberGroup(
+		nil,
+		nil,
 		nil,
 		&config.Config{RunMode: config.RunModeSimple},
 		servermiddleware.AnthropicErrorWriter,

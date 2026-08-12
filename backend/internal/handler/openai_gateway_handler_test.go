@@ -40,6 +40,135 @@ func TestOpenAIWSSchedulingModelUsesCompositeUpstreamModel(t *testing.T) {
 	require.Equal(t, "all/gpt", openAIWSSchedulingModel(context.Background(), "all/gpt"))
 }
 
+func TestOpenAIResponsesWebSocketEnterpriseMemberFirstFrameRoutingFailureCloseCodes(t *testing.T) {
+	tests := []struct {
+		name       string
+		plan       *service.EnterpriseMemberRoutePlan
+		planErr    error
+		wantStatus coderws.StatusCode
+		wantReason string
+	}{
+		{
+			name: "no eligible group closes with policy violation",
+			plan: &service.EnterpriseMemberRoutePlan{
+				Model: "gpt-5.6-terra",
+				Rejected: []service.EnterpriseMemberRouteCandidateDecision{{
+					GroupID: 11,
+					Reason:  service.EnterpriseMemberRouteReasonModelUnpublished,
+				}},
+			},
+			wantStatus: coderws.StatusPolicyViolation,
+			wantReason: "no authorized enterprise member group supports this model",
+		},
+		{
+			name:       "eligibility unavailable closes with try again later",
+			plan:       &service.EnterpriseMemberRoutePlan{Model: "gpt-5.6-terra"},
+			planErr:    errors.New("routing eligibility store unavailable"),
+			wantStatus: coderws.StatusTryAgainLater,
+			wantReason: "model routing eligibility is temporarily unavailable; please reconnect",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			router := openAIResponsesWebSocketEnterpriseMemberRoutingTestRouter(t, openAIWSRoutePlannerFunc(func(_ context.Context, input service.EnterpriseMemberRouteInput) (*service.EnterpriseMemberRoutePlan, error) {
+				require.Equal(t, "gpt-5.6-terra", input.Model)
+				require.Equal(t, "/openai/v1/responses", input.Endpoint)
+				require.JSONEq(t, `{"type":"response.create","model":"gpt-5.6-terra"}`, string(input.Body))
+				return tt.plan, tt.planErr
+			}))
+			server := httptest.NewServer(router)
+			defer server.Close()
+
+			dialCtx, cancelDial := context.WithTimeout(context.Background(), 3*time.Second)
+			conn, _, err := coderws.Dial(dialCtx, "ws"+strings.TrimPrefix(server.URL, "http")+"/openai/v1/responses", nil)
+			cancelDial()
+			require.NoError(t, err)
+			defer func() { _ = conn.CloseNow() }()
+
+			writeCtx, cancelWrite := context.WithTimeout(context.Background(), 3*time.Second)
+			err = conn.Write(writeCtx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5.6-terra"}`))
+			cancelWrite()
+			require.NoError(t, err)
+
+			readCtx, cancelRead := context.WithTimeout(context.Background(), 3*time.Second)
+			_, _, err = conn.Read(readCtx)
+			cancelRead()
+			var closeErr coderws.CloseError
+			require.ErrorAs(t, err, &closeErr)
+			require.Equal(t, tt.wantStatus, closeErr.Code)
+			require.Equal(t, tt.wantReason, closeErr.Reason)
+		})
+	}
+}
+
+type openAIWSRoutePlannerFunc func(context.Context, service.EnterpriseMemberRouteInput) (*service.EnterpriseMemberRoutePlan, error)
+
+func (f openAIWSRoutePlannerFunc) Plan(ctx context.Context, input service.EnterpriseMemberRouteInput) (*service.EnterpriseMemberRoutePlan, error) {
+	return f(ctx, input)
+}
+
+type openAIWSAdmissionMode service.EnterpriseMemberModelAdmissionMode
+
+func (m openAIWSAdmissionMode) GetEnterpriseMemberModelAdmissionMode(context.Context) service.EnterpriseMemberModelAdmissionMode {
+	return service.EnterpriseMemberModelAdmissionMode(m)
+}
+
+func openAIResponsesWebSocketEnterpriseMemberRoutingTestRouter(t *testing.T, planner service.EnterpriseMemberRoutePlanningService) *gin.Engine {
+	t.Helper()
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.Gateway.OpenAIWS.MaxIngressConnectionsPerAPIKey = 0
+	cache := &concurrencyCacheMock{
+		acquireIngressLeaseFn: func(context.Context, int64, int, string) (bool, error) {
+			return true, nil
+		},
+	}
+	handler := &OpenAIGatewayHandler{
+		gatewayService:      &service.OpenAIGatewayService{},
+		billingCacheService: &service.BillingCacheService{},
+		apiKeyService:       &service.APIKeyService{},
+		concurrencyHelper:   NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second),
+		cfg:                 cfg,
+	}
+	memberID := int64(77)
+	group := &service.Group{ID: 11, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true}
+	apiKey := &service.APIKey{
+		ID:       1701,
+		UserID:   33,
+		MemberID: &memberID,
+		User: &service.User{
+			ID:          33,
+			Role:        service.RoleUser,
+			AccountType: service.UserAccountTypeEnterprise,
+			Status:      service.StatusActive,
+			Balance:     1,
+		},
+		Member: &service.EnterpriseMember{
+			ID:               memberID,
+			EnterpriseUserID: 33,
+			Status:           service.StatusActive,
+			Groups:           []service.Group{*group},
+			GroupIDs:         []int64{group.ID},
+		},
+	}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyAPIKey), apiKey)
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: apiKey.User.ID, Concurrency: 1})
+		c.Next()
+	})
+	router.Use(middleware.ResolveEnterpriseMemberGroup(
+		nil,
+		planner,
+		openAIWSAdmissionMode(service.EnterpriseMemberModelAdmissionEnforcePublished),
+		cfg,
+		middleware.AnthropicErrorWriter,
+	))
+	router.GET("/openai/v1/responses", handler.ResponsesWebSocket)
+	return router
+}
+
 func TestOpenAIHandleStreamingAwareError_JSONEscaping(t *testing.T) {
 	tests := []struct {
 		name    string

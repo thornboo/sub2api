@@ -5,6 +5,7 @@ package server_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"math"
@@ -875,6 +876,65 @@ func TestAPIContracts(t *testing.T) {
 					"default_user_rpm_limit": 0,
 					"default_subscriptions": [],
 					"enable_model_fallback": false,
+					"enterprise_member_model_admission_mode": "shadow_published",
+					"enterprise_member_model_admission_source": "config",
+					"enterprise_member_model_admission_enforce_ready": false,
+					"enterprise_member_model_admission_enforce_reason": "phase3_prerequisites_incomplete",
+					"enterprise_member_model_admission_readiness": {
+						"ready": false,
+						"reason": "phase3_prerequisites_incomplete",
+						"foundation_ready": false,
+						"canary_ready": false,
+						"expansion_ready": false,
+						"auto_stopped": false,
+						"auto_stop": {"stopped": false, "source": "metrics"},
+						"source": "server_default",
+						"conditions": [
+							{"layer": "foundation", "name": "routing_revision_healthy", "ready": false, "reason": "revision_health_unverified", "source": "server_default"},
+							{"layer": "foundation", "name": "evaluator_coverage_verified", "ready": false, "reason": "evaluator_coverage_unverified", "source": "server_default"},
+							{"layer": "foundation", "name": "alias_audit_clear", "ready": false, "reason": "alias_audit_unverified", "source": "server_default"},
+							{"layer": "foundation", "name": "evidence_pipeline_healthy", "ready": false, "reason": "admission_evidence_unverified", "source": "server_default"},
+							{"layer": "expansion", "name": "expansion_evidence_verified", "ready": false, "reason": "expansion_evidence_unverified", "source": "server_default"},
+							{"layer": "stop", "name": "stop_clear", "ready": false, "reason": "auto_stop_evidence_unverified", "source": "server_default"}
+						],
+						"snapshot": {
+							"version": "enterprise_member_model_admission_gate_v1",
+							"generated_at": "normalized",
+							"expires_at": "normalized",
+							"age_ms": 0,
+							"source": "config",
+							"policy_hash": "fnv64a:3bc061e1eccf6259",
+							"foundation_ready": false,
+							"canary_ready": false,
+							"expansion_ready": false,
+							"stop_clear": true,
+							"stop_source": "metrics"
+						}
+					},
+					"enterprise_member_model_admission_rollout": {
+						"valid": true,
+						"stable_hash_percent": 0,
+						"hash_bucket": 33,
+						"reason": "rollout_no_enforce_target",
+						"source": "default",
+						"auto_stopped": false,
+						"auto_stop": {"stopped": false, "source": "manual"},
+						"policy": {"salt": "enterprise-member-model-admission-v1"}
+					},
+					"enterprise_member_model_admission_legacy": {
+						"deprecated": true,
+						"emergency_rollback_only": true,
+						"risk_reduction_only_notice": "legacy_order_only is deprecated and must only shrink production risk as an emergency rollback; it must not be used to expand routing behavior.",
+						"usage_total": 0,
+						"warning": false,
+						"retirement_status": "not_scheduled",
+						"retirement_reason": "retirement_target_missing",
+						"retirement_target": "",
+						"retirement_target_kind": "",
+						"phase5_ready": false,
+						"phase5_reason": "phase5_production_gate_pending"
+					},
+					"enterprise_member_model_admission_legacy_retirement_target": "",
 					"fallback_model_anthropic": "claude-3-5-sonnet-20241022",
 					"fallback_model_antigravity": "gemini-2.5-pro",
 					"fallback_model_gemini": "gemini-2.5-pro",
@@ -1191,6 +1251,65 @@ func TestAPIContracts(t *testing.T) {
 					"default_user_rpm_limit": 0,
 					"default_subscriptions": [],
 					"enable_model_fallback": false,
+					"enterprise_member_model_admission_mode": "shadow_published",
+					"enterprise_member_model_admission_source": "config",
+					"enterprise_member_model_admission_enforce_ready": false,
+					"enterprise_member_model_admission_enforce_reason": "phase3_prerequisites_incomplete",
+					"enterprise_member_model_admission_readiness": {
+						"ready": false,
+						"reason": "phase3_prerequisites_incomplete",
+						"foundation_ready": false,
+						"canary_ready": false,
+						"expansion_ready": false,
+						"auto_stopped": false,
+						"auto_stop": {"stopped": false, "source": "metrics"},
+						"source": "server_default",
+						"conditions": [
+							{"layer": "foundation", "name": "routing_revision_healthy", "ready": false, "reason": "revision_health_unverified", "source": "server_default"},
+							{"layer": "foundation", "name": "evaluator_coverage_verified", "ready": false, "reason": "evaluator_coverage_unverified", "source": "server_default"},
+							{"layer": "foundation", "name": "alias_audit_clear", "ready": false, "reason": "alias_audit_unverified", "source": "server_default"},
+							{"layer": "foundation", "name": "evidence_pipeline_healthy", "ready": false, "reason": "admission_evidence_unverified", "source": "server_default"},
+							{"layer": "expansion", "name": "expansion_evidence_verified", "ready": false, "reason": "expansion_evidence_unverified", "source": "server_default"},
+							{"layer": "stop", "name": "stop_clear", "ready": false, "reason": "auto_stop_evidence_unverified", "source": "server_default"}
+						],
+						"snapshot": {
+							"version": "enterprise_member_model_admission_gate_v1",
+							"generated_at": "normalized",
+							"expires_at": "normalized",
+							"age_ms": 0,
+							"source": "config",
+							"policy_hash": "fnv64a:3bc061e1eccf6259",
+							"foundation_ready": false,
+							"canary_ready": false,
+							"expansion_ready": false,
+							"stop_clear": true,
+							"stop_source": "metrics"
+						}
+					},
+					"enterprise_member_model_admission_rollout": {
+						"valid": true,
+						"stable_hash_percent": 0,
+						"hash_bucket": 33,
+						"reason": "rollout_no_enforce_target",
+						"source": "default",
+						"auto_stopped": false,
+						"auto_stop": {"stopped": false, "source": "manual"},
+						"policy": {"salt": "enterprise-member-model-admission-v1"}
+					},
+					"enterprise_member_model_admission_legacy": {
+						"deprecated": true,
+						"emergency_rollback_only": true,
+						"risk_reduction_only_notice": "legacy_order_only is deprecated and must only shrink production risk as an emergency rollback; it must not be used to expand routing behavior.",
+						"usage_total": 0,
+						"warning": false,
+						"retirement_status": "not_scheduled",
+						"retirement_reason": "retirement_target_missing",
+						"retirement_target": "",
+						"retirement_target_kind": "",
+						"phase5_ready": false,
+						"phase5_reason": "phase5_production_gate_pending"
+					},
+					"enterprise_member_model_admission_legacy_retirement_target": "",
 					"fallback_model_anthropic": "claude-3-5-sonnet-20241022",
 					"fallback_model_openai": "gpt-4o",
 					"fallback_model_gemini": "gemini-2.5-pro",
@@ -1399,10 +1518,39 @@ func TestAPIContracts(t *testing.T) {
 			}
 
 			status, body := doRequest(t, deps.router, tt.method, tt.path, tt.body, tt.headers)
+			wantJSON := normalizeDynamicAPIContractJSON(t, tt.wantJSON)
+			body = normalizeDynamicAPIContractJSON(t, body)
 			require.Equal(t, tt.wantStatus, status)
-			require.JSONEq(t, tt.wantJSON, body)
+			require.JSONEq(t, wantJSON, body)
 		})
 	}
+}
+
+func normalizeDynamicAPIContractJSON(t *testing.T, raw string) string {
+	t.Helper()
+	if !strings.Contains(raw, "enterprise_member_model_admission_readiness") {
+		return raw
+	}
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal([]byte(raw), &doc))
+	data, ok := doc["data"].(map[string]any)
+	if !ok {
+		return raw
+	}
+	readiness, ok := data["enterprise_member_model_admission_readiness"].(map[string]any)
+	if !ok {
+		return raw
+	}
+	snapshot, ok := readiness["snapshot"].(map[string]any)
+	if !ok {
+		return raw
+	}
+	snapshot["generated_at"] = "normalized"
+	snapshot["expires_at"] = "normalized"
+	snapshot["age_ms"] = float64(0)
+	normalized, err := json.Marshal(doc)
+	require.NoError(t, err)
+	return string(normalized)
 }
 
 type contractDeps struct {

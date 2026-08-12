@@ -124,6 +124,68 @@ func (s *SettingService) refreshCachedSettingsAfterWrite(ctx context.Context, se
 }
 
 func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, settings *SystemSettings) (map[string]string, error) {
+	if settings != nil {
+		mode, _ := normalizeEnterpriseMemberModelAdmissionMode(settings.EnterpriseMemberModelAdmissionMode)
+		readiness := EvaluateEnterpriseMemberModelAdmissionEnforceReadiness(ctx)
+		rolloutPolicy, err := NormalizeEnterpriseMemberModelAdmissionRolloutPolicy(settings.EnterpriseMemberModelAdmissionRollout.Policy)
+		if err != nil {
+			return nil, infraerrors.BadRequest("INVALID_ENTERPRISE_MEMBER_ADMISSION_ROLLOUT", err.Error())
+		}
+		settings.EnterpriseMemberModelAdmissionRollout.Policy = rolloutPolicy
+		metricAutoStopShrinkAllowed := false
+		if mode == EnterpriseMemberModelAdmissionEnforcePublished &&
+			settings.EnterpriseMemberModelAdmissionSource != "config" &&
+			settings.EnterpriseMemberModelAdmissionSource != "config_invalid" &&
+			readiness.AutoStop.Stopped {
+			if s.currentPersistedEnterpriseMemberModelAdmissionModeIsEnforce(ctx) {
+				currentRuntime := s.GetEnterpriseMemberModelAdmissionRuntime(ctx)
+				if IsEnterpriseMemberModelAdmissionRolloutExpansion(currentRuntime.Rollout.Policy, rolloutPolicy) {
+					return nil, infraerrors.Conflict(
+						"ENFORCE_AUTO_STOPPED",
+						"enterprise member enforce admission rollout is metric auto-stopped",
+					).WithMetadata(map[string]string{"blocked_reason": readiness.AutoStop.Reason, "stop_source": readiness.AutoStop.Source})
+				}
+				metricAutoStopShrinkAllowed = true
+			}
+		}
+		if mode == EnterpriseMemberModelAdmissionEnforcePublished &&
+			settings.EnterpriseMemberModelAdmissionSource == "settings" &&
+			!metricAutoStopShrinkAllowed &&
+			!readiness.CanaryReady {
+			return nil, infraerrors.Conflict(
+				"ENFORCE_NOT_READY",
+				"enterprise member enforce admission canary gate is not ready: "+readiness.Reason,
+			)
+		}
+		if mode == EnterpriseMemberModelAdmissionEnforcePublished &&
+			settings.EnterpriseMemberModelAdmissionSource != "config" &&
+			settings.EnterpriseMemberModelAdmissionSource != "config_invalid" &&
+			!readiness.AutoStop.Stopped &&
+			!metricAutoStopShrinkAllowed &&
+			!readiness.CanaryReady {
+			return nil, infraerrors.Conflict(
+				"ENFORCE_NOT_READY",
+				"enterprise member enforce admission canary gate is not ready: "+readiness.Reason,
+			)
+		}
+		if mode == EnterpriseMemberModelAdmissionEnforcePublished &&
+			settings.EnterpriseMemberModelAdmissionSource != "config" &&
+			settings.EnterpriseMemberModelAdmissionSource != "config_invalid" &&
+			!readiness.AutoStop.Stopped &&
+			rolloutPolicy.Percentage > 0 &&
+			!readiness.ExpansionReady {
+			return nil, infraerrors.Conflict(
+				"ENFORCE_EXPANSION_NOT_READY",
+				"enterprise member enforce admission expansion gate is not ready: "+readiness.Reason,
+			)
+		}
+		retirementTarget, _, err := ValidateEnterpriseMemberModelAdmissionLegacyRetirementTarget(settings.EnterpriseMemberModelAdmissionLegacyRetirementTarget)
+		if err != nil {
+			return nil, infraerrors.BadRequest("INVALID_ENTERPRISE_MEMBER_ADMISSION_LEGACY_RETIREMENT_TARGET", err.Error())
+		}
+		settings.EnterpriseMemberModelAdmissionLegacyRetirementTarget = retirementTarget
+		settings.EnterpriseMemberModelAdmissionLegacy = EnterpriseMemberModelAdmissionLegacyRetirementStatusForTarget(retirementTarget)
+	}
 	if err := s.validateDefaultSubscriptionGroups(ctx, settings.DefaultSubscriptions); err != nil {
 		return nil, err
 	}
@@ -487,11 +549,24 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyBackendModeEnabled] = strconv.FormatBool(settings.BackendModeEnabled)
 
 	// Gateway forwarding behavior
-	// A config-sourced value means an older client omitted the new field. Do not
-	// silently turn that deployment default into a persistent database override.
+	// Config and server safety-fallback sources mean the caller omitted the new
+	// field. Do not silently turn them into persistent database overrides.
 	if settings.NativeModelProtocolRoutingSource != "config" {
 		updates[SettingKeyNativeModelProtocolRoutingEnabled] = strconv.FormatBool(settings.NativeModelProtocolRoutingEnabled)
 	}
+	if shouldPersistEnterpriseMemberModelAdmissionMode(settings.EnterpriseMemberModelAdmissionSource) {
+		mode, _ := normalizeEnterpriseMemberModelAdmissionMode(settings.EnterpriseMemberModelAdmissionMode)
+		updates[SettingKeyEnterpriseMemberModelAdmissionMode] = string(mode)
+	}
+	if settings.EnterpriseMemberModelAdmissionRollout.Source != "default" &&
+		settings.EnterpriseMemberModelAdmissionRollout.Source != "" {
+		rolloutJSON, err := MarshalEnterpriseMemberModelAdmissionRolloutPolicy(settings.EnterpriseMemberModelAdmissionRollout.Policy)
+		if err != nil {
+			return nil, infraerrors.BadRequest("INVALID_ENTERPRISE_MEMBER_ADMISSION_ROLLOUT", err.Error())
+		}
+		updates[SettingKeyEnterpriseMemberModelAdmissionRolloutPolicy] = rolloutJSON
+	}
+	updates[SettingKeyEnterpriseMemberModelAdmissionLegacyRetirementTarget] = settings.EnterpriseMemberModelAdmissionLegacyRetirementTarget
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
 	updates[SettingKeyEnableCCHSigning] = strconv.FormatBool(settings.EnableCCHSigning)
@@ -561,6 +636,26 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyAllowUserViewErrorRequests] = strconv.FormatBool(settings.AllowUserViewErrorRequests)
 
 	return updates, nil
+}
+
+func (s *SettingService) currentPersistedEnterpriseMemberModelAdmissionModeIsEnforce(ctx context.Context) bool {
+	if s == nil || s.settingRepo == nil {
+		return false
+	}
+	raw, err := s.settingRepo.GetValue(ctx, SettingKeyEnterpriseMemberModelAdmissionMode)
+	if err != nil {
+		return false
+	}
+	return EnterpriseMemberModelAdmissionMode(strings.ToLower(strings.TrimSpace(raw))) == EnterpriseMemberModelAdmissionEnforcePublished
+}
+
+func shouldPersistEnterpriseMemberModelAdmissionMode(source string) bool {
+	switch source {
+	case "config", "config_invalid", "enforce_blocked", "rollout_shadow", "rollout_invalid", "expansion_blocked", "auto_stop", "manual_auto_stop", "metric_auto_stop", "error_fallback":
+		return false
+	default:
+		return true
+	}
 }
 
 // validateDefaultPlatformQuotaMap 校验 platform quota map 的合法性：
@@ -678,6 +773,29 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		enabled:   settings.NativeModelProtocolRoutingEnabled,
 		source:    nativeModelProtocolRoutingSource,
 		expiresAt: time.Now().Add(nativeModelProtocolRoutingCacheTTL).UnixNano(),
+	})
+	s.enterpriseMemberAdmissionSF.Forget("enterprise_member_model_admission")
+	enterpriseMemberAdmissionSource := settings.EnterpriseMemberModelAdmissionSource
+	if enterpriseMemberAdmissionSource == "" {
+		enterpriseMemberAdmissionSource = "settings"
+	}
+	enterpriseMemberAdmissionMode, validEnterpriseMemberAdmissionMode := normalizeEnterpriseMemberModelAdmissionMode(settings.EnterpriseMemberModelAdmissionMode)
+	if !validEnterpriseMemberAdmissionMode && enterpriseMemberAdmissionSource == "settings" {
+		enterpriseMemberAdmissionSource = "settings_invalid"
+	}
+	enterpriseMemberAdmissionRolloutPolicy, err := NormalizeEnterpriseMemberModelAdmissionRolloutPolicy(settings.EnterpriseMemberModelAdmissionRollout.Policy)
+	if err != nil {
+		enterpriseMemberAdmissionRolloutPolicy = DefaultEnterpriseMemberModelAdmissionRolloutPolicy()
+	}
+	generatedAt := time.Now()
+	expiresAt := generatedAt.Add(enterpriseMemberModelAdmissionCacheTTL)
+	enterpriseMemberAdmissionRuntime := enforceSafeEnterpriseMemberModelAdmission(context.Background(), enterpriseMemberAdmissionMode, enterpriseMemberAdmissionSource, enterpriseMemberAdmissionRolloutPolicy, generatedAt, expiresAt)
+	enterpriseMemberAdmissionRuntime.Rollout.Source = settings.EnterpriseMemberModelAdmissionRollout.Source
+	enterpriseMemberAdmissionRuntime.Readiness.Snapshot = enterpriseMemberAdmissionRuntime.Snapshot
+	s.enterpriseMemberAdmissionCache.Store(&cachedEnterpriseMemberModelAdmission{
+		runtime:       enterpriseMemberAdmissionRuntime,
+		rolloutPolicy: enterpriseMemberAdmissionRolloutPolicy,
+		expiresAt:     expiresAt.UnixNano(),
 	})
 	s.antigravityUAVersionSF.Forget("antigravity_user_agent_version")
 	antigravityUserAgentVersion := antigravity.NormalizeUserAgentVersion(settings.AntigravityUserAgentVersion)

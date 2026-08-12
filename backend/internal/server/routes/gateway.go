@@ -32,6 +32,7 @@ func RegisterGatewayRoutes(
 	opsService *service.OpsService,
 	settingService *service.SettingService,
 	compositeResolver *service.CompositeRouteResolver,
+	enterpriseMemberRoutePlanner *service.EnterpriseMemberRoutePlanner,
 	cfg *config.Config,
 ) {
 	bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
@@ -43,8 +44,8 @@ func RegisterGatewayRoutes(
 	// 未分组 Key 拦截中间件（按协议格式区分错误响应）
 	requireGroupAnthropic := middleware.RequireGroupAssignment(settingService, middleware.AnthropicErrorWriter)
 	requireGroupGoogle := middleware.RequireGroupAssignment(settingService, middleware.GoogleErrorWriter)
-	resolveMemberGroupAnthropic := middleware.ResolveEnterpriseMemberGroup(subscriptionService, cfg, middleware.AnthropicErrorWriter)
-	resolveMemberGroupGoogle := middleware.ResolveEnterpriseMemberGroup(subscriptionService, cfg, middleware.GoogleErrorWriter)
+	resolveMemberGroupAnthropic := middleware.ResolveEnterpriseMemberGroup(subscriptionService, enterpriseMemberRoutePlanner, settingService, cfg, middleware.AnthropicErrorWriter)
+	resolveMemberGroupGoogle := middleware.ResolveEnterpriseMemberGroup(subscriptionService, enterpriseMemberRoutePlanner, settingService, cfg, middleware.GoogleErrorWriter)
 	enforceMemberBudgetAnthropic := middleware.EnforceEnterpriseMemberBudget(memberBudgetService, cfg, middleware.AnthropicErrorWriter)
 	enforceMemberBudgetGoogle := middleware.EnforceEnterpriseMemberBudget(memberBudgetService, cfg, middleware.GoogleErrorWriter)
 	orchestrateMemberGroups := middleware.OrchestrateEnterpriseMemberGroups
@@ -92,7 +93,7 @@ func RegisterGatewayRoutes(
 	memberModelsHandler := orchestrateMemberGroups(modelsHandler)
 	liveCreateHandler := func(c *gin.Context) {
 		if getGroupPlatform(c) != service.PlatformOpenAI {
-			service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
+			markEnterpriseMemberRouteRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{
 					"type":    "not_found_error",
@@ -103,7 +104,7 @@ func RegisterGatewayRoutes(
 		}
 		apiKey, ok := middleware.GetAPIKeyFromContext(c)
 		if ok && apiKey != nil && apiKey.Group != nil && !apiKey.Group.AllowLive {
-			service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
+			markEnterpriseMemberRouteRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
 			c.JSON(http.StatusForbidden, gin.H{
 				"error": gin.H{
 					"type":    "permission_error",
@@ -520,14 +521,14 @@ func resolveCompositeLiveTargetPlatform(c *gin.Context, resolver *service.Compos
 		return false
 	}
 	if model != "" {
-		decision, resolveErr := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, service.CompositeRouteEndpointAny)
+		decision, resolveErr := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, service.CompositeRouteEndpointLive)
 		if resolveErr != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "server_error", "message": "Failed to resolve composite model route"}})
 			c.Abort()
 			return false
 		}
 		if !decision.Matched {
-			service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
+			markEnterpriseMemberRouteRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
 			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "No composite route matches this Live model"}})
 			return false
 		}
@@ -580,7 +581,7 @@ func resolveCompositeTargetPlatform(c *gin.Context, resolver *service.CompositeR
 			return false
 		}
 		if !decision.Matched {
-			service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
+			markEnterpriseMemberRouteRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
 			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "No composite route matches this model and endpoint"}})
 			return false
 		}
@@ -593,6 +594,21 @@ func resolveCompositeTargetPlatform(c *gin.Context, resolver *service.CompositeR
 	}
 	resetRequestBody(c, body)
 	return true
+}
+
+func markEnterpriseMemberRouteRetry(c *gin.Context, reason service.OpsGroupRetryReason) {
+	if c == nil || c.Request == nil {
+		return
+	}
+	apiKey, ok := middleware.GetAPIKeyFromContext(c)
+	if !ok || apiKey == nil || apiKey.MemberID == nil {
+		return
+	}
+	active, ok := service.ActiveGroupFromContext(c.Request.Context())
+	if !ok || !active.ModelPlanApplied || active.RoutePlanMode != service.EnterpriseMemberModelAdmissionEnforcePublished {
+		return
+	}
+	service.MarkOpsGroupRetry(c, reason)
 }
 
 func compositeRequestModelFromBody(contentType string, body []byte) string {
@@ -769,8 +785,14 @@ func compositeRouteEndpointForPath(path string) string {
 		return service.CompositeRouteEndpointChatCompletions
 	case strings.Contains(path, "/embeddings"):
 		return service.CompositeRouteEndpointEmbeddings
+	case strings.Contains(path, "/images/batches"):
+		return service.CompositeRouteEndpointBatchImages
 	case strings.Contains(path, "/images/"):
 		return service.CompositeRouteEndpointImages
+	case strings.Contains(path, "/live") || strings.Contains(path, "/realtime/calls"):
+		return service.CompositeRouteEndpointLive
+	case strings.Contains(path, "/videos/generations") || strings.Contains(path, "/videos/edits") || strings.Contains(path, "/videos/extensions"):
+		return service.CompositeRouteEndpointVideo
 	case strings.Contains(path, "/v1beta/"):
 		return service.CompositeRouteEndpointGemini
 	default:

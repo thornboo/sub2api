@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -9,9 +10,13 @@ import (
 
 type compositeRouteRepoStub struct {
 	routes []CompositeModelRoute
+	err    error
 }
 
 func (s compositeRouteRepoStub) ListByGroup(ctx context.Context, groupID int64, includeDisabled bool) ([]CompositeModelRoute, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
 	routes := make([]CompositeModelRoute, 0, len(s.routes))
 	for _, route := range s.routes {
 		if route.GroupID != groupID {
@@ -23,6 +28,52 @@ func (s compositeRouteRepoStub) ListByGroup(ctx context.Context, groupID int64, 
 		routes = append(routes, route)
 	}
 	return routes, nil
+}
+
+func TestCompositeRouteResolverPreviewIsSideEffectFree(t *testing.T) {
+	resolver := NewCompositeRouteResolver(compositeRouteRepoStub{routes: []CompositeModelRoute{{
+		ID:             10,
+		GroupID:        7,
+		PublicModel:    "public-alias",
+		MatchType:      CompositeRouteMatchExact,
+		TargetPlatform: PlatformOpenAI,
+		UpstreamModel:  "gpt-5",
+		Endpoint:       CompositeRouteEndpointResponses,
+		Enabled:        true,
+	}}})
+	original := CompositeRouteDecision{
+		Matched:        true,
+		Source:         CompositeRouteSourceExplicit,
+		GroupID:        99,
+		PublicModel:    "original-public",
+		TargetPlatform: PlatformAnthropic,
+		UpstreamModel:  "original-upstream",
+		Endpoint:       CompositeRouteEndpointMessages,
+	}
+	ctx := WithCompositeRouteDecision(context.Background(), original)
+
+	decision, err := resolver.Preview(ctx, 7, "public-alias", CompositeRouteEndpointResponses)
+
+	require.NoError(t, err)
+	require.True(t, decision.Matched)
+	require.Equal(t, PlatformOpenAI, decision.TargetPlatform)
+	require.Equal(t, "gpt-5", decision.UpstreamModel)
+	platform, ok := ResolvedTargetPlatformFromContext(ctx)
+	require.True(t, ok)
+	require.Equal(t, original.TargetPlatform, platform)
+	upstreamModel, ok := ResolvedUpstreamModelFromContext(ctx)
+	require.True(t, ok)
+	require.Equal(t, original.UpstreamModel, upstreamModel)
+}
+
+func TestCompositeRouteResolverPreviewPropagatesRepositoryFailure(t *testing.T) {
+	wantErr := errors.New("composite repository unavailable")
+	resolver := NewCompositeRouteResolver(compositeRouteRepoStub{err: wantErr})
+
+	decision, err := resolver.Preview(context.Background(), 7, "public-alias", CompositeRouteEndpointResponses)
+
+	require.ErrorIs(t, err, wantErr)
+	require.False(t, decision.Matched)
 }
 
 func (s compositeRouteRepoStub) Create(ctx context.Context, route *CompositeModelRoute) error {
