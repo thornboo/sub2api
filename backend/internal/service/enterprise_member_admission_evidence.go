@@ -138,6 +138,13 @@ func (p enterpriseMemberAdmissionEvidenceAutoStopProvider) SummarizeEnterpriseMe
 	if summary == nil {
 		return EnterpriseMemberModelAdmissionAutoStopEvidenceSummary{}, errors.New("enterprise member admission evidence summary is missing")
 	}
+	return enterpriseMemberAdmissionAutoStopEvidenceFromSummary(summary), nil
+}
+
+func enterpriseMemberAdmissionAutoStopEvidenceFromSummary(summary *EnterpriseMemberAdmissionEvidenceSummary) EnterpriseMemberModelAdmissionAutoStopEvidenceSummary {
+	if summary == nil {
+		return EnterpriseMemberModelAdmissionAutoStopEvidenceSummary{}
+	}
 	return EnterpriseMemberModelAdmissionAutoStopEvidenceSummary{
 		GeneratedAt:                        summary.GeneratedAt,
 		Window:                             fmt.Sprintf("%s..%s", summary.LookbackStart.UTC().Format(time.RFC3339), summary.LookbackEnd.UTC().Format(time.RFC3339)),
@@ -152,7 +159,7 @@ func (p enterpriseMemberAdmissionEvidenceAutoStopProvider) SummarizeEnterpriseMe
 		PlannerP95Ms:                       summary.PlannerHealth.P95Ms,
 		PlannerP99Ms:                       summary.PlannerHealth.P99Ms,
 		UnpublishedModelActualAttemptCount: summary.UnpublishedGuard.ActualAttemptViolations,
-	}, nil
+	}
 }
 
 func (s *EnterpriseMemberAdmissionEvidenceService) GetSummary(ctx context.Context) (*EnterpriseMemberAdmissionEvidenceSummary, error) {

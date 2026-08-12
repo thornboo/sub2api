@@ -12,9 +12,11 @@ type admissionEvidenceRepoFake struct {
 	summary *EnterpriseMemberAdmissionEvidenceSummary
 	err     error
 	input   EnterpriseMemberAdmissionEvidenceInput
+	calls   int
 }
 
 func (f *admissionEvidenceRepoFake) GetEnterpriseMemberAdmissionEvidence(_ context.Context, input EnterpriseMemberAdmissionEvidenceInput) (*EnterpriseMemberAdmissionEvidenceSummary, error) {
+	f.calls++
 	f.input = input
 	if f.err != nil {
 		return nil, f.err

@@ -1035,9 +1035,9 @@ func enterpriseMemberModelAdmissionRolloutFromSettings(settings map[string]strin
 func (s *SettingService) GetEnterpriseMemberModelAdmissionRuntime(ctx context.Context) EnterpriseMemberModelAdmissionRuntime {
 	mode, source := s.enterpriseMemberModelAdmissionConfigDefault()
 	defaultRollout := DefaultEnterpriseMemberModelAdmissionRolloutPolicy()
-	now := time.Now()
-	fallback := enforceSafeEnterpriseMemberModelAdmission(ctx, mode, source, defaultRollout, now, now.Add(enterpriseMemberModelAdmissionCacheTTL))
 	if s == nil || s.settingRepo == nil {
+		now := time.Now()
+		fallback := enforceSafeEnterpriseMemberModelAdmission(ctx, mode, source, defaultRollout, now, now.Add(enterpriseMemberModelAdmissionCacheTTL))
 		return fallbackWithAdmissionSnapshotAge(fallback)
 	}
 	if cached, ok := s.enterpriseMemberAdmissionCache.Load().(*cachedEnterpriseMemberModelAdmission); ok && cached != nil {
@@ -1061,7 +1061,7 @@ func (s *SettingService) GetEnterpriseMemberModelAdmissionRuntime(ctx context.Co
 		defer cancel()
 
 		raw, err := s.settingRepo.GetValue(dbCtx, SettingKeyEnterpriseMemberModelAdmissionMode)
-		runtime := fallback
+		runtime := EnterpriseMemberModelAdmissionRuntime{Mode: mode, Source: source}
 		rolloutPolicy := defaultRollout
 		rolloutSource := "default"
 		if rawRollout, rolloutErr := s.settingRepo.GetValue(dbCtx, SettingKeyEnterpriseMemberModelAdmissionRolloutPolicy); rolloutErr == nil {
@@ -1105,7 +1105,7 @@ func (s *SettingService) GetEnterpriseMemberModelAdmissionRuntime(ctx context.Co
 		}
 		generatedAt := time.Now()
 		expiresAt := generatedAt.Add(ttl)
-		runtime = enforceSafeEnterpriseMemberModelAdmission(ctx, runtime.Mode, runtime.Source, rolloutPolicy, generatedAt, expiresAt)
+		runtime = enforceSafeEnterpriseMemberModelAdmission(dbCtx, runtime.Mode, runtime.Source, rolloutPolicy, generatedAt, expiresAt)
 		runtime.Rollout.Source = rolloutSource
 		runtime.Readiness.Snapshot = runtime.Snapshot
 		s.enterpriseMemberAdmissionCache.Store(&cachedEnterpriseMemberModelAdmission{
@@ -1118,6 +1118,8 @@ func (s *SettingService) GetEnterpriseMemberModelAdmissionRuntime(ctx context.Co
 	if runtime, ok := value.(EnterpriseMemberModelAdmissionRuntime); ok {
 		return fallbackWithAdmissionSnapshotAge(runtime)
 	}
+	now := time.Now()
+	fallback := enforceSafeEnterpriseMemberModelAdmission(ctx, mode, source, defaultRollout, now, now.Add(enterpriseMemberModelAdmissionCacheTTL))
 	return fallbackWithAdmissionSnapshotAge(fallback)
 }
 

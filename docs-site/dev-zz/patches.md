@@ -1,5 +1,32 @@
 # 补丁记录
 
+## 2026-08-12 - v1.7.29 admission 热路径数据库放大修复
+
+### 目标
+
+- 修复 v1.7.29 企业成员请求在预算预留前重复执行 admission readiness 聚合的问题，避免前置数据库查询争抢连接池后把预算事务启动失败暴露为平台 500。
+- 保持 `shadow_published` 默认值、enforce readiness、rollout、auto-stop 和证据不可用时 fail-closed 的既有安全语义，不通过关闭模型感知路由或放宽预算门禁掩盖故障。
+- 本补丁只进入 `dev-zz-develop` 候选线；不推送、不发布、不部署，也不修改已经发布的 `v1.7.29` tag。
+
+### 主要变化
+
+- `GetEnterpriseMemberModelAdmissionRuntime` 先检查 5 秒 runtime cache，再在 singleflight 冷缓存路径计算 readiness；热缓存命中不再触发 alias/evidence 聚合，冷缓存并发只允许一次重建，并与设置读取共用 5 秒重建超时。
+- 同一次 readiness 评估复用已经取得的 admission evidence summary 来计算 auto-stop，不再通过包装 provider 第二次读取相同的 30 天聚合证据。
+- 保留缓存过期、设置读取失败、无 repository 和意外返回类型时的安全回退；任何 readiness 或 evidence 不可用仍降级为 `shadow_published`，不会扩大 enforce 范围。
+
+### 数据与兼容性
+
+- 无新增迁移、配置、API、依赖或前端变化；v1.7.29 的 `199`-`202` 迁移文件保持原样。
+- 预算预留、结算、usage 原子落账和最终实际分组归因不变；`fix/budget-error-attribution-1728` 的平台错误归因继续保留。
+
+### 验证
+
+- 新增 readiness 调用次数回归：修复前单次冷缓存 / 热缓存 / 32 并发热命中分别稳定为 `2 / 1 / 32` 次，修复后为 `1 / 0 / 0` 次；另显式验证 32 个并发冷 miss 也只重建 1 次。
+- 新增同一次 readiness 只读取一次 admission evidence repository 的断言；修复前稳定为 2 次，修复后为 1 次。
+- 后端默认与 `unit` 全量测试、service 全包复跑、聚焦 `-race`、`go vet ./...`、`golangci-lint run ./...`（0 issues）、server build 和 Ent / Wire 生成物一致性通过；前端 typecheck / lint 与 docs build 通过，`git diff --check` 通过。
+- repository / service 的 integration 测试二进制以 `integration` tag 编译通过；当前 Colima Docker socket 不存在，真实 PostgreSQL / Redis Testcontainers 未执行。本地验证不替代正式分支 CI、测试环境流量回放或生产发布门。
+- 独立 code review 未发现 correctness、安全、并发、缓存、fail-closed、rollout、readiness 或 auto-stop 阻塞项。
+
 ## 2026-08-05 - 企业成员模型感知路由治理本地实现
 
 ### 目标

@@ -161,7 +161,8 @@ func TestEnterpriseMemberModelAdmissionReadinessProviderAllowsEnforceWhenAllCond
 		LegacySuccessNewPrunedActive30d: 0,
 	}}}
 	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
-	evidenceSvc := NewEnterpriseMemberAdmissionEvidenceService(&admissionEvidenceRepoFake{summary: completeAdmissionEvidenceSummary(now)})
+	evidenceRepo := &admissionEvidenceRepoFake{summary: completeAdmissionEvidenceSummary(now)}
+	evidenceSvc := NewEnterpriseMemberAdmissionEvidenceService(evidenceRepo)
 	evidenceSvc.now = func() time.Time { return now }
 
 	provider := NewEnterpriseMemberModelAdmissionReadinessProvider(runtime, aliasSvc, evidenceSvc)
@@ -173,6 +174,7 @@ func TestEnterpriseMemberModelAdmissionReadinessProviderAllowsEnforceWhenAllCond
 	require.Empty(t, readiness.Reason)
 	require.Equal(t, EnterpriseMemberModelAdmissionInjectedReadinessSource, readiness.Source)
 	require.Len(t, readiness.Conditions, 6)
+	require.Equal(t, 1, evidenceRepo.calls)
 
 	requiredScopes := map[RoutingEligibilityScope]struct{}{
 		{Type: RoutingEligibilityScopeChannel, ID: 0}:   {},

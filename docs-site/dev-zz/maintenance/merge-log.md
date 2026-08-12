@@ -1,5 +1,33 @@
 # 上游合并记录
 
+## 2026-08-12 - 将正式线 `dev-zz` 恢复到 `dev-zz-develop` 以修复 v1.7.29 故障
+
+分支：
+
+- 目标：`dev-zz-develop`
+- 来源：`dev-zz`（与 `origin/dev-zz` 同为 `381275bd6`）
+- Base：`6b92daf42`
+- 合并前目标：`92e039c66`
+- 来源 head：`381275bd6`
+- 结果提交：`c124b90c2`
+
+合并目的：
+
+- `dev-zz-develop` 在生产回退后位于 v1.7.28 基线，只包含 `fix/budget-error-attribution-1728` 的错误归因补丁；要修复 v1.7.29 的真实运行时放大问题，必须先在开发候选线恢复 v1.7.29 的模型感知路由实现。
+- 保持已发布 tag 不可变，在 `dev-zz-develop` 上建立可测试、可回退的修复候选；本次没有 push、release、镜像发布或服务器操作。
+
+合并策略与冲突：
+
+- 合并前使用 `git merge-tree --write-tree --messages --name-only --merge-base` 预演；预演与真实 `git merge --no-ff --no-commit dev-zz` 均只在 `backend/internal/server/middleware/enterprise_member_group.go` 及其测试产生冲突。
+- 两处冲突来自 v1.7.28 回退线和 v1.7.29 正式线分别携带等价的预算错误归因修复；解决结果保留 v1.7.29 的路由结构、底层错误日志和 `gatewayErrorCodeHeader` 测试合同。
+- v1.7.29 的迁移 `199`-`202` 按正式 tag 内容原样恢复，没有改写已经可能被数据库记录为已应用的迁移文件。
+
+验证与边界：
+
+- 合并冲突后的企业成员预算错误归因定向测试通过，`git diff --check` 通过。
+- 合并提交仅建立根因修复基线；admission 热路径修复和完整验证由后续提交承担。
+- 未执行 push、正式分支合并、tag、Release、镜像或生产数据库 / 服务器操作。
+
 ## 2026-08-05 - 将上游 `main` 合并到 `dev-zz-develop`：认证验证码、Codex 身份与图片报价口径合流
 
 分支：

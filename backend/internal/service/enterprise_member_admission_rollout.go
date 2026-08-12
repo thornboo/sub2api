@@ -68,11 +68,12 @@ type EnterpriseMemberModelAdmissionEligibilityRuntime interface {
 }
 
 type enterpriseMemberModelAdmissionReadinessProviderImpl struct {
-	runtime          EnterpriseMemberModelAdmissionEligibilityRuntime
-	aliasReviewSvc   *EnterpriseMemberAliasReviewService
-	evidenceSvc      *EnterpriseMemberAdmissionEvidenceService
-	coverage         EnterpriseMemberEvaluatorCoverageProvider
-	autoStopEvidence EnterpriseMemberModelAdmissionAutoStopEvidenceProvider
+	runtime                       EnterpriseMemberModelAdmissionEligibilityRuntime
+	aliasReviewSvc                *EnterpriseMemberAliasReviewService
+	evidenceSvc                   *EnterpriseMemberAdmissionEvidenceService
+	coverage                      EnterpriseMemberEvaluatorCoverageProvider
+	autoStopEvidence              EnterpriseMemberModelAdmissionAutoStopEvidenceProvider
+	autoStopUsesAdmissionEvidence bool
 }
 
 func NewEnterpriseMemberModelAdmissionReadinessProvider(
@@ -90,15 +91,17 @@ func NewEnterpriseMemberModelAdmissionReadinessProvider(
 			admissionEvidence = v
 		}
 	}
-	if evidence == nil && admissionEvidence != nil {
+	autoStopUsesAdmissionEvidence := evidence == nil && admissionEvidence != nil
+	if autoStopUsesAdmissionEvidence {
 		evidence = NewEnterpriseMemberAdmissionEvidenceAutoStopProvider(admissionEvidence)
 	}
 	return &enterpriseMemberModelAdmissionReadinessProviderImpl{
-		runtime:          runtime,
-		aliasReviewSvc:   aliasReviewSvc,
-		evidenceSvc:      admissionEvidence,
-		coverage:         NewEnterpriseMemberEvaluatorCoverageProvider(),
-		autoStopEvidence: evidence,
+		runtime:                       runtime,
+		aliasReviewSvc:                aliasReviewSvc,
+		evidenceSvc:                   admissionEvidence,
+		coverage:                      NewEnterpriseMemberEvaluatorCoverageProvider(),
+		autoStopEvidence:              evidence,
+		autoStopUsesAdmissionEvidence: autoStopUsesAdmissionEvidence,
 	}
 }
 
@@ -220,7 +223,26 @@ func (p *enterpriseMemberModelAdmissionReadinessProviderImpl) EvaluateEnterprise
 		)
 	}
 
-	autoStop := EvaluateEnterpriseMemberModelAdmissionAutoStopFromProvider(ctx, p.autoStopEvidence)
+	var autoStop EnterpriseMemberModelAdmissionAutoStopState
+	if p.autoStopUsesAdmissionEvidence {
+		switch {
+		case evidenceErr != nil || evidenceSummary == nil:
+			autoStop = EnterpriseMemberModelAdmissionAutoStopState{
+				Stopped: true,
+				Source:  EnterpriseMemberModelAdmissionAutoStopSourceMetrics,
+				Reason:  EnterpriseMemberModelAdmissionAutoStopReasonEvidenceUnavailable,
+				Reasons: []string{EnterpriseMemberModelAdmissionAutoStopReasonEvidenceUnavailable},
+				Details: "evidence_provider_error",
+			}
+		default:
+			autoStop = EvaluateEnterpriseMemberModelAdmissionAutoStop(
+				enterpriseMemberAdmissionAutoStopEvidenceFromSummary(evidenceSummary),
+				DefaultEnterpriseMemberModelAdmissionAutoStopThresholds(),
+			)
+		}
+	} else {
+		autoStop = EvaluateEnterpriseMemberModelAdmissionAutoStopFromProvider(ctx, p.autoStopEvidence)
+	}
 	if autoStop.Stopped {
 		conditions = append(conditions, EnterpriseMemberModelAdmissionReadinessCondition{
 			Name:    enterpriseMemberModelAdmissionReadinessConditionStop,

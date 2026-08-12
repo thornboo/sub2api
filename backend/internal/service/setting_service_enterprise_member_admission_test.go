@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -74,6 +76,16 @@ type enterpriseMemberAdmissionReadinessProviderStub struct {
 
 func (s enterpriseMemberAdmissionReadinessProviderStub) EvaluateEnterpriseMemberModelAdmissionReadiness(context.Context) EnterpriseMemberModelAdmissionEnforceReadiness {
 	return s.readiness
+}
+
+type countingEnterpriseMemberAdmissionReadinessProvider struct {
+	readiness EnterpriseMemberModelAdmissionEnforceReadiness
+	calls     atomic.Int64
+}
+
+func (p *countingEnterpriseMemberAdmissionReadinessProvider) EvaluateEnterpriseMemberModelAdmissionReadiness(context.Context) EnterpriseMemberModelAdmissionEnforceReadiness {
+	p.calls.Add(1)
+	return p.readiness
 }
 
 func readyEnterpriseMemberAdmissionReadiness() EnterpriseMemberModelAdmissionEnforceReadiness {
@@ -149,6 +161,116 @@ func TestEnterpriseMemberModelAdmissionRuntimeAllowsEnforceWhenReadinessIsComple
 	require.Equal(t, "settings", runtime.Source)
 	require.True(t, runtime.Readiness.Ready)
 	require.Equal(t, []int64{42}, runtime.Rollout.Policy.MemberIDs)
+}
+
+func TestEnterpriseMemberModelAdmissionRuntimeCacheMissEvaluatesReadinessOnce(t *testing.T) {
+	provider := &countingEnterpriseMemberAdmissionReadinessProvider{readiness: readyEnterpriseMemberAdmissionReadiness()}
+	restore := SetEnterpriseMemberModelAdmissionReadinessProviderForTest(provider)
+	defer restore()
+
+	policy, err := MarshalEnterpriseMemberModelAdmissionRolloutPolicy(EnterpriseMemberModelAdmissionRolloutPolicy{MemberIDs: []int64{42}})
+	require.NoError(t, err)
+	svc := NewSettingService(&enterpriseMemberAdmissionSettingRepoStub{
+		value:        string(EnterpriseMemberModelAdmissionEnforcePublished),
+		rolloutValue: policy,
+	}, &config.Config{})
+
+	runtime := svc.GetEnterpriseMemberModelAdmissionRuntime(context.Background())
+
+	require.Equal(t, int64(1), provider.calls.Load())
+	require.Equal(t, EnterpriseMemberModelAdmissionEnforcePublished, runtime.Mode)
+	require.Equal(t, "settings", runtime.Source)
+}
+
+func TestEnterpriseMemberModelAdmissionRuntimeCacheHitDoesNotEvaluateReadiness(t *testing.T) {
+	provider := &countingEnterpriseMemberAdmissionReadinessProvider{readiness: readyEnterpriseMemberAdmissionReadiness()}
+	restore := SetEnterpriseMemberModelAdmissionReadinessProviderForTest(provider)
+	defer restore()
+
+	policy, err := MarshalEnterpriseMemberModelAdmissionRolloutPolicy(EnterpriseMemberModelAdmissionRolloutPolicy{MemberIDs: []int64{42}})
+	require.NoError(t, err)
+	svc := NewSettingService(&enterpriseMemberAdmissionSettingRepoStub{
+		value:        string(EnterpriseMemberModelAdmissionEnforcePublished),
+		rolloutValue: policy,
+	}, &config.Config{})
+	require.Equal(t, EnterpriseMemberModelAdmissionEnforcePublished, svc.GetEnterpriseMemberModelAdmissionRuntime(context.Background()).Mode)
+	provider.calls.Store(0)
+
+	runtime := svc.GetEnterpriseMemberModelAdmissionRuntime(context.Background())
+
+	require.Equal(t, int64(0), provider.calls.Load())
+	require.Equal(t, EnterpriseMemberModelAdmissionEnforcePublished, runtime.Mode)
+	require.Equal(t, "settings", runtime.Source)
+}
+
+func TestEnterpriseMemberModelAdmissionRuntimeConcurrentCacheMissesEvaluateReadinessOnce(t *testing.T) {
+	provider := &countingEnterpriseMemberAdmissionReadinessProvider{readiness: readyEnterpriseMemberAdmissionReadiness()}
+	restore := SetEnterpriseMemberModelAdmissionReadinessProviderForTest(provider)
+	defer restore()
+
+	policy, err := MarshalEnterpriseMemberModelAdmissionRolloutPolicy(EnterpriseMemberModelAdmissionRolloutPolicy{MemberIDs: []int64{42}})
+	require.NoError(t, err)
+	svc := NewSettingService(&enterpriseMemberAdmissionSettingRepoStub{
+		value:        string(EnterpriseMemberModelAdmissionEnforcePublished),
+		rolloutValue: policy,
+	}, &config.Config{})
+
+	const goroutines = 32
+	start := make(chan struct{})
+	modes := make(chan EnterpriseMemberModelAdmissionMode, goroutines)
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+			<-start
+			modes <- svc.GetEnterpriseMemberModelAdmissionRuntime(context.Background()).Mode
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(modes)
+
+	for mode := range modes {
+		require.Equal(t, EnterpriseMemberModelAdmissionEnforcePublished, mode)
+	}
+	require.Equal(t, int64(1), provider.calls.Load())
+}
+
+func TestEnterpriseMemberModelAdmissionRuntimeConcurrentCacheHitsDoNotEvaluateReadiness(t *testing.T) {
+	provider := &countingEnterpriseMemberAdmissionReadinessProvider{readiness: readyEnterpriseMemberAdmissionReadiness()}
+	restore := SetEnterpriseMemberModelAdmissionReadinessProviderForTest(provider)
+	defer restore()
+
+	policy, err := MarshalEnterpriseMemberModelAdmissionRolloutPolicy(EnterpriseMemberModelAdmissionRolloutPolicy{MemberIDs: []int64{42}})
+	require.NoError(t, err)
+	svc := NewSettingService(&enterpriseMemberAdmissionSettingRepoStub{
+		value:        string(EnterpriseMemberModelAdmissionEnforcePublished),
+		rolloutValue: policy,
+	}, &config.Config{})
+	require.Equal(t, EnterpriseMemberModelAdmissionEnforcePublished, svc.GetEnterpriseMemberModelAdmissionRuntime(context.Background()).Mode)
+	provider.calls.Store(0)
+
+	const goroutines = 32
+	start := make(chan struct{})
+	modes := make(chan EnterpriseMemberModelAdmissionMode, goroutines)
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+			<-start
+			modes <- svc.GetEnterpriseMemberModelAdmissionRuntime(context.Background()).Mode
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(modes)
+
+	for mode := range modes {
+		require.Equal(t, EnterpriseMemberModelAdmissionEnforcePublished, mode)
+	}
+	require.Equal(t, int64(0), provider.calls.Load())
 }
 
 func TestEnterpriseMemberModelAdmissionResolveUsesExplicitAllowlists(t *testing.T) {

@@ -1,5 +1,11 @@
 # 变更记录
 
+## 2026-08-12
+
+- 修复 v1.7.29 企业成员 admission runtime 缓存命中前仍执行 readiness 数据库聚合的问题：热命中不再读 readiness 证据，冷缓存重建继续由 singleflight 合并，避免模型路由前置查询争抢连接池并把预算事务启动失败放大为平台 500。
+- readiness 评估现在复用同一份 admission evidence summary 计算 auto-stop，不再重复执行相同的 30 天聚合证据查询；evidence 不可用仍 fail-closed 到 `shadow_published`，rollout、预算原子结算和最终分组归因语义不变。
+- 新增调用次数回归，修复前单次冷缓存 / 热缓存 / 32 并发热命中为 `2 / 1 / 32`，修复后为 `1 / 0 / 0`，并验证 32 个并发冷 miss 也只重建 1 次；同一次 readiness 的 evidence repository 调用由 2 次降为 1 次。本补丁仅提交到 `dev-zz-develop`，未推送、发布或部署。
+
 ## 2026-08-05
 
 - 企业成员模型感知路由治理阶段 0-4 在本地实现并通过最终本地验证：精确发布模型规划、routing eligibility revision/outbox/PubSub/atomic mirror、generation LKG、Composite 文本预览、非文本 evaluator coverage、typed attempt、Ops routing attempts、alias review ledger、readiness/rollout/auto-stop 管理能力和 legacy 退役准备已进入当前工作区。
