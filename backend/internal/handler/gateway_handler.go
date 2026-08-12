@@ -1219,17 +1219,7 @@ func (h *GatewayHandler) enterpriseMemberAvailableModels(ctx context.Context, gr
 	models := make([]string, 0)
 	for i := range groups {
 		group := &groups[i]
-		groupID := group.ID
-		available := h.gatewayService.GetAvailableModels(ctx, &groupID, group.Platform)
-		if group.Platform == service.PlatformComposite {
-			available = h.compositeAvailableModels(ctx, &groupID)
-		}
-		fallback := defaultModelIDsForPlatform(group.Platform)
-		if group.CustomModelsListEnabled() {
-			available = filterModelsByCustomList(customModelsListSource(group.Platform, available, fallback), fallback, group.ModelsListConfig.Models)
-		} else if len(available) == 0 {
-			available = fallback
-		}
+		available := h.configuredModelsForGroup(ctx, group)
 		for _, model := range available {
 			model = strings.TrimSpace(model)
 			if model == "" {
@@ -1247,52 +1237,7 @@ func (h *GatewayHandler) enterpriseMemberAvailableModels(ctx context.Context, gr
 }
 
 func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64) []string {
-	if h == nil || h.gatewayService == nil {
-		return nil
-	}
-	seen := make(map[string]struct{})
-	models := make([]string, 0)
-	schedulablePlatforms := h.gatewayService.GetSchedulablePlatforms(ctx, groupID)
-	for _, platform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok} {
-		platformModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
-		if len(platformModels) == 0 {
-			if _, ok := schedulablePlatforms[platform]; ok {
-				platformModels = defaultModelIDsForPlatform(platform)
-			}
-		}
-		for _, model := range platformModels {
-			model = strings.TrimSpace(model)
-			if model == "" {
-				continue
-			}
-			key := strings.ToLower(model)
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			models = append(models, model)
-		}
-	}
-	if groupID != nil {
-		routes, err := h.gatewayService.CompositeCatalogRoutes(ctx, *groupID)
-		if err != nil {
-			logger.FromContext(ctx).Warn("gateway.composite_catalog_routes_failed", zap.Int64("group_id", *groupID), zap.Error(err))
-		} else {
-			for _, route := range routes {
-				model := strings.TrimSpace(route.PublicModel)
-				if model == "" {
-					continue
-				}
-				key := strings.ToLower(model)
-				if _, ok := seen[key]; ok {
-					continue
-				}
-				seen[key] = struct{}{}
-				models = append(models, model)
-			}
-		}
-	}
-	return models
+	return h.configuredCompositeModels(ctx, groupID, true)
 }
 
 func compositeCatalogEndpointTypes(route service.CompositeModelRoute) []string {

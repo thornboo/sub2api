@@ -210,6 +210,26 @@ describe('KeyUsageView', () => {
     expect(wrapper.text()).not.toContain('$53.38')
   })
 
+  it('keeps an authorized group visible but shows no models when its account pool is disabled', async () => {
+    getSession.mockResolvedValue({ valid: true })
+    getSummary.mockResolvedValueOnce({
+      ...summary,
+      access_groups: [{
+        name: 'minimax', platform: 'openai', status: 'active', sort_order: 1,
+        rpm_limit: 0, models: [], model_count: 0,
+      }],
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const groupHeading = wrapper.findAll('h3').find((heading) => heading.text() === 'minimax')
+    const groupCardText = groupHeading?.element.closest('.p-5')?.textContent ?? ''
+    expect(groupHeading).toBeDefined()
+    expect(groupCardText).toContain('keyUsage.noModels')
+    expect(groupCardText).not.toContain('gpt-5.6-sol')
+  })
+
   it('shows the actual member-budget overage without exposing internal reservations', async () => {
     getSession.mockResolvedValue({ valid: true })
     getSummary.mockResolvedValueOnce({

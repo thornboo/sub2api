@@ -689,35 +689,7 @@ func (h *GatewayHandler) buildPublicKeyUsageAccessGroups(ctx context.Context, ap
 }
 
 func (h *GatewayHandler) publicKeyUsageModelsForGroup(ctx context.Context, group *service.Group) []string {
-	if group == nil {
-		return []string{}
-	}
-	groupID := group.ID
-	available := []string(nil)
-	if h.gatewayService != nil {
-		available = h.gatewayService.GetAvailableModels(ctx, &groupID, group.Platform)
-	}
-	fallback := defaultModelIDsForPlatform(group.Platform)
-	if group.CustomModelsListEnabled() {
-		available = filterModelsByCustomList(customModelsListSource(group.Platform, available, fallback), fallback, group.ModelsListConfig.Models)
-	} else if len(available) == 0 {
-		available = fallback
-	}
-	seen := make(map[string]struct{}, len(available))
-	models := make([]string, 0, len(available))
-	for _, model := range available {
-		model = strings.TrimSpace(model)
-		if model == "" {
-			continue
-		}
-		key := strings.ToLower(model)
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		seen[key] = struct{}{}
-		models = append(models, model)
-	}
-	return models
+	return h.configuredModelsForGroupFresh(ctx, group)
 }
 
 func mapPublicKeyUsageStats(stats *service.UsageStats) publicKeyUsageStats {

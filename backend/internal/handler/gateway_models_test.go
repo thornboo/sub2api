@@ -78,6 +78,28 @@ func (s *gatewayModelsAccountRepoStub) ListSchedulableByGroupID(ctx context.Cont
 	return out, nil
 }
 
+func (s *gatewayModelsAccountRepoStub) ListModelAvailabilityCandidates(
+	_ context.Context,
+	groupID *int64,
+	platforms []string,
+	_ bool,
+) ([]service.Account, error) {
+	if groupID == nil {
+		return nil, nil
+	}
+	wantedPlatforms := make(map[string]struct{}, len(platforms))
+	for _, platform := range platforms {
+		wantedPlatforms[platform] = struct{}{}
+	}
+	accounts := make([]service.Account, 0)
+	for _, account := range s.byGroup[*groupID] {
+		if _, ok := wantedPlatforms[account.Platform]; ok {
+			accounts = append(accounts, account)
+		}
+	}
+	return accounts, nil
+}
+
 func newGatewayModelsHandlerForTest(repo service.AccountRepository) *GatewayHandler {
 	gatewayService := service.NewGatewayService(
 		repo,
@@ -101,6 +123,45 @@ func TestDefaultModelIDsForCompositeIncludesAntigravityDefaults(t *testing.T) {
 
 	compositeIDs := defaultModelIDsForPlatform(service.PlatformComposite)
 	require.Contains(t, compositeIDs, antigravityIDs[0])
+}
+
+func TestEnterpriseMemberAvailableModelsSkipsGroupsWithoutPersistentlyEnabledAccounts(t *testing.T) {
+	emptyOpenAIGroupID := int64(11)
+	anthropicGroupID := int64(22)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			anthropicGroupID: {{
+				ID:       2,
+				Platform: service.PlatformAnthropic,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"claude-configured": "claude-upstream"},
+				},
+			}},
+		},
+	})
+
+	models := h.enterpriseMemberAvailableModels(context.Background(), []service.Group{
+		{ID: emptyOpenAIGroupID, Platform: service.PlatformOpenAI},
+		{ID: anthropicGroupID, Platform: service.PlatformAnthropic},
+	})
+
+	require.Equal(t, []string{"claude-configured"}, models)
+	require.NotContains(t, models, "gpt-5.6-sol", "an empty OpenAI group must not advertise platform defaults")
+}
+
+func TestEnterpriseMemberAvailableModelsKeepsDefaultsForConfiguredAccountWithoutMapping(t *testing.T) {
+	groupID := int64(23)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			groupID: {{ID: 3, Platform: service.PlatformOpenAI}},
+		},
+	})
+
+	models := h.enterpriseMemberAvailableModels(context.Background(), []service.Group{
+		{ID: groupID, Platform: service.PlatformOpenAI},
+	})
+
+	require.Contains(t, models, "gpt-5.6-sol")
 }
 
 func TestGatewayModels_GeminiGroupFallsBackToGeminiModels(t *testing.T) {
@@ -435,6 +496,34 @@ func TestGatewayModels_CompositeCatalogIncludesEnabledExactAliasesAndEndpointMet
 
 	filtered := run([]string{"all/gpt"})
 	require.Equal(t, []string{"all/gpt"}, modelIDsForTest(filtered.Data))
+}
+
+func TestGatewayModels_CompositeCatalogOmitsRoutesWithoutEnabledTargetAccounts(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(331)
+	h := newGatewayModelsHandlerWithCompositeRoutesForTest(
+		&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{}},
+		[]service.CompositeModelRoute{{
+			ID: 1, GroupID: groupID, PublicModel: "all/gpt", MatchType: service.CompositeRouteMatchExact,
+			TargetPlatform: service.PlatformOpenAI, UpstreamModel: "gpt-5",
+			Endpoint: service.CompositeRouteEndpointResponses, Enabled: true,
+		}},
+	)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{ID: groupID, Platform: service.PlatformComposite},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.NotContains(t, modelIDsForTest(got.Data), "all/gpt")
 }
 
 func TestGatewayModels_CompositeUnmappedAccountsFallbackToLinkedPlatformsOnly(t *testing.T) {

@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -202,6 +204,235 @@ func TestPublicKeyUsageMemberBudgetUsesSettledSpendOnly(t *testing.T) {
 	if mapped.ReservedUSD != 53.38 {
 		t.Fatalf("compatibility reserved_usd = %v, want unchanged diagnostic field", mapped.ReservedUSD)
 	}
+}
+
+func TestPublicKeyUsageModelsForGroupReturnsEmptyWhenGroupHasNoPersistentlyEnabledAccounts(t *testing.T) {
+	groupID := int64(41)
+	otherGroupID := int64(42)
+	repo := &publicKeyUsageModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			otherGroupID: {
+				{
+					ID:       7,
+					Platform: service.PlatformOpenAI,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{"gpt-other": "gpt-other"},
+					},
+				},
+			},
+		},
+	}
+	handler := &GatewayHandler{gatewayService: newPublicKeyUsageGatewayService(repo)}
+
+	models := handler.publicKeyUsageModelsForGroup(context.Background(), &service.Group{
+		ID: groupID, Platform: service.PlatformOpenAI, Status: service.StatusActive,
+	})
+
+	if len(models) != 0 {
+		t.Fatalf("models for a group without persistently enabled accounts = %v, want empty list", models)
+	}
+}
+
+func TestPublicKeyUsageModelsForGroupKeepsDefaultModelsWhenEnabledAccountHasNoMapping(t *testing.T) {
+	groupID := int64(43)
+	repo := &publicKeyUsageModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			groupID: {{ID: 8, Platform: service.PlatformOpenAI}},
+		},
+	}
+	handler := &GatewayHandler{gatewayService: newPublicKeyUsageGatewayService(repo)}
+
+	models := handler.publicKeyUsageModelsForGroup(context.Background(), &service.Group{
+		ID: groupID, Platform: service.PlatformOpenAI, Status: service.StatusActive,
+	})
+
+	if len(models) == 0 {
+		t.Fatal("models for an enabled default-model account should not be empty")
+	}
+	if !containsStringFold(models, "gpt-5.6-sol") {
+		t.Fatalf("models for an enabled default-model account = %v, want OpenAI defaults", models)
+	}
+}
+
+func TestPublicKeyUsageModelsForGroupCustomListReturnsEmptyWhenGroupHasNoPersistentlyEnabledAccounts(t *testing.T) {
+	groupID := int64(44)
+	repo := &publicKeyUsageModelsAccountRepoStub{byGroup: map[int64][]service.Account{}}
+	handler := &GatewayHandler{gatewayService: newPublicKeyUsageGatewayService(repo)}
+
+	models := handler.publicKeyUsageModelsForGroup(context.Background(), &service.Group{
+		ID:       groupID,
+		Platform: service.PlatformOpenAI,
+		Status:   service.StatusActive,
+		ModelsListConfig: service.GroupModelsListConfig{
+			Enabled: true,
+			Models:  []string{"gpt-5.6-sol"},
+		},
+	})
+
+	if len(models) != 0 {
+		t.Fatalf("custom models for a group without persistently enabled accounts = %v, want empty list", models)
+	}
+}
+
+func TestPublicKeyUsageModelsForGroupDoesNotFallbackForDifferentPlatformAccount(t *testing.T) {
+	groupID := int64(44)
+	repo := &publicKeyUsageModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			groupID: {{ID: 9, Platform: service.PlatformGemini}},
+		},
+	}
+	handler := &GatewayHandler{gatewayService: newPublicKeyUsageGatewayService(repo)}
+
+	models := handler.publicKeyUsageModelsForGroup(context.Background(), &service.Group{
+		ID: groupID, Platform: service.PlatformOpenAI, Status: service.StatusActive,
+	})
+
+	if len(models) != 0 {
+		t.Fatalf("models for an OpenAI group without persistently enabled OpenAI accounts = %v, want empty list", models)
+	}
+}
+
+func TestPublicKeyUsageModelsForGroupKeepsConfiguredModelsDuringTransientCooldown(t *testing.T) {
+	groupID := int64(45)
+	cooldownUntil := time.Now().Add(time.Hour)
+	repo := &publicKeyUsageModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			groupID: {{
+				ID:                     10,
+				Platform:               service.PlatformOpenAI,
+				RateLimitResetAt:       &cooldownUntil,
+				OverloadUntil:          &cooldownUntil,
+				TempUnschedulableUntil: &cooldownUntil,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"gpt-configured": "gpt-upstream"},
+				},
+			}},
+		},
+	}
+	handler := &GatewayHandler{gatewayService: newPublicKeyUsageGatewayService(repo)}
+
+	models := handler.publicKeyUsageModelsForGroup(context.Background(), &service.Group{
+		ID: groupID, Platform: service.PlatformOpenAI, Status: service.StatusActive,
+	})
+
+	if !containsStringFold(models, "gpt-configured") {
+		t.Fatalf("models for a persistently enabled account in transient cooldown = %v, want configured model", models)
+	}
+}
+
+func TestPublicKeyUsageModelsForGroupDoesNotAdvertiseDefaultsOnRepositoryError(t *testing.T) {
+	handler := &GatewayHandler{gatewayService: newPublicKeyUsageGatewayService(&publicKeyUsageModelsAccountRepoStub{
+		err: errors.New("database unavailable"),
+	})}
+
+	models := handler.publicKeyUsageModelsForGroup(context.Background(), &service.Group{
+		ID: 46, Platform: service.PlatformAnthropic, Status: service.StatusActive,
+	})
+
+	if len(models) != 0 {
+		t.Fatalf("models after repository failure = %v, want empty list rather than unverified defaults", models)
+	}
+}
+
+func TestPublicKeyUsageModelsForCompositeGroupDoesNotFallbackWhenNoAccountsOrRoutesExist(t *testing.T) {
+	handler := &GatewayHandler{gatewayService: newPublicKeyUsageGatewayService(&publicKeyUsageModelsAccountRepoStub{})}
+
+	models := handler.publicKeyUsageModelsForGroup(context.Background(), &service.Group{
+		ID:       47,
+		Platform: service.PlatformComposite,
+		Status:   service.StatusActive,
+		ModelsListConfig: service.GroupModelsListConfig{
+			Enabled: true,
+			Models:  []string{"gpt-5.6-sol"},
+		},
+	})
+
+	if len(models) != 0 {
+		t.Fatalf("models for an empty composite group = %v, want empty list", models)
+	}
+}
+
+func TestPublicKeyUsageModelsForCompositeGroupKeepsConfiguredPlatformDuringTransientCooldown(t *testing.T) {
+	groupID := int64(48)
+	cooldownUntil := time.Now().Add(time.Hour)
+	handler := &GatewayHandler{gatewayService: newPublicKeyUsageGatewayService(&publicKeyUsageModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			groupID: {{
+				ID:                     11,
+				Platform:               service.PlatformOpenAI,
+				RateLimitResetAt:       &cooldownUntil,
+				OverloadUntil:          &cooldownUntil,
+				TempUnschedulableUntil: &cooldownUntil,
+			}},
+		},
+	})}
+
+	models := handler.publicKeyUsageModelsForGroup(context.Background(), &service.Group{
+		ID: groupID, Platform: service.PlatformComposite, Status: service.StatusActive,
+	})
+
+	if !containsStringFold(models, "gpt-5.6-sol") {
+		t.Fatalf("models for a composite group with a cooling OpenAI account = %v, want OpenAI defaults", models)
+	}
+	if containsStringFold(models, "claude-sonnet-4-6") {
+		t.Fatalf("models for a composite group with only OpenAI accounts = %v, must not include Anthropic defaults", models)
+	}
+}
+
+type publicKeyUsageModelsAccountRepoStub struct {
+	service.AccountRepository
+
+	byGroup map[int64][]service.Account
+	err     error
+}
+
+func (s *publicKeyUsageModelsAccountRepoStub) ListSchedulableByGroupID(_ context.Context, groupID int64) ([]service.Account, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	accounts := append([]service.Account(nil), s.byGroup[groupID]...)
+	return accounts, nil
+}
+
+func (s *publicKeyUsageModelsAccountRepoStub) ListModelAvailabilityCandidates(
+	_ context.Context,
+	groupID *int64,
+	platforms []string,
+	_ bool,
+) ([]service.Account, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	if groupID == nil {
+		return nil, nil
+	}
+	wantedPlatforms := make(map[string]struct{}, len(platforms))
+	for _, platform := range platforms {
+		wantedPlatforms[platform] = struct{}{}
+	}
+	accounts := make([]service.Account, 0)
+	for _, account := range s.byGroup[*groupID] {
+		if _, ok := wantedPlatforms[account.Platform]; ok {
+			accounts = append(accounts, account)
+		}
+	}
+	return accounts, nil
+}
+
+func newPublicKeyUsageGatewayService(repo service.AccountRepository) *service.GatewayService {
+	return service.NewGatewayService(
+		repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+	)
+}
+
+func containsStringFold(values []string, target string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, target) {
+			return true
+		}
+	}
+	return false
 }
 
 func floatPointer(value float64) *float64 { return &value }

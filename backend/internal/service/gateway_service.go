@@ -738,6 +738,7 @@ type GatewayService struct {
 	userGroupRateCache    *gocache.Cache
 	userGroupRateSF       singleflight.Group
 	modelsListCache       *gocache.Cache
+	configuredModelsCache *gocache.Cache
 	modelsListCacheTTL    time.Duration
 	settingService        *SettingService
 	responseHeaderFilter  *responseheaders.CompiledHeaderFilter
@@ -811,6 +812,7 @@ func NewGatewayService(
 		userGroupRateCache:    gocache.New(userGroupRateTTL, time.Minute),
 		settingService:        settingService,
 		modelsListCache:       gocache.New(modelsListTTL, time.Minute),
+		configuredModelsCache: gocache.New(modelsListTTL, time.Minute),
 		modelsListCacheTTL:    modelsListTTL,
 		responseHeaderFilter:  compileResponseHeaderFilter(cfg),
 		tlsFPProfileService:   tlsFPProfileService,
@@ -1259,8 +1261,78 @@ func (s *GatewayService) getOAuthToken(ctx context.Context, account *Account) (s
 	return accessToken, "oauth", nil
 }
 
-// GetAvailableModels returns the list of models available for a group
-// It aggregates model_mapping keys from all schedulable accounts in the group
+// configuredGroupModelsCacheEntry preserves the distinction between an empty
+// account pool and enabled accounts that intentionally omit model_mapping.
+type configuredGroupModelsCacheEntry struct {
+	models      []string
+	hasAccounts bool
+}
+
+// GetConfiguredGroupModels returns model_mapping keys from accounts that are
+// persistently enabled for scheduling in the group and platform. The boolean
+// distinguishes an empty account pool from enabled accounts that intentionally
+// omit model_mapping and therefore use platform defaults. The result is cached
+// for model-discovery endpoints that may be polled by clients.
+//
+// Unlike GetAvailableModels, this lookup deliberately ignores transient
+// cooldown state through ListModelAvailabilityCandidates. Discovery surfaces
+// should not make configured models disappear just because every account is
+// temporarily rate-limited, overloaded, or cooling down.
+func (s *GatewayService) GetConfiguredGroupModels(ctx context.Context, groupID *int64, platform string) ([]string, bool, error) {
+	return s.getConfiguredGroupModels(ctx, groupID, platform, true)
+}
+
+// GetConfiguredGroupModelsFresh bypasses the short discovery cache. The public
+// Key usage page uses this after administrative account changes so a disabled
+// pool is reflected immediately rather than after the cache TTL.
+func (s *GatewayService) GetConfiguredGroupModelsFresh(ctx context.Context, groupID *int64, platform string) ([]string, bool, error) {
+	return s.getConfiguredGroupModels(ctx, groupID, platform, false)
+}
+
+func (s *GatewayService) getConfiguredGroupModels(
+	ctx context.Context,
+	groupID *int64,
+	platform string,
+	useCache bool,
+) ([]string, bool, error) {
+	if s == nil || s.accountRepo == nil {
+		return nil, false, errors.New("gateway account repository not configured")
+	}
+	platform = strings.TrimSpace(platform)
+	if platform == "" {
+		return nil, false, nil
+	}
+
+	cacheKey := modelsListCacheKey(groupID, platform)
+	if useCache && s.configuredModelsCache != nil {
+		if cached, found := s.configuredModelsCache.Get(cacheKey); found {
+			if entry, ok := cached.(configuredGroupModelsCacheEntry); ok {
+				return cloneStringSlice(entry.models), entry.hasAccounts, nil
+			}
+		}
+	}
+
+	accounts, err := s.accountRepo.ListModelAvailabilityCandidates(ctx, groupID, []string{platform}, groupID == nil)
+	if err != nil {
+		return nil, false, err
+	}
+
+	entry := configuredGroupModelsCacheEntry{hasAccounts: len(accounts) > 0}
+	if entry.hasAccounts {
+		entry.models, _ = mappedModelIDs(accounts)
+	}
+	if useCache && s.configuredModelsCache != nil {
+		s.configuredModelsCache.Set(cacheKey, configuredGroupModelsCacheEntry{
+			models:      cloneStringSlice(entry.models),
+			hasAccounts: entry.hasAccounts,
+		}, s.modelsListCacheTTL)
+	}
+	return cloneStringSlice(entry.models), entry.hasAccounts, nil
+}
+
+// GetAvailableModels returns the list of models available for a group.
+// It aggregates model_mapping keys from all currently schedulable accounts in
+// the group. A nil result retains the legacy meaning "use platform defaults".
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
 	cacheKey := modelsListCacheKey(groupID, platform)
 	if s.modelsListCache != nil {
@@ -1297,19 +1369,7 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		accounts = filtered
 	}
 
-	// Collect unique models from all accounts
-	modelSet := make(map[string]struct{})
-	hasAnyMapping := false
-
-	for _, acc := range accounts {
-		mapping := acc.GetModelMapping()
-		if len(mapping) > 0 {
-			hasAnyMapping = true
-			for model := range mapping {
-				modelSet[model] = struct{}{}
-			}
-		}
-	}
+	models, hasAnyMapping := mappedModelIDs(accounts)
 
 	// If no account has model_mapping, return nil (use default)
 	if !hasAnyMapping {
@@ -1320,18 +1380,36 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		return nil
 	}
 
-	// Convert to slice
-	models := make([]string, 0, len(modelSet))
-	for model := range modelSet {
-		models = append(models, model)
-	}
-	sort.Strings(models)
-
 	if s.modelsListCache != nil {
 		s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)
 		modelsListCacheStoreTotal.Add(1)
 	}
 	return cloneStringSlice(models)
+}
+
+func mappedModelIDs(accounts []Account) ([]string, bool) {
+	modelSet := make(map[string]struct{})
+	hasAnyMapping := false
+	for i := range accounts {
+		mapping := accounts[i].GetModelMapping()
+		if len(mapping) == 0 {
+			continue
+		}
+		hasAnyMapping = true
+		for model := range mapping {
+			modelSet[model] = struct{}{}
+		}
+	}
+	if !hasAnyMapping {
+		return nil, false
+	}
+
+	models := make([]string, 0, len(modelSet))
+	for model := range modelSet {
+		models = append(models, model)
+	}
+	sort.Strings(models)
+	return models, true
 }
 
 // GetSchedulablePlatforms returns the concrete platforms that currently have
@@ -1363,19 +1441,27 @@ func (s *GatewayService) GetSchedulablePlatforms(ctx context.Context, groupID *i
 }
 
 func (s *GatewayService) InvalidateAvailableModelsCache(groupID *int64, platform string) {
-	if s == nil || s.modelsListCache == nil {
+	if s == nil {
+		return
+	}
+	invalidateModelsCache(s.modelsListCache, groupID, platform)
+	invalidateModelsCache(s.configuredModelsCache, groupID, platform)
+}
+
+func invalidateModelsCache(cache *gocache.Cache, groupID *int64, platform string) {
+	if cache == nil {
 		return
 	}
 
 	normalizedPlatform := strings.TrimSpace(platform)
 	// 完整匹配时精准失效；否则按维度批量失效。
 	if groupID != nil && normalizedPlatform != "" {
-		s.modelsListCache.Delete(modelsListCacheKey(groupID, normalizedPlatform))
+		cache.Delete(modelsListCacheKey(groupID, normalizedPlatform))
 		return
 	}
 
 	targetGroup := derefGroupID(groupID)
-	for key := range s.modelsListCache.Items() {
+	for key := range cache.Items() {
 		parts := strings.SplitN(key, "|", 2)
 		if len(parts) != 2 {
 			continue
@@ -1390,7 +1476,7 @@ func (s *GatewayService) InvalidateAvailableModelsCache(groupID *int64, platform
 		if normalizedPlatform != "" && parts[1] != normalizedPlatform {
 			continue
 		}
-		s.modelsListCache.Delete(key)
+		cache.Delete(key)
 	}
 }
 
