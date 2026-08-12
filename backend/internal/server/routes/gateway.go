@@ -128,6 +128,7 @@ func RegisterGatewayRoutes(
 		case service.PlatformGrok:
 			h.OpenAIGateway.GrokImages(c)
 		default:
+			markEnterpriseMemberRouteRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{
@@ -142,6 +143,7 @@ func RegisterGatewayRoutes(
 			h.OpenAIGateway.GrokVideoGeneration(c)
 			return
 		}
+		markEnterpriseMemberRouteRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 		c.JSON(http.StatusNotFound, gin.H{
 			"error": gin.H{
@@ -187,6 +189,7 @@ func RegisterGatewayRoutes(
 			h.OpenAIGateway.GrokVideoEdit(c)
 			return
 		}
+		markEnterpriseMemberRouteRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Videos API is not supported for this platform"}})
 	}
@@ -195,6 +198,7 @@ func RegisterGatewayRoutes(
 			h.OpenAIGateway.GrokVideoExtension(c)
 			return
 		}
+		markEnterpriseMemberRouteRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Videos API is not supported for this platform"}})
 	}
@@ -286,6 +290,7 @@ func RegisterGatewayRoutes(
 		}))
 		gateway.POST("/embeddings", textBodyLimit, withCompositeMemberGroups(func(c *gin.Context) {
 			if !isOpenAIOnlyEndpointGatewayPlatform(c) {
+				markEnterpriseMemberRouteRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
 				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 				c.JSON(http.StatusNotFound, gin.H{
 					"error": gin.H{
@@ -386,6 +391,7 @@ func RegisterGatewayRoutes(
 	}))...)
 	r.POST("/embeddings", append([]gin.HandlerFunc{textBodyLimit}, append(commonDirect[1:], withCompositeMemberGroups(func(c *gin.Context) {
 		if !isOpenAIOnlyEndpointGatewayPlatform(c) {
+			markEnterpriseMemberRouteRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{
@@ -604,8 +610,7 @@ func markEnterpriseMemberRouteRetry(c *gin.Context, reason service.OpsGroupRetry
 	if !ok || apiKey == nil || apiKey.MemberID == nil {
 		return
 	}
-	active, ok := service.ActiveGroupFromContext(c.Request.Context())
-	if !ok || !active.ModelPlanApplied || active.RoutePlanMode != service.EnterpriseMemberModelAdmissionEnforcePublished {
+	if _, ok := service.ActiveGroupFromContext(c.Request.Context()); !ok {
 		return
 	}
 	service.MarkOpsGroupRetry(c, reason)

@@ -30,10 +30,12 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		return
 	}
 	if liveRequestPlatform(c, apiKey) != service.PlatformOpenAI {
+		markEnterpriseMemberGroupRetry(c, apiKey, service.OpsGroupRetryReasonCapabilityMismatch)
 		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Live is not supported for this platform")
 		return
 	}
 	if !liveEnabledForAPIKey(c, apiKey) {
+		markEnterpriseMemberGroupRetry(c, apiKey, service.OpsGroupRetryReasonCapabilityMismatch)
 		h.errorResponse(c, http.StatusForbidden, "permission_error", "Live is not enabled for this group")
 		return
 	}

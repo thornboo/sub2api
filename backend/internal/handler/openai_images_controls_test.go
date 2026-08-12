@@ -52,7 +52,7 @@ func TestOpenAIGatewayHandlerImages_DisabledGroupRejectsBeforeScheduling(t *test
 	require.False(t, retryMarked, "ordinary keys must keep existing non-enterprise retry semantics")
 }
 
-func TestOpenAIGatewayHandlerImages_DisabledEnterpriseGroupWithoutEnforcedPlanKeepsLegacySemantics(t *testing.T) {
+func TestOpenAIGatewayHandlerImages_DisabledEnterpriseGroupMarksSafeLocalCapabilityMismatch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	body := []byte(`{"model":"gpt-image-2","prompt":"draw","size":"1024x1024"}`)
@@ -90,11 +90,12 @@ func TestOpenAIGatewayHandlerImages_DisabledEnterpriseGroupWithoutEnforcedPlanKe
 	h.Images(c)
 
 	require.Equal(t, http.StatusForbidden, rec.Code)
-	_, retryMarked := service.GroupAttemptResultFromContext(c)
-	require.False(t, retryMarked, "unsupported planner endpoints must not change behavior merely because the key is an enterprise member")
+	attempt, retryMarked := service.GroupAttemptResultFromContext(c)
+	require.True(t, retryMarked, "a local capability rejection must not terminate a multi-group member before another authorized group is considered")
+	require.Equal(t, service.OpsGroupRetryReasonCapabilityMismatch, attempt.Reason)
 }
 
-func TestMarkEnterpriseMemberGroupRetryRequiresAppliedEnforcePlan(t *testing.T) {
+func TestMarkEnterpriseMemberGroupRetryPreservesSafeRecoveryInEveryAdmissionMode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	groupID := int64(111)
 	memberID := int64(444)
@@ -107,11 +108,11 @@ func TestMarkEnterpriseMemberGroupRetryRequiresAppliedEnforcePlan(t *testing.T) 
 		name        string
 		mode        service.EnterpriseMemberModelAdmissionMode
 		planApplied bool
-		wantMarked  bool
 	}{
-		{name: "shadow plan", mode: service.EnterpriseMemberModelAdmissionShadowPublished, wantMarked: false},
-		{name: "enforce without supported planner", mode: service.EnterpriseMemberModelAdmissionEnforcePublished, wantMarked: false},
-		{name: "applied enforce plan", mode: service.EnterpriseMemberModelAdmissionEnforcePublished, planApplied: true, wantMarked: true},
+		{name: "legacy plan", mode: service.EnterpriseMemberModelAdmissionLegacyOrderOnly},
+		{name: "shadow plan", mode: service.EnterpriseMemberModelAdmissionShadowPublished},
+		{name: "enforce without applied plan", mode: service.EnterpriseMemberModelAdmissionEnforcePublished},
+		{name: "applied enforce plan", mode: service.EnterpriseMemberModelAdmissionEnforcePublished, planApplied: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
@@ -127,10 +128,8 @@ func TestMarkEnterpriseMemberGroupRetryRequiresAppliedEnforcePlan(t *testing.T) 
 			markEnterpriseMemberGroupRetry(c, apiKey, service.OpsGroupRetryReasonCapabilityMismatch)
 
 			attempt, marked := service.GroupAttemptResultFromContext(c)
-			require.Equal(t, test.wantMarked, marked)
-			if test.wantMarked {
-				require.Equal(t, service.OpsGroupRetryReasonCapabilityMismatch, attempt.Reason)
-			}
+			require.True(t, marked)
+			require.Equal(t, service.OpsGroupRetryReasonCapabilityMismatch, attempt.Reason)
 		})
 	}
 }

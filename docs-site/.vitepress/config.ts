@@ -97,7 +97,8 @@ export default defineConfig({
           { text: '0001：文档中心', link: '/dev-zz/decisions/adr-0001-docs-site-as-dev-zz-doc-hub' },
           { text: '0002：Key 作为成员（已取代）', link: '/dev-zz/decisions/adr-0002-key-as-enterprise-member' },
           { text: '0003：不可登录成员实体', link: '/dev-zz/decisions/adr-0003-enterprise-member-entity' },
-          { text: '0004：运维失败分类与 SLA', link: '/dev-zz/decisions/adr-0004-ops-failure-taxonomy-and-sla' }
+          { text: '0004：运维失败分类与 SLA', link: '/dev-zz/decisions/adr-0004-ops-failure-taxonomy-and-sla' },
+          { text: '0005：企业权益与路由池解耦', link: '/dev-zz/decisions/adr-0005-enterprise-entitlements-and-route-pools' }
         ]
       }
     ],

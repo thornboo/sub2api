@@ -1492,7 +1492,24 @@ func applyOpsRoutingEvidenceFromContext(c *gin.Context, entry *service.OpsInsert
 			actual.AttemptNumber = result.AttemptNumber
 		}
 	}
-	entry.RoutingAttempts = append(entry.RoutingAttempts, actual)
+	entry.RoutingAttempts = upsertOpsRoutingAttemptEvidence(entry.RoutingAttempts, actual)
+}
+
+func upsertOpsRoutingAttemptEvidence(existing []*service.OpsRoutingAttemptEvidence, item *service.OpsRoutingAttemptEvidence) []*service.OpsRoutingAttemptEvidence {
+	if item == nil {
+		return existing
+	}
+	for i, current := range existing {
+		if current == nil || current.Stage != item.Stage || current.GroupID <= 0 || current.GroupID != item.GroupID {
+			continue
+		}
+		if current.AttemptNumber > 0 && item.AttemptNumber > 0 && current.AttemptNumber != item.AttemptNumber {
+			continue
+		}
+		existing[i] = item
+		return existing
+	}
+	return append(existing, item)
 }
 
 func opsBoolPtr(value bool) *bool {

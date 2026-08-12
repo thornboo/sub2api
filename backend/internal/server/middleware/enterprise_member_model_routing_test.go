@@ -153,7 +153,7 @@ func TestResolveEnterpriseMemberGroupShadowPublishedKeepsLegacyExecutionAndRecor
 		active, ok := service.ActiveGroupFromContext(c.Request.Context())
 		require.True(t, ok)
 		require.Equal(t, service.EnterpriseMemberModelAdmissionShadowPublished, active.RoutePlanMode)
-		require.False(t, active.ModelPlanApplied, "shadow mode must not authorize new replay behavior")
+		require.False(t, active.ModelPlanApplied, "shadow mode must not replace the legacy candidate order with planner output")
 		evidence, ok := service.UsageRoutingShadowEvidenceFromContext(c.Request.Context())
 		require.True(t, ok)
 		require.Equal(t, service.EnterpriseMemberModelAdmissionShadowPublished, evidence.Mode)
@@ -187,18 +187,27 @@ func TestSanitizeEnterpriseMemberRouteTraceModelBoundsAndRemovesControlCharacter
 	require.True(t, strings.HasPrefix(sanitized, "model"))
 }
 
-func TestResolveEnterpriseMemberGroupEnforcePublishedActivatesOnlyPlannedCandidate(t *testing.T) {
+func TestResolveEnterpriseMemberGroupEnforcePublishedSkipsAnthropicBindingForGPT56Sol(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	anthropicGroup := enterpriseMemberModelRoutingTestGroup(11, "anthropic")
+	anthropicGroup.Platform = service.PlatformAnthropic
+	openAIGroup := enterpriseMemberModelRoutingTestGroup(12, "openai")
+	openAIGroup.Platform = service.PlatformOpenAI
 	key := enterpriseMemberModelRoutingTestKey(
-		enterpriseMemberModelRoutingTestGroup(11, "mimo"),
-		enterpriseMemberModelRoutingTestGroup(12, "glm"),
+		anthropicGroup,
+		openAIGroup,
 	)
 	planner := enterpriseMemberRoutePlannerFunc(func(_ context.Context, input service.EnterpriseMemberRouteInput) (*service.EnterpriseMemberRoutePlan, error) {
+		require.Equal(t, "gpt-5.6-sol", input.Model)
 		return &service.EnterpriseMemberRoutePlan{
 			Model: input.Model,
 			Candidates: []service.EnterpriseMemberRouteCandidateDecision{{
 				GroupID: 12,
 				Reason:  service.EnterpriseMemberRouteReasonEligible,
+			}},
+			Rejected: []service.EnterpriseMemberRouteCandidateDecision{{
+				GroupID: 11,
+				Reason:  service.EnterpriseMemberRouteReasonModelUnsupported,
 			}},
 		}, nil
 	})
@@ -214,13 +223,14 @@ func TestResolveEnterpriseMemberGroupEnforcePublishedActivatesOnlyPlannedCandida
 		require.Equal(t, 1, active.CandidateIndex, "candidate index must refer to original member binding order")
 		require.Equal(t, service.EnterpriseMemberModelAdmissionEnforcePublished, active.RoutePlanMode)
 		require.True(t, active.ModelPlanApplied)
+		require.Equal(t, service.PlatformOpenAI, active.Platform)
 		body, err := io.ReadAll(c.Request.Body)
 		require.NoError(t, err)
-		require.JSONEq(t, `{"model":"glm-5.2"}`, string(body))
+		require.JSONEq(t, `{"model":"gpt-5.6-sol","input":"hello"}`, string(body))
 		c.Status(http.StatusNoContent)
 	})
 
-	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"glm-5.2"}`))
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.6-sol","input":"hello"}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)

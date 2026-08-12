@@ -6,10 +6,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// markEnterpriseMemberGroupRetry marks a defensive local capability failure
-// replayable only when enforce mode already replaced the legacy candidate list
-// with a model-aware plan. Shadow/legacy modes and endpoint families without a
-// stable planner must preserve their existing execution behavior.
+// markEnterpriseMemberGroupRetry records a closed, group-local failure for the
+// outer enterprise-member orchestrator. Admission mode only decides how the
+// candidate list is built; it must never disable the safe recovery contract
+// that legacy and shadow requests already depended on. The orchestrator still
+// rejects replay after a committed response, an ambiguous outcome, a committed
+// external task, a committed WebSocket turn, or client cancellation.
 func markEnterpriseMemberGroupRetry(c *gin.Context, apiKey *service.APIKey, reason service.OpsGroupRetryReason) {
 	if c == nil || c.Request == nil || apiKey == nil || apiKey.MemberID == nil {
 		return
@@ -17,8 +19,7 @@ func markEnterpriseMemberGroupRetry(c *gin.Context, apiKey *service.APIKey, reas
 	if current, ok := middleware2.GetAPIKeyFromContext(c); !ok || current == nil || current.MemberID == nil {
 		return
 	}
-	active, ok := service.ActiveGroupFromContext(c.Request.Context())
-	if !ok || !active.ModelPlanApplied || active.RoutePlanMode != service.EnterpriseMemberModelAdmissionEnforcePublished {
+	if _, ok := service.ActiveGroupFromContext(c.Request.Context()); !ok {
 		return
 	}
 	service.MarkOpsGroupRetry(c, reason)

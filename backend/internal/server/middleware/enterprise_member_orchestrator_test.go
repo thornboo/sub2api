@@ -153,6 +153,83 @@ func TestOrchestrateEnterpriseMemberGroupsReturnsFinalModelNotFoundAfterAllGroup
 	require.Equal(t, []int64{11, 22}, groupIDs)
 }
 
+func TestOrchestrateEnterpriseMemberGroupsDoesNotReplaceCapacityFailureWithLaterCapabilityMiss(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.6-sol"}`))
+
+	plan := testEnterpriseMemberGroupPlan()
+	plan.candidates = append(plan.candidates, enterpriseMemberGroupCandidate{
+		group:       service.Group{ID: 33, Platform: service.PlatformAnthropic, RateMultiplier: 1.3, Hydrated: true},
+		memberIndex: 2,
+	})
+	c.Set(enterpriseMemberGroupPlanKey, plan)
+	activateEnterpriseMemberGroupCandidate(c, plan, 0, "gpt-5.6-sol")
+
+	var groupIDs []int64
+	handler := OrchestrateEnterpriseMemberGroups(func(c *gin.Context) {
+		apiKey, ok := GetAPIKeyFromContext(c)
+		require.True(t, ok)
+		require.NotNil(t, apiKey.GroupID)
+		groupIDs = append(groupIDs, *apiKey.GroupID)
+		if len(groupIDs) == 1 {
+			c.Header("Retry-After", "7")
+			service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapacityExhausted)
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "published route temporarily exhausted"})
+			return
+		}
+		service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
+		c.JSON(http.StatusNotFound, gin.H{"error": "model is not supported by this group"})
+	})
+
+	handler(c)
+
+	require.Equal(t, []int64{11, 22, 33}, groupIDs)
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	require.Equal(t, "7", recorder.Header().Get("Retry-After"))
+	require.JSONEq(t, `{"error":"published route temporarily exhausted"}`, recorder.Body.String())
+	active, ok := service.ActiveGroupFromContext(c.Request.Context())
+	require.True(t, ok)
+	require.Equal(t, int64(11), active.GroupID, "terminal routing context must match the response selected for the client")
+	attempts := service.OpsRoutingAttemptsFromContext(c)
+	require.Len(t, attempts, 3)
+	require.Equal(t, []int64{11, 22, 33}, []int64{attempts[0].GroupID, attempts[1].GroupID, attempts[2].GroupID})
+	terminal, ok := service.GroupAttemptResultFromContext(c)
+	require.True(t, ok)
+	require.Equal(t, int64(11), terminal.GroupID)
+	require.Equal(t, service.OpsGroupRetryReasonCapacityExhausted, terminal.Reason)
+}
+
+func TestOrchestrateEnterpriseMemberGroupsDoesNotReplaceTransientFailureWithLaterCapabilityMiss(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.6-sol"}`))
+
+	plan := testEnterpriseMemberGroupPlan()
+	c.Set(enterpriseMemberGroupPlanKey, plan)
+	activateEnterpriseMemberGroupCandidate(c, plan, 0, "gpt-5.6-sol")
+
+	calls := 0
+	handler := OrchestrateEnterpriseMemberGroups(func(c *gin.Context) {
+		calls++
+		if calls == 1 {
+			service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonTransientUpstream)
+			c.JSON(http.StatusBadGateway, gin.H{"error": "upstream connection closed"})
+			return
+		}
+		service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
+		c.JSON(http.StatusNotFound, gin.H{"error": "model is not supported by this group"})
+	})
+
+	handler(c)
+
+	require.Equal(t, 2, calls)
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	require.JSONEq(t, `{"error":"upstream connection closed"}`, recorder.Body.String())
+}
+
 func TestOrchestrateEnterpriseMemberGroupsDoesNotRetryCommittedResponse(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
@@ -174,6 +251,35 @@ func TestOrchestrateEnterpriseMemberGroupsDoesNotRetryCommittedResponse(t *testi
 
 	require.Equal(t, 1, calls)
 	require.Equal(t, http.StatusOK, recorder.Code)
+}
+
+func TestOrchestrateEnterpriseMemberGroupsDoesNotReplayAfterSemanticSSEWrite(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.6-sol","stream":true}`))
+	plan := testEnterpriseMemberGroupPlan()
+	c.Set(enterpriseMemberGroupPlanKey, plan)
+	activateEnterpriseMemberGroupCandidate(c, plan, 0, "gpt-5.6-sol")
+
+	calls := 0
+	handler := OrchestrateEnterpriseMemberGroups(func(c *gin.Context) {
+		calls++
+		if calls > 1 {
+			t.Fatal("a semantic streaming response must permanently lock the active group")
+		}
+		c.Header("Content-Type", "text/event-stream")
+		_, err := c.Writer.Write([]byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}\n\n"))
+		require.NoError(t, err)
+		service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonTransientUpstream)
+	})
+
+	handler(c)
+
+	require.Equal(t, 1, calls)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Equal(t, "text/event-stream", recorder.Header().Get("Content-Type"))
+	require.Equal(t, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}\n\n", recorder.Body.String())
 }
 
 func TestOrchestrateEnterpriseMemberGroupsDoesNotRetryClientError(t *testing.T) {

@@ -196,6 +196,87 @@ func TestApplyOpsRoutingEvidenceFromContextPreservesHistoricalAttemptChain(t *te
 	require.Equal(t, int64(22), attempts[1].GroupID)
 }
 
+func TestApplyOpsRoutingEvidenceFromContextDoesNotDuplicatePreferredEarlierFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	for _, attempt := range []*service.OpsRoutingAttemptEvidence{
+		{
+			Stage:          service.OpsRoutingAttemptStageActualAttempt,
+			Outcome:        string(service.GroupAttemptOutcomeTerminalFailure),
+			GroupID:        11,
+			AttemptNumber:  1,
+			CandidateIndex: 0,
+			Platform:       "openai",
+			RequestedModel: "gpt-5.6-sol",
+			Reason:         string(service.OpsGroupRetryReasonCapacityExhausted),
+			SafeToReplay:   boolPtr(true),
+		},
+		{
+			Stage:          service.OpsRoutingAttemptStageActualAttempt,
+			Outcome:        string(service.GroupAttemptOutcomeTerminalFailure),
+			GroupID:        22,
+			AttemptNumber:  2,
+			CandidateIndex: 1,
+			Platform:       "anthropic",
+			RequestedModel: "gpt-5.6-sol",
+			Reason:         string(service.OpsGroupRetryReasonCapabilityMismatch),
+			SafeToReplay:   boolPtr(true),
+		},
+		{
+			Stage:          service.OpsRoutingAttemptStageActualAttempt,
+			Outcome:        string(service.GroupAttemptOutcomeTerminalFailure),
+			GroupID:        33,
+			AttemptNumber:  3,
+			CandidateIndex: 2,
+			Platform:       "anthropic",
+			RequestedModel: "gpt-5.6-sol",
+			Reason:         string(service.OpsGroupRetryReasonCapabilityMismatch),
+			SafeToReplay:   boolPtr(true),
+		},
+	} {
+		service.AppendOpsRoutingAttempts(c, attempt)
+	}
+
+	active := &service.ActiveGroupContext{
+		GroupID:        11,
+		Platform:       "openai",
+		RequestedModel: "gpt-5.6-sol",
+		MappedModel:    "gpt-5.6-sol",
+		CandidateIndex: 0,
+		AttemptNumber:  1,
+	}
+	ctx := context.WithValue(c.Request.Context(), ctxkey.ActiveGroup, active)
+	c.Request = c.Request.WithContext(ctx)
+	service.MarkGroupAttemptResult(c, service.GroupAttemptResult{
+		GroupID:           11,
+		AttemptNumber:     1,
+		Outcome:           service.GroupAttemptOutcomeTerminalFailure,
+		Reason:            service.OpsGroupRetryReasonCapacityExhausted,
+		SafeToReplay:      true,
+		ResponseCommitted: false,
+	})
+
+	entry := &service.OpsInsertErrorLogInput{}
+	applyOpsRoutingEvidenceFromContext(c, entry)
+	require.Len(t, entry.RoutingAttempts, 3)
+	require.Equal(t, []int64{11, 22, 33}, []int64{
+		entry.RoutingAttempts[0].GroupID,
+		entry.RoutingAttempts[1].GroupID,
+		entry.RoutingAttempts[2].GroupID,
+	})
+	require.Equal(t, string(service.OpsGroupRetryReasonCapacityExhausted), entry.RoutingAttempts[0].Reason)
+
+	require.NoError(t, service.SanitizeOpsRoutingAttemptsForQueue(entry))
+	require.NotNil(t, entry.RoutingAttemptsJSON)
+	attempts, err := service.ParseOpsRoutingAttempts(*entry.RoutingAttemptsJSON)
+	require.NoError(t, err)
+	require.Len(t, attempts, 3)
+	require.Equal(t, []int64{11, 22, 33}, []int64{attempts[0].GroupID, attempts[1].GroupID, attempts[2].GroupID})
+}
+
 func resetOpsErrorLoggerStateForTest(t *testing.T) {
 	t.Helper()
 

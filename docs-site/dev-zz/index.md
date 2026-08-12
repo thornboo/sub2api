@@ -54,6 +54,7 @@
 - [设计取舍 0002：用 Key 承载企业成员管理，不引入子账号实体（已被 0003 取代）](./decisions/adr-0002-key-as-enterprise-member.md)
 - [设计取舍 0003：不可登录成员实体、聚合 Key 与成员预算](./decisions/adr-0003-enterprise-member-entity.md)
 - [设计取舍 0004：运维失败分类、责任归属与 SLA 口径](./decisions/adr-0004-ops-failure-taxonomy-and-sla.md)
+- [设计取舍 0005：企业访问策略、产品权益与内部路由池解耦](./decisions/adr-0005-enterprise-entitlements-and-route-pools.md)
 
 ## 记录规则
 

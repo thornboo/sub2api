@@ -237,100 +237,119 @@ func TestClassifyNoAccountError_EnterpriseMemberModelMissMarksGroupCapabilityMis
 	require.Equal(t, service.OpsGroupRetryReasonCapabilityMismatch, reason)
 }
 
-func TestClassifyNoAccountError_EnterpriseMemberModelMissDrivesNextGroup(t *testing.T) {
+func TestClassifyNoAccountError_EnterpriseMemberModelMissDrivesNextGroupInEveryAdmissionMode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	memberID := int64(9)
-	apiKey := &service.APIKey{
-		ID: 17, UserID: 3, MemberID: &memberID,
-		User: &service.User{
-			ID: 3, Role: service.RoleUser, AccountType: service.UserAccountTypeEnterprise,
-			Status: service.StatusActive, Balance: 10,
-		},
-		Member: &service.EnterpriseMember{
-			ID: memberID, EnterpriseUserID: 3, Status: service.EnterpriseMemberStatusActive, Version: 4,
-			Groups: []service.Group{
-				{
-					ID: 11, Platform: service.PlatformOpenAI, Status: service.StatusActive,
-					Hydrated: true, AllowMessagesDispatch: true, RateMultiplier: 1,
+	for _, mode := range []service.EnterpriseMemberModelAdmissionMode{
+		service.EnterpriseMemberModelAdmissionLegacyOrderOnly,
+		service.EnterpriseMemberModelAdmissionShadowPublished,
+		service.EnterpriseMemberModelAdmissionEnforcePublished,
+	} {
+		t.Run(string(mode), func(t *testing.T) {
+			memberID := int64(9)
+			apiKey := &service.APIKey{
+				ID: 17, UserID: 3, MemberID: &memberID,
+				User: &service.User{
+					ID: 3, Role: service.RoleUser, AccountType: service.UserAccountTypeEnterprise,
+					Status: service.StatusActive, Balance: 10,
 				},
-				{
-					ID: 22, Platform: service.PlatformAnthropic, Status: service.StatusActive,
-					Hydrated: true, RateMultiplier: 1,
+				Member: &service.EnterpriseMember{
+					ID: memberID, EnterpriseUserID: 3, Status: service.EnterpriseMemberStatusActive, Version: 4,
+					Groups: []service.Group{
+						{
+							ID: 11, Platform: service.PlatformAnthropic, Status: service.StatusActive,
+							Hydrated: true, AllowMessagesDispatch: true, RateMultiplier: 1,
+						},
+						{
+							ID: 22, Platform: service.PlatformOpenAI, Status: service.StatusActive,
+							Hydrated: true, AllowMessagesDispatch: true, RateMultiplier: 1,
+						},
+					},
 				},
-			},
-		},
-	}
-	diagnoser := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{
-		HasAccountsInPool: true,
-		HasModelSupport:   false,
-	}}
+			}
+			diagnoser := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{
+				HasAccountsInPool: true,
+				HasModelSupport:   false,
+			}}
 
-	router := gin.New()
-	router.Use(func(c *gin.Context) {
-		c.Set(string(middleware2.ContextKeyAPIKey), apiKey)
-		c.Next()
-	})
-	planner := enterpriseMemberRoutePlannerFunc(func(_ context.Context, input service.EnterpriseMemberRouteInput) (*service.EnterpriseMemberRoutePlan, error) {
-		require.Equal(t, "claude-opus-4-8", input.Model)
-		return &service.EnterpriseMemberRoutePlan{
-			Model: input.Model,
-			Candidates: []service.EnterpriseMemberRouteCandidateDecision{
-				{GroupID: 11, Reason: service.EnterpriseMemberRouteReasonEligible},
-				{GroupID: 22, Reason: service.EnterpriseMemberRouteReasonEligible},
-			},
-		}, nil
-	})
-	router.Use(middleware2.ResolveEnterpriseMemberGroup(
-		nil,
-		planner,
-		enterpriseMemberAdmissionModeStub(service.EnterpriseMemberModelAdmissionEnforcePublished),
-		&config.Config{RunMode: config.RunModeSimple},
-		middleware2.AnthropicErrorWriter,
-	))
-
-	var groupIDs []int64
-	router.POST("/v1/messages", middleware2.OrchestrateEnterpriseMemberGroups(func(c *gin.Context) {
-		requestKey, ok := middleware2.GetAPIKeyFromContext(c)
-		require.True(t, ok)
-		require.NotNil(t, requestKey.GroupID)
-		groupIDs = append(groupIDs, *requestKey.GroupID)
-		if *requestKey.GroupID == 11 {
-			classification := classifyNoAccountErrorFromGin(
-				c,
-				diagnoser,
-				requestKey,
-				"gpt-5.4",
-				"claude-opus-4-8",
-				service.PlatformOpenAI,
-			)
-			require.True(t, classification.ModelNotFound)
-			c.JSON(classification.Status, gin.H{
-				"type": "error",
-				"error": gin.H{
-					"type":    classification.ErrType,
-					"message": classification.Message,
-				},
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(string(middleware2.ContextKeyAPIKey), apiKey)
+				c.Next()
 			})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"group_id": *requestKey.GroupID})
-	}))
+			planner := enterpriseMemberRoutePlannerFunc(func(_ context.Context, input service.EnterpriseMemberRouteInput) (*service.EnterpriseMemberRoutePlan, error) {
+				require.Equal(t, "gpt-5.6-sol", input.Model)
+				return &service.EnterpriseMemberRoutePlan{
+					Model: input.Model,
+					Candidates: []service.EnterpriseMemberRouteCandidateDecision{
+						{GroupID: 11, Reason: service.EnterpriseMemberRouteReasonEligible},
+						{GroupID: 22, Reason: service.EnterpriseMemberRouteReasonEligible},
+					},
+				}, nil
+			})
+			router.Use(middleware2.ResolveEnterpriseMemberGroup(
+				nil,
+				planner,
+				enterpriseMemberAdmissionModeStub(mode),
+				&config.Config{RunMode: config.RunModeSimple},
+				middleware2.AnthropicErrorWriter,
+			))
 
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/v1/messages",
-		strings.NewReader(`{"model":"claude-opus-4-8","messages":[]}`),
-	)
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, request)
+			var groupIDs []int64
+			usageSubmitter := &OpenAIGatewayHandler{}
+			usageCalls := 0
+			usageGroupID := int64(0)
+			router.POST("/v1/responses", middleware2.OrchestrateEnterpriseMemberGroups(func(c *gin.Context) {
+				requestKey, ok := middleware2.GetAPIKeyFromContext(c)
+				require.True(t, ok)
+				require.NotNil(t, requestKey.GroupID)
+				groupIDs = append(groupIDs, *requestKey.GroupID)
+				if *requestKey.GroupID == 11 {
+					classification := classifyNoAccountErrorFromGin(
+						c,
+						diagnoser,
+						requestKey,
+						"gpt-5.6-sol",
+						"gpt-5.6-sol",
+						service.PlatformAnthropic,
+					)
+					require.True(t, classification.ModelNotFound)
+					c.JSON(classification.Status, gin.H{
+						"type": "error",
+						"error": gin.H{
+							"type":    classification.ErrType,
+							"message": classification.Message,
+						},
+					})
+					return
+				}
+				usageSubmitter.submitOpenAIUsageRecordTask(c, c.Request.Context(), &service.OpenAIForwardResult{}, requestKey, func(ctx context.Context) {
+					usageCalls++
+					active, ok := service.ActiveGroupFromContext(ctx)
+					require.True(t, ok)
+					usageGroupID = active.GroupID
+				})
+				c.JSON(http.StatusOK, gin.H{"group_id": *requestKey.GroupID})
+			}))
 
-	require.Equal(t, http.StatusOK, response.Code)
-	require.JSONEq(t, `{"group_id":22}`, response.Body.String(), "the first group's buffered 404 must not escape")
-	require.Equal(t, []int64{11, 22}, groupIDs)
-	require.Len(t, diagnoser.calls, 1)
-	require.Equal(t, int64(11), *diagnoser.calls[0].GroupID)
-	require.Equal(t, "gpt-5.4", diagnoser.calls[0].Model)
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/responses",
+				strings.NewReader(`{"model":"gpt-5.6-sol","input":"hello"}`),
+			)
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+
+			require.Equal(t, http.StatusOK, response.Code)
+			require.JSONEq(t, `{"group_id":22}`, response.Body.String(), "the first group's buffered 404 must not escape")
+			require.Equal(t, []int64{11, 22}, groupIDs)
+			require.Len(t, diagnoser.calls, 1)
+			require.Equal(t, int64(11), *diagnoser.calls[0].GroupID)
+			require.Equal(t, "gpt-5.6-sol", diagnoser.calls[0].Model)
+			require.Equal(t, 1, usageCalls, "only the successful group may submit member usage")
+			require.Equal(t, int64(22), usageGroupID)
+		})
+	}
 }
 
 func TestClassifyNoAccountError_OrdinaryKeyModelMissDoesNotMarkGroupRetry(t *testing.T) {

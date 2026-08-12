@@ -77,6 +77,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	reqModel := modelResult.String()
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !compositeTargetPlatformResolved(c, apiKey, reqModel) {
+		markEnterpriseMemberGroupRetry(c, apiKey, service.OpsGroupRetryReasonCapabilityMismatch)
 		h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by composite groups")
 		return
 	}
@@ -110,6 +111,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	// to fallback groups when the Forward path calls SelectAccountForModelWithExclusions.
 	// Here we just reject at handler level since /v1/responses clients can't be Claude Code.
 	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly {
+		markEnterpriseMemberGroupRetry(c, apiKey, service.OpsGroupRetryReasonCapabilityMismatch)
 		h.responsesErrorResponse(c, http.StatusForbidden, "permission_error",
 			"This group is restricted to Claude Code clients (/v1/messages only)")
 		return

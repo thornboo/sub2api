@@ -92,14 +92,15 @@ func TestOpenAIGatewayHandlerResponses_ImagePermissionGateMarksOnlyEnterpriseMem
 	require.Equal(t, service.OpsGroupRetryReasonCapabilityMismatch, attempt.Reason)
 }
 
-func TestOpenAIGatewayHandlerResponses_ImagePermissionGateDoesNotChangeShadowRouting(t *testing.T) {
+func TestOpenAIGatewayHandlerResponses_ImagePermissionGateKeepsSafeShadowFallback(t *testing.T) {
 	body := `{"model":"gpt-image-2","input":"draw a cat"}`
 
 	recorder, requestContext := runOpenAIResponsesImagePermissionGateContextTest(t, service.PlatformOpenAI, body, true, false)
 
 	require.Equal(t, http.StatusForbidden, recorder.Code)
-	_, retryMarked := service.GroupAttemptResultFromContext(requestContext)
-	require.False(t, retryMarked, "shadow mode must record planning evidence without changing the legacy terminal group")
+	attempt, retryMarked := service.GroupAttemptResultFromContext(requestContext)
+	require.True(t, retryMarked, "shadow planning must not suppress the legacy safe fallback contract")
+	require.Equal(t, service.OpsGroupRetryReasonCapabilityMismatch, attempt.Reason)
 }
 
 func runOpenAIResponsesImagePermissionGateTest(t *testing.T, platform string, body string) *httptest.ResponseRecorder {

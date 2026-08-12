@@ -3,6 +3,7 @@ package middleware
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"io"
 	"net"
 	"net/http"
@@ -36,6 +37,7 @@ func OrchestrateEnterpriseMemberGroups(next gin.HandlerFunc) gin.HandlerFunc {
 		originalWriter := c.Writer
 		requestedModel, _ := baseContext.Value(ctxkey.Model).(string)
 		attemptedGroups := make(map[int64]bool, len(plan.candidates))
+		var preferredFailure *enterpriseMemberBufferedFailure
 
 		for {
 			restoreRequestBody(c.Request, body)
@@ -55,9 +57,36 @@ func OrchestrateEnterpriseMemberGroups(next gin.HandlerFunc) gin.HandlerFunc {
 				retryable = false
 			}
 			nextCandidate := nextEnterpriseMemberUnattemptedCandidateIndex(plan, attemptedGroups)
-			if duplicateGroupAttempt || tx.committed || !retryable || nextCandidate < 0 {
+			if duplicateGroupAttempt || tx.committed || !retryable {
 				tx.commitBuffered()
 				c.Writer = originalWriter
+				return
+			}
+			currentFailure := &enterpriseMemberBufferedFailure{
+				writer:         tx,
+				attempt:        attempt,
+				candidateIndex: plan.current,
+			}
+			if preferredFailure == nil || enterpriseMemberFailurePriority(attempt.Reason) >= enterpriseMemberFailurePriority(preferredFailure.attempt.Reason) {
+				preferredFailure = currentFailure
+			}
+			if nextCandidate < 0 {
+				if preferredFailure == currentFailure {
+					currentFailure.writer.commitBuffered()
+					c.Writer = originalWriter
+					return
+				}
+				commitEnterpriseMemberPreferredFailure(
+					c,
+					plan,
+					preferredFailure,
+					currentFailure,
+					originalWriter,
+					baseContext,
+					baseKeys,
+					baseErrors,
+					requestedModel,
+				)
 				return
 			}
 
@@ -82,6 +111,66 @@ func OrchestrateEnterpriseMemberGroups(next gin.HandlerFunc) gin.HandlerFunc {
 			activateEnterpriseMemberGroupCandidate(c, plan, nextCandidate, requestedModel)
 		}
 	}
+}
+
+type enterpriseMemberBufferedFailure struct {
+	writer         *enterpriseMemberTransactionalWriter
+	attempt        service.GroupAttemptResult
+	candidateIndex int
+}
+
+func enterpriseMemberFailurePriority(reason service.OpsGroupRetryReason) int {
+	switch reason {
+	case service.OpsGroupRetryReasonCapacityExhausted:
+		return 3
+	case service.OpsGroupRetryReasonTransientUpstream:
+		return 2
+	case service.OpsGroupRetryReasonCapabilityMismatch:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func commitEnterpriseMemberPreferredFailure(
+	c *gin.Context,
+	plan *enterpriseMemberGroupPlan,
+	failure *enterpriseMemberBufferedFailure,
+	currentFailure *enterpriseMemberBufferedFailure,
+	originalWriter gin.ResponseWriter,
+	baseContext context.Context,
+	baseKeys map[string]any,
+	baseErrors int,
+	requestedModel string,
+) {
+	if c == nil || failure == nil || failure.writer == nil {
+		return
+	}
+
+	if currentFailure != nil {
+		service.AppendCurrentOpsRoutingAttempt(c, currentFailure.attempt)
+	}
+	routingAttempts := service.OpsRoutingAttemptsFromContext(c)
+	upstreamErrors, hasUpstreamErrors := c.Get(service.OpsUpstreamErrorsKey)
+
+	c.Keys = cloneGinKeys(baseKeys)
+	if len(routingAttempts) > 0 {
+		c.Set(service.OpsRoutingAttemptsKey, routingAttempts)
+	}
+	if hasUpstreamErrors {
+		c.Set(service.OpsUpstreamErrorsKey, upstreamErrors)
+	}
+	if len(c.Errors) > baseErrors {
+		c.Errors = c.Errors[:baseErrors]
+	}
+	if c.Request != nil {
+		c.Request = c.Request.WithContext(baseContext)
+	}
+	activateEnterpriseMemberGroupCandidate(c, plan, failure.candidateIndex, requestedModel)
+	service.MarkGroupAttemptResult(c, failure.attempt)
+
+	failure.writer.commitBuffered()
+	c.Writer = originalWriter
 }
 
 func nextEnterpriseMemberUnattemptedCandidateIndex(plan *enterpriseMemberGroupPlan, attemptedGroups map[int64]bool) int {
