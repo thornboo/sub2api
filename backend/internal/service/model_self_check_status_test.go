@@ -17,6 +17,9 @@ type modelSelfCheckRepoStub struct {
 	timeline         []ModelSelfCheckHistory
 	snapshots        []ModelSelfCheckStatusSnapshot
 	tokenUsage       []ModelSelfCheckTokenUsage
+	historyErr       error
+	timelineErr      error
+	snapshotErr      error
 	tokenUsageSince  time.Time
 	created          []ModelSelfCheckHistory
 	createdSnapshots []ModelSelfCheckStatusSnapshot
@@ -55,6 +58,9 @@ func (s *modelSelfCheckRepoStub) ListLatestByModels(ctx context.Context, models 
 }
 
 func (s *modelSelfCheckRepoStub) ListHistoriesSince(ctx context.Context, models []string, since time.Time) ([]ModelSelfCheckHistory, error) {
+	if s.historyErr != nil {
+		return nil, s.historyErr
+	}
 	allowed := map[string]struct{}{}
 	for _, model := range models {
 		allowed[model] = struct{}{}
@@ -69,6 +75,9 @@ func (s *modelSelfCheckRepoStub) ListHistoriesSince(ctx context.Context, models 
 }
 
 func (s *modelSelfCheckRepoStub) ListRecentHistories(ctx context.Context, model string, accountIDs []int64, limit int) ([]ModelSelfCheckHistory, error) {
+	if s.timelineErr != nil {
+		return nil, s.timelineErr
+	}
 	allowed := map[int64]struct{}{}
 	for _, id := range accountIDs {
 		allowed[id] = struct{}{}
@@ -90,6 +99,9 @@ func (s *modelSelfCheckRepoStub) ListRecentHistories(ctx context.Context, model 
 }
 
 func (s *modelSelfCheckRepoStub) ListRecentHistoriesBefore(ctx context.Context, model string, accountIDs []int64, before time.Time, limit int) ([]ModelSelfCheckHistory, error) {
+	if s.timelineErr != nil {
+		return nil, s.timelineErr
+	}
 	allowed := map[int64]struct{}{}
 	for _, id := range accountIDs {
 		allowed[id] = struct{}{}
@@ -114,6 +126,9 @@ func (s *modelSelfCheckRepoStub) ListRecentHistoriesBefore(ctx context.Context, 
 }
 
 func (s *modelSelfCheckRepoStub) ListRecentStatusSnapshots(ctx context.Context, groupID int64, model string, limit int) ([]ModelSelfCheckStatusSnapshot, error) {
+	if s.snapshotErr != nil {
+		return nil, s.snapshotErr
+	}
 	out := []ModelSelfCheckStatusSnapshot{}
 	for _, row := range s.snapshots {
 		if row.GroupID != groupID || row.Model != model {
@@ -128,6 +143,9 @@ func (s *modelSelfCheckRepoStub) ListRecentStatusSnapshots(ctx context.Context, 
 }
 
 func (s *modelSelfCheckRepoStub) ListStatusSnapshotsSince(ctx context.Context, groupID int64, model string, since time.Time) ([]ModelSelfCheckStatusSnapshot, error) {
+	if s.snapshotErr != nil {
+		return nil, s.snapshotErr
+	}
 	out := []ModelSelfCheckStatusSnapshot{}
 	for _, row := range s.snapshots {
 		if row.GroupID != groupID || row.Model != model {
@@ -387,6 +405,76 @@ func TestListUserModelStatusIncludesRecentTimeline(t *testing.T) {
 	}
 	if row.Timeline[0].Status != MonitorStatusOperational || row.Timeline[1].Status != MonitorStatusFailed {
 		t.Fatalf("timeline statuses = %#v, want newest snapshot order", row.Timeline)
+	}
+}
+
+func TestListUserModelStatusKeepsBaseRowsWhenOptionalHistoryIsUnavailable(t *testing.T) {
+	now := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
+	repo := &modelSelfCheckRepoStub{
+		targets: []ModelSelfCheckTarget{{
+			GroupID:       10,
+			GroupName:     "Pro",
+			GroupPlatform: PlatformOpenAI,
+			Model:         "gpt-4o",
+		}},
+		accounts: []ModelSelfCheckTargetAccount{{GroupID: 10, AccountID: 1, Platform: PlatformOpenAI}},
+		latest: []ModelSelfCheckHistory{{
+			Model: "gpt-4o", AccountID: 1, Platform: PlatformOpenAI,
+			Status: MonitorStatusOperational, LatencyMs: modelStatusIntPtr(420), CheckedAt: now.Add(-time.Minute),
+		}},
+		historyErr:  errors.New("history storage unavailable"),
+		snapshotErr: errors.New("snapshot storage unavailable"),
+	}
+	svc := NewModelSelfCheckService(repo)
+	setModelSelfCheckVisibleGroups(svc, 10)
+	svc.now = func() time.Time { return now }
+
+	rows, err := svc.ListUserModelStatus(context.Background(), modelSelfCheckTestUserID)
+	if err != nil {
+		t.Fatalf("ListUserModelStatus() error = %v", err)
+	}
+	row := findModelStatusRow(t, rows, 10, "gpt-4o")
+	if row.Status != MonitorStatusOperational || row.LatestLatencyMs == nil || *row.LatestLatencyMs != 420 {
+		t.Fatalf("row = %#v, want current operational status without optional history", row)
+	}
+	if row.Availability24h != nil || row.Availability7d != nil || row.Availability30d != nil {
+		t.Fatalf("availability = %v/%v/%v, want unknown when history is unavailable", row.Availability24h, row.Availability7d, row.Availability30d)
+	}
+	if len(row.Timeline) != 0 {
+		t.Fatalf("timeline = %#v, want empty when optional snapshot storage is unavailable", row.Timeline)
+	}
+}
+
+func TestGetUserModelStatusKeepsBaseDetailWhenOptionalTimelinesAreUnavailable(t *testing.T) {
+	now := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
+	repo := &modelSelfCheckRepoStub{
+		targets: []ModelSelfCheckTarget{{
+			GroupID:       10,
+			GroupName:     "Pro",
+			GroupPlatform: PlatformOpenAI,
+			Model:         "gpt-4o",
+		}},
+		accounts: []ModelSelfCheckTargetAccount{{GroupID: 10, AccountID: 1, Platform: PlatformOpenAI}},
+		latest: []ModelSelfCheckHistory{{
+			Model: "gpt-4o", AccountID: 1, Platform: PlatformOpenAI,
+			Status: MonitorStatusOperational, LatencyMs: modelStatusIntPtr(420), CheckedAt: now.Add(-time.Minute),
+		}},
+		snapshotErr: errors.New("snapshot storage unavailable"),
+		timelineErr: errors.New("legacy timeline unavailable"),
+	}
+	svc := NewModelSelfCheckService(repo)
+	setModelSelfCheckVisibleGroups(svc, 10)
+	svc.now = func() time.Time { return now }
+
+	detail, err := svc.GetUserModelStatus(context.Background(), modelSelfCheckTestUserID, 10, "gpt-4o")
+	if err != nil {
+		t.Fatalf("GetUserModelStatus() error = %v", err)
+	}
+	if detail.Status != MonitorStatusOperational || detail.LatestLatencyMs == nil || *detail.LatestLatencyMs != 420 {
+		t.Fatalf("detail = %#v, want current operational status without optional timelines", detail)
+	}
+	if len(detail.Timeline) != 0 {
+		t.Fatalf("timeline = %#v, want empty when both optional timeline stores are unavailable", detail.Timeline)
 	}
 }
 

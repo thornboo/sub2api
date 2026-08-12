@@ -368,6 +368,7 @@ const detailTarget = ref<UserModelStatus | null>(null)
 
 let abortController: AbortController | null = null
 let tokenUsageAbortController: AbortController | null = null
+let detailAbortController: AbortController | null = null
 
 const autoRefresh = useAutoRefresh({
   storageKey: 'model-status-auto-refresh',
@@ -596,13 +597,23 @@ async function manualReload() {
 }
 
 async function loadDetail(row: UserModelStatus) {
+  if (detailAbortController) detailAbortController.abort()
+  const ctrl = new AbortController()
+  detailAbortController = ctrl
   detailLoading.value = true
   try {
-    detail.value = await fetchModelStatusDetail(row.model, row.group_id)
+    const result = await fetchModelStatusDetail(row.model, row.group_id, { signal: ctrl.signal })
+    if (ctrl.signal.aborted || detailAbortController !== ctrl) return
+    detail.value = result
   } catch (err: unknown) {
+    const e = err as { name?: string; code?: string }
+    if (e?.name === 'AbortError' || e?.code === 'ERR_CANCELED') return
     appStore.showError(extractApiErrorMessage(err, t('channelStatus.detailLoadError')))
   } finally {
-    detailLoading.value = false
+    if (detailAbortController === ctrl) {
+      detailLoading.value = false
+      detailAbortController = null
+    }
   }
 }
 
@@ -614,6 +625,9 @@ function openDetail(row: UserModelStatus) {
 }
 
 function closeDetail() {
+  if (detailAbortController) detailAbortController.abort()
+  detailAbortController = null
+  detailLoading.value = false
   showDetail.value = false
   detail.value = null
   detailTarget.value = null
@@ -646,5 +660,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (abortController) abortController.abort()
   if (tokenUsageAbortController) tokenUsageAbortController.abort()
+  if (detailAbortController) detailAbortController.abort()
 })
 </script>

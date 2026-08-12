@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -269,12 +270,24 @@ func (s *ModelSelfCheckService) ListUserModelStatus(ctx context.Context, userID 
 		return nil, err
 	}
 	out := make([]*UserModelStatusView, 0, len(data.targets))
+	var firstTimelineErr error
+	failedTimelineTargets := 0
 	for _, target := range data.targets {
 		timeline, err := s.loadStatusTimeline(ctx, target, data)
 		if err != nil {
-			return nil, err
+			failedTimelineTargets++
+			if firstTimelineErr == nil {
+				firstTimelineErr = err
+			}
+			timeline = nil
 		}
 		out = append(out, s.buildStatusView(ctx, target, data, timeline))
+	}
+	if failedTimelineTargets > 0 {
+		slog.Warn("model_status_optional_timelines_unavailable",
+			"failed_targets", failedTimelineTargets,
+			"error", firstTimelineErr,
+		)
 	}
 	return out, nil
 }
@@ -298,15 +311,25 @@ func (s *ModelSelfCheckService) GetUserModelStatus(ctx context.Context, userID, 
 	view := s.buildStatusView(ctx, target, data, nil)
 	snapshotApplied, err := s.applySnapshotDetail(ctx, view, target, data, data.now)
 	if err != nil {
-		return nil, err
+		slog.Warn("model_status_optional_snapshot_detail_unavailable",
+			"group_id", target.GroupID,
+			"model", target.Model,
+			"error", err,
+		)
+		snapshotApplied = false
 	}
 	if !snapshotApplied {
 		accountIDs := s.accountIDsForTarget(ctx, target, data)
 		timeline, err := s.loadTimeline(ctx, target.Model, accountIDs)
 		if err != nil {
-			return nil, err
+			slog.Warn("model_status_optional_legacy_timeline_unavailable",
+				"group_id", target.GroupID,
+				"model", target.Model,
+				"error", err,
+			)
+		} else {
+			view.Timeline = timeline
 		}
-		view.Timeline = timeline
 	}
 	return &UserModelStatusDetail{UserModelStatusView: *view}, nil
 }
@@ -399,7 +422,8 @@ func (s *ModelSelfCheckService) loadStatusDataWithHistory(
 	}
 	historyRows, err := s.repo.ListHistoriesSince(ctx, models, now.AddDate(0, 0, -monitorAvailability30Days))
 	if err != nil {
-		return nil, fmt.Errorf("list model self check histories: %w", err)
+		slog.Warn("model_status_optional_history_unavailable", "error", err)
+		return data, nil
 	}
 	for _, row := range historyRows {
 		if data.historyByModel[row.Model] == nil {

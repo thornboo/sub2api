@@ -2,11 +2,14 @@
 
 ## 2026-08-12
 
+- 加固 v1.7.29 事故后的预算失败归因：企业成员预算预留的事务启动、已有预留查询、消费限额预留、新记录写入、提交和死锁重试退出点现在携带稳定阶段标签并保留原始 error chain / PostgreSQL SQLSTATE；预算超限、冲突、成员不存在等既有领域错误继续保持原来的 400 / 404 / 409 / 429 分类。
+- 用户“模型状态”页面对可选历史、时间线或快照存储故障改为 fail-soft：授权分组查询和当前状态主数据仍 fail-closed，只有可选可用率 / 时间线降级为空，页面继续展示已取得的当前状态。前端同时丢弃畸形列表行、拒绝畸形详情并取消过期详情请求，避免坏数据或请求竞态拖垮整页。
+- 修复 `Security Scan` 报告的 `nanoid` 高危公告 `GHSA-2v37-7h3g-55p8`：仅把 PostCSS 允许范围内的传递锁定版本从 `3.3.16` 提升到 `3.3.17`，不增加 audit 例外、不新增直接依赖。修复后 frozen-lockfile 安装和仓库 audit exception 校验通过。
 - 修复 v1.7.29 企业成员 admission runtime 缓存命中前仍执行 readiness 数据库聚合的问题：热命中不再读 readiness 证据，冷缓存重建继续由 singleflight 合并，避免模型路由前置查询争抢连接池并把预算事务启动失败放大为平台 500。
 - v1.7.29 故障后把 `gateway.enterprise_member_model_admission_mode`、新安装、空值、非法值与设置数据库故障的默认路径回退到 `legacy_order_only`；shadow / enforce 仍可显式开启，但升级默认不再执行预算前账号 / 分组 / 协议能力投影或 readiness 聚合，legacy WARN 也按进程限为每分钟最多一条。
 - 管理端保存 legacy / shadow 设置时跳过仅 enforce 校验需要的 readiness 聚合；显式保存 enforce 时仍完整执行 readiness、rollout 与 auto-stop gate。
 - readiness 评估现在复用同一份 admission evidence summary 计算 auto-stop，不再重复执行相同的 30 天聚合证据查询；evidence 不可用仍 fail-closed 到 `shadow_published`，rollout、预算原子结算和最终分组归因语义不变。
-- 新增调用次数回归，修复前单次冷缓存 / 热缓存 / 32 并发热命中为 `2 / 1 / 32`，修复后为 `1 / 0 / 0`，并验证 32 个并发冷 miss 也只重建 1 次；同一次 readiness 的 evidence repository 调用由 2 次降为 1 次。本次默认回退收口仅在本地 `dev-zz-develop` 继续提交，不再推送、发布或部署。
+- 新增调用次数回归，修复前单次冷缓存 / 热缓存 / 32 并发热命中为 `2 / 1 / 32`，修复后为 `1 / 0 / 0`，并验证 32 个并发冷 miss 也只重建 1 次；同一次 readiness 的 evidence repository 调用由 2 次降为 1 次。本轮本地全量验证包含后端测试、vet、golangci-lint，前端 261 个测试文件 / 1764 条测试、typecheck、lint、build，以及依赖审计；事故中预算底层失败与模型状态页最初故障的生产根因仍未被证明消失，正式候选仍需新提交对应的 hosted CI / Security Scan / Branch Images 全绿。
 
 ## 2026-08-05
 

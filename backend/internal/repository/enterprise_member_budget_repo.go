@@ -41,7 +41,7 @@ func (r *enterpriseMemberBudgetRepository) ReserveWithKind(ctx context.Context, 
 func (r *enterpriseMemberBudgetRepository) reserveWithKindOnce(ctx context.Context, requestID string, memberID int64, groupID *int64, payloadHash string, amount float64, receiptKind string, expiresAt time.Time) (_ *service.EnterpriseMemberBudgetReservation, err error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return nil, wrapEnterpriseMemberBudgetReserveInfrastructureError("begin_transaction", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -66,12 +66,12 @@ func (r *enterpriseMemberBudgetRepository) reserveWithKindOnce(ctx context.Conte
 		return &existing, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
+		return nil, wrapEnterpriseMemberBudgetReserveInfrastructureError("lookup_existing", err)
 	}
 
 	periodStart, enforced, err := reserveEnterpriseMemberSpendingLimits(ctx, tx, memberID, amount, time.Now())
 	if err != nil {
-		return nil, err
+		return nil, wrapEnterpriseMemberBudgetReserveInfrastructureError("reserve_spending_limits", err)
 	}
 	if !enforced && amount > 0 {
 		return nil, service.ErrEnterpriseMemberBudgetConflict
@@ -84,12 +84,27 @@ func (r *enterpriseMemberBudgetRepository) reserveWithKindOnce(ctx context.Conte
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
 			return nil, service.ErrEnterpriseMemberBudgetConflict
 		}
-		return nil, err
+		return nil, wrapEnterpriseMemberBudgetReserveInfrastructureError("insert_reservation", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, err
+		return nil, wrapEnterpriseMemberBudgetReserveInfrastructureError("commit_transaction", err)
 	}
 	return reservation, nil
+}
+
+func wrapEnterpriseMemberBudgetReserveInfrastructureError(stage string, err error) error {
+	if err == nil || isEnterpriseMemberBudgetReserveDomainError(err) {
+		return err
+	}
+	return fmt.Errorf("enterprise_member_budget_reserve.%s: %w", stage, err)
+}
+
+func isEnterpriseMemberBudgetReserveDomainError(err error) bool {
+	return service.IsEnterpriseMemberBudgetExceeded(err) ||
+		errors.Is(err, service.ErrEnterpriseMemberBudgetConflict) ||
+		errors.Is(err, service.ErrEnterpriseMemberBudgetUnbounded) ||
+		errors.Is(err, service.ErrEnterpriseMemberBudgetReceiptNotFound) ||
+		errors.Is(err, service.ErrEnterpriseMemberNotFound)
 }
 
 func validEnterpriseMemberReceiptKind(kind string) bool {

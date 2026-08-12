@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/rand/v2"
 	"time"
 
@@ -42,11 +43,11 @@ func withPostgresDeadlockRetryConfig[T any](
 		if attempt >= maxRetries {
 			logger.LegacyPrintf("repository.postgres", "postgres deadlock retry exhausted: operation=%s attempts=%d", operationName, attempt+1)
 			var zero T
-			return zero, err
+			return zero, fmt.Errorf("%s.deadlock_retry_exhausted: %w", operationName, err)
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			var zero T
-			return zero, ctxErr
+			return zero, fmt.Errorf("%s.deadlock_retry_context_before_backoff: %w", operationName, ctxErr)
 		}
 
 		retry := attempt + 1
@@ -63,7 +64,7 @@ func withPostgresDeadlockRetryConfig[T any](
 			// pattern: that receive can block after Stop returns.
 			timer.Stop()
 			var zero T
-			return zero, ctx.Err()
+			return zero, fmt.Errorf("%s.deadlock_retry_backoff: %w", operationName, ctx.Err())
 		case <-timer.C:
 		}
 	}
