@@ -49,6 +49,72 @@ func (f enterpriseMemberRoutePlannerFunc) Plan(ctx context.Context, input servic
 	return f(ctx, input)
 }
 
+func TestResolveEnterpriseMemberGroupDefaultAdmissionSkipsModelAwarePlanner(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	key := enterpriseMemberModelRoutingTestKey(
+		enterpriseMemberModelRoutingTestGroup(11, "mimo"),
+		enterpriseMemberModelRoutingTestGroup(12, "minimax"),
+	)
+	planner := enterpriseMemberRoutePlannerFunc(func(context.Context, service.EnterpriseMemberRouteInput) (*service.EnterpriseMemberRoutePlan, error) {
+		panic("default admission must not enter the model-aware planner")
+	})
+	settings := service.NewSettingService(nil, &config.Config{})
+	router := enterpriseMemberModelRoutingTestRouterWithSettings(t, key, planner, settings, func(c *gin.Context) {
+		requestKey, ok := GetAPIKeyFromContext(c)
+		require.True(t, ok)
+		require.Equal(t, int64(11), *requestKey.GroupID)
+		_, hasTrace := GetEnterpriseMemberRouteShadowTrace(c)
+		require.False(t, hasTrace)
+		c.Status(http.StatusNoContent)
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"minimax-m3"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusNoContent, response.Code)
+}
+
+func TestResolveEnterpriseMemberGroupInvalidAdmissionSkipsModelAwarePlanner(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	invalidMode := service.EnterpriseMemberModelAdmissionMode("not-a-mode")
+	tests := []struct {
+		name     string
+		settings service.EnterpriseMemberModelAdmissionSettingReader
+	}{
+		{name: "reader", settings: enterpriseMemberAdmissionModeStub(invalidMode)},
+		{name: "resolver", settings: enterpriseMemberAdmissionResolverStub{runtime: service.EnterpriseMemberModelAdmissionRuntime{Mode: invalidMode}}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			key := enterpriseMemberModelRoutingTestKey(
+				enterpriseMemberModelRoutingTestGroup(11, "mimo"),
+				enterpriseMemberModelRoutingTestGroup(12, "minimax"),
+			)
+			planner := enterpriseMemberRoutePlannerFunc(func(context.Context, service.EnterpriseMemberRouteInput) (*service.EnterpriseMemberRoutePlan, error) {
+				panic("invalid admission mode must not enter the model-aware planner")
+			})
+			router := enterpriseMemberModelRoutingTestRouterWithSettings(t, key, planner, tc.settings, func(c *gin.Context) {
+				requestKey, ok := GetAPIKeyFromContext(c)
+				require.True(t, ok)
+				require.Equal(t, int64(11), *requestKey.GroupID)
+				_, hasTrace := GetEnterpriseMemberRouteShadowTrace(c)
+				require.False(t, hasTrace)
+				c.Status(http.StatusNoContent)
+			})
+
+			request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"minimax-m3"}`))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+
+			require.Equal(t, http.StatusNoContent, response.Code)
+		})
+	}
+}
+
 func TestResolveEnterpriseMemberGroupShadowPublishedKeepsLegacyExecutionAndRecordsDiff(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	key := enterpriseMemberModelRoutingTestKey(

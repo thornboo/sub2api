@@ -5,25 +5,29 @@
 ### 目标
 
 - 修复 v1.7.29 企业成员请求在预算预留前重复执行 admission readiness 聚合的问题，避免前置数据库查询争抢连接池后把预算事务启动失败暴露为平台 500。
-- 保持 `shadow_published` 默认值、enforce readiness、rollout、auto-stop 和证据不可用时 fail-closed 的既有安全语义，不通过关闭模型感知路由或放宽预算门禁掩盖故障。
-- 本补丁只进入 `dev-zz-develop` 候选线；不推送、不发布、不部署，也不修改已经发布的 `v1.7.29` tag。
+- 把未经生产负载证明的 shadow 规划改为显式 opt-in，同时保持 enforce readiness、rollout、auto-stop 和证据不可用时 fail-closed 的既有安全语义；不放宽预算门禁掩盖故障。
+- 本次默认回退收口只在本地 `dev-zz-develop` 继续提交；不再推送、不发布、不部署，也不修改已经发布的 `v1.7.29` tag。
 
 ### 主要变化
 
 - `GetEnterpriseMemberModelAdmissionRuntime` 先检查 5 秒 runtime cache，再在 singleflight 冷缓存路径计算 readiness；热缓存命中不再触发 alias/evidence 聚合，冷缓存并发只允许一次重建，并与设置读取共用 5 秒重建超时。
 - 同一次 readiness 评估复用已经取得的 admission evidence summary 来计算 auto-stop，不再通过包装 provider 第二次读取相同的 30 天聚合证据。
-- 保留缓存过期、设置读取失败、无 repository 和意外返回类型时的安全回退；任何 readiness 或 evidence 不可用仍降级为 `shadow_published`，不会扩大 enforce 范围。
+- 部署默认、新安装默认、空值、非法配置和设置数据库读取失败统一回到 `legacy_order_only`，因此未经显式配置的升级不会在预算前进入账号 / 分组 / 协议能力投影；测试环境仍可显式启用 `shadow_published` 收集证据。
+- gateway 的 legacy runtime 使用无数据库的保守 readiness 占位，不触发 alias/evidence 聚合；legacy 使用计数仍按请求记录，但告警日志按进程每分钟最多一条，避免安全回退本身形成日志放大。
+- 管理端保存 legacy / shadow 设置时不再计算只供 enforce 校验使用的 readiness；显式保存 enforce 时仍执行完整 gate，拒绝不满足条件的扩大。
+- 显式 enforce 在 readiness、rollout 或 evidence 不满足时仍降级为 `shadow_published`，不会扩大 enforce 范围；显式 shadow 的缓存过期和并发重建继续遵守上述有界路径。
 
 ### 数据与兼容性
 
-- 无新增迁移、配置、API、依赖或前端变化；v1.7.29 的 `199`-`202` 迁移文件保持原样。
+- 无新增迁移、API 或依赖；`gateway.enterprise_member_model_admission_mode` 的缺省值从 `shadow_published` 回退到 `legacy_order_only`，管理端缺省与非法值回退同步更新。v1.7.29 的 `199`-`202` 迁移文件保持原样。
 - 预算预留、结算、usage 原子落账和最终实际分组归因不变；`fix/budget-error-attribution-1728` 的平台错误归因继续保留。
 
 ### 验证
 
 - 新增 readiness 调用次数回归：修复前单次冷缓存 / 热缓存 / 32 并发热命中分别稳定为 `2 / 1 / 32` 次，修复后为 `1 / 0 / 0` 次；另显式验证 32 个并发冷 miss 也只重建 1 次。
 - 新增同一次 readiness 只读取一次 admission evidence repository 的断言；修复前稳定为 2 次，修复后为 1 次。
-- 后端默认与 `unit` 全量测试、service 全包复跑、聚焦 `-race`、`go vet ./...`、`golangci-lint run ./...`（0 issues）、server build 和 Ent / Wire 生成物一致性通过；前端 typecheck / lint 与 docs build 通过，`git diff --check` 通过。
+- 新增默认 admission 不调用 model-aware planner、默认 legacy、设置缓存刷新与非 enforce 设置保存不调用 readiness provider 的回归，并覆盖缺失、空值、非法值、resolver 非法返回和设置数据库故障均回到 `legacy_order_only`；legacy WARN 限频和显式 shadow / enforce 的既有语义测试继续保留。
+- 后端默认与 `unit` 全量测试、service 全包复跑、聚焦 `-race`、`go vet ./...`、`golangci-lint run ./...`（0 issues）、server build 和 Ent / Wire 生成物一致性通过；前端 259 个测试文件 / 1758 个测试、typecheck / lint / build 与 docs build 通过，`git diff --check` 通过。
 - repository / service 的 integration 测试二进制以 `integration` tag 编译通过；当前 Colima Docker socket 不存在，真实 PostgreSQL / Redis Testcontainers 未执行。本地验证不替代正式分支 CI、测试环境流量回放或生产发布门。
 - 独立 code review 未发现 correctness、安全、并发、缓存、fail-closed、rollout、readiness 或 auto-stop 阻塞项。
 

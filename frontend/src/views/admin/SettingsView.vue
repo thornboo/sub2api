@@ -10082,7 +10082,7 @@ const form = reactive<SettingsForm>({
   // Gateway forwarding behavior
   native_model_protocol_routing_enabled: false,
   native_model_protocol_routing_source: "config",
-  enterprise_member_model_admission_mode: "shadow_published" as EnterpriseMemberModelAdmissionMode,
+  enterprise_member_model_admission_mode: "legacy_order_only" as EnterpriseMemberModelAdmissionMode,
   enterprise_member_model_admission_source: "config" as EnterpriseMemberModelAdmissionSource,
   enterprise_member_model_admission_enforce_ready: false,
   enterprise_member_model_admission_enforce_reason: "phase3_prerequisites_incomplete",
@@ -10219,7 +10219,7 @@ const enterpriseMemberModelAdmissionCurrentLabel = computed(() => {
   );
   return (
     option?.label ||
-    t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionShadow")
+    t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionLegacy")
   );
 });
 
@@ -10230,8 +10230,9 @@ const enterpriseMemberModelAdmissionCurrentHint = computed(() => {
     case "enforce_published":
       return t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionEnforceHint");
     case "shadow_published":
-    default:
       return t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionShadowHint");
+    default:
+      return t("admin.settings.gatewayForwarding.enterpriseMemberAdmissionLegacyHint");
   }
 });
 
@@ -10242,8 +10243,9 @@ const enterpriseMemberModelAdmissionBadgeClass = computed(() => {
     case "enforce_published":
       return "border-red-200 bg-red-50 text-red-700 dark:border-red-500/25 dark:bg-red-950/30 dark:text-red-300";
     case "shadow_published":
-    default:
       return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/25 dark:bg-sky-950/30 dark:text-sky-300";
+    default:
+      return "border-gray-200 bg-gray-50 text-gray-700 dark:border-dark-600 dark:bg-dark-900 dark:text-gray-300";
   }
 });
 
@@ -10520,7 +10522,7 @@ function normalizeEnterpriseMemberAdmissionMode(
     case "shadow_published":
       return value;
     default:
-      return "shadow_published";
+      return "legacy_order_only";
   }
 }
 

@@ -1,6 +1,6 @@
 # 企业成员模型感知路由实施测试规格
 
-> 状态：实施门（2026-08-05 审核通过；阶段 0-4 的本地实现和最终本地验证已完成；阶段 5 的本地退役准备已实现，但默认 enforce、shadow 删除和生产旧模式退役继续由真实发布窗口 gate 阻断）
+> 状态：实施门（2026-08-05 审核通过；阶段 0-4 的本地实现和最终本地验证已完成；v1.7.29 故障后部署默认回到 legacy，shadow / enforce 改为显式 opt-in；阶段 5 的默认切换和旧模式退役继续由真实发布窗口 gate 阻断）
 > 上位方案：[企业成员模型感知路由与跨分组故障转移治理](../features/enterprise-member-model-aware-routing-governance.md)
 > 适用范围：企业成员多分组 Key。普通 Key、单分组 Key、账号内 failover、计费与预算合同默认保持现状。
 
@@ -21,7 +21,7 @@
 
 | 值 | 测试语义 |
 | --- | --- |
-| legacy_order_only | 只验证紧急回滚兼容；不得成为新安装最终默认值 |
+| legacy_order_only | v1.7.29 故障后的当前安全默认；仍是临时恢复状态，不是新安装最终目标 |
 | shadow_published | 新旧计划双算、实际仍执行旧计划；必须留下差异证据 |
 | enforce_published | 只激活新规划器返回的 eligible 候选；服务端 readiness、rollout 和 auto-stop 未满足时必须拒绝写入或运行时降级为 shadow |
 

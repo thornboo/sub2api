@@ -470,7 +470,7 @@ func enterpriseMemberModelAdmissionMode(ctx context.Context, settings service.En
 			service.EnterpriseMemberModelAdmissionEnforcePublished:
 			return mode
 		default:
-			return service.EnterpriseMemberModelAdmissionShadowPublished
+			return service.EnterpriseMemberModelAdmissionLegacyOrderOnly
 		}
 	}
 	switch mode := settings.GetEnterpriseMemberModelAdmissionMode(ctx); mode {
@@ -479,7 +479,7 @@ func enterpriseMemberModelAdmissionMode(ctx context.Context, settings service.En
 		service.EnterpriseMemberModelAdmissionEnforcePublished:
 		return mode
 	default:
-		return service.EnterpriseMemberModelAdmissionShadowPublished
+		return service.EnterpriseMemberModelAdmissionLegacyOrderOnly
 	}
 }
 

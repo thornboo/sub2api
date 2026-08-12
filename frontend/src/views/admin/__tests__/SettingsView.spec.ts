@@ -531,7 +531,7 @@ const baseSettingsResponse = {
   identity_patch_prompt: "",
   native_model_protocol_routing_enabled: false,
   native_model_protocol_routing_source: "config",
-  enterprise_member_model_admission_mode: "shadow_published" as const,
+  enterprise_member_model_admission_mode: "legacy_order_only" as const,
   enterprise_member_model_admission_source: "config",
   enterprise_member_model_admission_enforce_ready: false,
   enterprise_member_model_admission_enforce_reason: "phase3_prerequisites_incomplete",

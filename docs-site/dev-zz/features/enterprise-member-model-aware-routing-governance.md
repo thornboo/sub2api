@@ -17,7 +17,7 @@
 已完成：
 
 - 企业成员专用的精确发布模型规划器，按当前成员授权顺序只裁剪、不扩权；
-- `legacy_order_only`、`shadow_published`、`enforce_published` 三态配置语法已经建立，当前有效默认仍为 `shadow_published`；服务端 readiness 是 enforce 的权威开关，未满足前置条件时，API 写入 enforce 返回 409，历史数据库值或配置值也会安全降级为 shadow 并标记 `enforce_blocked`；
+- `legacy_order_only`、`shadow_published`、`enforce_published` 三态配置语法已经建立；v1.7.29 故障后当前有效默认回到 `legacy_order_only`，shadow / enforce 只能显式开启；服务端 readiness 是 enforce 的权威开关，未满足前置条件时，API 写入 enforce 返回 409，历史数据库值或配置值也会安全降级为 shadow 并标记 `enforce_blocked`；
 - readiness 已从固定硬阻断扩展为服务端可计算条件集合：routing revision mirror、非文本 evaluator coverage、alias audit、shadow/canary/evidence pipeline 和 auto-stop 都进入同一权威 gate；前端只展示该 gate，不能自行放行；
 - rollout policy 已接入企业 owner ID、成员 ID、稳定哈希百分比、salt 和手动 auto-stop；扩大 enforce 覆盖必须通过 readiness 与 auto-stop 检查，缩小范围和停止可以继续保存；raw/normalized 列表、总目标数、salt 和 JSON 大小均有服务端上限，管理设置更新请求在 JSON 解码前另受 4 MiB 请求体上限保护；
 - `/v1/chat/completions`、`/v1/responses`、`/v1/messages` 及已注册同协议别名的请求前规划，WebSocket 在首个 `response.create` 帧按同一合同重规划；
@@ -47,7 +47,7 @@
 尚未完成，不得据此宣称全量治理已经生产交付：
 
 - commit、真实发布流水线、生产配置变更、生产灰度和生产部署尚未执行；本轮证据只覆盖本地工作区；
-- 当前新安装默认仍是 `shadow_published`，`DefaultEnterpriseMemberModelAdmissionModeForNewInstall()` 仍由 `phase5_production_gate_pending` 阻止默认 enforce；不得把本地退役准备误读为已经默认 enforce；
+- 当前新安装默认是 `legacy_order_only`，`DefaultEnterpriseMemberModelAdmissionModeForNewInstall()` 由 `phase5_production_gate_pending` 阻止自动进入 shadow / enforce；重新启用 shadow 前必须取得测试环境连接池、规划延迟和预算预留并发证据；
 - shadow 双算和旧候选分支仍必须保留到全量 enforce 至少稳定一个真实发布窗口后，才能在独立发布计划中删除；
 - alias 迁移、auto-stop 和 evidence pipeline 已具备本地代码能力，但生产 7d/30d 数据、canary/release-window 对照、合法模型成功率、LKG 使用后成功率和完整 Ops/usage 观测仍需要生产窗口验证。
 - `201` 新增 CHECK 约束以 `NOT VALID` 安装，避免启动迁移扫描历史大表；生产发布后必须先只读审计历史行，再在低峰维护窗口分别执行 `VALIDATE CONSTRAINT`。在验证完成前，不得把“新写入已受约束”误报为“历史数据已全量验证”。

@@ -126,7 +126,10 @@ func (s *SettingService) refreshCachedSettingsAfterWrite(ctx context.Context, se
 func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, settings *SystemSettings) (map[string]string, error) {
 	if settings != nil {
 		mode, _ := normalizeEnterpriseMemberModelAdmissionMode(settings.EnterpriseMemberModelAdmissionMode)
-		readiness := EvaluateEnterpriseMemberModelAdmissionEnforceReadiness(ctx)
+		var readiness EnterpriseMemberModelAdmissionEnforceReadiness
+		if mode == EnterpriseMemberModelAdmissionEnforcePublished {
+			readiness = EvaluateEnterpriseMemberModelAdmissionEnforceReadiness(ctx)
+		}
 		rolloutPolicy, err := NormalizeEnterpriseMemberModelAdmissionRolloutPolicy(settings.EnterpriseMemberModelAdmissionRollout.Policy)
 		if err != nil {
 			return nil, infraerrors.BadRequest("INVALID_ENTERPRISE_MEMBER_ADMISSION_ROLLOUT", err.Error())
@@ -789,7 +792,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	}
 	generatedAt := time.Now()
 	expiresAt := generatedAt.Add(enterpriseMemberModelAdmissionCacheTTL)
-	enterpriseMemberAdmissionRuntime := enforceSafeEnterpriseMemberModelAdmission(context.Background(), enterpriseMemberAdmissionMode, enterpriseMemberAdmissionSource, enterpriseMemberAdmissionRolloutPolicy, generatedAt, expiresAt)
+	enterpriseMemberAdmissionRuntime := enterpriseMemberModelAdmissionRuntimeForGateway(context.Background(), enterpriseMemberAdmissionMode, enterpriseMemberAdmissionSource, enterpriseMemberAdmissionRolloutPolicy, generatedAt, expiresAt)
 	enterpriseMemberAdmissionRuntime.Rollout.Source = settings.EnterpriseMemberModelAdmissionRollout.Source
 	enterpriseMemberAdmissionRuntime.Readiness.Snapshot = enterpriseMemberAdmissionRuntime.Snapshot
 	s.enterpriseMemberAdmissionCache.Store(&cachedEnterpriseMemberModelAdmission{

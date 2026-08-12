@@ -75,6 +75,7 @@ const (
 	EnterpriseMemberModelAdmissionPhase5GatePendingReason            = "phase5_production_gate_pending"
 	EnterpriseMemberModelAdmissionDefaultCutoverGate                 = EnterpriseMemberModelAdmissionPhase5GatePendingReason
 	enterpriseMemberModelAdmissionDefaultCutoverReadyGate            = "phase5_production_evidence_verified_v1"
+	enterpriseMemberLegacyAdmissionWarningInterval                   = time.Minute
 )
 
 type EnterpriseMemberModelAdmissionLegacyRetirementStatus struct {
@@ -95,7 +96,7 @@ func DefaultEnterpriseMemberModelAdmissionModeForNewInstall() EnterpriseMemberMo
 	if EnterpriseMemberModelAdmissionDefaultCutoverGate == enterpriseMemberModelAdmissionDefaultCutoverReadyGate {
 		return EnterpriseMemberModelAdmissionEnforcePublished
 	}
-	return EnterpriseMemberModelAdmissionShadowPublished
+	return EnterpriseMemberModelAdmissionLegacyOrderOnly
 }
 
 func ValidateEnterpriseMemberModelAdmissionLegacyRetirementTarget(raw string) (string, string, error) {
@@ -214,17 +215,39 @@ func enforceSafeEnterpriseMemberModelAdmission(ctx context.Context, mode Enterpr
 	return runtime
 }
 
+func enterpriseMemberModelAdmissionRuntimeForGateway(ctx context.Context, mode EnterpriseMemberModelAdmissionMode, source string, rollout EnterpriseMemberModelAdmissionRolloutPolicy, generatedAt, expiresAt time.Time) EnterpriseMemberModelAdmissionRuntime {
+	if mode != EnterpriseMemberModelAdmissionLegacyOrderOnly {
+		return enforceSafeEnterpriseMemberModelAdmission(ctx, mode, source, rollout, generatedAt, expiresAt)
+	}
+	readiness := defaultEnterpriseMemberModelAdmissionReadinessProvider{}.EvaluateEnterpriseMemberModelAdmissionReadiness(ctx)
+	rolloutState := EvaluateEnterpriseMemberModelAdmissionRollout(rollout, EnterpriseMemberModelAdmissionRolloutInput{})
+	snapshot := BuildEnterpriseMemberModelAdmissionGateSnapshot(readiness, rollout, source, generatedAt, expiresAt)
+	readiness.Snapshot = snapshot
+	return EnterpriseMemberModelAdmissionRuntime{
+		Mode:      EnterpriseMemberModelAdmissionLegacyOrderOnly,
+		Source:    source,
+		Readiness: readiness,
+		Rollout:   rolloutState,
+		Snapshot:  snapshot,
+	}
+}
+
 type cachedEnterpriseMemberModelAdmission struct {
 	runtime       EnterpriseMemberModelAdmissionRuntime
 	rolloutPolicy EnterpriseMemberModelAdmissionRolloutPolicy
 	expiresAt     int64
 }
 
+var enterpriseMemberLegacyAdmissionLastWarning atomic.Int64
+
 func warnIfEnterpriseMemberLegacyAdmissionEffective(runtime EnterpriseMemberModelAdmissionRuntime) EnterpriseMemberModelAdmissionRuntime {
 	if runtime.Mode != EnterpriseMemberModelAdmissionLegacyOrderOnly {
 		return runtime
 	}
 	RecordEnterpriseMemberLegacyAdmissionEffective()
+	if !claimEnterpriseMemberLegacyAdmissionWarning(time.Now()) {
+		return runtime
+	}
 	slog.Warn(
 		"deprecated enterprise member legacy admission mode is effective",
 		"mode", string(runtime.Mode),
@@ -232,6 +255,19 @@ func warnIfEnterpriseMemberLegacyAdmissionEffective(runtime EnterpriseMemberMode
 		"phase5_gate", EnterpriseMemberModelAdmissionDefaultCutoverGate,
 	)
 	return runtime
+}
+
+func claimEnterpriseMemberLegacyAdmissionWarning(now time.Time) bool {
+	nowUnix := now.UnixNano()
+	for {
+		previous := enterpriseMemberLegacyAdmissionLastWarning.Load()
+		if previous != 0 && nowUnix-previous < enterpriseMemberLegacyAdmissionWarningInterval.Nanoseconds() {
+			return false
+		}
+		if enterpriseMemberLegacyAdmissionLastWarning.CompareAndSwap(previous, nowUnix) {
+			return true
+		}
+	}
 }
 
 func hasEnterpriseMemberModelAdmissionRolloutTarget(policy EnterpriseMemberModelAdmissionRolloutPolicy) bool {
@@ -991,14 +1027,14 @@ func (s *SettingService) IsNativeModelProtocolRoutingEnabled(ctx context.Context
 
 func normalizeEnterpriseMemberModelAdmissionMode(raw string) (EnterpriseMemberModelAdmissionMode, bool) {
 	switch EnterpriseMemberModelAdmissionMode(strings.ToLower(strings.TrimSpace(raw))) {
-	case EnterpriseMemberModelAdmissionLegacyOrderOnly:
+	case EnterpriseMemberModelAdmissionLegacyOrderOnly, "":
 		return EnterpriseMemberModelAdmissionLegacyOrderOnly, true
-	case EnterpriseMemberModelAdmissionShadowPublished, "":
+	case EnterpriseMemberModelAdmissionShadowPublished:
 		return EnterpriseMemberModelAdmissionShadowPublished, true
 	case EnterpriseMemberModelAdmissionEnforcePublished:
 		return EnterpriseMemberModelAdmissionEnforcePublished, true
 	default:
-		return EnterpriseMemberModelAdmissionShadowPublished, false
+		return EnterpriseMemberModelAdmissionLegacyOrderOnly, false
 	}
 }
 
@@ -1008,11 +1044,11 @@ func NormalizeEnterpriseMemberModelAdmissionModeForSettings(raw string) (Enterpr
 
 func (s *SettingService) enterpriseMemberModelAdmissionConfigDefault() (EnterpriseMemberModelAdmissionMode, string) {
 	if s == nil || s.cfg == nil {
-		return EnterpriseMemberModelAdmissionShadowPublished, "config"
+		return EnterpriseMemberModelAdmissionLegacyOrderOnly, "config"
 	}
 	mode, ok := normalizeEnterpriseMemberModelAdmissionMode(s.cfg.Gateway.EnterpriseMemberModelAdmissionMode)
 	if !ok {
-		return EnterpriseMemberModelAdmissionShadowPublished, "config_invalid"
+		return EnterpriseMemberModelAdmissionLegacyOrderOnly, "config_invalid"
 	}
 	return mode, "config"
 }
@@ -1031,13 +1067,13 @@ func enterpriseMemberModelAdmissionRolloutFromSettings(settings map[string]strin
 
 // GetEnterpriseMemberModelAdmissionRuntime returns the effective runtime mode.
 // Missing DB values inherit the deployment config, while unreadable settings use
-// the last known value or the migration-safe shadow default.
+// the load-safe legacy default so shadow planning remains an explicit opt-in.
 func (s *SettingService) GetEnterpriseMemberModelAdmissionRuntime(ctx context.Context) EnterpriseMemberModelAdmissionRuntime {
 	mode, source := s.enterpriseMemberModelAdmissionConfigDefault()
 	defaultRollout := DefaultEnterpriseMemberModelAdmissionRolloutPolicy()
 	if s == nil || s.settingRepo == nil {
 		now := time.Now()
-		fallback := enforceSafeEnterpriseMemberModelAdmission(ctx, mode, source, defaultRollout, now, now.Add(enterpriseMemberModelAdmissionCacheTTL))
+		fallback := enterpriseMemberModelAdmissionRuntimeForGateway(ctx, mode, source, defaultRollout, now, now.Add(enterpriseMemberModelAdmissionCacheTTL))
 		return fallbackWithAdmissionSnapshotAge(fallback)
 	}
 	if cached, ok := s.enterpriseMemberAdmissionCache.Load().(*cachedEnterpriseMemberModelAdmission); ok && cached != nil {
@@ -1093,19 +1129,16 @@ func (s *SettingService) GetEnterpriseMemberModelAdmissionRuntime(ctx context.Co
 			// Inherit config until an administrator explicitly persists a mode.
 		default:
 			slog.Warn("failed to get enterprise member model admission mode setting", "error", err)
+			runtime.Mode = EnterpriseMemberModelAdmissionLegacyOrderOnly
+			runtime.Source = "error_fallback"
 			if stale != nil {
-				runtime.Mode = EnterpriseMemberModelAdmissionShadowPublished
-				runtime.Source = "error_fallback"
 				rolloutPolicy = stale.rolloutPolicy
-			} else {
-				runtime.Mode = EnterpriseMemberModelAdmissionShadowPublished
-				runtime.Source = "error_fallback"
 			}
 			ttl = enterpriseMemberModelAdmissionErrorTTL
 		}
 		generatedAt := time.Now()
 		expiresAt := generatedAt.Add(ttl)
-		runtime = enforceSafeEnterpriseMemberModelAdmission(dbCtx, runtime.Mode, runtime.Source, rolloutPolicy, generatedAt, expiresAt)
+		runtime = enterpriseMemberModelAdmissionRuntimeForGateway(dbCtx, runtime.Mode, runtime.Source, rolloutPolicy, generatedAt, expiresAt)
 		runtime.Rollout.Source = rolloutSource
 		runtime.Readiness.Snapshot = runtime.Snapshot
 		s.enterpriseMemberAdmissionCache.Store(&cachedEnterpriseMemberModelAdmission{
@@ -1119,7 +1152,7 @@ func (s *SettingService) GetEnterpriseMemberModelAdmissionRuntime(ctx context.Co
 		return fallbackWithAdmissionSnapshotAge(runtime)
 	}
 	now := time.Now()
-	fallback := enforceSafeEnterpriseMemberModelAdmission(ctx, mode, source, defaultRollout, now, now.Add(enterpriseMemberModelAdmissionCacheTTL))
+	fallback := enterpriseMemberModelAdmissionRuntimeForGateway(ctx, mode, source, defaultRollout, now, now.Add(enterpriseMemberModelAdmissionCacheTTL))
 	return fallbackWithAdmissionSnapshotAge(fallback)
 }
 

@@ -58,12 +58,12 @@ HTTP 首输出超时包含等待响应头的时间，只用于 native Responses�
 
 | 配置 / setting | 默认值 | 说明 |
 | --- | ---: | --- |
-| `gateway.enterprise_member_model_admission_mode` | `shadow_published` | 部署级默认值。支持 `legacy_order_only`、`shadow_published`、`enforce_published`；当前新安装默认仍受 phase5 gate 约束保持 shadow，不得在没有生产证据时改成 enforce |
+| `gateway.enterprise_member_model_admission_mode` | `legacy_order_only` | v1.7.29 故障后的部署级安全默认值。支持 `legacy_order_only`、`shadow_published`、`enforce_published`；shadow / enforce 必须由测试环境显式开启，不能随升级自动进入请求前规划 |
 | DB setting `enterprise_member_model_admission_mode` | 继承部署默认 | 管理端保存后的准入模式。服务端 readiness、rollout 和 auto-stop 不满足时，即使 DB 或配置写入 enforce，运行时也会安全降级为 shadow |
 | DB setting `enterprise_member_model_admission_rollout_policy` | `{}` | 管理端 rollout policy；可按企业 owner ID、成员 ID、稳定哈希百分比和 salt 控制 enforce 覆盖，`auto_stop=true` 表示手动停止 |
 | DB setting `enterprise_member_model_admission_legacy_retirement_target` | 空 | legacy 退役目标，只接受 `YYYY-MM-DD` 或 `vX.Y.Z`；当前只记录 phase5 准备状态，不代表旧模式已退役 |
 
-readiness 由服务端统一计算：routing revision mirror、非文本 evaluator coverage、alias audit、shadow/canary/evidence pipeline、rollout expansion evidence 和 auto-stop 任一不满足时，enforce 不能扩大或持久化。`DefaultEnterpriseMemberModelAdmissionModeForNewInstall()` 当前仍由 `phase5_production_gate_pending` 返回 `shadow_published`；只有全量 enforce 稳定一个真实发布窗口并完成发布复核后，才能把 phase5 gate 改为已验证并调整默认值。
+readiness 由服务端统一计算：routing revision mirror、非文本 evaluator coverage、alias audit、shadow/canary/evidence pipeline、rollout expansion evidence 和 auto-stop 任一不满足时，enforce 不能扩大或持久化。v1.7.29 已证明 shadow 的请求前投影不能在缺少负载证据时作为升级默认，因此 `DefaultEnterpriseMemberModelAdmissionModeForNewInstall()` 当前由 `phase5_production_gate_pending` 返回 `legacy_order_only`；只有 shadow 在测试环境完成数据库连接池、规划延迟与预算预留并发验证后，才能重新讨论默认值。
 
 ## 认证验证码提供商
 

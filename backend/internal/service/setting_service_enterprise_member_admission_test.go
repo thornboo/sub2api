@@ -484,13 +484,41 @@ func TestEnterpriseMemberModelAdmissionInvalidRolloutConfigFallsBackToShadow(t *
 	require.Equal(t, EnterpriseMemberModelAdmissionRolloutInvalidReason, runtime.Rollout.Reason)
 }
 
-func TestEnterpriseMemberModelAdmissionRuntimeDefaultsToShadowPublished(t *testing.T) {
+func TestEnterpriseMemberModelAdmissionRuntimeDefaultsToLegacyOrderAfterFailedShadowRelease(t *testing.T) {
 	svc := NewSettingService(&enterpriseMemberAdmissionSettingRepoStub{getErr: ErrSettingNotFound}, &config.Config{})
 
 	runtime := svc.GetEnterpriseMemberModelAdmissionRuntime(context.Background())
 
-	require.Equal(t, EnterpriseMemberModelAdmissionShadowPublished, runtime.Mode)
+	require.Equal(t, EnterpriseMemberModelAdmissionLegacyOrderOnly, runtime.Mode)
 	require.Equal(t, "config", runtime.Source)
+}
+
+func TestEnterpriseMemberModelAdmissionRuntimeDefaultLegacySkipsReadinessEvaluation(t *testing.T) {
+	provider := &countingEnterpriseMemberAdmissionReadinessProvider{readiness: readyEnterpriseMemberAdmissionReadiness()}
+	restore := SetEnterpriseMemberModelAdmissionReadinessProviderForTest(provider)
+	defer restore()
+
+	svc := NewSettingService(&enterpriseMemberAdmissionSettingRepoStub{getErr: ErrSettingNotFound}, &config.Config{})
+	runtime := svc.GetEnterpriseMemberModelAdmissionRuntime(context.Background())
+
+	require.Equal(t, EnterpriseMemberModelAdmissionLegacyOrderOnly, runtime.Mode)
+	require.Equal(t, int64(0), provider.calls.Load())
+}
+
+func TestRefreshCachedSettingsDefaultLegacySkipsReadinessEvaluation(t *testing.T) {
+	provider := &countingEnterpriseMemberAdmissionReadinessProvider{readiness: readyEnterpriseMemberAdmissionReadiness()}
+	restore := SetEnterpriseMemberModelAdmissionReadinessProviderForTest(provider)
+	defer restore()
+
+	svc := NewSettingService(nil, &config.Config{})
+	svc.refreshCachedSettings(&SystemSettings{
+		EnterpriseMemberModelAdmissionMode: string(EnterpriseMemberModelAdmissionLegacyOrderOnly),
+	})
+
+	require.Equal(t, int64(0), provider.calls.Load())
+	runtime := svc.GetEnterpriseMemberModelAdmissionRuntime(context.Background())
+	require.Equal(t, EnterpriseMemberModelAdmissionLegacyOrderOnly, runtime.Mode)
+	require.Equal(t, int64(0), provider.calls.Load())
 }
 
 func TestEnterpriseMemberModelAdmissionRuntimeBlocksPrematureDatabaseEnforceOverride(t *testing.T) {
@@ -509,18 +537,18 @@ func TestEnterpriseMemberModelAdmissionRuntimeBlocksPrematureDatabaseEnforceOver
 	require.Equal(t, "enforce_blocked", runtime.Source)
 }
 
-func TestEnterpriseMemberModelAdmissionRuntimeInvalidValuesNormalizeToShadow(t *testing.T) {
+func TestEnterpriseMemberModelAdmissionRuntimeInvalidValuesNormalizeToLegacyOrder(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Gateway.EnterpriseMemberModelAdmissionMode = "not-a-mode"
 	svc := NewSettingService(&enterpriseMemberAdmissionSettingRepoStub{getErr: ErrSettingNotFound}, cfg)
 
 	runtime := svc.GetEnterpriseMemberModelAdmissionRuntime(context.Background())
-	require.Equal(t, EnterpriseMemberModelAdmissionShadowPublished, runtime.Mode)
+	require.Equal(t, EnterpriseMemberModelAdmissionLegacyOrderOnly, runtime.Mode)
 	require.Equal(t, "config_invalid", runtime.Source)
 
 	svc = NewSettingService(&enterpriseMemberAdmissionSettingRepoStub{value: "also-bad"}, &config.Config{})
 	runtime = svc.GetEnterpriseMemberModelAdmissionRuntime(context.Background())
-	require.Equal(t, EnterpriseMemberModelAdmissionShadowPublished, runtime.Mode)
+	require.Equal(t, EnterpriseMemberModelAdmissionLegacyOrderOnly, runtime.Mode)
 	require.Equal(t, "settings_invalid", runtime.Source)
 }
 
@@ -531,7 +559,7 @@ func TestEnterpriseMemberModelAdmissionRuntimeDatabaseErrorFallsBackSafelyWithou
 
 	runtime := svc.GetEnterpriseMemberModelAdmissionRuntime(context.Background())
 
-	require.Equal(t, EnterpriseMemberModelAdmissionShadowPublished, runtime.Mode)
+	require.Equal(t, EnterpriseMemberModelAdmissionLegacyOrderOnly, runtime.Mode)
 	require.Equal(t, "error_fallback", runtime.Source)
 }
 
@@ -547,7 +575,7 @@ func TestEnterpriseMemberModelAdmissionRuntimeDatabaseErrorDoesNotRestoreBlocked
 
 	runtime := svc.GetEnterpriseMemberModelAdmissionRuntime(context.Background())
 
-	require.Equal(t, EnterpriseMemberModelAdmissionShadowPublished, runtime.Mode)
+	require.Equal(t, EnterpriseMemberModelAdmissionLegacyOrderOnly, runtime.Mode)
 	require.Equal(t, "error_fallback", runtime.Source)
 }
 
@@ -571,8 +599,31 @@ func TestParseSettingsReportsEnterpriseMemberModelAdmissionSource(t *testing.T) 
 	fromInvalid := svc.parseSettings(map[string]string{
 		SettingKeyEnterpriseMemberModelAdmissionMode: "bad-mode",
 	})
-	require.Equal(t, string(EnterpriseMemberModelAdmissionShadowPublished), fromInvalid.EnterpriseMemberModelAdmissionMode)
+	require.Equal(t, string(EnterpriseMemberModelAdmissionLegacyOrderOnly), fromInvalid.EnterpriseMemberModelAdmissionMode)
 	require.Equal(t, "settings_invalid", fromInvalid.EnterpriseMemberModelAdmissionSource)
+}
+
+func TestBuildSystemSettingsUpdatesNonEnforceSkipsReadinessEvaluation(t *testing.T) {
+	for _, mode := range []EnterpriseMemberModelAdmissionMode{
+		EnterpriseMemberModelAdmissionLegacyOrderOnly,
+		EnterpriseMemberModelAdmissionShadowPublished,
+	} {
+		t.Run(string(mode), func(t *testing.T) {
+			provider := &countingEnterpriseMemberAdmissionReadinessProvider{readiness: readyEnterpriseMemberAdmissionReadiness()}
+			restore := SetEnterpriseMemberModelAdmissionReadinessProviderForTest(provider)
+			defer restore()
+
+			svc := NewSettingService(&enterpriseMemberAdmissionSettingRepoStub{}, &config.Config{})
+			updates, err := svc.buildSystemSettingsUpdates(context.Background(), &SystemSettings{
+				EnterpriseMemberModelAdmissionMode:   string(mode),
+				EnterpriseMemberModelAdmissionSource: "settings",
+			})
+
+			require.NoError(t, err)
+			require.NotNil(t, updates)
+			require.Equal(t, int64(0), provider.calls.Load())
+		})
+	}
 }
 
 func TestBuildSystemSettingsUpdatesRejectsPrematureEnterpriseMemberEnforceOverride(t *testing.T) {

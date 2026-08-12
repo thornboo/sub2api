@@ -447,7 +447,7 @@ export default {
         enableRoutingConfirmAction: 'Enable routing',
         enterpriseMemberModelAdmission: 'Enterprise Member Model Admission',
         enterpriseMemberAdmissionLegacy: 'Legacy order only',
-        enterpriseMemberAdmissionLegacyHint: 'Emergency rollback only. Enterprise member keys keep the member binding order and do not use published-model eligibility to choose a group.',
+        enterpriseMemberAdmissionLegacyHint: 'Current post-incident safe default. Enterprise member keys keep binding order and skip published-model planning until shadow mode passes test-environment load validation.',
         enterpriseMemberAdmissionShadow: 'Shadow published eligibility',
         enterpriseMemberAdmissionShadowHint: 'Evaluates exact published-model eligibility and records the comparison, but keeps the existing execution group order.',
         enterpriseMemberAdmissionEnforce: 'Enforce published eligibility',

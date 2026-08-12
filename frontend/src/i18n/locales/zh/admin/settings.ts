@@ -440,7 +440,7 @@ export default {
         enableRoutingConfirmAction: '确认启用',
         enterpriseMemberModelAdmission: '企业成员模型准入',
         enterpriseMemberAdmissionLegacy: '仅旧顺序路由',
-        enterpriseMemberAdmissionLegacyHint: '仅用于紧急回滚。企业成员 Key 按成员绑定顺序执行，不用已发布模型资格选择分组。',
+        enterpriseMemberAdmissionLegacyHint: '当前故障恢复默认。企业成员 Key 按成员绑定顺序执行，不用已发布模型资格选择分组；重新启用 shadow 前必须先完成测试环境负载验证。',
         enterpriseMemberAdmissionShadow: '影子计算已发布资格',
         enterpriseMemberAdmissionShadowHint: '计算精确已发布模型资格并记录差异，但真实执行仍保持现有分组顺序。',
         enterpriseMemberAdmissionEnforce: '强制已发布资格',

@@ -3,14 +3,25 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
-func TestEnterpriseMemberAdmissionPhase5DefaultGateStaysShadowWithoutProductionEvidence(t *testing.T) {
+func TestEnterpriseMemberAdmissionPhase5DefaultGateStaysLegacyAfterFailedShadowRelease(t *testing.T) {
 	require.Equal(t, EnterpriseMemberModelAdmissionPhase5GatePendingReason, EnterpriseMemberModelAdmissionDefaultCutoverGate)
-	require.Equal(t, EnterpriseMemberModelAdmissionShadowPublished, DefaultEnterpriseMemberModelAdmissionModeForNewInstall())
+	require.Equal(t, EnterpriseMemberModelAdmissionLegacyOrderOnly, DefaultEnterpriseMemberModelAdmissionModeForNewInstall())
+}
+
+func TestEnterpriseMemberLegacyAdmissionWarningIsRateLimited(t *testing.T) {
+	previous := enterpriseMemberLegacyAdmissionLastWarning.Swap(0)
+	t.Cleanup(func() { enterpriseMemberLegacyAdmissionLastWarning.Store(previous) })
+
+	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+	require.True(t, claimEnterpriseMemberLegacyAdmissionWarning(now))
+	require.False(t, claimEnterpriseMemberLegacyAdmissionWarning(now.Add(enterpriseMemberLegacyAdmissionWarningInterval-time.Nanosecond)))
+	require.True(t, claimEnterpriseMemberLegacyAdmissionWarning(now.Add(enterpriseMemberLegacyAdmissionWarningInterval)))
 }
 
 func TestEnterpriseMemberAdmissionLegacyRetirementTargetValidation(t *testing.T) {

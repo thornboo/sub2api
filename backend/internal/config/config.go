@@ -2252,7 +2252,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.log_upstream_error_body_max_bytes", 2048)
 	viper.SetDefault("gateway.inject_beta_for_apikey", false)
 	viper.SetDefault("gateway.native_model_protocol_routing_enabled", false)
-	viper.SetDefault("gateway.enterprise_member_model_admission_mode", "shadow_published")
+	viper.SetDefault("gateway.enterprise_member_model_admission_mode", "legacy_order_only")
 	viper.SetDefault("gateway.failover_on_400", false)
 	viper.SetDefault("gateway.max_account_switches", 10)
 	viper.SetDefault("gateway.max_account_switches_gemini", 3)
