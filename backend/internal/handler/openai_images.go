@@ -345,6 +345,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(requestModel), false, nil)
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
+				markOpenAIForwardDefinitiveBudgetFailure(c, err, upstreamErrorAlreadyCommunicated)
 				wroteFallback := false
 				if !upstreamErrorAlreadyCommunicated {
 					wroteFallback = h.ensureForwardErrorResponse(c, streamStarted)

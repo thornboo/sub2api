@@ -1,5 +1,29 @@
 # 补丁记录
 
+## 2026-08-13 - 流式失败预算终态与 WebSocket 粘性绑定生命周期修复
+
+### 目标
+
+- 修复 Responses 流已经以 HTTP 200 提交、随后收到或合成 `response.failed` 时，企业成员零金额预算回执一直停留在 `reserved` 直到过期的问题。
+- 修复 OpenAI WebSocket 已取得 `response_id` 后，请求 context 恰好取消会让 Redis 粘性账号绑定立即以 `context canceled` 失败的问题；不改变企业成员候选分组、账号选择、重试或计费规则。
+
+### 主要变化
+
+- 为 HTTP 请求增加显式的企业预算“确定失败”终态。已经传达给客户端的上游 `response.failed`、以及 HTTP 200 流内合成的确定错误会标记该终态；预算中间件在请求返回后立即释放回执，不再依赖已经固化的 HTTP 状态码推断结果。
+- 终态优先级保持 `async task owner > ambiguous > definitive failure > HTTP status`：上游结果或用量落库结果不明时仍进入对账，不能被确定失败标记误释放；cyber 拒绝继续走带真实 token 的专用用量计费路径。
+- WebSocket `response_id -> account_id` 的 Redis 写入保留请求 context values，但解除请求取消传播，并重新附加 3 秒硬超时。本地热绑定仍先写入；Redis 读取和删除继续服从原请求取消，不扩大后台工作范围。
+
+### 数据与兼容性
+
+- 无数据库迁移、配置键、公开 API 或依赖变化；企业成员分组候选与路由编排代码未修改。
+- 普通非流式 4xx / 5xx 仍按 HTTP 状态释放，未知上游结果仍保持 `ambiguous`，正常成功请求仍由统一 usage 结算；修复只补齐 HTTP 200 流内确定失败的缺口。
+
+### 验证
+
+- 回归覆盖 HTTP 200 `response.failed` 释放、ambiguous 优先级、cyber 专用计费隔离、普通传输错误不误判，以及已取消请求 context 下 Redis 绑定仍执行且保留短超时。
+- 受影响 Handler / Middleware / Service 完整包测试、CI 同款 `go test -tags=unit ./... -count=1`、默认标签 `go test ./... -count=1`、聚焦 `-race`、`go vet ./...`、`golangci-lint run ./...`（0 issues）和 server build 通过。
+- `go mod tidy -diff` 报告基线 `go.sum` 存在与本补丁无关的冗余历史校验项；本补丁未修改 `go.mod` / `go.sum`，也未顺带清理依赖元数据。
+
 ## 2026-08-13 - 上游 main 同步：监控 V2、Grok 能力与计费审计
 
 ### 目标

@@ -110,7 +110,7 @@ func (s *defaultOpenAIWSStateStore) BindResponseAccount(ctx context.Context, gro
 		return nil
 	}
 	cacheKey := openAIWSResponseAccountCacheKey(id)
-	cacheCtx, cancel := withOpenAIWSStateStoreRedisTimeout(ctx)
+	cacheCtx, cancel := withOpenAIWSStateStoreRedisBindTimeout(ctx)
 	defer cancel()
 	return s.cache.SetSessionAccountID(cacheCtx, groupID, cacheKey, accountID, ttl)
 }
@@ -442,6 +442,18 @@ func openAIWSSessionTurnStateKey(groupID int64, sessionHash string) string {
 func withOpenAIWSStateStoreRedisTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	return context.WithTimeout(ctx, openAIWSStateStoreRedisTimeout)
+}
+
+func withOpenAIWSStateStoreRedisBindTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	} else {
+		// The upstream response ID remains valuable after the request lifecycle
+		// ends. Preserve context values, detach only request cancellation, and
+		// bound the Redis persistence attempt with the normal short timeout.
+		ctx = context.WithoutCancel(ctx)
 	}
 	return context.WithTimeout(ctx, openAIWSStateStoreRedisTimeout)
 }

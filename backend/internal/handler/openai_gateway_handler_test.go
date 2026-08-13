@@ -3165,3 +3165,45 @@ data: {"type":"response.failed","error":{"message":"This content was flagged"}}
 		require.False(t, openAIForwardErrorAlreadyCommunicated(c, c.Writer.Size(), errors.New("openai cyber_policy: blocked")))
 	})
 }
+
+func TestMarkOpenAIForwardDefinitiveBudgetFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("communicated response failed is definitive", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		markOpenAIForwardDefinitiveBudgetFailure(c, errors.New("upstream response failed: overloaded"), true)
+
+		require.True(t, service.IsEnterpriseMemberBudgetDefinitiveFailure(c))
+		require.Equal(t, "upstream_terminal_failure", service.EnterpriseMemberBudgetDefinitiveFailureReason(c))
+	})
+
+	t.Run("uncommunicated failure is finalized by HTTP status instead", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		markOpenAIForwardDefinitiveBudgetFailure(c, errors.New("upstream response failed: overloaded"), false)
+
+		require.False(t, service.IsEnterpriseMemberBudgetDefinitiveFailure(c))
+	})
+
+	t.Run("transport ambiguity takes precedence", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		service.MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "upstream_transport_outcome_unknown")
+		markOpenAIForwardDefinitiveBudgetFailure(c, errors.New("upstream response failed: overloaded"), true)
+
+		require.False(t, service.IsEnterpriseMemberBudgetDefinitiveFailure(c))
+	})
+
+	t.Run("cyber failure remains on its dedicated usage path", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		service.MarkOpsCyberPolicy(c, service.CyberPolicyMark{Message: "blocked", UpstreamStatus: http.StatusOK})
+		markOpenAIForwardDefinitiveBudgetFailure(c, errors.New("upstream response failed: blocked"), true)
+
+		require.False(t, service.IsEnterpriseMemberBudgetDefinitiveFailure(c))
+	})
+
+	t.Run("generic stream read failure is not a definitive terminal event", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		markOpenAIForwardDefinitiveBudgetFailure(c, errors.New("stream read error: unexpected EOF"), true)
+
+		require.False(t, service.IsEnterpriseMemberBudgetDefinitiveFailure(c))
+	})
+}

@@ -790,6 +790,12 @@ func EnforceEnterpriseMemberBudget(budgetService *service.EnterpriseMemberBudget
 			_ = budgetService.MarkAmbiguous(reconcileCtx, apiKey.ID, requestID, reason)
 			return
 		}
+		if service.IsEnterpriseMemberBudgetDefinitiveFailure(c) {
+			releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = budgetService.Release(releaseCtx, apiKey.ID, requestID)
+			return
+		}
 		if c.IsAborted() || c.Writer.Status() >= http.StatusBadRequest {
 			releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()

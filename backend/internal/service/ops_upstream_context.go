@@ -49,6 +49,12 @@ const (
 	// middleware preserves the receipt instead of releasing it on the 5xx.
 	EnterpriseMemberBudgetOutcomeAmbiguousKey = "enterprise_member_budget_outcome_ambiguous"
 	EnterpriseMemberBudgetOutcomeReasonKey    = "enterprise_member_budget_outcome_ambiguous_reason"
+	// EnterpriseMemberBudgetDefinitiveFailureKey marks a terminal request
+	// failure that is carried inside an already-committed success-status stream
+	// (for example Responses API response.failed after HTTP 200). Unlike an
+	// ambiguous transport outcome, this is safe to release immediately.
+	EnterpriseMemberBudgetDefinitiveFailureKey       = "enterprise_member_budget_definitive_failure"
+	EnterpriseMemberBudgetDefinitiveFailureReasonKey = "enterprise_member_budget_definitive_failure_reason"
 
 	OpsClientBusinessLimitedKey                          = "ops_client_business_limited"
 	OpsClientBusinessLimitedReasonKey                    = "ops_client_business_limited_reason"
@@ -137,6 +143,34 @@ func ConsumeEnterpriseMemberBudgetOutcomeAmbiguous(c *gin.Context) (bool, string
 	c.Set(EnterpriseMemberBudgetOutcomeAmbiguousKey, false)
 	c.Set(EnterpriseMemberBudgetOutcomeReasonKey, "")
 	return true, reason
+}
+
+func MarkEnterpriseMemberBudgetDefinitiveFailureWithReason(c *gin.Context, reason string) {
+	if c == nil {
+		return
+	}
+	c.Set(EnterpriseMemberBudgetDefinitiveFailureKey, true)
+	if reason = strings.TrimSpace(reason); reason != "" {
+		c.Set(EnterpriseMemberBudgetDefinitiveFailureReasonKey, reason)
+	}
+}
+
+func IsEnterpriseMemberBudgetDefinitiveFailure(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	value, exists := c.Get(EnterpriseMemberBudgetDefinitiveFailureKey)
+	marked, ok := value.(bool)
+	return exists && ok && marked
+}
+
+func EnterpriseMemberBudgetDefinitiveFailureReason(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	value, _ := c.Get(EnterpriseMemberBudgetDefinitiveFailureReasonKey)
+	reason, _ := value.(string)
+	return strings.TrimSpace(reason)
 }
 
 func MarkOpsGroupRetry(c *gin.Context, reason OpsGroupRetryReason) {

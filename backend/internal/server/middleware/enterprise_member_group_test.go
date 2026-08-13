@@ -316,6 +316,79 @@ func TestEnforceEnterpriseMemberBudgetKeepsAmbiguousOutcomeReservedEvenAfterSucc
 	require.Empty(t, repo.releasedRequestIDs, "ambiguous upstream side effects must keep their reservation until reconciliation")
 }
 
+func TestEnforceEnterpriseMemberBudgetReleasesDefinitiveStreamFailureAfterSuccessStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	memberID := int64(8)
+	key := &service.APIKey{
+		ID:       17,
+		UserID:   3,
+		MemberID: &memberID,
+		Member:   &service.EnterpriseMember{ID: memberID, EnterpriseUserID: 3, Status: service.EnterpriseMemberStatusActive},
+	}
+	repo := &enterpriseMemberBudgetMiddlewareRepo{}
+	budgetService := service.NewEnterpriseMemberBudgetService(repo, nil, nil)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(ContextKeyAPIKey), key)
+		requestContext := context.WithValue(c.Request.Context(), ctxkey.ClientRequestID, "request-1")
+		c.Request = c.Request.WithContext(requestContext)
+		c.Next()
+	})
+	router.Use(EnforceEnterpriseMemberBudget(budgetService, &config.Config{RunMode: config.RunModeStandard}, AnthropicErrorWriter))
+	router.POST("/v1/responses", func(c *gin.Context) {
+		service.MarkEnterpriseMemberBudgetDefinitiveFailureWithReason(c, "upstream_terminal_failure")
+		c.Status(http.StatusOK)
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5","input":"hi","stream":true}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusOK, response.Code, "SSE response headers may already be committed as 200")
+	require.Equal(t, "17:client:request-1", repo.reservedRequestID)
+	require.Equal(t, []string{"17:client:request-1"}, repo.releasedRequestIDs)
+	require.Empty(t, repo.markedRequestID)
+}
+
+func TestEnforceEnterpriseMemberBudgetKeepsAmbiguousOutcomeOverDefinitiveFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	memberID := int64(8)
+	key := &service.APIKey{
+		ID:       17,
+		UserID:   3,
+		MemberID: &memberID,
+		Member:   &service.EnterpriseMember{ID: memberID, EnterpriseUserID: 3, Status: service.EnterpriseMemberStatusActive},
+	}
+	repo := &enterpriseMemberBudgetMiddlewareRepo{}
+	budgetService := service.NewEnterpriseMemberBudgetService(repo, nil, nil)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(ContextKeyAPIKey), key)
+		requestContext := context.WithValue(c.Request.Context(), ctxkey.ClientRequestID, "request-1")
+		c.Request = c.Request.WithContext(requestContext)
+		c.Next()
+	})
+	router.Use(EnforceEnterpriseMemberBudget(budgetService, &config.Config{RunMode: config.RunModeStandard}, AnthropicErrorWriter))
+	router.POST("/v1/responses", func(c *gin.Context) {
+		service.MarkEnterpriseMemberBudgetDefinitiveFailureWithReason(c, "upstream_terminal_failure")
+		service.MarkEnterpriseMemberBudgetOutcomeAmbiguousWithReason(c, "usage_persistence_failed")
+		c.Status(http.StatusOK)
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5","input":"hi","stream":true}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Equal(t, "17:client:request-1", repo.markedRequestID)
+	require.Equal(t, "usage_persistence_failed", repo.markedReason)
+	require.Empty(t, repo.releasedRequestIDs, "unknown accounting outcome must take precedence over a terminal upstream failure")
+}
+
 func TestEnterpriseMemberGroupEligibleUsesBatchAndWebSocketCapabilities(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	user := &service.User{ID: 3, Balance: 10}

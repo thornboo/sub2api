@@ -247,3 +247,30 @@ func TestWithOpenAIWSStateStoreRedisTimeout_WithParentContext(t *testing.T) {
 	_, ok := ctx.Deadline()
 	require.True(t, ok, "应附加短超时")
 }
+
+type openAIWSStateStoreCanceledBindCache struct {
+	stubGatewayCache
+	setCtxErr      error
+	setHasDeadline bool
+}
+
+func (c *openAIWSStateStoreCanceledBindCache) SetSessionAccountID(ctx context.Context, groupID int64, sessionHash string, accountID int64, ttl time.Duration) error {
+	c.setCtxErr = ctx.Err()
+	_, c.setHasDeadline = ctx.Deadline()
+	if c.setCtxErr != nil {
+		return c.setCtxErr
+	}
+	return c.stubGatewayCache.SetSessionAccountID(ctx, groupID, sessionHash, accountID, ttl)
+}
+
+func TestOpenAIWSStateStore_BindResponseAccountSurvivesCanceledRequestContext(t *testing.T) {
+	cache := &openAIWSStateStoreCanceledBindCache{}
+	store := NewOpenAIWSStateStore(cache)
+	requestCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	require.NoError(t, store.BindResponseAccount(requestCtx, 7, "resp_after_request", 101, time.Minute))
+	require.NoError(t, cache.setCtxErr, "Redis binding must not inherit request cancellation after an upstream response ID is known")
+	require.True(t, cache.setHasDeadline, "detached Redis binding must remain bounded by a short timeout")
+	require.Equal(t, int64(101), cache.sessionBindings[openAIWSResponseAccountCacheKey("resp_after_request")])
+}

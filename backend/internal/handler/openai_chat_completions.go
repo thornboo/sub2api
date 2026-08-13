@@ -352,6 +352,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, openAIScheduleResultModel(account, deliveryDecision, deliveryRoutingModel, result), false, nil)
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
+				markOpenAIForwardDefinitiveBudgetFailure(c, err, upstreamErrorAlreadyCommunicated)
 				wroteFallback := false
 				if !upstreamErrorAlreadyCommunicated {
 					wroteFallback = h.ensureOpenAIStreamReadErrorResponse(c, err, streamStarted)

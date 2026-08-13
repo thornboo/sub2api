@@ -2,6 +2,7 @@
 
 ## 2026-08-13
 
+- 修复 HTTP 200 流内 `response.failed` 未结束企业成员预算回执的问题：明确失败现在立即释放，结果 / 用量不明仍优先保持 `ambiguous`，cyber 拒绝继续按真实 token 计费；WebSocket `response_id` 的 Redis 粘性绑定也不再被已经结束的请求 context 直接取消，并继续受 3 秒超时约束。企业成员候选分组与账号调度逻辑未修改。
 - 同步 `origin/main@fbfdcef8` 到正式线 `dev-zz`，吸收 Channel Monitor V2、Grok 视频 / Voice / Realtime / Web Search / X Search、账号调度阈值、上游响应模型审计、安全计费来源和逐模型 / 媒体 / 搜索价格；fork 版本继续保持 `1.7.32`。
 - 企业成员有序分组、模型感知候选、Composite 每次候选重解析、预算结果不明确禁止重试、成功 usage / 预算 / 最终分组原子归因与共享模型目录均保持不变；新增 Grok 路由也进入同一解析、预算和候选编排链。
 - 模型状态页增加 V1 / V2 模式外壳；默认 V1 继续展示 dev-zz 的分组模型自检、可选历史 fail-soft 和管理员 Token 用量，V2 仅显式启用。升级不会用上游旧探针页面覆盖现有模型状态能力。

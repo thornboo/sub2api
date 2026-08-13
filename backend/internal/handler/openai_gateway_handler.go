@@ -761,6 +761,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, openAIScheduleResultModel(account, deliveryDecision, deliveryRoutingModel, result), false, nil)
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
+				markOpenAIForwardDefinitiveBudgetFailure(c, err, upstreamErrorAlreadyCommunicated)
 				wroteFallback := false
 				if !upstreamErrorAlreadyCommunicated {
 					wroteFallback = h.ensureForwardErrorResponse(c, streamStarted)
@@ -3134,6 +3135,7 @@ func (h *OpenAIGatewayHandler) handleStreamingAwareErrorWithCode(
 		streamStarted = true
 	}
 	if streamStarted {
+		markOpenAIStreamDefinitiveBudgetFailure(c)
 		if countTowardsSLA {
 			service.MarkOpsStreamFailure(c, errType, code, message, status)
 		} else {
@@ -3176,6 +3178,13 @@ func (h *OpenAIGatewayHandler) handleStreamingAwareErrorWithCode(
 	c.JSON(status, gin.H{"error": gin.H{
 		"type": errType, "code": code, "message": message,
 	}})
+}
+
+func markOpenAIStreamDefinitiveBudgetFailure(c *gin.Context) {
+	if c == nil || service.IsEnterpriseMemberBudgetOutcomeAmbiguous(c) || service.GetOpsCyberPolicy(c) != nil {
+		return
+	}
+	service.MarkEnterpriseMemberBudgetDefinitiveFailureWithReason(c, "stream_terminal_failure")
 }
 
 func (h *OpenAIGatewayHandler) ensureOpenAIStreamReadErrorResponse(c *gin.Context, err error, streamStarted bool) bool {
@@ -3275,6 +3284,28 @@ func openAIForwardErrorAlreadyCommunicated(c *gin.Context, writerSizeBeforeForwa
 		}
 	}
 	return false
+}
+
+func markOpenAIForwardDefinitiveBudgetFailure(c *gin.Context, err error, alreadyCommunicated bool) {
+	if !alreadyCommunicated || err == nil || c == nil {
+		return
+	}
+	// A usage-persistence or transport ambiguity must remain held for
+	// reconciliation. Cyber response.failed events have a dedicated usage path
+	// and must not be released before that billing record settles the receipt.
+	if service.IsEnterpriseMemberBudgetOutcomeAmbiguous(c) || service.GetOpsCyberPolicy(c) != nil {
+		return
+	}
+	msg := strings.TrimSpace(err.Error())
+	for _, prefix := range []string{
+		"upstream response failed:",
+		"non-streaming openai protocol error:",
+	} {
+		if strings.HasPrefix(msg, prefix) {
+			service.MarkEnterpriseMemberBudgetDefinitiveFailureWithReason(c, "upstream_terminal_failure")
+			return
+		}
+	}
 }
 
 func openAIForwardMayFailover(c *gin.Context, writerSizeBeforeForward int, failoverErr *service.UpstreamFailoverError) bool {
