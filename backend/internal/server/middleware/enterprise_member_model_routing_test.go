@@ -49,6 +49,19 @@ func (f enterpriseMemberRoutePlannerFunc) Plan(ctx context.Context, input servic
 	return f(ctx, input)
 }
 
+type enterpriseMemberPublishedRoutePlannerStub struct {
+	plan      func(context.Context, service.EnterpriseMemberRouteInput) (*service.EnterpriseMemberRoutePlan, error)
+	published func(context.Context, service.EnterpriseMemberRouteInput) ([]int64, error)
+}
+
+func (s enterpriseMemberPublishedRoutePlannerStub) Plan(ctx context.Context, input service.EnterpriseMemberRouteInput) (*service.EnterpriseMemberRoutePlan, error) {
+	return s.plan(ctx, input)
+}
+
+func (s enterpriseMemberPublishedRoutePlannerStub) ResolvePublishedGroupIDs(ctx context.Context, input service.EnterpriseMemberRouteInput) ([]int64, error) {
+	return s.published(ctx, input)
+}
+
 func TestResolveEnterpriseMemberGroupDefaultAdmissionSkipsModelAwarePlanner(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	key := enterpriseMemberModelRoutingTestKey(
@@ -74,6 +87,96 @@ func TestResolveEnterpriseMemberGroupDefaultAdmissionSkipsModelAwarePlanner(t *t
 	router.ServeHTTP(response, request)
 
 	require.Equal(t, http.StatusNoContent, response.Code)
+}
+
+func TestResolveEnterpriseMemberGroupDefaultAdmissionNarrowsToPublishedGroupWithoutFullPlanning(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	anthropicGroup := enterpriseMemberModelRoutingTestGroup(11, "anthropic")
+	anthropicGroup.Platform = service.PlatformAnthropic
+	openAIGroup := enterpriseMemberModelRoutingTestGroup(12, "openai")
+	openAIGroup.Platform = service.PlatformOpenAI
+	key := enterpriseMemberModelRoutingTestKey(anthropicGroup, openAIGroup)
+	planner := enterpriseMemberPublishedRoutePlannerStub{
+		plan: func(context.Context, service.EnterpriseMemberRouteInput) (*service.EnterpriseMemberRoutePlan, error) {
+			panic("legacy admission must not enter account/protocol delivery planning")
+		},
+		published: func(_ context.Context, input service.EnterpriseMemberRouteInput) ([]int64, error) {
+			require.Equal(t, "gpt-5.6-sol", input.Model)
+			require.Equal(t, "/v1/responses", input.Endpoint)
+			require.Equal(t, []int64{11, 12}, []int64{input.AuthorizedGroups[0].ID, input.AuthorizedGroups[1].ID})
+			return []int64{12}, nil
+		},
+	}
+	settings := service.NewSettingService(nil, &config.Config{})
+	router := enterpriseMemberModelRoutingTestRouterWithSettings(t, key, planner, settings, func(c *gin.Context) {
+		requestKey, ok := GetAPIKeyFromContext(c)
+		require.True(t, ok)
+		require.Equal(t, int64(12), *requestKey.GroupID)
+		require.Len(t, requestKey.Member.Groups, 1)
+		require.Equal(t, int64(12), requestKey.Member.Groups[0].ID)
+		active, ok := service.ActiveGroupFromContext(c.Request.Context())
+		require.True(t, ok)
+		require.False(t, active.ModelPlanApplied, "publication-only filtering must not masquerade as an enforced delivery plan")
+		require.True(t, active.PublicationFilterApplied)
+		require.Empty(t, active.RoutePlanSource)
+		require.Equal(t, 1, active.CandidateIndex)
+		c.Status(http.StatusNoContent)
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.6-sol"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusNoContent, response.Code)
+	require.Nil(t, key.GroupID, "cached API key must remain immutable")
+}
+
+func TestResolveEnterpriseMemberGroupPublicationNarrowingFailsOpen(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name      string
+		published []int64
+		err       error
+	}{
+		{name: "publication dependency error", err: errors.New("channel cache unavailable")},
+		{name: "no positive publication evidence"},
+		{name: "resolver returns only unauthorized group", published: []int64{99}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			key := enterpriseMemberModelRoutingTestKey(
+				enterpriseMemberModelRoutingTestGroup(11, "mimo"),
+				enterpriseMemberModelRoutingTestGroup(12, "openai"),
+			)
+			planner := enterpriseMemberPublishedRoutePlannerStub{
+				plan: func(context.Context, service.EnterpriseMemberRouteInput) (*service.EnterpriseMemberRoutePlan, error) {
+					panic("legacy admission must not enter account/protocol delivery planning")
+				},
+				published: func(context.Context, service.EnterpriseMemberRouteInput) ([]int64, error) {
+					return tc.published, tc.err
+				},
+			}
+			router := enterpriseMemberModelRoutingTestRouter(t, key, planner, service.EnterpriseMemberModelAdmissionLegacyOrderOnly, func(c *gin.Context) {
+				requestKey, ok := GetAPIKeyFromContext(c)
+				require.True(t, ok)
+				require.Equal(t, int64(11), *requestKey.GroupID)
+				require.Len(t, requestKey.Member.Groups, 2)
+				active, ok := service.ActiveGroupFromContext(c.Request.Context())
+				require.True(t, ok)
+				require.False(t, active.ModelPlanApplied)
+				require.False(t, active.PublicationFilterApplied)
+				c.Status(http.StatusNoContent)
+			})
+
+			request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.6-sol"}`))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+
+			require.Equal(t, http.StatusNoContent, response.Code)
+		})
+	}
 }
 
 func TestResolveEnterpriseMemberGroupInvalidAdmissionSkipsModelAwarePlanner(t *testing.T) {
@@ -458,6 +561,42 @@ func TestActivateEnterpriseMemberGroupForRequestReplansWebSocketFirstFrame(t *te
 		requestKey, ok := GetAPIKeyFromContext(c)
 		require.True(t, ok)
 		require.Equal(t, int64(12), *requestKey.GroupID)
+		c.Status(http.StatusNoContent)
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusNoContent, response.Code)
+}
+
+func TestActivateEnterpriseMemberGroupForRequestNarrowsLegacyWebSocketToPublishedGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	key := enterpriseMemberModelRoutingTestKey(
+		enterpriseMemberModelRoutingTestGroup(11, "mimo"),
+		enterpriseMemberModelRoutingTestGroup(12, "openai"),
+	)
+	planner := enterpriseMemberPublishedRoutePlannerStub{
+		plan: func(context.Context, service.EnterpriseMemberRouteInput) (*service.EnterpriseMemberRoutePlan, error) {
+			panic("legacy admission must not enter account/protocol delivery planning")
+		},
+		published: func(_ context.Context, input service.EnterpriseMemberRouteInput) ([]int64, error) {
+			require.Equal(t, "gpt-5.6-terra", input.Model)
+			return []int64{12}, nil
+		},
+	}
+	router := enterpriseMemberModelRoutingTestRouter(t, key, planner, service.EnterpriseMemberModelAdmissionLegacyOrderOnly, func(c *gin.Context) {
+		result := ActivateEnterpriseMemberGroupForRequestResult(c, "gpt-5.6-terra", []byte(`{"type":"response.create","model":"gpt-5.6-terra"}`))
+		require.True(t, result.Activated)
+		requestKey, ok := GetAPIKeyFromContext(c)
+		require.True(t, ok)
+		require.Equal(t, int64(12), *requestKey.GroupID)
+		require.Len(t, requestKey.Member.Groups, 1)
+		active, ok := service.ActiveGroupFromContext(c.Request.Context())
+		require.True(t, ok)
+		require.False(t, active.ModelPlanApplied)
+		require.True(t, active.PublicationFilterApplied)
 		c.Status(http.StatusNoContent)
 	})
 

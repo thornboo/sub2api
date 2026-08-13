@@ -175,6 +175,20 @@ func TestApplyUsageRoutingPlanEvidenceLeavesLiveSnapshotAgeEmpty(t *testing.T) {
 	require.Nil(t, usage.RoutePlanSnapshotAgeMs)
 }
 
+func TestApplyUsageRoutingPlanEvidenceIgnoresPublicationOnlyFiltering(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.WithValue(context.Background(), ctxkey.ActiveGroup, &ActiveGroupContext{
+		PublicationFilterApplied: true,
+	})
+	usage := &UsageLog{}
+
+	ApplyUsageRoutingPlanEvidence(ctx, usage)
+
+	require.Empty(t, usage.RoutePlanSource, "publication filtering is not an enforced delivery-plan canary")
+	require.Nil(t, usage.RoutePlanSnapshotAgeMs)
+}
+
 func TestApplyUsageRoutingShadowSuccessEvidencePersistsPrunedLegacySuccess(t *testing.T) {
 	t.Parallel()
 

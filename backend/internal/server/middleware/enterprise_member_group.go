@@ -33,14 +33,15 @@ type enterpriseMemberGroupCandidate struct {
 }
 
 type enterpriseMemberGroupPlan struct {
-	apiKey           *service.APIKey
-	legacyCandidates []enterpriseMemberGroupCandidate
-	candidates       []enterpriseMemberGroupCandidate
-	current          int
-	planner          service.EnterpriseMemberRoutePlanningService
-	admissionMode    service.EnterpriseMemberModelAdmissionMode
-	routePlanSource  service.EnterpriseMemberRoutePlanSource
-	modelPlanApplied bool
+	apiKey                   *service.APIKey
+	legacyCandidates         []enterpriseMemberGroupCandidate
+	candidates               []enterpriseMemberGroupCandidate
+	current                  int
+	planner                  service.EnterpriseMemberRoutePlanningService
+	admissionMode            service.EnterpriseMemberModelAdmissionMode
+	routePlanSource          service.EnterpriseMemberRoutePlanSource
+	modelPlanApplied         bool
+	publicationFilterApplied bool
 }
 
 // EnterpriseMemberRouteShadowTrace is request-scoped administrator evidence.
@@ -146,22 +147,23 @@ func ResolveEnterpriseMemberGroup(
 			return
 		}
 		plan.candidates = append([]enterpriseMemberGroupCandidate(nil), plan.legacyCandidates...)
-		if requestedModel != "" &&
-			service.SupportsEnterpriseMemberRoutePlanning(c.Request.URL.Path) &&
-			plan.admissionMode != service.EnterpriseMemberModelAdmissionLegacyOrderOnly {
-			routePlan, planErr := evaluateEnterpriseMemberRoutePlan(c, plan, requestedModel, requestBody)
-			if plan.admissionMode == service.EnterpriseMemberModelAdmissionEnforcePublished {
-				if planErr != nil {
-					writeEnterpriseMemberRoutePlanError(c, writeError, http.StatusServiceUnavailable, "ROUTING_ELIGIBILITY_UNAVAILABLE", "Model routing eligibility is temporarily unavailable")
-					return
+		if requestedModel != "" && service.SupportsEnterpriseMemberRoutePlanning(c.Request.URL.Path) {
+			applyEnterpriseMemberPublicationFilter(c, plan, requestedModel, requestBody)
+			if plan.admissionMode != service.EnterpriseMemberModelAdmissionLegacyOrderOnly {
+				routePlan, planErr := evaluateEnterpriseMemberRoutePlan(c, plan, requestedModel, requestBody)
+				if plan.admissionMode == service.EnterpriseMemberModelAdmissionEnforcePublished {
+					if planErr != nil {
+						writeEnterpriseMemberRoutePlanError(c, writeError, http.StatusServiceUnavailable, "ROUTING_ELIGIBILITY_UNAVAILABLE", "Model routing eligibility is temporarily unavailable")
+						return
+					}
+					plan.candidates = selectEnterpriseMemberRouteCandidates(plan.legacyCandidates, routePlan.Candidates)
+					if len(plan.candidates) == 0 {
+						status, code, message := aggregateEnterpriseMemberRoutePlanFailure(routePlan)
+						writeEnterpriseMemberRoutePlanError(c, writeError, status, code, message)
+						return
+					}
+					plan.modelPlanApplied = true
 				}
-				plan.candidates = selectEnterpriseMemberRouteCandidates(plan.legacyCandidates, routePlan.Candidates)
-				if len(plan.candidates) == 0 {
-					status, code, message := aggregateEnterpriseMemberRoutePlanFailure(routePlan)
-					writeEnterpriseMemberRoutePlanError(c, writeError, status, code, message)
-					return
-				}
-				plan.modelPlanApplied = true
 			}
 		}
 		service.RecordEnterpriseMemberRoutingPlan(len(plan.candidates))
@@ -196,23 +198,24 @@ func activateEnterpriseMemberGroupCandidate(c *gin.Context, plan *enterpriseMemb
 
 	logicalRequestID, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string)
 	active := &service.ActiveGroupContext{
-		LogicalRequestID:       logicalRequestID,
-		AttemptID:              fmt.Sprintf("%s:g%d:a%d", logicalRequestID, requestGroup.ID, candidateIndex+1),
-		MemberID:               plan.apiKey.Member.ID,
-		MemberVersion:          plan.apiKey.Member.Version,
-		GroupID:                requestGroup.ID,
-		Platform:               requestGroup.Platform,
-		RateMultiplier:         requestGroup.RateMultiplier,
-		SubscriptionType:       requestGroup.SubscriptionType,
-		Endpoint:               c.Request.URL.Path,
-		RequestedModel:         requestedModel,
-		MappedModel:            requestedModel,
-		CandidateIndex:         candidate.memberIndex,
-		AttemptNumber:          candidateIndex + 1,
-		RoutePlanMode:          plan.admissionMode,
-		RoutePlanSource:        plan.routePlanSource,
-		RoutePlanSnapshotAgeMs: candidate.routePlanSnapshotAgeMs,
-		ModelPlanApplied:       plan.modelPlanApplied,
+		LogicalRequestID:         logicalRequestID,
+		AttemptID:                fmt.Sprintf("%s:g%d:a%d", logicalRequestID, requestGroup.ID, candidateIndex+1),
+		MemberID:                 plan.apiKey.Member.ID,
+		MemberVersion:            plan.apiKey.Member.Version,
+		GroupID:                  requestGroup.ID,
+		Platform:                 requestGroup.Platform,
+		RateMultiplier:           requestGroup.RateMultiplier,
+		SubscriptionType:         requestGroup.SubscriptionType,
+		Endpoint:                 c.Request.URL.Path,
+		RequestedModel:           requestedModel,
+		MappedModel:              requestedModel,
+		CandidateIndex:           candidate.memberIndex,
+		AttemptNumber:            candidateIndex + 1,
+		RoutePlanMode:            plan.admissionMode,
+		RoutePlanSource:          plan.routePlanSource,
+		RoutePlanSnapshotAgeMs:   candidate.routePlanSnapshotAgeMs,
+		ModelPlanApplied:         plan.modelPlanApplied,
+		PublicationFilterApplied: plan.publicationFilterApplied,
 	}
 	ctx := service.WithoutCompositeRouteDecision(c.Request.Context())
 	ctx = context.WithValue(ctx, ctxkey.ActiveGroup, active)
@@ -346,20 +349,22 @@ func ActivateEnterpriseMemberGroupForRequestResult(c *gin.Context, model string,
 	model = strings.TrimSpace(model)
 	plan.current = -1
 	plan.modelPlanApplied = false
+	plan.publicationFilterApplied = false
 	plan.candidates = append([]enterpriseMemberGroupCandidate(nil), plan.legacyCandidates...)
-	if model != "" &&
-		service.SupportsEnterpriseMemberRoutePlanning(c.Request.URL.Path) &&
-		plan.admissionMode != service.EnterpriseMemberModelAdmissionLegacyOrderOnly {
-		routePlan, err := evaluateEnterpriseMemberRoutePlan(c, plan, model, body)
-		if plan.admissionMode == service.EnterpriseMemberModelAdmissionEnforcePublished {
-			if err != nil {
-				return EnterpriseMemberGroupActivationResult{Failure: EnterpriseMemberGroupActivationFailureEligibilityUnavailable}
+	if model != "" && service.SupportsEnterpriseMemberRoutePlanning(c.Request.URL.Path) {
+		applyEnterpriseMemberPublicationFilter(c, plan, model, body)
+		if plan.admissionMode != service.EnterpriseMemberModelAdmissionLegacyOrderOnly {
+			routePlan, err := evaluateEnterpriseMemberRoutePlan(c, plan, model, body)
+			if plan.admissionMode == service.EnterpriseMemberModelAdmissionEnforcePublished {
+				if err != nil {
+					return EnterpriseMemberGroupActivationResult{Failure: EnterpriseMemberGroupActivationFailureEligibilityUnavailable}
+				}
+				plan.candidates = selectEnterpriseMemberRouteCandidates(plan.legacyCandidates, routePlan.Candidates)
+				if len(plan.candidates) == 0 {
+					return EnterpriseMemberGroupActivationResult{Failure: EnterpriseMemberGroupActivationFailureNoEligibleGroup}
+				}
+				plan.modelPlanApplied = true
 			}
-			plan.candidates = selectEnterpriseMemberRouteCandidates(plan.legacyCandidates, routePlan.Candidates)
-			if len(plan.candidates) == 0 {
-				return EnterpriseMemberGroupActivationResult{Failure: EnterpriseMemberGroupActivationFailureNoEligibleGroup}
-			}
-			plan.modelPlanApplied = true
 		}
 	}
 	if len(plan.candidates) == 0 {
@@ -528,6 +533,49 @@ func evaluateEnterpriseMemberRoutePlan(c *gin.Context, plan *enterpriseMemberGro
 	return routePlan, err
 }
 
+// applyEnterpriseMemberPublicationFilter performs the always-on, low-cost
+// routing correction independently of shadow/enforce delivery admission. It
+// narrows only when cached publication metadata supplies at least one
+// authorized positive match. Dependency failures, zero matches, and invalid
+// resolver output deliberately retain the legacy candidates.
+func applyEnterpriseMemberPublicationFilter(c *gin.Context, plan *enterpriseMemberGroupPlan, model string, body []byte) bool {
+	if c == nil || c.Request == nil || plan == nil || len(plan.legacyCandidates) == 0 {
+		return false
+	}
+	filter, ok := plan.planner.(service.EnterpriseMemberRoutePublicationFilter)
+	if !ok || filter == nil {
+		return false
+	}
+	legacyGroups := make([]*service.Group, 0, len(plan.legacyCandidates))
+	for i := range plan.legacyCandidates {
+		legacyGroups = append(legacyGroups, &plan.legacyCandidates[i].group)
+	}
+	publishedGroupIDs, err := filter.ResolvePublishedGroupIDs(c.Request.Context(), service.EnterpriseMemberRouteInput{
+		AuthorizedGroups: legacyGroups,
+		Model:            model,
+		Endpoint:         c.Request.URL.Path,
+		Body:             body,
+	})
+	if err != nil {
+		// ChannelService logs and singleflights the underlying cache load failure.
+		// Keep this request-level annotation at debug to avoid one warning per
+		// waiter during a shared dependency outage.
+		slog.DebugContext(c.Request.Context(), "enterprise member publication filter failed open",
+			"error", err,
+			"model", sanitizeEnterpriseMemberRouteTraceModel(model),
+			"endpoint", c.Request.URL.Path,
+		)
+		return false
+	}
+	selected := selectEnterpriseMemberPublishedCandidates(plan.legacyCandidates, publishedGroupIDs)
+	if len(selected) == 0 {
+		return false
+	}
+	plan.candidates = selected
+	plan.publicationFilterApplied = true
+	return true
+}
+
 func setEnterpriseMemberRouteShadowTrace(c *gin.Context, trace *EnterpriseMemberRouteShadowTrace) {
 	if c == nil || trace == nil {
 		return
@@ -588,6 +636,26 @@ func selectEnterpriseMemberRouteCandidates(legacy []enterpriseMemberGroupCandida
 		candidate.routePlanSnapshotAgeMs = decision.RoutePlanSnapshotAgeMs
 		selected = append(selected, candidate)
 		delete(legacyByGroupID, decision.GroupID)
+	}
+	return selected
+}
+
+func selectEnterpriseMemberPublishedCandidates(legacy []enterpriseMemberGroupCandidate, publishedGroupIDs []int64) []enterpriseMemberGroupCandidate {
+	if len(legacy) == 0 || len(publishedGroupIDs) == 0 {
+		return nil
+	}
+	published := make(map[int64]struct{}, len(publishedGroupIDs))
+	for _, groupID := range publishedGroupIDs {
+		if groupID > 0 {
+			published[groupID] = struct{}{}
+		}
+	}
+	selected := make([]enterpriseMemberGroupCandidate, 0, min(len(legacy), len(published)))
+	for _, candidate := range legacy {
+		if _, ok := published[candidate.group.ID]; !ok {
+			continue
+		}
+		selected = append(selected, candidate)
 	}
 	return selected
 }

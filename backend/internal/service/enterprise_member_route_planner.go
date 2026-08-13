@@ -81,6 +81,17 @@ type EnterpriseMemberRoutePlanningService interface {
 	Plan(ctx context.Context, input EnterpriseMemberRouteInput) (*EnterpriseMemberRoutePlan, error)
 }
 
+// EnterpriseMemberRoutePublicationFilter is the low-cost request-path contract
+// used before group failover. It consults only cached channel publication
+// metadata and deliberately does not inspect accounts, scheduler capacity, or
+// protocol capability repositories.
+//
+// Callers must treat an error or an empty result as absence of positive
+// evidence, not as proof that every authorized group is invalid.
+type EnterpriseMemberRoutePublicationFilter interface {
+	ResolvePublishedGroupIDs(ctx context.Context, input EnterpriseMemberRouteInput) ([]int64, error)
+}
+
 type EnterpriseMemberRoutePlanner struct {
 	publication EnterpriseMemberRoutePublicationResolver
 	delivery    EnterpriseMemberRouteDeliveryResolver
@@ -102,6 +113,47 @@ func (p *EnterpriseMemberRoutePlanner) SetRoutingEligibilityRuntime(runtime *Rou
 	if p != nil {
 		p.runtime = runtime
 	}
+}
+
+// ResolvePublishedGroupIDs returns authorized groups that explicitly publish
+// the requested public model, preserving member preference order. The channel
+// resolver is backed by ChannelService's bounded cache and singleflight, so
+// this path avoids the per-request account and capability queries performed by
+// the full delivery planner.
+func (p *EnterpriseMemberRoutePlanner) ResolvePublishedGroupIDs(ctx context.Context, input EnterpriseMemberRouteInput) ([]int64, error) {
+	model := strings.TrimSpace(input.Model)
+	if model == "" {
+		return nil, nil
+	}
+	orderedGroupIDs := make([]int64, 0, len(input.AuthorizedGroups))
+	seen := make(map[int64]struct{}, len(input.AuthorizedGroups))
+	for _, group := range input.AuthorizedGroups {
+		if !IsGroupContextValid(group) || !group.IsActive() {
+			continue
+		}
+		if _, ok := seen[group.ID]; ok {
+			continue
+		}
+		seen[group.ID] = struct{}{}
+		orderedGroupIDs = append(orderedGroupIDs, group.ID)
+	}
+	if len(orderedGroupIDs) == 0 {
+		return nil, nil
+	}
+	if p == nil || p.publication == nil {
+		return nil, fmt.Errorf("enterprise member route publication resolver is not configured")
+	}
+	publications, err := p.publication.ResolveEnterpriseMemberRoutePublications(ctx, orderedGroupIDs, model)
+	if err != nil {
+		return nil, fmt.Errorf("resolve enterprise member route publications: %w", err)
+	}
+	publishedGroupIDs := make([]int64, 0, len(publications))
+	for _, groupID := range orderedGroupIDs {
+		if _, ok := publications[groupID]; ok {
+			publishedGroupIDs = append(publishedGroupIDs, groupID)
+		}
+	}
+	return publishedGroupIDs, nil
 }
 
 func (p *EnterpriseMemberRoutePlanner) Plan(ctx context.Context, input EnterpriseMemberRouteInput) (*EnterpriseMemberRoutePlan, error) {

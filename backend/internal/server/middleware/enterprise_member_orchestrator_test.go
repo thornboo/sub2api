@@ -201,6 +201,45 @@ func TestOrchestrateEnterpriseMemberGroupsDoesNotReplaceCapacityFailureWithLater
 	require.Equal(t, service.OpsGroupRetryReasonCapacityExhausted, terminal.Reason)
 }
 
+func TestOrchestrateEnterpriseMemberGroupsKeepsFirstFailureWhenPrioritiesTie(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.6-sol"}`))
+
+	plan := testEnterpriseMemberGroupPlan()
+	plan.candidates = append(plan.candidates, enterpriseMemberGroupCandidate{
+		group:       service.Group{ID: 33, Platform: service.PlatformAnthropic, RateMultiplier: 1.3, Hydrated: true},
+		memberIndex: 2,
+	})
+	c.Set(enterpriseMemberGroupPlanKey, plan)
+	activateEnterpriseMemberGroupCandidate(c, plan, 0, "gpt-5.6-sol")
+
+	var groupIDs []int64
+	handler := OrchestrateEnterpriseMemberGroups(func(c *gin.Context) {
+		apiKey, ok := GetAPIKeyFromContext(c)
+		require.True(t, ok)
+		require.NotNil(t, apiKey.GroupID)
+		groupIDs = append(groupIDs, *apiKey.GroupID)
+		c.Header("X-Failed-Group", strconv.FormatInt(*apiKey.GroupID, 10))
+		service.MarkOpsGroupRetry(c, service.OpsGroupRetryReasonCapacityExhausted)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"group_id": *apiKey.GroupID})
+	})
+
+	handler(c)
+
+	require.Equal(t, []int64{11, 22, 33}, groupIDs)
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	require.Equal(t, "11", recorder.Header().Get("X-Failed-Group"))
+	require.JSONEq(t, `{"group_id":11}`, recorder.Body.String())
+	active, ok := service.ActiveGroupFromContext(c.Request.Context())
+	require.True(t, ok)
+	require.Equal(t, int64(11), active.GroupID)
+	terminal, ok := service.GroupAttemptResultFromContext(c)
+	require.True(t, ok)
+	require.Equal(t, int64(11), terminal.GroupID)
+}
+
 func TestOrchestrateEnterpriseMemberGroupsDoesNotReplaceTransientFailureWithLaterCapabilityMiss(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

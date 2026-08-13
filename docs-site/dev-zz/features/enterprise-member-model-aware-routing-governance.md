@@ -10,18 +10,19 @@
 
 本文记录 2026-08-05 企业成员多分组路由异常的事实、根因、风险与推荐修复方案。目标不是修复四个模型名，而是建立一套长期可维护的模型准入、候选筛选、跨组故障转移和运维归因合同。
 
-### 当前本地实施快照（2026-08-06）
+### 当前本地实施快照（2026-08-13）
 
 本快照是可审核的本地实现状态。它说明阶段 0-4 的代码与最终本地验证已经在当前工作区完成，但不构成 commit、release、deploy、生产灰度、生产默认值切换或 shadow 分支删除的证据。
 
 已完成：
 
 - 企业成员专用的精确发布模型规划器，按当前成员授权顺序只裁剪、不扩权；
+- 默认流量新增与完整规划器分离的正向发布裁剪：复用 ChannelService 十分钟缓存与 singleflight，只读取渠道精确 mapping/pricing，不读取账号、调度容量或协议能力仓库；至少命中一个当前授权分组才替换候选，读取错误、零命中和越权输出均保留旧候选。该结果使用独立的 `publication_filter_applied` 请求标记，不写 `route_plan_source=live`，不会污染 enforce canary/readiness 证据；
 - `legacy_order_only`、`shadow_published`、`enforce_published` 三态配置语法已经建立；v1.7.29 故障后当前有效默认回到 `legacy_order_only`，shadow / enforce 只能显式开启；服务端 readiness 是 enforce 的权威开关，未满足前置条件时，API 写入 enforce 返回 409，历史数据库值或配置值也会安全降级为 shadow 并标记 `enforce_blocked`；
 - readiness 已从固定硬阻断扩展为服务端可计算条件集合：routing revision mirror、非文本 evaluator coverage、alias audit、shadow/canary/evidence pipeline 和 auto-stop 都进入同一权威 gate；前端只展示该 gate，不能自行放行；
 - rollout policy 已接入企业 owner ID、成员 ID、稳定哈希百分比、salt 和手动 auto-stop；扩大 enforce 覆盖必须通过 readiness 与 auto-stop 检查，缩小范围和停止可以继续保存；raw/normalized 列表、总目标数、salt 和 JSON 大小均有服务端上限，管理设置更新请求在 JSON 解码前另受 4 MiB 请求体上限保护；
 - `/v1/chat/completions`、`/v1/responses`、`/v1/messages` 及已注册同协议别名的请求前规划，WebSocket 在首个 `response.create` 帧按同一合同重规划；
-- shadow 保留旧执行顺序并记录低基数差异指标；企业规划只读取当前请求已授权且精确发布的分组快照，不再为一次请求枚举全部 active groups；未来 enforce 只激活规划器返回的候选，资格依赖失败时返回平台 503，不恢复全授权分组扫描；
+- shadow 不执行账号/协议完整规划器的候选替换，并记录低基数差异指标；三种模式共享的正向发布裁剪仍可先排除明确未发布请求模型的授权分组。企业完整规划只读取当前请求已授权且精确发布的分组快照，不再为一次请求枚举全部 active groups；未来 enforce 只激活完整规划器返回的候选，资格依赖失败时返回平台 503，不恢复全授权分组扫描；
 - OpenAI Chat/Responses 兼容路由不再错误依赖全局 native routing 开关，Grok 按现有网关协议合同参与稳定资格判断；协议能力仓库失败在企业严格投影中是规划依赖错误，不再被吞成候选 403/404；
 - Composite 已接入与运行时同源的无副作用路由预览：对 `/v1/chat/completions`、`/v1/responses`、`/v1/messages` 按候选分组和精确端点独立解析目标平台/上游模型，再只在该分组、该目标平台的稳定账号池内判断资格；预览不会安装或覆盖请求上下文中的运行时 decision，缺少 evaluator 或读取失败仍按资格依赖错误处理；
 - routing eligibility 三层合同已接入运行时代码：PostgreSQL `routing_eligibility_revisions` 是持久权威，独立 `routing_eligibility_outbox` 与 Redis Pub/Sub 负责快速传播，各实例启动先对账并维护 atomic mirror，之后每 30 秒补偿漏事件；Channel、Group、Account、ModelProtocolCapability、Composite 的资格相关表通过数据库触发器在配置事务内同时推进精确 scope 与全局安全 scope，避免某条写路径漏发 revision；
@@ -29,6 +30,7 @@
 - 有界进程内 LKG 已接入三类文本协议规划器，默认 TTL 120 秒：只保存单分组、完整 live 合格候选，key 必须同时包含 channel/account/protocol/composite 全局 generation 与精确 group generation，并区分模型、端点、intent 和算法版本；资格投影失败时只读取启动已对账且仍在 120 秒权威新鲜度窗口内的 mirror，再与当前已确认授权求交集。新 revision 一经 Pub/Sub 或定期对账观察即主动清除旧快照；启动从未完成对账或最后一次全量对账已超出 TTL 时均 fail-closed，live 计划也不能用陈旧 mirror 刷新快照；
 - 集群 revision 同时驱动跨实例渠道发布缓存与协议能力短缓存失效；稳定投影会应用分组 `require_oauth_only` / `require_privacy_set`，账号 `privacy_mode` 变化推进资格 revision，而 `last_used_at`、rate-limit/cooldown 和无关 extra 等瞬态写入不推进。本地真实 PostgreSQL/Redis 集成测试已验证迁移可执行、配置事实与 revision/outbox 同事务生成、稳定/瞬态账号字段边界，以及 Pub/Sub round-trip；
 - typed group attempt、闭集重试原因，以及响应已提交、预算/上游结果不明、外部任务已创建、WebSocket 首 turn 已提交和客户端取消后的禁止重放门；
+- typed attempt 的终态选择按原因优先级比较；同一优先级保留成员候选顺序中最早的失败，不允许后续空池或无关分组覆盖客户端响应与 Ops 终态分组；
 - WebSocket 首帧规划区分“无合格候选”和“资格依赖不可用”，后者使用可重连的临时不可用关闭码，不再伪装成客户端模型违规；
 - Responses、OpenAI Images、异步图片任务、OpenAI Embeddings、OpenAI Live、Batch Images、Grok Video 和 Gemini Native 入口已接入受控 typed local gate 或 evaluator coverage；标记只有在当前请求已实际应用 `enforce_published` 计划且满足可重放条件时才可触发，shadow、legacy、普通 Key 和尚未纳入端点前规划的入口保持既有终止语义；
 - `account_model_protocol_capabilities` 的协议约束已扩展到 `openai_embeddings`、`openai_images`、`openai_live`、`batch_images`、`grok_video`、`gemini_native`，使非文本端点能够进入同一稳定 evaluator coverage；
@@ -451,8 +453,8 @@ gateway.enterprise_member_model_admission_mode =
 
 | 值 | 行为 |
 | --- | --- |
-| `legacy_order_only` | 仅作为紧急回滚兼容，不作为长期默认 |
-| `shadow_published` | 计算新旧候选差异并记录指标，但仍执行旧计划 |
+| `legacy_order_only` | 不执行账号/协议完整规划；仍使用 fail-open 正向发布裁剪避免明确无关分组进入逐组重试 |
+| `shadow_published` | 计算完整规划与旧候选差异并记录指标，但不执行完整规划器的候选替换；正向发布裁剪继续生效 |
 | `enforce_published` | 只执行新规划器返回的合格候选 |
 
 最终默认值应为 `enforce_published`，但该枚举值可被持久化不等于系统已经具备启用资格。服务端必须维护权威 readiness：routing revision/LKG、alias 审计、各平台 evaluator、端点覆盖和灰度停止条件任一未满足时，拒绝新的 enforce 写入，并把历史或部署配置中的 enforce 安全降级为 shadow；前端只能展示这个状态，不能自行决定放行。
@@ -1023,11 +1025,12 @@ LKG 热路径使用 startup-reconciled atomic mirror，而不是在资格投影�
 
 ### 11.6 性能门
 
-- 每个企业成员请求最多增加一次批量规划读取；禁止逐候选仓储查询。
+- 默认正向发布裁剪只读 ChannelService 的十分钟进程内缓存，并复用其 singleflight；缓存回源是整份渠道快照，不按成员候选逐组查询账号或能力仓库。
+- shadow/enforce 的账号/协议完整规划每个企业成员请求最多增加一次批量规划读取；禁止逐候选仓储查询。
 - 稳态缓存命中下，路由规划 p95 增量目标不超过 5 ms；数据库回源 p95 增量目标不超过 20 ms。上线前以生产同规格压测结果确认，目标不是硬编码超时值。
 - LKG 查找必须是有界内存/O(1) key 访问；缓存有最大条目数、TTL 驱逐和高基数模型保护。
 - alias 7d/30d 报表走聚合查询/索引或异步汇总，不扫描并阻塞网关热路径。
-- 未发布模型的 handler/account scheduler 调用数必须为 0。
+- enforce 模式下，未发布模型的 handler/account scheduler 调用数必须为 0。默认 fail-open 裁剪在零正向证据时保留兼容路径，不能把该路径误报为 enforce 已完成。
 - 实际分组 attempt 数不得超过合格候选数，且通常显著小于授权分组数。
 
 ### 11.7 安全与隐私

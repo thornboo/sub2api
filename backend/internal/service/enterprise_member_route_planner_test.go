@@ -101,6 +101,50 @@ func TestEnterpriseMemberRoutePlannerProductionShapeCases(t *testing.T) {
 	}
 }
 
+func TestEnterpriseMemberRoutePlannerResolvePublishedGroupIDsUsesPublicationCacheOnly(t *testing.T) {
+	group11 := enterpriseMemberRoutePlannerTestGroup(11, "anthropic", PlatformAnthropic)
+	group12 := enterpriseMemberRoutePlannerTestGroup(12, "openai", PlatformOpenAI)
+	group13 := enterpriseMemberRoutePlannerTestGroup(13, "disabled", PlatformOpenAI)
+	group13.Status = StatusDisabled
+	publication := &enterpriseMemberRoutePlannerPublicationFake{items: map[int64]EnterpriseMemberRoutePublication{
+		12: enterpriseMemberRoutePlannerTestPublication(12, "gpt-5.6-sol"),
+		99: enterpriseMemberRoutePlannerTestPublication(99, "gpt-5.6-sol"),
+	}}
+	delivery := &enterpriseMemberRoutePlannerDeliveryFake{err: errors.New("delivery resolver must not be called")}
+	planner := NewEnterpriseMemberRoutePlanner(publication, delivery)
+
+	groups := []*Group{group11, group12, group12, nil, group13}
+	groupIDs, err := planner.ResolvePublishedGroupIDs(context.Background(), EnterpriseMemberRouteInput{
+		AuthorizedGroups: groups,
+		Model:            " gpt-5.6-sol ",
+		Endpoint:         "/v1/responses",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []int64{12}, groupIDs)
+	require.Equal(t, 0, delivery.calls, "publication filtering must not query account/protocol delivery dependencies")
+	require.Len(t, publication.calls, 1)
+	require.Equal(t, []int64{11, 12}, publication.calls[0].groupIDs)
+	require.Equal(t, "gpt-5.6-sol", publication.calls[0].model)
+	require.Equal(t, []*Group{group11, group12, group12, nil, group13}, groups, "caller authorization snapshots must remain immutable")
+}
+
+func TestEnterpriseMemberRoutePlannerResolvePublishedGroupIDsPropagatesPublicationFailure(t *testing.T) {
+	planner := NewEnterpriseMemberRoutePlanner(
+		&enterpriseMemberRoutePlannerPublicationFake{err: errors.New("channel cache unavailable")},
+		&enterpriseMemberRoutePlannerDeliveryFake{},
+	)
+
+	groupIDs, err := planner.ResolvePublishedGroupIDs(context.Background(), EnterpriseMemberRouteInput{
+		AuthorizedGroups: []*Group{enterpriseMemberRoutePlannerTestGroup(11, "openai", PlatformOpenAI)},
+		Model:            "gpt-5.6-sol",
+		Endpoint:         "/v1/responses",
+	})
+
+	require.ErrorContains(t, err, "resolve enterprise member route publications")
+	require.Nil(t, groupIDs)
+}
+
 func TestEnterpriseMemberRoutePlannerUsesRealCompatibilityProjectionWhenNativeRoutingIsDisabled(t *testing.T) {
 	group := enterpriseMemberRoutePlannerTestGroup(10, "openai", PlatformOpenAI)
 	publication := &enterpriseMemberRoutePlannerPublicationFake{items: map[int64]EnterpriseMemberRoutePublication{

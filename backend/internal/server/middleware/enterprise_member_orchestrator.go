@@ -67,7 +67,7 @@ func OrchestrateEnterpriseMemberGroups(next gin.HandlerFunc) gin.HandlerFunc {
 				attempt:        attempt,
 				candidateIndex: plan.current,
 			}
-			if preferredFailure == nil || enterpriseMemberFailurePriority(attempt.Reason) >= enterpriseMemberFailurePriority(preferredFailure.attempt.Reason) {
+			if preferredFailure == nil || enterpriseMemberFailurePriority(attempt.Reason) > enterpriseMemberFailurePriority(preferredFailure.attempt.Reason) {
 				preferredFailure = currentFailure
 			}
 			if nextCandidate < 0 {
