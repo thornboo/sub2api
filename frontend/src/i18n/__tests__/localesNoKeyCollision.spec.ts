@@ -96,3 +96,12 @@ describe.each([
     expect(openaiFastPolicy.userIdsValidationError).toBeTruthy()
   })
 })
+
+describe.each([
+  ['zh', zhLanding, '该分组当前暂无可用模型'],
+  ['en', enLanding, 'No models are currently available for this group']
+] as const)('locale %s Key usage empty group models', (_locale, messages, expected) => {
+  it('describes model availability for the specific group', () => {
+    expect(messages.keyUsage.noModels).toBe(expected)
+  })
+})

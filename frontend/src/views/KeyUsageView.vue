@@ -203,12 +203,17 @@
             </div>
             <div class="grid gap-5 border-t border-stone-200 p-5 dark:border-[#242424] lg:grid-cols-[1.3fr_0.7fr]">
               <div>
-                <h3 class="text-sm font-semibold">{{ t('keyUsage.trendTitle') }}</h3>
-                <div v-if="summary.trend.length" class="mt-5 flex h-48 items-end gap-1 overflow-hidden border-b border-stone-200 px-1 dark:border-[#292929]">
-                  <div v-for="point in summary.trend" :key="point.date" class="group relative flex h-full min-w-1 flex-1 items-end">
-                    <span class="w-full rounded-t bg-emerald-500/80 transition group-hover:bg-emerald-400" :style="{ height: `${trendHeight(point.actual_cost)}%` }"></span>
-                    <div class="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-stone-900 px-2 py-1 text-[10px] text-white shadow group-hover:block">{{ point.date }} · {{ formatMoney(point.actual_cost) }}</div>
-                  </div>
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                  <h3 class="text-sm font-semibold">{{ t('keyUsage.trendTitle') }}</h3>
+                  <span class="text-xs text-stone-400">{{ t('keyUsage.trendHint') }}</span>
+                </div>
+                <div
+                  v-if="summary.trend.length && trendChartData"
+                  class="mt-4 h-56 md:h-64"
+                  role="img"
+                  :aria-label="t('keyUsage.trendChartLabel')"
+                >
+                  <Bar :data="trendChartData" :options="trendChartOptions" />
                 </div>
                 <div v-else class="mt-5 flex h-48 items-center justify-center text-sm text-stone-400">{{ t('keyUsage.noData') }}</div>
               </div>
@@ -323,6 +328,9 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { BarElement, CategoryScale, Chart as ChartJS, Legend, LinearScale, Tooltip } from 'chart.js'
+import type { ChartData, ChartOptions, TooltipItem } from 'chart.js'
+import { Bar } from 'vue-chartjs'
 
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -336,6 +344,8 @@ import {
   type PublicKeyUsageSummary,
 } from '@/api/publicKeyUsage'
 import { useAppStore } from '@/stores'
+
+ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend)
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -429,8 +439,106 @@ const ipAccessLabel = computed(() => {
   if (summary.value.identity.ip_access_mode === 'blacklist') return `${t('keyUsage.blacklist')} · ${summary.value.identity.blacklist_size}`
   return t('keyUsage.unrestricted')
 })
-const trendMax = computed(() => Math.max(0, ...(summary.value?.trend.map((item) => item.actual_cost) || [])))
 const modelMax = computed(() => Math.max(0, ...(summary.value?.models.map((item) => item.actual_cost) || [])))
+const trendChartData = computed<ChartData<'bar'> | null>(() => {
+  const trend = summary.value?.trend
+  if (!trend?.length) return null
+
+  return {
+    labels: trend.map((point) => point.date),
+    datasets: [
+      {
+        label: t('keyUsage.cost'),
+        data: trend.map((point) => point.actual_cost || 0),
+        backgroundColor: isDark.value ? 'rgba(52, 211, 153, 0.68)' : 'rgba(5, 150, 105, 0.72)',
+        hoverBackgroundColor: isDark.value ? 'rgba(110, 231, 183, 0.95)' : 'rgba(16, 185, 129, 0.95)',
+        borderColor: isDark.value ? 'rgba(110, 231, 183, 0.92)' : 'rgba(4, 120, 87, 0.9)',
+        hoverBorderColor: isDark.value ? '#a7f3d0' : '#065f46',
+        borderWidth: 1,
+        borderRadius: 5,
+        borderSkipped: false,
+        maxBarThickness: 44,
+        categoryPercentage: trend.length <= 2 ? 0.68 : 0.82,
+        barPercentage: trend.length <= 2 ? 0.42 : 0.72,
+      },
+    ],
+  }
+})
+const trendChartOptions = computed<ChartOptions<'bar'>>(() => {
+  const gridColor = isDark.value ? 'rgba(255, 255, 255, 0.08)' : 'rgba(120, 113, 108, 0.15)'
+  const textColor = isDark.value ? '#a8a29e' : '#78716c'
+  const tooltipBackground = isDark.value ? 'rgba(23, 23, 23, 0.98)' : 'rgba(255, 255, 255, 0.98)'
+  const tooltipText = isDark.value ? '#fafaf9' : '#1c1917'
+  const tooltipBorder = isDark.value ? 'rgba(255, 255, 255, 0.16)' : 'rgba(120, 113, 108, 0.25)'
+
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: {
+      mode: 'index',
+      intersect: false,
+    },
+    animation: {
+      duration: 240,
+    },
+    layout: {
+      padding: { top: 8, right: 8, bottom: 0, left: 0 },
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        enabled: true,
+        displayColors: false,
+        backgroundColor: tooltipBackground,
+        borderColor: tooltipBorder,
+        borderWidth: 1,
+        titleColor: tooltipText,
+        bodyColor: tooltipText,
+        padding: 11,
+        bodySpacing: 4,
+        cornerRadius: 8,
+        callbacks: {
+          title: (items: TooltipItem<'bar'>[]) => items[0]?.label || '',
+          label: (context: TooltipItem<'bar'>) => `${t('keyUsage.cost')}: ${formatMoney(Number(context.parsed.y || 0))}`,
+          afterLabel: (context: TooltipItem<'bar'>) => {
+            const point = summary.value?.trend[context.dataIndex]
+            if (!point) return []
+            return [
+              `${t('keyUsage.requests')}: ${formatNumber(point.requests)}`,
+              `${t('keyUsage.totalTokens')}: ${formatNumber(point.total_tokens)}`,
+            ]
+          },
+        },
+      },
+    },
+    scales: {
+      x: {
+        grid: { display: false },
+        border: { color: gridColor },
+        ticks: {
+          color: textColor,
+          autoSkip: true,
+          maxTicksLimit: 8,
+          maxRotation: 0,
+          minRotation: 0,
+          font: { size: 10 },
+        },
+      },
+      y: {
+        beginAtZero: true,
+        border: { display: false },
+        grid: { color: gridColor, tickLength: 0 },
+        ticks: {
+          color: textColor,
+          padding: 8,
+          maxTicksLimit: 6,
+          font: { size: 10 },
+          callback: (value: string | number) => formatMoney(Number(value)),
+        },
+      },
+    },
+  }
+})
 const memberBudgetOverage = computed(() => {
   const monthly = summary.value?.member_budget?.monthly
   if (!monthly || monthly.limit <= 0) return 0
@@ -743,11 +851,6 @@ function statusLabel(status: string) {
 function limitPercent(limit: PublicKeyUsageLimit) {
   if (limit.limit <= 0) return 0
   return Math.min(100, Math.max(0, (limit.used / limit.limit) * 100))
-}
-
-function trendHeight(value: number) {
-  if (trendMax.value <= 0) return 0
-  return Math.max(3, (value / trendMax.value) * 100)
 }
 
 function modelWidth(value: number) {

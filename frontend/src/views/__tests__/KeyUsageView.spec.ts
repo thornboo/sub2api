@@ -57,6 +57,29 @@ vi.mock('@/stores', () => ({
   }),
 }))
 
+vi.mock('chart.js', () => ({
+  Chart: { register: vi.fn() },
+  BarElement: {},
+  CategoryScale: {},
+  Legend: {},
+  LinearScale: {},
+  Tooltip: {},
+}))
+
+vi.mock('vue-chartjs', async () => {
+  const { defineComponent } = await import('vue')
+  return {
+    Bar: defineComponent({
+      name: 'Bar',
+      props: {
+        data: { type: Object, required: true },
+        options: { type: Object, required: true },
+      },
+      template: '<div class="bar-stub" />',
+    }),
+  }
+})
+
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return { ...actual, useI18n: () => ({ t: (key: string) => key }) }
@@ -208,6 +231,48 @@ describe('KeyUsageView', () => {
     expect(wrapper.text()).toContain('gpt-5.5')
     expect(wrapper.text()).toContain('keyUsage.exit')
     expect(wrapper.text()).not.toContain('$53.38')
+  })
+
+  it('renders an interactive spending trend with daily cost, request, and token details', async () => {
+    getSession.mockResolvedValue({ valid: true })
+    const wrapper = mountView()
+    await flushPromises()
+
+    const chart = wrapper.findComponent({ name: 'Bar' })
+    expect(chart.exists()).toBe(true)
+    expect(wrapper.text()).toContain('keyUsage.trendHint')
+    expect(chart.element.parentElement?.getAttribute('role')).toBe('img')
+    expect(chart.element.parentElement?.getAttribute('aria-label')).toBe('keyUsage.trendChartLabel')
+
+    const data = chart.props('data') as {
+      labels: string[]
+      datasets: Array<{ data: number[], hoverBackgroundColor: string }>
+    }
+    expect(data.labels).toEqual(['2026-07-19'])
+    expect(data.datasets[0]?.data).toEqual([0.08])
+    expect(data.datasets[0]?.hoverBackgroundColor).toBeTruthy()
+
+    const options = chart.props('options') as {
+      interaction: { mode: string, intersect: boolean }
+      plugins: {
+        tooltip: {
+          enabled: boolean
+          callbacks: {
+            title: (items: Array<{ label: string }>) => string
+            label: (context: { parsed: { y: number } }) => string
+            afterLabel: (context: { dataIndex: number }) => string[]
+          }
+        }
+      }
+    }
+    expect(options.interaction).toEqual({ mode: 'index', intersect: false })
+    expect(options.plugins.tooltip.enabled).toBe(true)
+    expect(options.plugins.tooltip.callbacks.title([{ label: '2026-07-19' }])).toBe('2026-07-19')
+    expect(options.plugins.tooltip.callbacks.label({ parsed: { y: 0.08 } })).toContain('keyUsage.cost:')
+    expect(options.plugins.tooltip.callbacks.afterLabel({ dataIndex: 0 })).toEqual([
+      'keyUsage.requests: 3',
+      'keyUsage.totalTokens: 150',
+    ])
   })
 
   it('keeps an authorized group visible but shows no models when its account pool is disabled', async () => {
