@@ -225,7 +225,7 @@ func (e *gatewayModelSelfCheckProbeExecutor) Probe(ctx context.Context, account 
 	var usage modelSelfCheckTokenUsage
 
 	switch strings.ToLower(strings.TrimSpace(account.Platform)) {
-	case PlatformOpenAI:
+	case PlatformOpenAI, PlatformGrok:
 		status, duration, usage, err = e.probeOpenAI(ctx, account, model)
 	case PlatformGemini:
 		status, duration, usage, err = e.probeGemini(ctx, account, model)

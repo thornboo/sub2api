@@ -96,16 +96,8 @@ func EvaluateModelDeliveryCandidate(input ModelDeliveryCandidateInput) ModelDeli
 	if !input.NativeRoutingEnabled && !enterpriseAdmission {
 		return blockModelDeliveryDecision(decision, ModelDeliveryReasonGlobalRoutingDisabled)
 	}
-	if enterpriseAdmission && account.IsGrok() {
-		if !account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityChatCompletions) {
-			return blockModelDeliveryDecision(decision, ModelDeliveryReasonAccountTransportUnavailable)
-		}
-		decision.Eligible = true
-		decision.UpstreamProtocol = ModelProtocolOpenAIResponses
-		decision.Mode = ModelDeliveryModeCompatibility
-		decision.CapabilityState = ModelProtocolStateSupported
-		decision.CapabilitySource = "existing_grok_gateway_contract"
-		return decision
+	if account.IsGrok() {
+		return evaluateGrokTextDeliveryCandidate(decision, account)
 	}
 	if enterpriseAdmission && supportsEstablishedGatewayTextContract(account.Platform) {
 		decision.Eligible = true
@@ -161,6 +153,18 @@ func EvaluateModelDeliveryCandidate(input ModelDeliveryCandidateInput) ModelDeli
 	if decision.InboundProtocol == decision.UpstreamProtocol {
 		decision.Mode = ModelDeliveryModeNative
 	}
+	return decision
+}
+
+func evaluateGrokTextDeliveryCandidate(decision ModelDeliveryDecision, account *Account) ModelDeliveryDecision {
+	if !account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityChatCompletions) {
+		return blockModelDeliveryDecision(decision, ModelDeliveryReasonAccountTransportUnavailable)
+	}
+	decision.Eligible = true
+	decision.UpstreamProtocol = ModelProtocolOpenAIResponses
+	decision.Mode = ModelDeliveryModeCompatibility
+	decision.CapabilityState = ModelProtocolStateSupported
+	decision.CapabilitySource = "existing_grok_gateway_contract"
 	return decision
 }
 

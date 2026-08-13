@@ -168,8 +168,8 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 		errCtx := withGrokTeamRateLimitModel(ctx, upstreamModel)
 		s.handleGrokAccountUpstreamError(errCtx, account, resp.StatusCode, resp.Header, respBody)
 		// 429 / free-usage: stamp team+model cool so sibling accounts skip this model.
-		if resp.StatusCode == http.StatusTooManyRequests ||
-			classifyGrokUpstreamFailure(resp.StatusCode, respBody, upstreamModel).Class == GrokFailureFreeUsage {
+		if !isModelSelfCheckProbeContext(ctx) && (resp.StatusCode == http.StatusTooManyRequests ||
+			classifyGrokUpstreamFailure(resp.StatusCode, respBody, upstreamModel).Class == GrokFailureFreeUsage) {
 			markGrokTeamModelRateLimit(account, upstreamModel, resolveGrokTeamRateLimitUntil(time.Now().Add(grokTeamRateLimitDefaultTTL), time.Now()))
 		}
 		if s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody) {
@@ -1328,6 +1328,9 @@ func (s *OpenAIGatewayService) updateGrokUsageSnapshot(ctx context.Context, acco
 }
 
 func (s *OpenAIGatewayService) updateGrokUsageFromResponse(ctx context.Context, account *Account, headers http.Header, statusCode int) {
+	if isModelSelfCheckProbeContext(ctx) {
+		return
+	}
 	snapshot := parseGrokQuotaSnapshot(headers, statusCode, time.Now())
 	if snapshot != nil {
 		stampGrokQuotaSnapshotForPlan(account, snapshot, grokRequestedModelFromCtx(ctx))
@@ -1666,6 +1669,9 @@ func persistGrokTransientModelCooldown(account *Account, decision GrokUpstreamFa
 
 func (s *OpenAIGatewayService) handleGrokAccountUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte) {
 	if s == nil || account == nil {
+		return
+	}
+	if isModelSelfCheckProbeContext(ctx) {
 		return
 	}
 	if isGrokContentPolicyRejection(statusCode, responseBody) {

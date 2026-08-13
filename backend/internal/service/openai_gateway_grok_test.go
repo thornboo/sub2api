@@ -2781,6 +2781,71 @@ func TestHandleGrokAccountUpstreamErrorTempUnschedulesNonRateLimitStates(t *test
 	}
 }
 
+func TestHandleGrokAccountUpstreamErrorSkipsStateMutationForModelSelfCheck(t *testing.T) {
+	account := &Account{ID: 61, Platform: PlatformGrok, Type: AccountTypeOAuth}
+	repo := &grokQuotaAccountRepo{}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+
+	svc.handleGrokAccountUpstreamError(
+		withModelSelfCheckProbeContext(context.Background()),
+		account,
+		http.StatusTooManyRequests,
+		http.Header{"Retry-After": []string{"45"}},
+		[]byte(`{"error":{"message":"rate limited"}}`),
+	)
+
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.Zero(t, repo.updateCalls)
+	require.Zero(t, repo.rateLimitedCalls)
+	require.Zero(t, repo.tempUnschedCalls)
+	require.Nil(t, account.RateLimitResetAt)
+	require.Nil(t, account.TempUnschedulableUntil)
+	require.Empty(t, account.TempUnschedulableReason)
+}
+
+func TestForwardGrokResponsesModelSelfCheck429SkipsTeamModelCooldown(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"model":"grok-4.5","input":"health check","stream":false}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+
+	account := healthyGrokOAuthGatewayTestAccount(6101, "access-token")
+	account.Credentials["team_id"] = fmt.Sprintf("self-check-team-%d", time.Now().UnixNano())
+	repo := &grokQuotaAccountRepo{
+		mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
+			accountsByID: map[int64]*Account{account.ID: account},
+		},
+	}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusTooManyRequests,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "Retry-After": []string{"45"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"rate limited"}}`)),
+	}}
+	svc := &OpenAIGatewayService{
+		httpUpstream:      upstream,
+		grokTokenProvider: NewGrokTokenProvider(repo, nil),
+		accountRepo:       repo,
+	}
+
+	_, err := svc.forwardGrokResponses(
+		withModelSelfCheckProbeContext(context.Background()),
+		c,
+		account,
+		body,
+		"grok-4.5",
+		false,
+		time.Now(),
+	)
+
+	require.Error(t, err)
+	require.False(t, isGrokTeamModelRateLimited(account, "grok-4.5", time.Now()))
+	require.Zero(t, repo.updateCalls)
+	require.Zero(t, repo.rateLimitedCalls)
+	require.Zero(t, repo.tempUnschedCalls)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+}
+
 func TestHandleGrokAccountUpstreamErrorSpendingLimit403RateLimits(t *testing.T) {
 	account := &Account{ID: 614, Platform: PlatformGrok, Type: AccountTypeOAuth}
 	repo := &grokQuotaAccountRepo{}

@@ -165,6 +165,69 @@ func TestGatewayModelSelfCheckProbeExecutorOpenAIAutoUsesModelCapabilityDecision
 	require.Equal(t, "deepseek-v4-pro", gjson.GetBytes(upstream.lastBody, "model").String())
 }
 
+func TestGatewayModelSelfCheckProbeExecutorGrokUsesOpenAICompatiblePathWithoutStateMutation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":                   []string{"application/json"},
+			"X-Ratelimit-Limit-Requests":     []string{"10"},
+			"X-Ratelimit-Remaining-Requests": []string{"9"},
+		},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl_self_check","object":"chat.completion","model":"grok-4.5","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`,
+		)),
+	}}
+	repo := &grokQuotaAccountRepo{}
+	executor := &gatewayModelSelfCheckProbeExecutor{
+		openAIGatewayService: &OpenAIGatewayService{
+			cfg:          modelSelfCheckProbeTestConfig(),
+			httpUpstream: upstream,
+			accountRepo:  repo,
+		},
+	}
+	account := modelSelfCheckGrokTestAccount()
+
+	result := executor.Probe(context.Background(), account, "grok-4.5")
+
+	require.Equal(t, MonitorStatusOperational, result.Status)
+	require.Empty(t, result.ErrorCode)
+	require.NotNil(t, upstream.lastReq)
+	require.True(t, isModelSelfCheckProbeContext(upstream.lastReq.Context()))
+	require.Equal(t, "http://upstream.example/v1/chat/completions", upstream.lastReq.URL.String())
+	require.Equal(t, "grok-4.5", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, 1, result.InputTokens)
+	require.Equal(t, 1, result.OutputTokens)
+	require.Zero(t, repo.updateCalls)
+	require.Zero(t, repo.rateLimitedCalls)
+	require.Zero(t, repo.tempUnschedCalls)
+	require.False(t, executor.openAIGatewayService.isOpenAIAccountRuntimeBlocked(account))
+}
+
+func TestGatewayModelSelfCheckProbeExecutorGrokTransportErrorDoesNotUnscheduleAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &httpUpstreamRecorder{err: errors.New("dial tcp: connection refused")}
+	repo := &grokQuotaAccountRepo{}
+	executor := &gatewayModelSelfCheckProbeExecutor{
+		openAIGatewayService: &OpenAIGatewayService{
+			cfg:          modelSelfCheckProbeTestConfig(),
+			httpUpstream: upstream,
+			accountRepo:  repo,
+		},
+	}
+	account := modelSelfCheckGrokTestAccount()
+
+	result := executor.Probe(context.Background(), account, "grok-4.5")
+
+	require.Equal(t, MonitorStatusFailed, result.Status)
+	require.NotNil(t, upstream.lastReq)
+	require.True(t, isModelSelfCheckProbeContext(upstream.lastReq.Context()))
+	require.Zero(t, repo.updateCalls)
+	require.Zero(t, repo.rateLimitedCalls)
+	require.Zero(t, repo.tempUnschedCalls)
+	require.False(t, executor.openAIGatewayService.isOpenAIAccountRuntimeBlocked(account))
+}
+
 func TestOpenAISelfCheckUpstreamProtocolUsesExactModelCapability(t *testing.T) {
 	for _, test := range []struct {
 		name          string
@@ -707,6 +770,22 @@ func modelSelfCheckAntigravityTestAccount() *Account {
 			"model_mapping": map[string]any{
 				"claude-sonnet-4-5": "gemini-3-pro-high",
 			},
+		},
+	}
+}
+
+func modelSelfCheckGrokTestAccount() *Account {
+	return &Account{
+		ID:          1005,
+		Name:        "model-self-check-grok",
+		Platform:    PlatformGrok,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "xai-self-check",
+			"base_url": "http://upstream.example",
 		},
 	}
 }

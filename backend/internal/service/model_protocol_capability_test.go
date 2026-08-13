@@ -1764,6 +1764,66 @@ func TestEnterpriseMemberModelDeliverySupportsGrokCompatibility(t *testing.T) {
 	}
 }
 
+func TestCatalogModelDeliverySupportsGrokTextCompatibility(t *testing.T) {
+	t.Parallel()
+	groupRepo := &modelProtocolCatalogGroupRepoStub{
+		groups: []Group{{
+			ID: 20, Name: "Grok", Platform: PlatformGrok,
+			Status: StatusActive,
+		}},
+		accountIDs: []int64{92},
+	}
+	accountRepo := &modelProtocolCatalogAccountRepoStub{accounts: []*Account{{
+		ID: 92, Platform: PlatformGrok, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, GroupIDs: []int64{20},
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"grok-route-model": "grok-upstream-model"},
+		},
+	}}}
+	cfg := &config.Config{}
+	cfg.Gateway.NativeModelProtocolRoutingEnabled = true
+	svc := NewModelDeliveryService(accountRepo, groupRepo, nil, nil, cfg)
+
+	projection, err := svc.ResolveForGroups(context.Background(), []int64{20}, []string{"grok-route-model"})
+
+	require.NoError(t, err)
+	group := projection.Group("grok-route-model", 20)
+	require.NotNil(t, group)
+	require.True(t, group.Deliverable())
+	require.Equal(t, ModelDeliveryModeCompatibility, group.Endpoints[ModelProtocolOpenAIChat])
+	require.Equal(t, ModelDeliveryModeCompatibility, group.Endpoints[ModelProtocolOpenAIResponses])
+	require.Equal(t, []int64{20}, projection.EndpointGroupIDs("grok-route-model", ModelProtocolOpenAIChat))
+	require.Equal(t, []int64{20}, projection.EndpointGroupIDs("grok-route-model", ModelProtocolOpenAIResponses))
+	for _, protocol := range []ModelProtocol{ModelProtocolOpenAIChat, ModelProtocolOpenAIResponses} {
+		decision := group.Routes[0].Decisions[protocol]
+		require.True(t, decision.Eligible)
+		require.Equal(t, ModelProtocolOpenAIResponses, decision.UpstreamProtocol)
+		require.Equal(t, "existing_grok_gateway_contract", decision.CapabilitySource)
+	}
+}
+
+func TestCatalogModelDeliveryKeepsGrokTextBehindGlobalRoutingGate(t *testing.T) {
+	t.Parallel()
+	account := &Account{
+		ID: 92, Platform: PlatformGrok, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"grok-route-model": "grok-upstream-model"},
+		},
+	}
+
+	decision := EvaluateModelDeliveryCandidate(ModelDeliveryCandidateInput{
+		Account:            account,
+		PublicModel:        "grok-route-model",
+		ChannelMappedModel: "grok-route-model",
+		GroupPlatform:      PlatformGrok,
+		InboundProtocol:    ModelProtocolOpenAIChat,
+	})
+
+	require.False(t, decision.Eligible)
+	require.Contains(t, decision.ReasonCodes, ModelDeliveryReasonGlobalRoutingDisabled)
+}
+
 func TestEnterpriseMemberModelDeliveryFailsOnCapabilityDependencyError(t *testing.T) {
 	t.Parallel()
 	group := &Group{
