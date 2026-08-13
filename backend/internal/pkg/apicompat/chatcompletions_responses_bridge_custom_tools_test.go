@@ -963,6 +963,21 @@ func TestResponsesToChatCompletionsRequest_RejectsUnrepresentableToolChoice(t *t
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "web_search")
 
+	out, err := ResponsesToChatCompletionsRequest(&ResponsesRequest{
+		Model: "glm-5.2",
+		Input: json.RawMessage(`"hi"`),
+		Tools: []ResponsesTool{
+			{Type: "function", Name: "wait", Parameters: json.RawMessage(`{"type":"object","properties":{}}`)},
+			{Type: "web_search"},
+			{Type: "x_search"},
+		},
+		ToolChoice: json.RawMessage(`{"type":"function","name":"web_search"}`),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Tools, 2)
+	assert.Empty(t, out.ToolChoice, "surviving x_search must not keep a function tool_choice named web_search")
+
+	// 具名选择指向不存在的工具名。
 	_, err = ResponsesToChatCompletionsRequest(&ResponsesRequest{
 		Model:      "glm-5.2",
 		Input:      json.RawMessage(`"hi"`),
@@ -973,7 +988,7 @@ func TestResponsesToChatCompletionsRequest_RejectsUnrepresentableToolChoice(t *t
 	assert.Contains(t, err.Error(), "missing")
 
 	// 字符串形式与指向幸存工具的选择保持原有转发行为。
-	out, err := ResponsesToChatCompletionsRequest(&ResponsesRequest{
+	out, err = ResponsesToChatCompletionsRequest(&ResponsesRequest{
 		Model:      "glm-5.2",
 		Input:      json.RawMessage(`"hi"`),
 		Tools:      []ResponsesTool{{Type: "function", Name: "wait"}},

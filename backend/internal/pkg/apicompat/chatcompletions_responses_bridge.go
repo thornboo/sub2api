@@ -73,6 +73,9 @@ func ResponsesToChatCompletionsRequestWithRegistry(req *ResponsesRequest, regist
 			if tool.Function != nil {
 				declared[tool.Function.Name] = true
 			}
+			if strings.EqualFold(strings.TrimSpace(tool.Type), "x_search") {
+				declared["x_search"] = true
+			}
 		}
 		tc, err := responsesToolChoiceToChatToolChoice(req.ToolChoice, declared, responsesToolSourceTypes(requestTools), requestTools, capabilities)
 		if err != nil {
@@ -896,6 +899,13 @@ func responsesToolsToChatTools(tools []ResponsesTool, capabilities ChatCompletio
 	convertedTopLevel := make(map[string]ResponsesTool)
 	toolSearchDeclared := false
 	var toolSearchDefinition ResponsesTool
+	hasXSearch := false
+	for _, tool := range tools {
+		if strings.EqualFold(strings.TrimSpace(tool.Type), "x_search") {
+			hasXSearch = true
+			break
+		}
+	}
 	out := make([]ChatTool, 0, len(tools))
 	for _, tool := range tools {
 		switch tool.Type {
@@ -962,7 +972,20 @@ func responsesToolsToChatTools(tools []ResponsesTool, capabilities ChatCompletio
 				return nil, err
 			}
 			out = append(out, flattened...)
+		case "x_search":
+			out = append(out, ChatTool{
+				Type:                     "x_search",
+				AllowedXHandles:          tool.AllowedXHandles,
+				ExcludedXHandles:         tool.ExcludedXHandles,
+				FromDate:                 tool.FromDate,
+				ToDate:                   tool.ToDate,
+				EnableImageUnderstanding: tool.EnableImageUnderstanding,
+				EnableVideoUnderstanding: tool.EnableVideoUnderstanding,
+			})
 		default:
+			if hasXSearch && strings.EqualFold(strings.TrimSpace(tool.Type), "web_search") {
+				continue
+			}
 			if tool.Type == "" {
 				return nil, fmt.Errorf("responses tool type is required")
 			}
@@ -1115,6 +1138,11 @@ func responsesToolChoiceToChatToolChoice(raw json.RawMessage, declared map[strin
 				return nil, fmt.Errorf("tool_choice %q requires a tool, but no Responses tools are representable by Chat Completions", mode)
 			}
 			return raw, nil
+		case "x_search":
+			if !declared["x_search"] {
+				return nil, fmt.Errorf("responses tool_choice %q does not reference a tool representable by Chat Completions", mode)
+			}
+			return raw, nil
 		default:
 			return nil, fmt.Errorf("unsupported Responses tool_choice %q", mode)
 		}
@@ -1132,6 +1160,15 @@ func responsesToolChoiceToChatToolChoice(raw json.RawMessage, declared map[strin
 	var name string
 	var requiredSourceType string
 	switch choiceType {
+	case "x_search":
+		if !declared["x_search"] {
+			return nil, fmt.Errorf("responses tool_choice %q does not reference a tool representable by Chat Completions", choiceType)
+		}
+		out, err := json.Marshal(map[string]any{"type": "x_search"})
+		if err != nil {
+			return raw, nil
+		}
+		return out, nil
 	case "tool_search":
 		// tool_search 未被丢弃而是降级为同名 function 代理（见
 		// responsesToolsToChatTools），强制选择它同样降级为 function 选择，
@@ -1172,6 +1209,9 @@ func responsesToolChoiceToChatToolChoice(raw json.RawMessage, declared map[strin
 		return nil, fmt.Errorf("responses tool_choice type %q cannot be represented by Chat Completions", choiceType)
 	}
 	if !declared[name] {
+		if choiceType == "function" && name == "web_search" && declared["x_search"] {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("responses tool_choice %q does not reference a tool representable by Chat Completions", name)
 	}
 	if requiredSourceType != "" && sourceTypes[name] != requiredSourceType {
@@ -1416,20 +1456,21 @@ func ChatCompletionsResponseToResponses(resp *ChatCompletionsResponse, model str
 
 func chatMessageToResponsesOutput(message ChatMessage, customTools map[string]bool, toolSearch bool, namespaceTools map[string]NamespacedToolName) []ResponsesOutput {
 	var outputs []ResponsesOutput
-	if message.ReasoningContent != "" {
+	reasoning := message.reasoningText()
+	if reasoning != "" {
 		outputs = append(outputs, ResponsesOutput{
 			Type: "reasoning",
 			ID:   generateItemID(),
 			Summary: []ResponsesSummary{{
 				Type: "summary_text",
-				Text: message.ReasoningContent,
+				Text: reasoning,
 			}},
 		})
 	}
 
 	text := chatMessageContentText(message.Content)
-	if text == "" && strings.TrimSpace(message.ReasoningContent) != "" && len(message.ToolCalls) == 0 {
-		text = message.ReasoningContent
+	if text == "" && strings.TrimSpace(reasoning) != "" && len(message.ToolCalls) == 0 {
+		text = reasoning
 	}
 	if text != "" || len(message.ToolCalls) == 0 {
 		outputs = append(outputs, ResponsesOutput{
@@ -1773,13 +1814,14 @@ func ChatCompletionsChunkToResponsesEvents(
 		// (output_item.added + reasoning_summary_part.added) before the first
 		// delta, otherwise a strict client discards the delta. The leading
 		// empty-string reasoning delta upstreams send is filtered out.
-		if choice.Delta.ReasoningContent != nil && *choice.Delta.ReasoningContent != "" {
+		reasoning := choice.Delta.reasoningText()
+		if reasoning != nil && *reasoning != "" {
 			events = append(events, ensureChatReasoningItem(state)...)
-			_, _ = state.Reasoning.WriteString(*choice.Delta.ReasoningContent)
+			_, _ = state.Reasoning.WriteString(*reasoning)
 			events = append(events, chatToResponsesEvent(state, "response.reasoning_summary_text.delta", &ResponsesStreamEvent{
 				OutputIndex:  state.ReasoningIndex,
 				SummaryIndex: 0,
-				Delta:        *choice.Delta.ReasoningContent,
+				Delta:        *reasoning,
 				ItemID:       state.ReasoningItemID,
 			}))
 		}

@@ -1,26 +1,26 @@
 # dev-zz 变更地图
 
-这页按 `origin/main...dev-zz-develop` 的真实差异整理二开范围。`dev-zz-develop` 是当前持续开发分支，正式线 `dev-zz` 只接收验证后的改动。最近一次盘点基于：
+这页按 `origin/main...dev-zz` 的真实差异整理正式二开范围。最近一次盘点基于本次将 `origin/main` 合入 `dev-zz` 后的索引：
 
 | 项 | 值 |
 | --- | --- |
-| dev-zz-develop | 本次合并提交（合并前 `7d0201e49`） |
-| origin/dev-zz | `be7384503` |
-| origin/main | `825ca7b1f` |
-| merge-base | `825ca7b1f`（本次合并完成后） |
-| 差异规模 | 1054 个文件，约 168982 行新增、11930 行删除 |
+| dev-zz | 本次合并提交（合并前 `4b8b4159c`） |
+| origin/dev-zz | `4b8b4159c` |
+| origin/main | `fbfdcef81` |
+| merge-base | `fbfdcef81`（本次合并完成后） |
+| 差异规模 | 1125 个文件，约 192958 行新增、12487 行删除 |
 
 ## 变更分布
 
 | 区域 | 文件数 | 说明 |
 | --- | ---: | --- |
-| `frontend/` | 341 | 用户/API Key、企业成员、owner 用量分析、管理员用量下钻、可用渠道模型、运维弹窗栈、主题与控制台 UI |
-| `backend/` | 635 | 企业成员、模型/网关路由、API Key、用量/计费、运维、安全、配置、测试、生成物与迁移 |
-| `docs-site/` | 50 | dev-zz 文档中心、功能文档、部署/开发/维护记录 |
-| `docs/` | 1 | 上游通用协议文档 |
+| `frontend/` | 347 | 用户/API Key、企业成员、owner 用量分析、管理员用量下钻、可用渠道模型、V1/V2 模型状态、运维弹窗栈、主题与控制台 UI |
+| `backend/` | 696 | 企业成员、模型/网关路由、API Key、用量/计费、监控、Grok、安全、配置、测试、生成物与迁移 |
+| `docs-site/` | 53 | dev-zz 文档中心、功能文档、部署/开发/维护记录 |
+| `docs/` | 2 | 上游通用协议与 Channel Monitor V2 安全默认值文档 |
 | `deploy/` | 14 | fork 镜像默认值、源码构建脚本、备份脚本、Compose/安装脚本与部署样例 |
 | `.github/` | 5 | CI、release、security scan 和分支镜像的 Node 24 actions runtime 验证 |
-| 根目录 / README / Dockerfile | 8 | release 镜像、版本号、项目说明、分布式 Dockerfile 与设计索引 |
+| 根目录 / README / Dockerfile | 8 | release 镜像、项目说明、分布式 Dockerfile 与设计索引 |
 
 ## 已落地功能
 
@@ -75,6 +75,9 @@
 - Live observer 在 controller / call store 抖动时有限重试并按会话到期时间兜底 finalize；usage 采用 best-effort 队列与同步回退，同时保留企业成员快照、最终实际分组和脱敏失败证据。
 - 分组支持按平台配置最低利润率与安全缓冲；普通、OpenAI、图片和 WebSocket 调度在账号 slot 复核后使用同一利润 gate，倍率证据无效或低于阈值时切换候选。
 - 多平台上游账单探测可在显式允许、可信声明和倍率上限内同步账号倍率；同步结果只改变成本证据，不绕过分组、模型、能力或企业成员调度边界。
+- 分组支持逐模型、长上下文、视频、语音与搜索定价；公开报价继续由共享 available-channel catalog 投影，不恢复已删除的第二套模型目录。
+- Channel Monitor V2 作为显式 opt-in 的被动聚合视图接入；默认 V1 继续使用 dev-zz 分组模型自检、可选历史 fail-soft 与管理员 Token 用量页面。
+- usage / Ops 保存 requested、sent 与 upstream response model 及 mismatch 证据；渠道只有在响应模型通过安全准入和价格解析时才可按 response model 计费。
 
 ### UI 与运维体验
 

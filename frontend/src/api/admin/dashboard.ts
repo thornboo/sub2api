@@ -59,6 +59,7 @@ export interface TrendParams {
   request_type?: UsageRequestType
   stream?: boolean
   billing_type?: number | null
+	upstream_model_mismatch?: boolean
 }
 
 export type DashboardTrendGranularity = 'hour' | 'day' | 'month'
@@ -95,6 +96,7 @@ export interface ModelStatsParams {
   request_type?: UsageRequestType
   stream?: boolean
   billing_type?: number | null
+	upstream_model_mismatch?: boolean
 }
 
 export interface ModelStatsResponse {
@@ -126,6 +128,7 @@ export interface GroupStatsParams {
   request_type?: UsageRequestType
   stream?: boolean
   billing_type?: number | null
+	upstream_model_mismatch?: boolean
 }
 
 export interface GroupStatsResponse {

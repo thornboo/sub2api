@@ -21,9 +21,25 @@ type dashboardUsageRepoCapture struct {
 	trendGranularity string
 	modelRequestType *int16
 	modelStream      *bool
+	trendMismatch    *bool
+	modelMismatch    *bool
+	groupMismatch    *bool
 	rankingLimit     int
 	ranking          []usagestats.UserSpendingRankingItem
 	rankingTotal     float64
+}
+
+func (s *dashboardUsageRepoCapture) GetUsageTrendWithUsageFilters(
+	ctx context.Context,
+	startTime, endTime time.Time,
+	granularity string,
+	filters usagestats.UsageLogFilters,
+) ([]usagestats.TrendDataPoint, error) {
+	s.trendRequestType = filters.RequestType
+	s.trendStream = filters.Stream
+	s.trendGranularity = granularity
+	s.trendMismatch = filters.UpstreamModelMismatch
+	return []usagestats.TrendDataPoint{}, nil
 }
 
 func (s *dashboardUsageRepoCapture) GetUsageTrendWithFilters(
@@ -40,6 +56,27 @@ func (s *dashboardUsageRepoCapture) GetUsageTrendWithFilters(
 	s.trendStream = stream
 	s.trendGranularity = granularity
 	return []usagestats.TrendDataPoint{}, nil
+}
+
+func (s *dashboardUsageRepoCapture) GetModelStatsWithUsageFiltersBySource(
+	ctx context.Context,
+	startTime, endTime time.Time,
+	filters usagestats.UsageLogFilters,
+	source string,
+) ([]usagestats.ModelStat, error) {
+	s.modelRequestType = filters.RequestType
+	s.modelStream = filters.Stream
+	s.modelMismatch = filters.UpstreamModelMismatch
+	return []usagestats.ModelStat{}, nil
+}
+
+func (s *dashboardUsageRepoCapture) GetGroupStatsWithUsageFilters(
+	ctx context.Context,
+	startTime, endTime time.Time,
+	filters usagestats.UsageLogFilters,
+) ([]usagestats.GroupStat, error) {
+	s.groupMismatch = filters.UpstreamModelMismatch
+	return []usagestats.GroupStat{}, nil
 }
 
 func (s *dashboardUsageRepoCapture) GetModelStatsWithFilters(
@@ -77,6 +114,7 @@ func newDashboardRequestTypeTestRouter(repo *dashboardUsageRepoCapture) *gin.Eng
 	router.GET("/admin/dashboard/trend", handler.GetUsageTrend)
 	router.GET("/admin/dashboard/snapshot-v2", handler.GetSnapshotV2)
 	router.GET("/admin/dashboard/models", handler.GetModelStats)
+	router.GET("/admin/dashboard/groups", handler.GetGroupStats)
 	router.GET("/admin/dashboard/users-ranking", handler.GetUserSpendingRanking)
 	return router
 }
@@ -211,6 +249,46 @@ func TestDashboardModelStatsValidModelSource(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestDashboardModelAuditFilterPropagatesToTrendModelAndGroupQueries(t *testing.T) {
+	resetDashboardReadCachesForTest()
+	repo := &dashboardUsageRepoCapture{}
+	router := newDashboardRequestTypeTestRouter(repo)
+
+	for _, path := range []string{
+		"/admin/dashboard/trend?upstream_model_mismatch=true",
+		"/admin/dashboard/models?upstream_model_mismatch=true",
+		"/admin/dashboard/groups?upstream_model_mismatch=true",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code, path)
+	}
+
+	require.NotNil(t, repo.trendMismatch)
+	require.True(t, *repo.trendMismatch)
+	require.NotNil(t, repo.modelMismatch)
+	require.True(t, *repo.modelMismatch)
+	require.NotNil(t, repo.groupMismatch)
+	require.True(t, *repo.groupMismatch)
+}
+
+func TestDashboardModelAuditFilterRejectsInvalidBoolean(t *testing.T) {
+	repo := &dashboardUsageRepoCapture{}
+	router := newDashboardRequestTypeTestRouter(repo)
+
+	for _, path := range []string{
+		"/admin/dashboard/trend?upstream_model_mismatch=invalid",
+		"/admin/dashboard/models?upstream_model_mismatch=invalid",
+		"/admin/dashboard/groups?upstream_model_mismatch=invalid",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusBadRequest, rec.Code, path)
+	}
 }
 
 func TestDashboardUsersRankingLimitAndCache(t *testing.T) {

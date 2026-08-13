@@ -1,5 +1,13 @@
 # 变更记录
 
+## 2026-08-13
+
+- 同步 `origin/main@fbfdcef8` 到正式线 `dev-zz`，吸收 Channel Monitor V2、Grok 视频 / Voice / Realtime / Web Search / X Search、账号调度阈值、上游响应模型审计、安全计费来源和逐模型 / 媒体 / 搜索价格；fork 版本继续保持 `1.7.32`。
+- 企业成员有序分组、模型感知候选、Composite 每次候选重解析、预算结果不明确禁止重试、成功 usage / 预算 / 最终分组原子归因与共享模型目录均保持不变；新增 Grok 路由也进入同一解析、预算和候选编排链。
+- 模型状态页增加 V1 / V2 模式外壳；默认 V1 继续展示 dev-zz 的分组模型自检、可选历史 fail-soft 和管理员 Token 用量，V2 仅显式启用。升级不会用上游旧探针页面覆盖现有模型状态能力。
+- 用量与 Ops 增加 requested / sent / upstream response model 和 mismatch 审计；过滤、导出和详情继续保持 admin / owner / enterprise member 字段隔离。分组与渠道增加逐模型、视频、语音和搜索定价，但公开展示继续复用共享 available-channel catalog。
+- Ent / Wire 由合并后的 schema 和 provider graph 重新生成；新增迁移按完整文件名并存，不改写已应用 SQL。合并验证重点覆盖企业成员路由 / 预算、usage SQL、迁移、模型状态、设置和兼容层。
+
 ## 2026-08-12
 
 - 加固 v1.7.29 事故后的预算失败归因：企业成员预算预留的事务启动、已有预留查询、消费限额预留、新记录写入、提交和死锁重试退出点现在携带稳定阶段标签并保留原始 error chain / PostgreSQL SQLSTATE；预算超限、冲突、成员不存在等既有领域错误继续保持原来的 400 / 404 / 409 / 429 分类。

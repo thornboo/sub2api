@@ -1,5 +1,53 @@
 # 上游合并记录
 
+## 2026-08-13 - 将上游 `main` 合并到正式线 `dev-zz`：监控 V2、Grok 能力与计费审计合流
+
+分支：
+
+- 目标：`dev-zz`
+- 上游：`origin/main`（与本地 `main` 同为 `fbfdcef8184ae4b2e224d5cfc47cf1d0e3742710`）
+- Base：`00b8596176809906993169c283671811ad04f58d`
+- 合并前目标：`4b8b4159c8ef3292ab7a1df7fb5aab604a5b3469`
+- 上游 head：`fbfdcef8184ae4b2e224d5cfc47cf1d0e3742710`
+- 结果提交：本次合并提交
+
+上游要点：
+
+- 新增 Channel Monitor V2 被动聚合、用户/管理端页面、隐私默认值和温和回填；V2 保持显式 opt-in，缺失或非法配置继续回到 V1。
+- Grok 扩展视频、Voice、Realtime、Web Search、X Search、订阅档位、模型目录和媒体计费；账号调度增加可配置用量阈值。
+- 用量日志增加上游响应模型与模型不一致审计，渠道可选择 `response_model` 计费来源；分组增加逐模型定价、长上下文阶梯开关以及视频、语音、搜索价格。
+- 吸收 OpenAI / Gemini / Antigravity 的兼容、failover、错误处罚、WebSocket、图片计数、安全与备份正确性修复；上游版本推进到 `0.1.176`。
+
+合并策略与冲突：
+
+- 按用户明确要求直接合入正式线 `dev-zz`；合并前完整读取分支策略、合并流程、补丁 / 变更 / 合并记录、变更地图、配置迁移索引和验证矩阵，并确认工作区干净、本地 `main` 与 `origin/main` 一致。
+- 以 merge-base `00b8596176809906993169c283671811ad04f58d` 执行 `git merge-tree --write-tree --messages --name-only --merge-base` 只读预演，再执行 `git merge --no-commit origin/main`；预演与真实合并均得到 82 个冲突。
+- 冲突主要分布在 gateway / 企业成员路由、设置与账号、usage / Ops、API compatibility、Ent / Wire 生成物、迁移协调、分组定价、模型状态页与相关前端测试。没有使用全局 `ours` / `theirs` 覆盖；每一组均按双方字段、控制流和测试合同逐项合流。
+
+关键解决说明：
+
+- 企业成员继续由有序候选编排、请求级 `ActiveGroup`、模型 / 端点能力裁剪和每次候选重新解析 Composite 路由；新视频、Voice、Realtime、Search 与无前缀 OpenAI 路由也通过同一成员解析、预算门禁和候选编排链。预算结果不明确仍禁止换组，成功 usage、预算结算和最终实际分组继续原子归因。
+- 公开模型与报价继续使用 dev-zz 的共享 available-channel catalog；已被共享目录取代的 `channel_plaza` 与旧 `PlazaModelPricingTable` 保持删除。上游逐模型、视频、语音和搜索价格迁入共享 Group / Channel schema 与定价卡片，不恢复第二套模型目录。
+- `/monitor` 保留新的 V1 / V2 模式外壳，但默认 V1 内容继续使用 dev-zz 已发布的“按分组 + 模型站点自检、可选历史 fail-soft、管理员 Token 用量”页面；上游 Channel Monitor V2 仅在显式选择 V2 时展示，避免升级后默认页面语义倒退。
+- settings、公开 DTO、账号页和缓存版本取并集：保留企业成员 admission、模型原生多协议、自检和 schedule strategy，同时吸收 Channel Monitor V2、Grok mapping、账号调度阈值与 throughput 隐私开关。敏感凭据脱敏键也取并集。
+- usage insert / query 同时保留成员 tombstone、`schedule_meta`、`route_plan_*`、`session_id` 和上游响应模型审计；insert 参数数量由合并后的类型表统一计算，过滤器继续经过 owner / member 隔离，避免新增 mismatch 筛选绕过权限边界。
+- Ent 从合并后的 schema 重新生成，Wire 从合并后的 provider graph 重新生成；`ModelSelfCheckRunner` 与 `ChannelMonitorV2Aggregator` 均进入启动 / 停止生命周期。
+- 上游迁移按完整文件名原样追加，包括同号但不同文件名的 `194` / `195`；没有重命名、覆盖或改写已应用迁移。并发索引预处理同时覆盖企业成员基线、Ops 路由和上游模型 mismatch 索引。
+- `VERSION` 保持 fork 发布线 `1.7.32`，不采用上游 `0.1.176`。
+
+验证：
+
+- Ent / Wire 重新生成后无差异；`make test-unit`、`go test ./... -count=1`、`go vet ./...`、`golangci-lint run ./...`（0 issues）和 `go build ./cmd/server` 全部通过。server / route / repository / migration / compatibility 定向测试以及企业成员路由、预算、模型状态定向测试也通过。
+- 前端 typecheck、完整 ESLint、生产构建和全量 Vitest 通过：275 个测试文件、1853 条用例。首次全量暴露的重复 mock、V1/V2 i18n 扫描和固定 Ops 快照参数等 4 个合并测试合同均已修复；V1 模型状态组件与合并前 `dev-zz` 源逐字一致。
+- `git diff --check`、冲突标记扫描和独立高风险代码复核通过；独立复核没有发现企业成员路由、预算 / usage 归因、gateway 中间件顺序、usage SQL、Ent / Wire 或迁移的 P0 / P1 阻塞项。
+- docs-site 生产构建通过；只有既有的大 chunk、动态 / 静态重复导入、Browserslist 数据陈旧和测试环境刻意错误路径告警，没有构建或测试失败。
+
+未验证：
+
+- 真实 PostgreSQL / Redis 迁移与 Channel Monitor V2 长周期回填，真实 Grok / OpenAI / Gemini / Antigravity 媒体、语音、搜索和 WebSocket 流量。
+- 浏览器人工 V1 / V2 模型状态、分组逐模型定价、账号阈值和用量 mismatch 下钻；Docker 镜像、Hosted CI、tag、Release 和生产部署。
+- 本次只创建本地合并提交，不推送远端、不发布、不部署。
+
 ## 2026-08-12 - 将正式线 `dev-zz` 恢复到 `dev-zz-develop` 以修复 v1.7.29 故障
 
 分支：

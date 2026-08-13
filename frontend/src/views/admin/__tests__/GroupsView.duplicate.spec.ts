@@ -170,6 +170,7 @@ describe('GroupsView duplicate action', () => {
       getLiveCapability,
       getUsageSummary,
       getCapacitySummary,
+      getLiveCapability,
       showSuccess,
       showError
     ]) {
@@ -193,6 +194,7 @@ describe('GroupsView duplicate action', () => {
     getLiveCapability.mockResolvedValue({ supported: false })
     getUsageSummary.mockResolvedValue([])
     getCapacitySummary.mockResolvedValue([])
+    getLiveCapability.mockResolvedValue({ supported: false })
   })
 
   afterEach(() => {

@@ -221,7 +221,15 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		respBody := s.readUpstreamErrorBody(resp)
 		shouldModelFailover := modelFailoverAlreadyHandled
 		if !modelFailoverAlreadyHandled {
-			_, shouldModelFailover = s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
+			policy := ErrorPolicyNone
+			if s.rateLimitService != nil {
+				policy = s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel)
+			}
+			// 与 messages 兼容层一致：只有 None / Matched 才走账号状态处理。
+			// Skipped（池模式、或自定义错误码未命中）与 TempUnscheduled 已由策略层裁决完毕。
+			if policy == ErrorPolicyNone || policy == ErrorPolicyMatched {
+				_, shouldModelFailover = s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
+			}
 		}
 		evBody := unwrapIfNeeded(account.Type == AccountTypeOAuth, respBody)
 

@@ -18,7 +18,12 @@ function flatten(messages: Messages, prefix = ''): Record<string, string> {
 }
 
 const testDir = dirname(fileURLToPath(import.meta.url))
-const viewSource = readFileSync(resolve(testDir, '../../views/user/ChannelStatusView.vue'), 'utf8')
+const viewSource = [
+  '../../views/user/ChannelStatusV1View.vue',
+  '../../components/user/MonitorDetailDialog.vue',
+  '../../components/user/monitor/MonitorCardGrid.vue',
+  '../../components/user/monitor/MonitorHero.vue',
+].map(path => readFileSync(resolve(testDir, path), 'utf8')).join('\n')
 const routerSource = readFileSync(resolve(testDir, '../../router/index.ts'), 'utf8')
 const zhMessages = flatten(zh.channelStatus as Messages)
 const enMessages = flatten(en.channelStatus as Messages)
@@ -26,7 +31,7 @@ const enMessages = flatten(en.channelStatus as Messages)
 describe('model status page contracts', () => {
   it('defines every statically referenced channelStatus key in both locales', () => {
     const referenced = [...viewSource.matchAll(/t\('channelStatus\.([^']+)'/g)].map(match => match[1])
-    expect(referenced.length).toBeGreaterThan(20)
+    expect(referenced.length).toBeGreaterThan(10)
     for (const key of referenced) {
       expect(zhMessages[key], `missing zh channelStatus.${key}`).toBeTypeOf('string')
       expect(enMessages[key], `missing en channelStatus.${key}`).toBeTypeOf('string')

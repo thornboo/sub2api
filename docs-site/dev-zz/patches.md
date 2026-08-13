@@ -1,5 +1,33 @@
 # 补丁记录
 
+## 2026-08-13 - 上游 main 同步：监控 V2、Grok 能力与计费审计
+
+### 目标
+
+- 将 `origin/main@fbfdcef8` 合入正式线 `dev-zz`，吸收上游正确性、安全性、兼容性和用户可见能力，同时守住企业成员路由、原子预算 / 计费 / 归因、共享模型目录、模型自检和 `1.7.32` 发布线。
+- 明确解决 82 个双向冲突，不以整文件 `ours` / `theirs` 掩盖语义差异；生成代码从合并后的源 schema / provider graph 重建。
+
+### 主要变化
+
+- Channel Monitor V2 增加被动 minute rollup、隐私开关、用户 / 管理端视图和温和回填；默认仍为 V1。`/monitor` 外壳按 mode 选择页面，V1 继续承载 dev-zz 分组模型自检和管理员 Token 用量，V2 不取代现有默认能力。
+- Grok 增加视频创建 / 编辑 / 扩展、Voice、Realtime、Web Search、X Search、订阅档位与媒体计费；所有企业成员入口继续经过候选编排、Composite 解析、预算门禁和最终实际分组归因。
+- 渠道可使用经安全准入的 upstream response model 计费；usage 保存 requested / sent / response / mismatch 证据。分组增加逐模型 pricing、长上下文开关、视频模型、Voice 和 search price；公开目录仍使用共享 catalog。
+- 设置和账号调度吸收平台用量阈值、Grok 默认模型 / base URL mapping、Channel Monitor mode / throughput 隐私，同时保留企业 admission、native protocol、自检、schedule strategy 和敏感字段脱敏合同。
+- API compatibility 保留 dev-zz Tool Search / namespace / deferred 边界并吸收 `x_search`、reasoning alias 和 Gemini / Antigravity 修复；OpenAI HTML 403 不再处罚账号，pool-mode request-local retry 不会被新模型冷却提前截断。
+
+### 数据与兼容性
+
+- 新增 upstream migration `194_add_usage_log_upstream_response_model.sql`、Channel Monitor V2 `194_channel_monitor_v2.sql` 到 `206_channel_monitor_v2_privacy_defaults.sql`，以及分组定价 `217` 到 `221`。同号迁移以完整文件名独立执行，历史 checksum 兼容规则保留，不重命名或改写已应用文件。
+- Group / UsageLog Ent schema 和生成物取双方字段并集；Wire 同时启动 / 停止 Model Self Check 与 Channel Monitor V2 aggregator。
+- `VERSION`、企业成员 API、共享模型 catalog、owner/admin 隐私和默认数据保留策略不变。
+
+### 验证
+
+- 合并前预演和真实合并均报告 82 个冲突；解决后无未合并索引或冲突标记，Ent / Wire 重新生成一致，`git diff --check` 通过。
+- 企业成员候选 / Composite / 预算、gateway routes、usage insert / query、migration runner、API compatibility、模型状态和设置冲突面定向测试通过；Go 全仓测试编译通过。
+- 前端 typecheck、完整 ESLint、生产构建和全量 Vitest 通过（275 个测试文件、1853 条用例）；首次完整 Vitest 暴露的重复 mock、V1/V2 i18n 扫描和固定 Ops 快照参数等 4 个合并合同均已修正。`make test-unit`、`go test ./... -count=1`、`go vet ./...`、`golangci-lint run ./...`（0 issues）、后端构建和 docs build 也全部通过。
+- 未执行真实外部 provider、生产数据库迁移、长周期 V2 回填、浏览器人工 smoke、镜像、Hosted CI、tag、Release 或生产部署。
+
 ## 2026-08-12 - v1.7.29 事故后发布候选加固
 
 ### 目标

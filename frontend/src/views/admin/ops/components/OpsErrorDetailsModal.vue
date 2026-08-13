@@ -6,6 +6,7 @@ import Select from '@/components/common/Select.vue'
 import OpsErrorLogTable from './OpsErrorLogTable.vue'
 import { opsAPI, type OpsErrorLog } from '@/api/admin/ops'
 import type { OpsErrorDetailsPreset, OpsErrorDetailsStatusCode, OpsErrorDetailType, OpsErrorDetailsView } from '../composables/useOpsModalStack'
+import { buildOpsErrorTimeParams } from '../utils/opsErrorParams'
 
 interface Props {
   show: boolean
@@ -171,19 +172,12 @@ async function fetchErrorLogs() {
       sort_by: sortBy.value,
       sort_order: sortOrder.value
     }
+    Object.assign(params, buildOpsErrorTimeParams(props.timeRange, props.customStartTime, props.customEndTime))
 
     if (props.preset?.startTime && props.preset?.endTime) {
+      delete params.time_range
       params.start_time = props.preset.startTime
       params.end_time = props.preset.endTime
-    } else if (props.timeRange === 'custom') {
-      if (props.customStartTime && props.customEndTime) {
-        params.start_time = props.customStartTime
-        params.end_time = props.customEndTime
-      } else {
-        params.time_range = '1h'
-      }
-    } else {
-      params.time_range = props.timeRange
     }
 
     const platform = String(props.platform || '').trim()

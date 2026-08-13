@@ -65,6 +65,28 @@ HTTP 首输出超时包含等待响应头的时间，只用于 native Responses�
 
 readiness 由服务端统一计算：routing revision mirror、非文本 evaluator coverage、alias audit、shadow/canary/evidence pipeline、rollout expansion evidence 和 auto-stop 任一不满足时，enforce 不能扩大或持久化。v1.7.29 已证明 shadow 的请求前投影不能在缺少负载证据时作为升级默认，因此 `DefaultEnterpriseMemberModelAdmissionModeForNewInstall()` 当前由 `phase5_production_gate_pending` 返回 `legacy_order_only`；只有 shadow 在测试环境完成数据库连接池、规划延迟与预算预留并发验证后，才能重新讨论默认值。
 
+## Channel Monitor V2 与账号调度阈值
+
+| 配置 / setting | 默认值 | 说明 |
+| --- | ---: | --- |
+| `channel_monitor_mode` | `v1` | `v1` 使用现有主动探测 / 模型自检页面；`v2` 使用被动聚合视图。缺失或非法值回到 V1，升级不会自动启用 V2 |
+| `channel_monitor_hide_throughput` | `true` | 用户侧 V2 默认隐藏 RPM / TPM，避免公开吞吐量；管理员可显式调整 |
+| `account_scheduling_thresholds` | `{}` | 按平台和官方用量窗口设置暂停阈值；只有存在有效阈值、有效 reset time 且实际达到阈值时才临时停止该账号调度 |
+
+Channel Monitor V2 aggregator 仅在总开关开启、mode 为 `v2` 且 V2 配置允许时运行；回填遵守单 leader、有限 chunk 和自适应退避。迁移 `194_channel_monitor_v2.sql` 到 `206_channel_monitor_v2_privacy_defaults.sql` 与 fork 已有同号迁移按完整文件名并存；已应用 checksum 只通过兼容表识别，不重写历史 SQL。
+
+账号阈值暂停保存可诊断原因和目标 reset time，设置或快照不足时不推断暂停。该能力只收窄账号调度，不改变企业成员授权分组、候选顺序、预算或最终计费分组。
+
+## 上游响应模型审计与分组逐模型定价
+
+| 配置 / 字段 | 默认值 | 说明 |
+| --- | ---: | --- |
+| `channels.billing_model_source=response_model` | 未启用 | 仅在响应模型通过准入和价格解析时作为计费模型；证据不足时保留安全回退，不直接信任任意上游字符串 |
+| `groups.long_context_pricing_enabled` | `true` | 控制分组逐模型价格是否使用长上下文档位；关闭时不删除价格配置 |
+| `groups.model_pricing` | `[]` | 分组级逐模型 token / per-request / media 价格；公开展示仍通过共享 catalog 投影 |
+
+usage logs 新增 `upstream_response_model` 与 `upstream_model_mismatch`，并发索引迁移为 `195_add_usage_log_upstream_model_mismatch_index_notx.sql`。新增分组定价迁移为 `217_group_video_model_prices.sql` 到 `221_group_model_pricing.sql`；这些字段不绕过渠道 / 分组交付能力、企业成员候选或 owner/admin 隐私边界。
+
 ## 认证验证码提供商
 
 认证验证码保存在 DB settings 中，由“系统设置 → 安全”热配置，无需重启或数据库迁移。Cloudflare Turnstile、腾讯天御和阿里云验证码 2.0 同一时间最多启用一家；前端使用单选主控，服务端仍会拒绝多 provider 同时启用的 payload。
