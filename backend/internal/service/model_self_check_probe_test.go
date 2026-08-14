@@ -178,7 +178,7 @@ func TestGatewayModelSelfCheckProbeExecutorGrokUsesOpenAICompatiblePathWithoutSt
 			`{"id":"chatcmpl_self_check","object":"chat.completion","model":"grok-4.5","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`,
 		)),
 	}}
-	repo := &grokQuotaAccountRepo{}
+	repo := &modelSelfCheckGrokAccountRepo{}
 	executor := &gatewayModelSelfCheckProbeExecutor{
 		openAIGatewayService: &OpenAIGatewayService{
 			cfg:          modelSelfCheckProbeTestConfig(),
@@ -200,14 +200,16 @@ func TestGatewayModelSelfCheckProbeExecutorGrokUsesOpenAICompatiblePathWithoutSt
 	require.Equal(t, 1, result.OutputTokens)
 	require.Zero(t, repo.updateCalls)
 	require.Zero(t, repo.rateLimitedCalls)
+	require.Zero(t, repo.modelRateLimitedCalls)
 	require.Zero(t, repo.tempUnschedCalls)
+	require.Zero(t, repo.recoveryClearCalls)
 	require.False(t, executor.openAIGatewayService.isOpenAIAccountRuntimeBlocked(account))
 }
 
 func TestGatewayModelSelfCheckProbeExecutorGrokTransportErrorDoesNotUnscheduleAccount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := &httpUpstreamRecorder{err: errors.New("dial tcp: connection refused")}
-	repo := &grokQuotaAccountRepo{}
+	repo := &modelSelfCheckGrokAccountRepo{}
 	executor := &gatewayModelSelfCheckProbeExecutor{
 		openAIGatewayService: &OpenAIGatewayService{
 			cfg:          modelSelfCheckProbeTestConfig(),
@@ -224,7 +226,9 @@ func TestGatewayModelSelfCheckProbeExecutorGrokTransportErrorDoesNotUnscheduleAc
 	require.True(t, isModelSelfCheckProbeContext(upstream.lastReq.Context()))
 	require.Zero(t, repo.updateCalls)
 	require.Zero(t, repo.rateLimitedCalls)
+	require.Zero(t, repo.modelRateLimitedCalls)
 	require.Zero(t, repo.tempUnschedCalls)
+	require.Zero(t, repo.recoveryClearCalls)
 	require.False(t, executor.openAIGatewayService.isOpenAIAccountRuntimeBlocked(account))
 }
 
@@ -662,6 +666,47 @@ type modelSelfCheckForwardCase struct {
 	wantCode    string
 	wantInput   int
 	wantOutput  int
+}
+
+// modelSelfCheckGrokAccountRepo records every account-state mutation the Grok
+// self-check path could perform. Embedding AccountRepository keeps this probe
+// focused on mutation behavior without depending on unit-tag-only test stubs.
+type modelSelfCheckGrokAccountRepo struct {
+	AccountRepository
+	updateCalls           int
+	rateLimitedCalls      int
+	modelRateLimitedCalls int
+	tempUnschedCalls      int
+	recoveryClearCalls    int
+}
+
+func (r *modelSelfCheckGrokAccountRepo) UpdateExtra(_ context.Context, _ int64, _ map[string]any) error {
+	r.updateCalls++
+	return nil
+}
+
+func (r *modelSelfCheckGrokAccountRepo) SetRateLimited(_ context.Context, _ int64, _ time.Time) error {
+	r.rateLimitedCalls++
+	return nil
+}
+
+func (r *modelSelfCheckGrokAccountRepo) SetRateLimitedIfLater(ctx context.Context, id int64, resetAt time.Time) error {
+	return r.SetRateLimited(ctx, id, resetAt)
+}
+
+func (r *modelSelfCheckGrokAccountRepo) SetModelRateLimit(_ context.Context, _ int64, _ string, _ time.Time, _ ...string) error {
+	r.modelRateLimitedCalls++
+	return nil
+}
+
+func (r *modelSelfCheckGrokAccountRepo) SetTempUnschedulable(_ context.Context, _ int64, _ time.Time, _ string) error {
+	r.tempUnschedCalls++
+	return nil
+}
+
+func (r *modelSelfCheckGrokAccountRepo) ClearRateLimitIfObserved(_ context.Context, _ int64, _, _ time.Time) (bool, error) {
+	r.recoveryClearCalls++
+	return false, nil
 }
 
 type modelSelfCheckRateLimitRepo struct {
