@@ -448,7 +448,9 @@ func registerUpstreamCostPoolRoutes(admin *gin.RouterGroup, h *handler.Handlers)
 	suppliers := admin.Group("/upstream-suppliers")
 	{
 		suppliers.GET("", h.Admin.Account.ListUpstreamSuppliers)
+		suppliers.GET("/recharge-overview", h.Admin.Account.GetUpstreamSupplierRechargeOverview)
 		suppliers.POST("", h.Admin.Account.CreateUpstreamSupplier)
+		suppliers.GET("/:supplier_id/recharge-trend", h.Admin.Account.GetUpstreamSupplierRechargeTrend)
 		suppliers.PATCH("/:supplier_id", h.Admin.Account.UpdateUpstreamSupplier)
 		suppliers.DELETE("/:supplier_id", h.Admin.Account.DeleteUpstreamSupplier)
 	}

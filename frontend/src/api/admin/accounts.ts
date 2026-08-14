@@ -286,6 +286,38 @@ export interface UpstreamRechargeRecordsResult {
   deprecated?: boolean
 }
 
+export interface UpstreamRechargeCurrencyTotal {
+  currency: string
+  amount: number
+  record_count: number
+}
+
+export interface UpstreamSupplierRechargeOverviewItem {
+  supplier_id: number
+  totals: UpstreamRechargeCurrencyTotal[]
+}
+
+export interface UpstreamSupplierRechargeOverview {
+  totals: UpstreamRechargeCurrencyTotal[]
+  suppliers: UpstreamSupplierRechargeOverviewItem[]
+}
+
+export interface UpstreamSupplierRechargeTrendPoint {
+  period: string
+  currency: string
+  amount: number
+  record_count: number
+}
+
+export type UpstreamRechargeTrendGranularity = 'day' | 'week' | 'month' | 'year'
+
+export interface UpstreamSupplierRechargeTrend {
+  supplier_id: number
+  granularity: UpstreamRechargeTrendGranularity
+  totals: UpstreamRechargeCurrencyTotal[]
+  points: UpstreamSupplierRechargeTrendPoint[]
+}
+
 export interface UpstreamSupplier {
   id: number
   name: string
@@ -428,6 +460,24 @@ export async function updateUpstreamSupplier(
 
 export async function deleteUpstreamSupplier(id: number): Promise<void> {
   await apiClient.delete(`/admin/upstream-suppliers/${id}`)
+}
+
+export async function getUpstreamSupplierRechargeOverview(): Promise<UpstreamSupplierRechargeOverview> {
+  const { data } = await apiClient.get<UpstreamSupplierRechargeOverview>(
+    '/admin/upstream-suppliers/recharge-overview'
+  )
+  return data
+}
+
+export async function getUpstreamSupplierRechargeTrend(
+  id: number,
+  granularity: UpstreamRechargeTrendGranularity = 'month'
+): Promise<UpstreamSupplierRechargeTrend> {
+  const { data } = await apiClient.get<UpstreamSupplierRechargeTrend>(
+    `/admin/upstream-suppliers/${id}/recharge-trend`,
+    { params: { granularity } }
+  )
+  return data
 }
 
 export async function listUpstreamCostPools(): Promise<UpstreamCostPool[]> {
@@ -1423,6 +1473,8 @@ export const accountsAPI = {
   createUpstreamSupplier,
   updateUpstreamSupplier,
   deleteUpstreamSupplier,
+  getUpstreamSupplierRechargeOverview,
+  getUpstreamSupplierRechargeTrend,
   listUpstreamCostPools,
   listUpstreamCostPoolAccounts,
   listUpstreamCostPoolRechargeRecords,

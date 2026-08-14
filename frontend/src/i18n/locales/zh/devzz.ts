@@ -648,6 +648,10 @@ export default {
                 supplierRechargeScope: '供应商充值',
                 boundAccounts: '绑定账号',
                 currentCost: '当前成本',
+                totalPaid: '累计支付',
+                totalPaidOverview: '全部供应商累计支付',
+                totalPaidOverviewHint: '按充值记录的实际支付币种分别汇总，不做汇率折算。',
+                recordCountBadge: '{count} 条',
                 supplierNoPool: '未建余额池',
                 noSuppliers: '暂无供应商，请点击右上角新增。',
                 status: '状态',
@@ -680,6 +684,23 @@ export default {
                 rechargeRatio: '充值比例',
                 multiplier: '分组倍率',
                 notConfigured: '未配置',
+                rechargeTrend: {
+                    action: '充值趋势',
+                    title: '供应商充值趋势',
+                    description: '按所选时间粒度查看该供应商的实际支付金额，多个支付币种分开显示。',
+                    totalPaid: '累计支付',
+                    chartTitle: '支付趋势',
+                    chartHint: '横轴按{granularity}聚合充值时间，纵轴为该币种的实际支付金额。',
+                    granularityLabel: '趋势统计粒度',
+                    granularity: {
+                        day: '日',
+                        week: '周',
+                        month: '月',
+                        year: '年'
+                    },
+                    empty: '暂无充值趋势数据',
+                    loadFailed: '加载充值趋势失败'
+                },
                 errors: {
                     nameConflict: '已有同名的启用供应商',
                     reserved: '系统保留供应商不能修改或删除',

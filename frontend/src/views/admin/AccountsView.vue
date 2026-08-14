@@ -558,23 +558,16 @@
           </div>
         </template>
         <div v-else class="space-y-3">
-          <div class="flex flex-col gap-3 rounded-xl border border-cyan-200 bg-cyan-50/70 px-4 py-3 text-sm text-cyan-900 dark:border-cyan-500/25 dark:bg-cyan-500/10 dark:text-cyan-100 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p class="font-medium">{{ t('admin.accounts.modelProtocol.supplierHintTitle') }}</p>
-              <p class="mt-1 text-cyan-700 dark:text-cyan-200/80">{{ t('admin.accounts.modelProtocol.supplierHint') }}</p>
-            </div>
-            <button type="button" class="btn btn-secondary shrink-0" @click="setAccountView('list')">
-              {{ t('admin.accounts.modelProtocol.goToAccountList') }}
-            </button>
-          </div>
           <UpstreamCostComparison
             :suppliers="upstreamSuppliers"
             :cost-pools="upstreamCostPools"
+            :recharge-overview="supplierRechargeOverview"
             :loading="costComparisonLoading"
             :error="costComparisonError"
             @refresh="loadSupplierCostView"
             @edit-supplier="openSupplierEdit"
             @recharge-records="openSupplierRechargeRecords"
+            @recharge-trend="openSupplierRechargeTrend"
           />
         </div>
       </template>
@@ -600,6 +593,12 @@
       @close="closeRechargeRecords"
       @updated="handleAccountUpdated"
       @pool-updated="handleSupplierRechargeUpdated"
+    />
+    <UpstreamRechargeTrendModal
+      :show="showRechargeTrend"
+      :supplier-id="rechargeTrendSupplierID"
+      :supplier-name="rechargeTrendSupplierName"
+      @close="closeSupplierRechargeTrend"
     />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @model-protocols="handleModelProtocols" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
@@ -656,6 +655,7 @@ import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActions
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import UpstreamCostComparison from '@/components/admin/account/UpstreamCostComparison.vue'
 import UpstreamRechargeRecordsModal from '@/components/admin/account/UpstreamRechargeRecordsModal.vue'
+import UpstreamRechargeTrendModal from '@/components/admin/account/UpstreamRechargeTrendModal.vue'
 import UpstreamSupplierModal from '@/components/admin/account/UpstreamSupplierModal.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
@@ -690,7 +690,7 @@ import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
 import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
-import type { UpstreamAccountCostBinding, UpstreamCostPool, UpstreamSupplier } from '@/api/admin/accounts'
+import type { UpstreamAccountCostBinding, UpstreamCostPool, UpstreamSupplier, UpstreamSupplierRechargeOverview } from '@/api/admin/accounts'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -755,6 +755,7 @@ const showTest = ref(false)
 const showStats = ref(false)
 const showModelProtocols = ref(false)
 const showRechargeRecords = ref(false)
+const showRechargeTrend = ref(false)
 const showSupplierModal = ref(false)
 const editingUpstreamSupplierID = ref<number | null>(null)
 const showErrorPassthrough = ref(false)
@@ -769,6 +770,8 @@ const statsAcc = ref<Account | null>(null)
 const modelProtocolsAcc = ref<Account | null>(null)
 const rechargeRecordsAcc = ref<Account | null>(null)
 const rechargeRecordsPool = ref<UpstreamCostPool | null>(null)
+const rechargeTrendSupplierID = ref<number | null>(null)
+const rechargeTrendSupplierName = ref<string | null>(null)
 const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
@@ -779,6 +782,7 @@ type AccountViewMode = 'list' | 'archived' | 'cost'
 const activeAccountView = ref<AccountViewMode>('list')
 const upstreamSuppliers = ref<UpstreamSupplier[]>([])
 const upstreamCostPools = ref<UpstreamCostPool[]>([])
+const supplierRechargeOverview = ref<UpstreamSupplierRechargeOverview | null>(null)
 const editingUpstreamSupplier = computed(() => (
   editingUpstreamSupplierID.value === null
     ? null
@@ -1427,21 +1431,24 @@ const loadSupplierCostView = async (options?: { forcePools?: boolean }) => {
   costComparisonLoading.value = true
   costComparisonError.value = null
   try {
-    const [suppliers, pools] = await Promise.all([
+    const [suppliers, pools, rechargeOverview] = await Promise.all([
       adminAPI.accounts.listUpstreamSuppliers(),
-      fetchUpstreamCostPools(options?.forcePools === true)
+      fetchUpstreamCostPools(options?.forcePools === true),
+      adminAPI.accounts.getUpstreamSupplierRechargeOverview()
     ])
     if (requestSeq !== supplierCostViewRequestSeq || activeAccountView.value !== 'cost') {
       return
     }
     upstreamSuppliers.value = suppliers
     setUpstreamCostPools(pools)
+    supplierRechargeOverview.value = rechargeOverview
   } catch (error: any) {
     if (requestSeq !== supplierCostViewRequestSeq || activeAccountView.value !== 'cost') {
       return
     }
     costComparisonError.value = error?.message || t('admin.accounts.upstreamCost.loadFailed')
     upstreamSuppliers.value = []
+    supplierRechargeOverview.value = null
     setUpstreamCostPools([])
     upstreamAccountBindings.value = {}
   } finally {
@@ -1640,6 +1647,7 @@ const isAnyModalOpen = computed(() => {
     showStats.value ||
     showModelProtocols.value ||
     showRechargeRecords.value ||
+    showRechargeTrend.value ||
     showSupplierModal.value ||
     showSchedulePanel.value ||
     showErrorPassthrough.value ||
@@ -2802,6 +2810,16 @@ const openSupplierRechargeRecords = (pool: UpstreamCostPool) => {
   rechargeRecordsAcc.value = null
   rechargeRecordsPool.value = pool
   showRechargeRecords.value = true
+}
+const openSupplierRechargeTrend = (supplierID: number, supplierName: string) => {
+  rechargeTrendSupplierID.value = supplierID
+  rechargeTrendSupplierName.value = supplierName
+  showRechargeTrend.value = true
+}
+const closeSupplierRechargeTrend = () => {
+  showRechargeTrend.value = false
+  rechargeTrendSupplierID.value = null
+  rechargeTrendSupplierName.value = null
 }
 const closeRechargeRecords = () => {
   showRechargeRecords.value = false

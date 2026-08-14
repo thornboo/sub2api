@@ -648,6 +648,10 @@ export default {
                 supplierRechargeScope: 'Supplier recharge',
                 boundAccounts: 'Bound accounts',
                 currentCost: 'Current cost',
+                totalPaid: 'Total paid',
+                totalPaidOverview: 'All-supplier total paid',
+                totalPaidOverviewHint: 'Grouped by the actual paid currency from recharge records; no FX conversion is applied.',
+                recordCountBadge: '{count} records',
                 supplierNoPool: 'No balance pool',
                 noSuppliers: 'No suppliers yet. Use Add in the top right.',
                 status: 'Status',
@@ -680,6 +684,23 @@ export default {
                 rechargeRatio: 'Recharge ratio',
                 multiplier: 'Group multiplier',
                 notConfigured: 'Not configured',
+                rechargeTrend: {
+                    action: 'Recharge trend',
+                    title: 'Supplier Recharge Trend',
+                    description: 'Actual paid amount for this supplier at the selected time granularity. Multiple paid currencies are shown separately.',
+                    totalPaid: 'Total paid',
+                    chartTitle: 'Paid amount trend',
+                    chartHint: 'The X-axis groups recharge time by {granularity}; the Y-axis shows the actual paid amount for each currency.',
+                    granularityLabel: 'Trend granularity',
+                    granularity: {
+                        day: 'Day',
+                        week: 'Week',
+                        month: 'Month',
+                        year: 'Year'
+                    },
+                    empty: 'No recharge trend data yet',
+                    loadFailed: 'Failed to load recharge trend'
+                },
                 errors: {
                     nameConflict: 'Another active supplier already uses this name',
                     reserved: 'System suppliers cannot be modified or deleted',

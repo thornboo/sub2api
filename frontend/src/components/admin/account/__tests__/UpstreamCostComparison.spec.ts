@@ -62,6 +62,10 @@ vi.mock('vue-i18n', async () => {
     'admin.accounts.upstreamCost.supplier': 'Supplier',
     'admin.accounts.upstreamCost.boundAccounts': 'Bound',
     'admin.accounts.upstreamCost.currentCost': 'Cost',
+    'admin.accounts.upstreamCost.totalPaid': 'Total paid',
+    'admin.accounts.upstreamCost.totalPaidOverview': 'All-supplier total paid',
+    'admin.accounts.upstreamCost.totalPaidOverviewHint': 'Grouped by paid currency',
+    'admin.accounts.upstreamCost.recordCountBadge': '{count} records',
     'admin.accounts.upstreamCost.rechargeRatio': 'Ratio',
     'admin.accounts.upstreamCost.poolDiscountUSD': 'Pool discount (USD basis)',
     'admin.accounts.upstreamCost.status': 'Status',
@@ -74,6 +78,7 @@ vi.mock('vue-i18n', async () => {
     'admin.accounts.upstreamCost.notConfigured': 'Not configured',
     'admin.accounts.upstreamCost.errors.hasBoundAccounts': 'Supplier has bound accounts',
     'admin.accounts.upstreamCost.errors.hasBindingHistory': 'Supplier has binding history',
+    'admin.accounts.upstreamCost.rechargeTrend.action': 'Recharge trend',
     'admin.accounts.upstreamCost.rechargeRecords.action': 'Recharge records',
     'admin.accounts.upstreamCost.rechargeRecords.records': 'Records',
     'admin.accounts.columns.actions': 'Actions',
@@ -120,6 +125,7 @@ function mountComparison(options: {
   supplierName?: string
   hasSnapshot?: boolean
   costPools?: Record<string, unknown>[]
+  rechargeOverview?: Record<string, unknown> | null
 } = {}) {
   const bindingCount = options.bindingCount ?? 0
   const supplierStatus = options.supplierStatus ?? 'active'
@@ -157,6 +163,7 @@ function mountComparison(options: {
           record_count: 0
         }
       ],
+      rechargeOverview: options.rechargeOverview ?? null,
       loading: false,
       error: null
     } as any,
@@ -180,7 +187,7 @@ describe('UpstreamCostComparison', () => {
     vi.clearAllMocks()
   })
 
-  it('starts directly with the supplier table without a summary header', () => {
+  it('shows the supplier payment overview above the table', () => {
     const wrapper = mountComparison()
 
     expect(wrapper.find('table').exists()).toBe(true)
@@ -188,8 +195,47 @@ describe('UpstreamCostComparison', () => {
     expect(wrapper.text()).not.toContain('Manage supplier costs')
     expect(wrapper.text()).not.toContain('Configured')
     expect(wrapper.text()).not.toContain('Best')
+    expect(wrapper.text()).toContain('All-supplier total paid')
     expect(wrapper.text()).toContain('Pool discount (USD basis)')
     expect(wrapper.text()).not.toContain('主余额池')
+  })
+
+  it('renders multi-currency overview totals and supplier paid totals', () => {
+    const wrapper = mountComparison({
+      rechargeOverview: {
+        totals: [
+          { currency: 'USD', amount: 12.5, record_count: 2 },
+          { currency: 'CNY', amount: 1200, record_count: 3 }
+        ],
+        suppliers: [
+          {
+            supplier_id: 7,
+            totals: [
+              { currency: 'USD', amount: 12.5, record_count: 2 },
+              { currency: 'CNY', amount: 1200, record_count: 3 }
+            ]
+          }
+        ]
+      }
+    })
+
+    expect(wrapper.text()).toContain('1,200 CNY')
+    expect(wrapper.text()).toContain('12.5 USD')
+    expect(wrapper.text()).toContain('Total paid')
+    expect(wrapper.text()).toContain('3 records')
+    expect(wrapper.text()).toContain('2 records')
+  })
+
+  it('shows a dash for supplier paid totals when no recharge payment exists', () => {
+    const wrapper = mountComparison({
+      rechargeOverview: {
+        totals: [],
+        suppliers: []
+      }
+    })
+
+    expect(wrapper.text()).toContain('Total paid')
+    expect(wrapper.text()).toContain('-')
   })
 
   it('does not present configured defaults as current cost without a real snapshot', () => {
@@ -246,6 +292,14 @@ describe('UpstreamCostComparison', () => {
 
     expect(wrapper.emitted('edit-supplier')).toEqual([[7]])
     expect(updateUpstreamSupplier).not.toHaveBeenCalled()
+  })
+
+  it('emits supplier context for the recharge trend action', async () => {
+    const wrapper = mountComparison()
+
+    await findButton(wrapper, 'Recharge trend').trigger('click')
+
+    expect(wrapper.emitted('recharge-trend')).toEqual([[7, 'Supplier A']])
   })
 
   it('archives a supplier and forces cost-pool refresh', async () => {

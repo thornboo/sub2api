@@ -9,6 +9,7 @@ const {
   getBatchTodayStats,
   listUpstreamSuppliers,
   listUpstreamCostPools,
+  getUpstreamSupplierRechargeOverview,
   listUpstreamCostPoolAccounts,
   getAllProxies,
   getAllGroups
@@ -18,6 +19,7 @@ const {
   getBatchTodayStats: vi.fn(),
   listUpstreamSuppliers: vi.fn(),
   listUpstreamCostPools: vi.fn(),
+  getUpstreamSupplierRechargeOverview: vi.fn(),
   listUpstreamCostPoolAccounts: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn()
@@ -31,6 +33,7 @@ vi.mock('@/api/admin', () => ({
       getBatchTodayStats,
       listUpstreamSuppliers,
       listUpstreamCostPools,
+      getUpstreamSupplierRechargeOverview,
       listUpstreamCostPoolAccounts,
       getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 30 }),
       delete: vi.fn(),
@@ -169,6 +172,7 @@ describe('admin AccountsView scheduler score column', () => {
     getBatchTodayStats.mockReset()
     listUpstreamSuppliers.mockReset()
     listUpstreamCostPools.mockReset()
+    getUpstreamSupplierRechargeOverview.mockReset()
     listUpstreamCostPoolAccounts.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
@@ -225,6 +229,7 @@ describe('admin AccountsView scheduler score column', () => {
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     listUpstreamSuppliers.mockResolvedValue([])
     listUpstreamCostPools.mockResolvedValue([])
+    getUpstreamSupplierRechargeOverview.mockResolvedValue({ totals: [], suppliers: [] })
     listUpstreamCostPoolAccounts.mockResolvedValue([])
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])

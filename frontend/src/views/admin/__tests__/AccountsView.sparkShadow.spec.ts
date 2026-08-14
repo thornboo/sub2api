@@ -15,6 +15,7 @@ const {
   getBatchTodayStats,
   listUpstreamCostPools,
   listUpstreamSuppliers,
+  getUpstreamSupplierRechargeOverview,
   listUpstreamCostPoolAccounts,
   getAllProxies,
   getAllGroups,
@@ -28,6 +29,7 @@ const {
   getBatchTodayStats: vi.fn(),
   listUpstreamCostPools: vi.fn(),
   listUpstreamSuppliers: vi.fn(),
+  getUpstreamSupplierRechargeOverview: vi.fn(),
   listUpstreamCostPoolAccounts: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
@@ -45,6 +47,7 @@ vi.mock('@/api/admin', () => ({
       getBatchTodayStats,
       listUpstreamCostPools,
       listUpstreamSuppliers,
+      getUpstreamSupplierRechargeOverview,
       listUpstreamCostPoolAccounts,
       duplicate: duplicateAccount,
       getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 30 }),
@@ -122,7 +125,7 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     localStorage.clear()
     for (const fn of [
       listAccounts, listWithEtag, getBatchTodayStats, listUpstreamCostPools,
-      listUpstreamSuppliers, listUpstreamCostPoolAccounts, getAllProxies, getAllGroups, duplicateAccount, createSparkShadow,
+      listUpstreamSuppliers, getUpstreamSupplierRechargeOverview, listUpstreamCostPoolAccounts, getAllProxies, getAllGroups, duplicateAccount, createSparkShadow,
       showSuccess, showError
     ]) {
       fn.mockReset()
@@ -132,6 +135,7 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     listUpstreamCostPools.mockResolvedValue([])
     listUpstreamSuppliers.mockResolvedValue([])
+    getUpstreamSupplierRechargeOverview.mockResolvedValue({ totals: [], suppliers: [] })
     listUpstreamCostPoolAccounts.mockResolvedValue([])
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
@@ -287,7 +291,7 @@ describe('admin AccountsView — 账号行展示', () => {
     localStorage.clear()
     for (const fn of [
       listAccounts, listWithEtag, getBatchTodayStats, listUpstreamCostPools,
-      listUpstreamSuppliers, listUpstreamCostPoolAccounts, getAllProxies, getAllGroups, duplicateAccount, createSparkShadow,
+      listUpstreamSuppliers, getUpstreamSupplierRechargeOverview, listUpstreamCostPoolAccounts, getAllProxies, getAllGroups, duplicateAccount, createSparkShadow,
       showSuccess, showError
     ]) {
       fn.mockReset()
@@ -296,6 +300,7 @@ describe('admin AccountsView — 账号行展示', () => {
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     listUpstreamCostPools.mockResolvedValue([])
     listUpstreamSuppliers.mockResolvedValue([])
+    getUpstreamSupplierRechargeOverview.mockResolvedValue({ totals: [], suppliers: [] })
     listUpstreamCostPoolAccounts.mockResolvedValue([])
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
@@ -410,7 +415,7 @@ describe('admin AccountsView — 账号行展示', () => {
     wrapper.unmount()
   })
 
-  it('供应商页说明协议能力属于账号并可返回账号列表', async () => {
+  it('供应商页移除协议能力提示并直接显示供应商列表', async () => {
     listAccounts.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
     const wrapper = mountViewWithRow()
     await flushPromises()
@@ -422,15 +427,9 @@ describe('admin AccountsView — 账号行展示', () => {
     await supplierTab!.trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('admin.accounts.modelProtocol.supplierHint')
-    const goToAccounts = wrapper.findAll('button').find(button => (
-      button.text().trim() === 'admin.accounts.modelProtocol.goToAccountList'
-    ))
-    expect(goToAccounts).toBeTruthy()
-    await goToAccounts!.trigger('click')
-    await flushPromises()
-
     expect(wrapper.text()).not.toContain('admin.accounts.modelProtocol.supplierHint')
+    expect(wrapper.text()).not.toContain('admin.accounts.modelProtocol.goToAccountList')
+    expect(wrapper.find('upstream-cost-comparison-stub').exists()).toBe(true)
     wrapper.unmount()
   })
 

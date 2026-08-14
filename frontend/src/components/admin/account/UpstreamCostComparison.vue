@@ -4,8 +4,41 @@
       {{ error }}
     </div>
 
+    <div class="border-b border-stone-200/80 px-4 py-4 dark:border-white/10">
+      <div class="flex flex-col gap-3 rounded-lg border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-500/20 dark:bg-emerald-500/[0.08] sm:flex-row sm:items-center sm:justify-between">
+        <div class="min-w-0">
+          <p class="text-sm font-medium text-emerald-800 dark:text-emerald-200">
+            {{ t('admin.accounts.upstreamCost.totalPaidOverview') }}
+          </p>
+          <p class="mt-1 text-xs text-stone-500 dark:text-stone-400">
+            {{ t('admin.accounts.upstreamCost.totalPaidOverviewHint') }}
+          </p>
+        </div>
+        <div class="flex flex-wrap gap-2 sm:justify-end">
+          <span
+            v-if="overviewTotals.length === 0"
+            class="font-mono text-sm text-stone-400 dark:text-stone-500"
+          >
+            -
+          </span>
+          <template v-else>
+            <span
+              v-for="total in overviewTotals"
+              :key="total.currency"
+              class="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-white px-3 py-2 font-mono text-sm font-semibold text-stone-950 shadow-sm shadow-emerald-950/5 dark:border-emerald-500/25 dark:bg-white/[0.05] dark:text-white"
+            >
+              <span>{{ formatMoney(total.amount, total.currency) }}</span>
+              <span class="text-xs font-medium text-stone-500 dark:text-stone-400">
+                {{ t('admin.accounts.upstreamCost.recordCountBadge', { count: total.record_count }) }}
+              </span>
+            </span>
+          </template>
+        </div>
+      </div>
+    </div>
+
     <div class="min-h-0 flex-1 overflow-auto">
-      <table class="min-w-[980px] divide-y divide-stone-200 text-sm dark:divide-white/10">
+      <table class="min-w-[1120px] divide-y divide-stone-200 text-sm dark:divide-white/10">
         <thead class="sticky top-0 z-10 bg-stone-50 dark:bg-stone-950">
           <tr>
             <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.supplier') }}</th>
@@ -13,6 +46,7 @@
             <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.currentCost') }}</th>
             <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.rechargeRatio') }}</th>
             <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.poolDiscountUSD') }}</th>
+            <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.totalPaid') }}</th>
             <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.rechargeRecords.records') }}</th>
             <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.status') }}</th>
             <th class="px-4 py-3 text-right text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.columns.actions') }}</th>
@@ -20,12 +54,12 @@
         </thead>
         <tbody class="divide-y divide-stone-100 dark:divide-white/[0.06]">
           <tr v-if="loading">
-            <td colspan="8" class="px-4 py-10 text-center text-stone-500 dark:text-stone-400">
+            <td colspan="9" class="px-4 py-10 text-center text-stone-500 dark:text-stone-400">
               {{ t('common.loading') }}...
             </td>
           </tr>
           <tr v-else-if="rows.length === 0">
-            <td colspan="8" class="px-4 py-10 text-center text-stone-500 dark:text-stone-400">
+            <td colspan="9" class="px-4 py-10 text-center text-stone-500 dark:text-stone-400">
               {{ t('admin.accounts.upstreamCost.noSuppliers') }}
             </td>
           </tr>
@@ -70,6 +104,18 @@
                   {{ discountLabel(row) }}
                 </span>
               </td>
+              <td class="px-4 py-4">
+                <div v-if="row.paidTotals.length > 0" class="flex flex-col gap-1">
+                  <span
+                    v-for="total in row.paidTotals"
+                    :key="total.currency"
+                    class="font-mono text-stone-700 dark:text-stone-300"
+                  >
+                    {{ formatMoney(total.amount, total.currency) }}
+                  </span>
+                </div>
+                <span v-else class="text-stone-400 dark:text-stone-500">-</span>
+              </td>
               <td class="px-4 py-4 font-mono text-stone-700 dark:text-stone-300">
                 {{ row.recordCount }}
               </td>
@@ -88,6 +134,14 @@
                   >
                     <Icon name="creditCard" size="xs" />
                     {{ t('admin.accounts.upstreamCost.rechargeRecords.action') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-3 text-xs font-medium text-stone-700 transition-colors hover:border-emerald-300 hover:text-emerald-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-stone-200 dark:hover:border-emerald-500/40 dark:hover:text-emerald-300"
+                    @click="emit('recharge-trend', row.supplierID, row.supplierName)"
+                  >
+                    <Icon name="trendingUp" size="xs" />
+                    {{ t('admin.accounts.upstreamCost.rechargeTrend.action') }}
                   </button>
                   <button
                     v-if="!isReserved(row)"
@@ -150,7 +204,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
-import type { UpstreamCostPool, UpstreamSupplier } from '@/api/admin/accounts'
+import type { UpstreamCostPool, UpstreamRechargeCurrencyTotal, UpstreamSupplier, UpstreamSupplierRechargeOverview } from '@/api/admin/accounts'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores/app'
 import { ConfirmDialog } from '@/components/common'
@@ -168,11 +222,13 @@ interface SupplierCostRow {
   showPoolName: boolean
   bindingCount: number
   recordCount: number
+  paidTotals: UpstreamRechargeCurrencyTotal[]
 }
 
 const props = defineProps<{
   suppliers: UpstreamSupplier[]
   costPools: UpstreamCostPool[]
+  rechargeOverview?: UpstreamSupplierRechargeOverview | null
   loading?: boolean
   error?: string | null
 }>()
@@ -180,6 +236,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   refresh: [options?: { forcePools?: boolean }]
   'recharge-records': [pool: UpstreamCostPool]
+  'recharge-trend': [supplierID: number, supplierName: string]
   'edit-supplier': [supplierID: number]
 }>()
 
@@ -191,6 +248,14 @@ const deleteTarget = ref<SupplierCostRow | null>(null)
 
 const isReserved = (row: SupplierCostRow) => row.isSystem
 const isActivePool = (pool: UpstreamCostPool) => pool.status === 'active' && !pool.archived_at
+const overviewTotals = computed(() => sortCurrencyTotals(props.rechargeOverview?.totals || []))
+const supplierPaidTotalsByID = computed(() => {
+  const result = new Map<number, UpstreamRechargeCurrencyTotal[]>()
+  for (const supplier of props.rechargeOverview?.suppliers || []) {
+    result.set(supplier.supplier_id, sortCurrencyTotals(supplier.totals || []))
+  }
+  return result
+})
 
 const toggleArchive = async (row: SupplierCostRow) => {
   const nextStatus = row.supplierStatus === 'archived' ? 'active' : 'archived'
@@ -304,7 +369,8 @@ const rows = computed<SupplierCostRow[]>(() => {
       pool: null,
       showPoolName: false,
       bindingCount: 0,
-      recordCount: 0
+      recordCount: 0,
+      paidTotals: []
     })
   }
 
@@ -322,7 +388,8 @@ const rows = computed<SupplierCostRow[]>(() => {
         pool: null,
         showPoolName: false,
         bindingCount: 0,
-        recordCount: 0
+        recordCount: 0,
+        paidTotals: []
       })
     }
     bySupplier.get(pool.supplier_id)!.pools.push(pool)
@@ -347,7 +414,8 @@ const rows = computed<SupplierCostRow[]>(() => {
         pool: pools[0] || null,
         showPoolName: pools.filter(isActivePool).length > 1,
         bindingCount: pools.reduce((sum, pool) => sum + (pool.binding_count || 0), 0),
-        recordCount: pools.reduce((sum, pool) => sum + (pool.record_count || 0), 0)
+        recordCount: pools.reduce((sum, pool) => sum + (pool.record_count || 0), 0),
+        paidTotals: supplierPaidTotalsByID.value.get(row.supplierID) || []
       }
     })
     .sort((a, b) => {
@@ -389,6 +457,23 @@ const formatCost = (value?: number | null) => {
   if (!Number.isFinite(Number(value))) return '-'
   return `${formatRatio(value)} CNY/USD`
 }
+
+function sortCurrencyTotals(totals: UpstreamRechargeCurrencyTotal[]) {
+  return [...totals]
+    .filter((total) => Number(total.amount) !== 0 || Number(total.record_count) > 0)
+    .sort((a, b) => a.currency.localeCompare(b.currency))
+}
+
+const formatAmount = (value: number) => {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return '0'
+  return new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+  }).format(amount)
+}
+
+const formatMoney = (amount: number, currency: string) => `${formatAmount(amount)} ${currency || '-'}`
 
 const statusText = (row: SupplierCostRow) => {
   if (!row.pool) return t('admin.accounts.upstreamCost.supplierNoPool')

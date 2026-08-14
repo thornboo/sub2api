@@ -19,6 +19,8 @@ type upstreamCostPoolService interface {
 	CreateUpstreamSupplier(ctx context.Context, input service.CreateUpstreamSupplierInput) (*service.UpstreamSupplier, error)
 	UpdateUpstreamSupplier(ctx context.Context, input service.UpdateUpstreamSupplierInput) (*service.UpstreamSupplier, error)
 	DeleteUpstreamSupplier(ctx context.Context, supplierID int64) error
+	GetUpstreamSupplierRechargeOverview(ctx context.Context) (*service.UpstreamSupplierRechargeOverview, error)
+	GetUpstreamSupplierRechargeTrend(ctx context.Context, supplierID int64, granularity service.UpstreamRechargeTrendGranularity) (*service.UpstreamSupplierRechargeTrend, error)
 	ListUpstreamCostPools(ctx context.Context) ([]service.UpstreamCostPool, error)
 	GetUpstreamCostPool(ctx context.Context, poolID int64) (*service.UpstreamCostPool, error)
 	ListUpstreamCostPoolAccounts(ctx context.Context, poolID int64) ([]service.UpstreamAccountCostBinding, error)
@@ -174,6 +176,41 @@ func (h *AccountHandler) DeleteUpstreamSupplier(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"deleted": true})
+}
+
+// GetUpstreamSupplierRechargeOverview handles payment totals across suppliers.
+// GET /api/v1/admin/upstream-suppliers/recharge-overview
+func (h *AccountHandler) GetUpstreamSupplierRechargeOverview(c *gin.Context) {
+	svc, ok := h.upstreamCostPoolService(c)
+	if !ok {
+		return
+	}
+	overview, err := svc.GetUpstreamSupplierRechargeOverview(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, overview)
+}
+
+// GetUpstreamSupplierRechargeTrend handles bucketed payment totals for a supplier.
+// GET /api/v1/admin/upstream-suppliers/:supplier_id/recharge-trend?granularity=month
+func (h *AccountHandler) GetUpstreamSupplierRechargeTrend(c *gin.Context) {
+	svc, ok := h.upstreamCostPoolService(c)
+	if !ok {
+		return
+	}
+	supplierID, ok := parseSupplierIDParam(c)
+	if !ok {
+		return
+	}
+	granularity := service.UpstreamRechargeTrendGranularity(c.DefaultQuery("granularity", "month"))
+	trend, err := svc.GetUpstreamSupplierRechargeTrend(c.Request.Context(), supplierID, granularity)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, trend)
 }
 
 // ListUpstreamCostPools handles listing upstream cost pools.
