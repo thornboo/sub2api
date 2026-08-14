@@ -98,6 +98,7 @@ const DataTableStub = {
       </template>
       <div v-for="row in data" :key="row.id">
         <slot name="cell-last_used_at" :value="row.last_used_at" :row="row" />
+        <slot name="cell-actions" :row="row" />
       </div>
     </div>
   `
@@ -117,6 +118,12 @@ const BulkEditUserModalStub = {
       <button data-test="bulk-success" @click="$emit('success', selectedIds.length)">success</button>
     </div>
   `
+}
+
+const UserBalanceConsumptionTrendModalStub = {
+  props: ['show', 'user'],
+  emits: ['close'],
+  template: '<div v-if="show" data-test="balance-consumption-modal">{{ user.email }}</div>'
 }
 
 describe('admin UsersView', () => {
@@ -169,6 +176,7 @@ describe('admin UsersView', () => {
           UserPlatformQuotaModal: true,
           UserApiKeysModal: true,
           AdminApiKeyUsageModal: true,
+          UserBalanceConsumptionTrendModal: UserBalanceConsumptionTrendModalStub,
           UserAllowedGroupsModal: true,
           UserBalanceModal: true,
           UserBalanceHistoryModal: true,
@@ -255,6 +263,7 @@ describe('admin UsersView', () => {
           BulkEditUserModal: BulkEditUserModalStub,
           UserPlatformQuotaModal: true,
           UserApiKeysModal: true,
+          UserBalanceConsumptionTrendModal: UserBalanceConsumptionTrendModalStub,
           UserAllowedGroupsModal: true,
           UserBalanceModal: true,
           UserBalanceHistoryModal: true,
@@ -333,6 +342,7 @@ describe('admin UsersView', () => {
           BulkEditUserModal: BulkEditUserModalStub,
           UserPlatformQuotaModal: true,
           UserApiKeysModal: true,
+          UserBalanceConsumptionTrendModal: UserBalanceConsumptionTrendModalStub,
           UserAllowedGroupsModal: true,
           UserBalanceModal: true,
           UserBalanceHistoryModal: true,
@@ -369,5 +379,45 @@ describe('admin UsersView', () => {
     expect(wrapper.get('[data-test="row-order"]').text()).toBe('refreshed-page-two@example.com')
     expect(wrapper.find('[data-test="bulk-edit-limits"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="selected-keys"]').text()).toBe('')
+  })
+
+  it('opens the selected user balance consumption trend from the more menu', async () => {
+    const wrapper = mount(UsersView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          DataTable: DataTableStub,
+          Pagination: true,
+          ConfirmDialog: true,
+          EmptyState: true,
+          GroupBadge: true,
+          Select: true,
+          UserAttributesConfigModal: true,
+          UserConcurrencyCell: true,
+          UserCreateModal: true,
+          UserEditModal: true,
+          BulkEditUserModal: BulkEditUserModalStub,
+          UserPlatformQuotaModal: true,
+          UserApiKeysModal: true,
+          AdminApiKeyUsageModal: true,
+          UserBalanceConsumptionTrendModal: UserBalanceConsumptionTrendModalStub,
+          UserAllowedGroupsModal: true,
+          UserBalanceModal: true,
+          UserBalanceHistoryModal: true,
+          GroupReplaceModal: true,
+          Icon: true,
+          Teleport: true
+        }
+      }
+    })
+
+    await flushPromises()
+    await wrapper.get('[data-test="user-more-42"]').trigger('click')
+    await wrapper.get('[data-test="balance-consumption-trend-action"]').trigger('click')
+
+    expect(wrapper.get('[data-test="balance-consumption-modal"]').text()).toBe('scoped@example.com')
   })
 })

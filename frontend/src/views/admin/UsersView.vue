@@ -628,6 +628,7 @@
 
               <!-- More Actions Menu Trigger -->
               <button
+                :data-test="`user-more-${row.id}`"
                 @click="openActionMenu(row, $event)"
                 class="action-menu-trigger flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-white/[0.06] dark:hover:text-white"
                 :class="{ 'bg-gray-100 text-gray-900 dark:bg-white/[0.06] dark:text-white': activeMenuId === row.id }"
@@ -688,6 +689,16 @@
               >
                 <Icon name="chart" size="sm" class="text-gray-400" :stroke-width="2" />
                 {{ t('admin.users.usageDetails') }}
+              </button>
+
+              <!-- Balance Consumption Trend -->
+              <button
+                data-test="balance-consumption-trend-action"
+                @click="handleBalanceConsumptionTrend(user); closeActionMenu()"
+                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/[0.06]"
+              >
+                <Icon name="trendingUp" size="sm" class="text-emerald-500" :stroke-width="2" />
+                {{ t('admin.users.balanceConsumption.menuItem') }}
               </button>
 
               <!-- Allowed Groups -->
@@ -778,6 +789,11 @@
       :api-key="null"
       @close="closeUserUsageModal"
     />
+    <UserBalanceConsumptionTrendModal
+      :show="showBalanceConsumptionTrendModal"
+      :user="balanceConsumptionTrendUser"
+      @close="closeBalanceConsumptionTrendModal"
+    />
     <UserAllowedGroupsModal :show="showAllowedGroupsModal" :user="allowedGroupsUser" @close="closeAllowedGroupsModal" @success="handleAllowedGroupsSuccess" />
     <UserBalanceModal :show="showBalanceModal" :user="balanceUser" :operation="balanceOperation" @close="closeBalanceModal" @success="loadUsers" />
     <UserBalanceHistoryModal :show="showBalanceHistoryModal" :user="balanceHistoryUser" @close="closeBalanceHistoryModal" @deposit="handleDepositFromHistory" @withdraw="handleWithdrawFromHistory" />
@@ -822,6 +838,7 @@ import BulkEditUserModal from '@/components/admin/user/BulkEditUserModal.vue'
 import UserPlatformQuotaModal from '@/components/admin/user/UserPlatformQuotaModal.vue'
 import UserApiKeysModal from '@/components/admin/user/UserApiKeysModal.vue'
 import AdminApiKeyUsageModal from '@/components/admin/user/AdminApiKeyUsageModal.vue'
+import UserBalanceConsumptionTrendModal from '@/components/admin/user/UserBalanceConsumptionTrendModal.vue'
 import UserAllowedGroupsModal from '@/components/admin/user/UserAllowedGroupsModal.vue'
 import UserBalanceModal from '@/components/admin/user/UserBalanceModal.vue'
 import UserBalanceHistoryModal from '@/components/admin/user/UserBalanceHistoryModal.vue'
@@ -1341,12 +1358,14 @@ const showDeleteDialog = ref(false)
 const showApiKeysModal = ref(false)
 const apiKeysRefreshToken = ref(0)
 const showUserUsageModal = ref(false)
+const showBalanceConsumptionTrendModal = ref(false)
 const showAttributesModal = ref(false)
 const showPlatformQuotaModal = ref(false)
 const editingUser = ref<AdminUser | null>(null)
 const deletingUser = ref<AdminUser | null>(null)
 const viewingUser = ref<AdminUser | null>(null)
 const usageDetailsUser = ref<AdminUser | null>(null)
+const balanceConsumptionTrendUser = ref<AdminUser | null>(null)
 const platformQuotaUser = ref<AdminUser | null>(null)
 
 const handlePlatformQuota = (user: AdminUser) => {
@@ -1770,6 +1789,16 @@ const handleViewUsageDetails = (user: AdminUser) => {
 const closeUserUsageModal = () => {
   showUserUsageModal.value = false
   usageDetailsUser.value = null
+}
+
+const handleBalanceConsumptionTrend = (user: AdminUser) => {
+  balanceConsumptionTrendUser.value = user
+  showBalanceConsumptionTrendModal.value = true
+}
+
+const closeBalanceConsumptionTrendModal = () => {
+  showBalanceConsumptionTrendModal.value = false
+  balanceConsumptionTrendUser.value = null
 }
 
 const handleAllowedGroups = async (user: AdminUser) => {

@@ -673,6 +673,27 @@ export default {
       failedToLoadBalanceHistory: 'Failed to load balance history',
       createdAt: 'Created',
       totalRecharged: 'Total Recharged',
+      balanceConsumption: {
+        menuItem: 'Spending Trend',
+        title: 'Balance Spending Trend',
+        walletScope: 'Wallet balance only',
+        dateRange: '{start} to {end}',
+        currentBalance: 'Available Balance',
+        frozenBalance: '{amount} additionally frozen',
+        todayConsumption: "Today's Spending",
+        actualDeduction: 'Actual wallet deductions',
+        periodConsumption: '{days}-Day Spending',
+        dailyAverage: 'Daily Average',
+        calendarDayAverage: 'Calculated by calendar day',
+        requestCount: '{count} requests',
+        chartTitle: 'Daily Balance Spending',
+        chartHint: 'Wallet billing only; subscription usage is excluded',
+        rangeLabel: 'Spending trend range',
+        rangeDays: '{days}D',
+        dailySpend: 'Balance Spending',
+        noData: 'No balance spending in the selected period',
+        loadFailed: 'Failed to load balance spending trend'
+      },
       roles: {
         admin: 'Admin',
         user: 'User'
