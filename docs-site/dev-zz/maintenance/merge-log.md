@@ -1,5 +1,52 @@
 # 上游合并记录
 
+## 2026-08-17 - 将上游 `main` 合并到正式线 `dev-zz`：国产供应商、多协议与分组日用量汇总
+
+分支：
+
+- 目标：`dev-zz`
+- 上游：`origin/main`（与规范上游 `Wei-Shaw/sub2api` 的 `main` 同为 `e330c243a8f142f8963d784916da0093ab7084ee`）
+- Base：`fbfdcef8184ae4b2e224d5cfc47cf1d0e3742710`
+- 合并前目标：`3c6621bc5611c337af9c1e491ff5014123d21acc`
+- 上游 head：`e330c243a8f142f8963d784916da0093ab7084ee`
+- 结果提交：本次合并提交
+
+上游要点：
+
+- Kimi、智谱和 DeepSeek 账号扩展为 OpenAI / Anthropic 多协议国产供应商，增加平台专用 base URL、余额 / 配额查询、周期检测、限流和管理端展示。
+- 分组用量增加按自然日预聚合、时区修正、昨日用量和汇总接口；上游迁移 `222` / `223` 建立 rollup 表、触发器和时区口径。
+- Codex Responses 增强 turn-state 回显隔离、fingerprint 可选透传、session / prompt-cache 绑定和 native / legacy compaction 选择，减少跨账号状态串联与错误 fallback。
+- 管理设置明确 OpenAI Fast / Flex 模式文案，Docker / CI Go builder 对齐 `1.26.6`；上游版本推进到 `0.1.177`。
+
+合并策略与冲突：
+
+- 合并前完整读取 `docs-site/dev-zz` 的分支策略、合并流程、最近补丁 / 合并 / 变更记录、变更地图、配置迁移索引和验证矩阵；确认工作区干净，先 fetch 再基于实时 `origin/main` 合并。
+- 以 merge-base `fbfdcef8184ae4b2e224d5cfc47cf1d0e3742710` 执行 `git merge-tree --write-tree --messages --name-only --merge-base` 只读预演，再执行 `git merge --no-commit origin/main`；预演与真实合并均得到 11 个冲突。
+- 冲突文件为 `DEV_GUIDE.md`、`backend/cmd/server/VERSION`、`backend/cmd/server/wire_gen.go`、`backend/internal/service/account.go`、`dashboard_aggregation_service_test.go`、`openai_account_scheduler.go`、`openai_gateway_forward.go`、`openai_gateway_messages.go`、`openai_gateway_scheduling.go`、`frontend/src/components/account/EditAccountModal.vue` 和 `frontend/src/views/admin/GroupsView.vue`。
+- 没有整文件选择 `ours` / `theirs`。每个冲突按 fork 合同与上游新增能力取并集；首次编译另外发现并修复 Responses fallback 别名、Messages fallback 调用时机和 CN 余额不足 failover 变量这 3 个无标记语义拼接问题。
+
+关键解决说明：
+
+- `VERSION` 保持 fork 发布线 `1.7.36`，不采用上游 `0.1.177`；开发指南同时保留 `dev-zz-branch-images.yml` 与上游三份 Dockerfile 的 Go builder 一致性约束。
+- Wire 根据合并后的 provider graph 重新生成；CN provider handler / balance checker 与 dev-zz 的 model self-check、routing eligibility、企业导入和 Channel Monitor V2 生命周期同时保留。
+- OpenAI 调度继续保留企业成员请求级 `ActiveGroup`、sticky / profit control 和 `preserveStickyBinding`，同时吸收 CN 平台精确归一化。Anthropic 原生协议优先走供应商原生端点；只支持 Chat Completions 的账号仍先经过 dev-zz 的 Messages 转换、reasoning / Fast 策略和计费模型解析，再进入 fallback。
+- Codex turn-state、fingerprint 和 compaction 修复进入现有 Responses / Messages 链；显式协议选择继续优先于账号探测结果，避免新增 CN 探测覆盖既有模型交付决策。
+- 管理端账号编辑同时保留供应商成本绑定字段与 CN provider 的 account mode、API protocol、base URL preset、余额和配额能力；分组页继续使用 stone / neutral 视觉，并增加昨日用量列。
+- `222_group_usage_daily_rollups.sql`、`223_group_usage_rollup_timezone.sql` 和 `224_user_platform_quotas_add_cn_providers.sql` 按完整文件名追加，没有改写任何已应用迁移。
+
+验证：
+
+- Wire 从合并后的源图重新生成且再次生成无差异；冲突索引、严格冲突标记和 staged whitespace 检查通过。
+- 后端分组 rollup、迁移、CN provider、多协议路由、Codex turn-state / compaction、Handler / route 定向测试通过；前端冲突相关 5 个测试文件共 119 条用例和 typecheck 通过。
+- 后端 `go test ./... -count=1`、`make test-unit`、`go vet ./...` 和 `go build ./cmd/server` 通过；前端全量 Vitest 278 个测试文件、1868 条用例、typecheck、完整 ESLint 和生产构建通过；docs-site 生产构建通过。全量前端首次运行暴露的 Grok placeholder 静态合同已改为匹配等价 switch 实现，修复后聚焦与全量用例均通过。
+
+未验证：
+
+- 真实 PostgreSQL / Redis 上的 rollup 迁移、触发器时区边界和周期任务；真实 Kimi / 智谱 / DeepSeek 的余额、配额及 OpenAI / Anthropic 上游流量。
+- 浏览器人工账号编辑、分组昨日用量和 Fast / Flex 设置 smoke；Docker 镜像、Hosted CI、tag、Release 和生产部署。
+- 当前本机未安装 `golangci-lint`，因此没有执行该检查；以 `go vet`、全仓测试和构建作为本地静态 / 编译门，后续仍需 Hosted CI 补齐正式 lint 证据。
+- 本次只创建本地合并提交，不推送远端、不发布、不部署。
+
 ## 2026-08-13 - 将上游 `main` 合并到正式线 `dev-zz`：监控 V2、Grok 能力与计费审计合流
 
 分支：

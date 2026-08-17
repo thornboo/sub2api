@@ -4,23 +4,23 @@
 
 | 项 | 值 |
 | --- | --- |
-| dev-zz | 本次合并提交（合并前 `4b8b4159c`） |
-| origin/dev-zz | `4b8b4159c` |
-| origin/main | `fbfdcef81` |
-| merge-base | `fbfdcef81`（本次合并完成后） |
-| 差异规模 | 1125 个文件，约 192958 行新增、12487 行删除 |
+| dev-zz | 本次合并提交（合并前 `3c6621bc5`） |
+| origin/dev-zz | `3c6621bc5` |
+| origin/main | `e330c243a` |
+| merge-base | `e330c243a`（本次合并完成后） |
+| 差异规模 | 1138 个文件，约 195991 行新增、12504 行删除 |
 
 ## 变更分布
 
 | 区域 | 文件数 | 说明 |
 | --- | ---: | --- |
-| `frontend/` | 347 | 用户/API Key、企业成员、owner 用量分析、管理员用量下钻、可用渠道模型、V1/V2 模型状态、运维弹窗栈、主题与控制台 UI |
-| `backend/` | 696 | 企业成员、模型/网关路由、API Key、用量/计费、监控、Grok、安全、配置、测试、生成物与迁移 |
+| `frontend/` | 352 | 用户/API Key、企业成员、owner 用量分析、管理员用量下钻、可用渠道模型、CN provider、V1/V2 模型状态、运维弹窗栈、主题与控制台 UI |
+| `backend/` | 702 | 企业成员、模型/网关路由、API Key、用量/计费、分组日 rollup、CN provider、监控、Grok、安全、配置、测试、生成物与迁移 |
 | `docs-site/` | 53 | dev-zz 文档中心、功能文档、部署/开发/维护记录 |
 | `docs/` | 2 | 上游通用协议与 Channel Monitor V2 安全默认值文档 |
 | `deploy/` | 14 | fork 镜像默认值、源码构建脚本、备份脚本、Compose/安装脚本与部署样例 |
 | `.github/` | 5 | CI、release、security scan 和分支镜像的 Node 24 actions runtime 验证 |
-| 根目录 / README / Dockerfile | 8 | release 镜像、项目说明、分布式 Dockerfile 与设计索引 |
+| 根目录 / README / Dockerfile | 10 | release 镜像、项目说明、分布式 Dockerfile 与设计索引 |
 
 ## 已落地功能
 
@@ -78,6 +78,8 @@
 - 分组支持逐模型、长上下文、视频、语音与搜索定价；公开报价继续由共享 available-channel catalog 投影，不恢复已删除的第二套模型目录。
 - Channel Monitor V2 作为显式 opt-in 的被动聚合视图接入；默认 V1 继续使用 dev-zz 分组模型自检、可选历史 fail-soft 与管理员 Token 用量页面。
 - usage / Ops 保存 requested、sent 与 upstream response model 及 mismatch 证据；渠道只有在响应模型通过安全准入和价格解析时才可按 response model 计费。
+- Kimi、智谱和 DeepSeek API Key 账号支持 OpenAI / Anthropic 协议、平台 base URL、余额 / 配额检测和可恢复停调；显式模型交付协议继续优先于账号探测结果。
+- 分组用量支持今日、昨日与总量汇总；日 rollup 使用显式业务时区并由触发器与周期任务幂等维护，生产升级仍需在真实数据副本验证历史回填和跨午夜边界。
 
 ### UI 与运维体验
 

@@ -1,5 +1,31 @@
 # 补丁记录
 
+## 2026-08-17 - 上游 main 同步：国产供应商、多协议与分组日用量汇总
+
+### 目标
+
+- 将 `origin/main@e330c243a` 合入正式线 `dev-zz`，取得 CN provider、分组日用量 rollup 和 Codex transport 正确性更新，同时保持企业成员、共享目录、视觉与 `1.7.36` 发布线。
+- 对 11 个文本冲突和编译暴露的 3 个无标记语义拼接问题逐项合流，不用整文件选择掩盖双方合同。
+
+### 主要变化
+
+- Kimi、智谱和 DeepSeek 支持 OpenAI / Anthropic 协议、平台 base URL preset、余额 / 配额查询、周期检测和可恢复停调；管理端账号创建、编辑、批量编辑与用量单元格同步识别这些平台。
+- 分组用量增加日 rollup repository / service、启动 leader lock、时区修正、昨日用量和汇总 API；dashboard retention 关闭时继续跳过全部清理目标，但不会阻止独立 rollup 同步。
+- Codex Responses 合并 turn-state echo guard、fingerprint opt-in、session / prompt-cache binding 和 native / legacy compaction 决策；CN Anthropic 原生端点与 Chat Completions fallback 接入现有模型映射、Fast 策略和计费链。
+- OpenAI 调度合流后继续携带 `ActiveGroup`、sticky / profit control 与显式 delivery protocol；前端冲突取供应商成本字段、CN provider 字段和 stone / neutral 视觉的并集。
+
+### 数据与兼容性
+
+- `222_group_usage_daily_rollups.sql` 新增分组日用量聚合结构与增量维护；`223_group_usage_rollup_timezone.sql` 固化 rollup 时区口径；`224_user_platform_quotas_add_cn_providers.sql` 扩展平台配额约束到 Kimi、智谱和 DeepSeek。
+- 三个迁移均按完整文件名追加，不重命名、覆盖或改写旧 SQL。发布前仍需在生产同量级副本验证 migration lock、历史回填、触发器增量和时区切换边界。
+- `VERSION` 保持 `1.7.36`；企业成员预算 / usage 原子归因、共享 available-channel catalog、模型状态 V1 默认、长期数据保留和隐藏 LinuxDo / 微信入口策略不变。
+
+### 验证
+
+- `git merge-tree` 预演与真实 `git merge --no-commit` 均报告相同 11 个冲突；解决后 Wire 重新生成一致，未合并索引、冲突标记和 whitespace 检查通过。
+- 分组 rollup、repository / migration、CN provider、多协议、Codex turn-state / compaction、Handler / route 定向后端测试通过；前端冲突相关 119 条用例和 typecheck 通过。
+- 后端默认标签全仓测试、unit tag、vet 和 server build 通过；前端全量 Vitest 278 个测试文件、1868 条用例、typecheck、完整 ESLint 和生产构建通过；docs-site build 通过。当前本机未安装 `golangci-lint`，真实 provider、真实数据服务、浏览器、镜像与 Hosted CI 不在本地验证范围内。
+
 ## 2026-08-13 - 流式失败预算终态与 WebSocket 粘性绑定生命周期修复
 
 ### 目标

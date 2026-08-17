@@ -278,6 +278,9 @@ runner 每分钟检查到期账号，单轮最多 20 个、并发 4、单请求�
 | `backend/migrations/201_ops_routing_attempts.sql` | 给 Ops 错误和成功 usage 增加路由计划来源、LKG 快照年龄与 bounded routing attempts 证据字段；CHECK 约束以 `NOT VALID` 安装，避免启动迁移扫描历史大表 |
 | `backend/migrations/201a_ops_routing_attempts_indexes_notx.sql` | 以 `_notx` 模式并发建立 Ops/usage 路由证据索引；运行器在重试前清理同名 invalid index，避免 `IF NOT EXISTS` 错误跳过失败产物 |
 | `backend/migrations/202_account_model_protocol_capabilities_non_text.sql` | 扩展协议能力约束到 Embeddings、Images、Live、Batch Images、Grok Video 和 Gemini Native，供非文本 evaluator coverage 使用 |
+| `backend/migrations/222_group_usage_daily_rollups.sql` | 新增分组日用量 rollup 表、索引、触发器和增量维护，为今日 / 昨日 / 总量汇总提供持久聚合；发布前需验证历史回填与写入放大 |
+| `backend/migrations/223_group_usage_rollup_timezone.sql` | 修正并固化分组日 rollup 的业务时区口径；升级前后需在真实时区边界核对同一 usage 不重复、不漏计 |
+| `backend/migrations/224_user_platform_quotas_add_cn_providers.sql` | 将用户平台配额约束扩展到 Kimi、智谱和 DeepSeek；不为现有用户自动创建或放宽配额 |
 
 `152` 使用 `CREATE INDEX CONCURRENTLY`，不能放进普通事务迁移。后续合并上游迁移时，需保留 `_notx` 约定，避免长事务锁表。
 
@@ -308,6 +311,8 @@ runner 每分钟检查到期账号，单轮最多 20 个、并发 4、单请求�
 `192` / `193` 形成 Ops 分类 v2 的滚动兼容边界：`192` 新增的错误日志字段均可空，应用继续双写旧 `is_business_limited`，旧版本因此可以安全读取同一数据库；回填只处理最近 31 天且只写确定性规则，无法判断的记录保持 `sla_impact=NULL` 并进入未分类计数。回填中的 `cyber_policy` / `cyber_policy_session_blocked` 固定归为 customer + permission + `endpoint_not_allowed` 且不计 SLA；上游余额/额度证据优先于通用 401/403，通用 provider 4xx、5xx 和证据不足的 provider 终态分别写入 `provider_4xx`、`provider_5xx`、`provider_error_unknown`。hourly/daily 表新增计数列和独立 `classification_version`：旧桶标记为 v1 并从旧 headline 计数初始化连续性，读取到 v1 桶时自动回退 raw；若滚动部署中的旧实例在迁移后继续写入 v1 行，该行会进入未分类，所在桶按参与错误行的最小版本保持 v1，不能伪装成完整 v2。晚写 v1 的非 recovered HTTP 200 流式终态行保持客户可见并以未知 SLA 处理，严格 recovered 行不进入客户失败。preagg 读取还会检查相同稳定段是否存在原始 v1 行，因此旧版本聚合器留下的表面 v2 桶也不会被信任。聚合任务按 31 天窗口逐步重建迁移已回填数据的 v2 桶；迁移后晚写的 v1 行不会被猜测升级，保留 raw 回退直至离开查询窗口或另行确定性回填。发布后仍需用相同时间窗口执行 raw/preagg 对账。`193` 使用 `CREATE INDEX CONCURRENTLY`，不能放进普通事务迁移；customer-visible、SLA 和 v1 探针索引复用读取侧兼容表达式，domain/category/reason 索引不使用会漏掉 v1 行的 `customer_visible IS TRUE` partial 条件。回滚应用版本时保留新列、索引和已写分类证据，不执行破坏性降级。
 
 `199`–`202` 是企业成员模型感知路由治理的本地实现迁移。`199` 让配置事实、revision 和 outbox 在同一数据库事务内提交，并用 Redis Pub/Sub 作为快速传播路径；生产进程仍必须以数据库全量对账作为 mirror 新鲜度权威。`200` 的 review ledger 只保存 shadow 观察后的人工处置和 `registered` 验证证据，不能让 review 状态绕过真实 mapping/pricing 和稳定交付投影。`201` 的 routing attempts 必须保持 bounded、脱敏、低基数；旧 Ops 行为空数组时继续兼容展示，成功 usage 的计划来源只进入管理员证据面。为避免应用启动时扫描历史大表，`201` 的新增 CHECK 约束以 `NOT VALID` 安装，只立即约束新写入；生产发布后必须先审计历史行，再在低峰维护窗口执行 `VALIDATE CONSTRAINT`。`201a` 使用 `_notx` 并发建立索引，不得合回普通事务迁移；迁移运行器会在重试前检查并删除这两个同名 invalid index，防止上次中断产物被 `IF NOT EXISTS` 误当成成功索引。发布前仍应在生产同量级副本验证耗时、临时磁盘峰值和中断重试。`202` 只扩展协议枚举，为非文本 evaluator coverage 提供 schema 前提，不等于 Embeddings、Images、Live、Batch、Video 或 Gemini Native 已完成生产 enforce 灰度。
+
+`222` / `223` 共同定义分组日用量预聚合：应用读取今日、昨日与总量时应使用与 rollup 相同的业务时区，触发器和周期同步必须保持幂等。生产应用前要在同量级副本核对历史回填、跨午夜写入、迟到 usage、更新 / 删除和触发器增量结果，并确认锁与临时磁盘峰值；不能仅凭空库 migration test 认定生产安全。`224` 只扩展平台配额枚举，不会自动给既有用户新增 CN provider 配额。
 
 ## 破坏性迁移与升级前检查
 

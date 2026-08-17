@@ -1,5 +1,13 @@
 # 变更记录
 
+## 2026-08-17
+
+- 同步 `origin/main@e330c243a` 到正式线 `dev-zz`，吸收 Kimi、智谱和 DeepSeek 多协议国产供应商、余额 / 配额检测、分组日用量预聚合与昨日用量、Codex turn-state / fingerprint / compaction 修复，以及 OpenAI Fast / Flex 设置说明；fork 版本继续保持 `1.7.36`。
+- 企业成员请求级 `ActiveGroup`、有序候选、预算结果不明确禁止换组、成功 usage / 预算 / 最终分组原子归因、sticky 与利润准入均保持不变；CN 平台进入现有协议选择和调度链，不能用账号探测覆盖显式模型交付决策。
+- Anthropic 原生协议账号优先直达供应商原生端点；只支持 Chat Completions 的 OpenAI-compatible 账号继续经过 dev-zz 的 Messages 转换、reasoning / Fast 策略、prompt-cache 与计费模型解析后 fallback。
+- 管理端账号页同时保留供应商成本绑定与 CN provider 模式、协议、base URL、余额和配额；分组页沿用 stone / neutral 视觉并新增昨日用量。
+- 新增迁移 `222_group_usage_daily_rollups.sql`、`223_group_usage_rollup_timezone.sql` 和 `224_user_platform_quotas_add_cn_providers.sql`，按完整文件名追加且不改写历史迁移。Wire 从合并后的 provider graph 重新生成。
+
 ## 2026-08-13
 
 - 修复 HTTP 200 流内 `response.failed` 未结束企业成员预算回执的问题：明确失败现在立即释放，结果 / 用量不明仍优先保持 `ambiguous`，cyber 拒绝继续按真实 token 计费；WebSocket `response_id` 的 Redis 粘性绑定也不再被已经结束的请求 context 直接取消，并继续受 3 秒超时约束。企业成员候选分组与账号调度逻辑未修改。

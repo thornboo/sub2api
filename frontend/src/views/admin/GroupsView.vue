@@ -335,6 +335,16 @@
               </div>
               <div class="text-stone-500 dark:text-stone-500">
                 <span class="text-stone-400 dark:text-stone-500">{{
+                  t("admin.groups.usageYesterday")
+                }}</span>
+                <span class="ml-1 font-medium text-stone-700 dark:text-stone-300"
+                  >${{
+                    formatCost(usageMap.get(row.id)?.yesterday_cost ?? 0)
+                  }}</span
+                >
+              </div>
+              <div class="text-stone-500 dark:text-stone-500">
+                <span class="text-stone-400 dark:text-stone-500">{{
                   t("admin.groups.usageTotal")
                 }}</span>
                 <span class="ml-1 font-medium text-stone-700 dark:text-stone-300"
@@ -5158,6 +5168,7 @@ const groups = ref<AdminGroup[]>([]);
 const loading = ref(false);
 type GroupUsageSummary = {
   today_cost: number;
+  yesterday_cost: number;
   total_cost: number;
 };
 
@@ -6041,12 +6052,12 @@ const loadUsageSummary = async () => {
   }
   usageLoading.value = true;
   try {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const data = await adminAPI.groups.getUsageSummary(tz);
+    const data = await adminAPI.groups.getUsageSummary();
     const map = new Map<number, GroupUsageSummary>();
     for (const item of data) {
       map.set(item.group_id, {
         today_cost: item.today_cost,
+        yesterday_cost: item.yesterday_cost,
         total_cost: item.total_cost,
       });
     }
