@@ -458,8 +458,17 @@ export default {
             priceVariantsHint: 'Channel prices differ. Switch to the pricing table for an exact comparison.',
             originalPrice: 'Original',
             savings: 'Save {percent}%',
-            currentGroupRate: 'Current group {rate}',
-            tieredPricing: 'Tiered pricing'
+            tieredPricing: 'Tiered pricing',
+            timePricing: {
+                title: 'Time pricing',
+                window: 'Window',
+                type: 'Type',
+                cacheWrite: 'Cache Write',
+                cacheRead: 'Cache Read',
+                active: 'Current',
+                otherTimes: 'Other times',
+                unnamedType: 'Unnamed period'
+            }
         },
         platformFilter: {
             label: 'Platform Filter',

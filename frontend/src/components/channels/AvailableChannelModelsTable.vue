@@ -178,9 +178,7 @@
                 :name="group.name"
                 :platform="group.platform as GroupPlatform"
                 :subscription-type="(group.subscription_type || 'standard') as SubscriptionType"
-                :rate-multiplier="group.rate_multiplier"
-                :user-rate-multiplier="userGroupRates[group.id] ?? null"
-                always-show-rate
+                :show-rate="false"
               />
             </div>
             <span v-else class="text-xs text-stone-400">-</span>
@@ -241,7 +239,6 @@ const props = defineProps<{
   loading: boolean
   emptyLabel: string
   pricingLabels: AvailableChannelPricingLabels
-  userGroupRates: Record<number, number>
   sortBy: AvailableChannelSortKey
   sortOrder: AvailableChannelSortOrder
 }>()

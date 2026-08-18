@@ -84,8 +84,12 @@ Channel Monitor V2 aggregator 仅在总开关开启、mode 为 `v2` 且 V2 配�
 | `channels.billing_model_source=response_model` | 未启用 | 仅在响应模型通过准入和价格解析时作为计费模型；证据不足时保留安全回退，不直接信任任意上游字符串 |
 | `groups.long_context_pricing_enabled` | `true` | 控制分组逐模型价格是否使用长上下文档位；关闭时不删除价格配置 |
 | `groups.model_pricing` | `[]` | 分组级逐模型 token / per-request / media 价格；公开展示仍通过共享 catalog 投影 |
+| `groups.model_pricing[].time_pricing` | 未启用 | token 模型销售价的 IANA 时区、自定义客户类型名称与多窗口倍率；标准按量分组可用，不受订阅类型限制 |
+| `channel_model_pricing.time_pricing` | `{}` | 渠道逐模型 token 分时规则；类型名称与倍率独立，Group 模型价命中时随整条价格一起被覆盖 |
 
 usage logs 新增 `upstream_response_model` 与 `upstream_model_mismatch`，并发索引迁移为 `195_add_usage_log_upstream_model_mismatch_index_notx.sql`。新增分组定价迁移为 `217_group_video_model_prices.sql` 到 `221_group_model_pricing.sql`；这些字段不绕过渠道 / 分组交付能力、企业成员候选或 owner/admin 隐私边界。
+
+分时规则只影响 token 销售价。未覆盖时段使用可配置的 `default_label` 与 `default_multiplier`，显式规则也分别保存 `label` 与倍率；类型名称是客户文案，不从倍率推断。旧 JSON 缺失 `default_multiplier` 时兼容为 `1x`；模型规则启用时，当前分时倍率直接替代分组默认倍率、用户专属倍率与旧 `groups.peak_rate_*`，未启用时原倍率链继续兼容。命中的 `pricing_at`、最终倍率、类型名称、时区和规则快照写入管理员可见的 usage `schedule_meta`，后续编辑规则不会回算历史用量。渠道字段由 `225_channel_model_time_pricing.sql` 增加；Group 规则随既有 `groups.model_pricing` JSONB 保存。
 
 ## 认证验证码提供商
 
@@ -281,6 +285,7 @@ runner 每分钟检查到期账号，单轮最多 20 个、并发 4、单请求�
 | `backend/migrations/222_group_usage_daily_rollups.sql` | 新增分组日用量 rollup 表、索引、触发器和增量维护，为今日 / 昨日 / 总量汇总提供持久聚合；发布前需验证历史回填与写入放大 |
 | `backend/migrations/223_group_usage_rollup_timezone.sql` | 修正并固化分组日 rollup 的业务时区口径；升级前后需在真实时区边界核对同一 usage 不重复、不漏计 |
 | `backend/migrations/224_user_platform_quotas_add_cn_providers.sql` | 将用户平台配额约束扩展到 Kimi、智谱和 DeepSeek；不为现有用户自动创建或放宽配额 |
+| `backend/migrations/225_channel_model_time_pricing.sql` | 给 `channel_model_pricing` 增加 `time_pricing jsonb NOT NULL DEFAULT '{}'`；Group 模型规则继续使用既有 JSONB，无新增订阅字段 |
 
 `152` 使用 `CREATE INDEX CONCURRENTLY`，不能放进普通事务迁移。后续合并上游迁移时，需保留 `_notx` 约定，避免长事务锁表。
 

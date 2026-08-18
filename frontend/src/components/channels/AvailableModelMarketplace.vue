@@ -35,13 +35,7 @@
               :name="section.group.name"
               :platform="section.group.platform as GroupPlatform"
               :subscription-type="(section.group.subscription_type || 'standard') as SubscriptionType"
-              :rate-multiplier="section.group.rate_multiplier"
-              :user-rate-multiplier="userGroupRates[section.group.id] ?? null"
-              :peak-rate-enabled="section.group.peak_rate_enabled"
-              :peak-start="section.group.peak_start"
-              :peak-end="section.group.peak_end"
-              :peak-rate-multiplier="section.group.peak_rate_multiplier"
-              always-show-rate
+              :show-rate="false"
             />
           </h2>
           <span class="shrink-0 text-[10px] font-medium text-stone-400 dark:text-stone-500">
@@ -117,10 +111,10 @@
                           data-testid="effective-input-price"
                           class="mt-0.5 block truncate font-mono text-lg font-bold leading-6 tracking-tight text-stone-950 dark:text-stone-100"
                         >
-                          {{ formatCompactTokenPrice(displayPrice(card, card.pricingOptions[0]?.input_price ?? null)) }}
+                          {{ formatCompactTokenPrice(displayPrice(card, card.pricingOptions[0]?.input_price ?? null, card.pricingOptions[0])) }}
                         </strong>
                         <div
-                          v-if="showOriginalPrice(card, card.pricingOptions[0]?.input_price ?? null)"
+                          v-if="showOriginalPrice(card, card.pricingOptions[0]?.input_price ?? null, card.pricingOptions[0])"
                           class="mt-0.5 flex min-w-0 items-baseline gap-1 text-[10px] text-stone-400 dark:text-stone-500"
                         >
                           <span>{{ t('availableChannels.modelMarketplace.originalPrice') }}</span>
@@ -141,10 +135,10 @@
                           data-testid="effective-output-price"
                           class="mt-0.5 block truncate font-mono text-lg font-bold leading-6 tracking-tight text-stone-950 dark:text-stone-100"
                         >
-                          {{ formatCompactTokenPrice(displayPrice(card, card.pricingOptions[0]?.output_price ?? null)) }}
+                          {{ formatCompactTokenPrice(displayPrice(card, card.pricingOptions[0]?.output_price ?? null, card.pricingOptions[0])) }}
                         </strong>
                         <div
-                          v-if="showOriginalPrice(card, card.pricingOptions[0]?.output_price ?? null)"
+                          v-if="showOriginalPrice(card, card.pricingOptions[0]?.output_price ?? null, card.pricingOptions[0])"
                           class="mt-0.5 flex min-w-0 items-baseline gap-1 text-[10px] text-stone-400 dark:text-stone-500"
                         >
                           <span>{{ t('availableChannels.modelMarketplace.originalPrice') }}</span>
@@ -167,18 +161,11 @@
                       </div>
 
                       <span
-                        v-if="isDiscountedPrice(card)"
+                        v-if="isDiscountedPrice(card, card.pricingOptions[0])"
                         data-testid="price-discount"
                         class="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
                       >
-                        {{ t('availableChannels.modelMarketplace.savings', { percent: discountPercent(card) }) }}
-                      </span>
-                      <span
-                        v-else-if="hasAdjustedPrice(card)"
-                        data-testid="price-group-rate"
-                        class="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
-                      >
-                        {{ t('availableChannels.modelMarketplace.currentGroupRate', { rate: formattedPriceMultiplier(card) }) }}
+                        {{ t('availableChannels.modelMarketplace.savings', { percent: discountPercent(card, card.pricingOptions[0]) }) }}
                       </span>
                     </div>
 
@@ -189,6 +176,71 @@
                     >
                       {{ t('availableChannels.modelMarketplace.tieredPricing') }} · {{ tieredPricing(card, card.pricingOptions[0]) }}
                     </p>
+
+                    <details
+                      v-if="hasTimePricing(card.pricingOptions[0])"
+                      class="mt-2.5 rounded-lg border border-stone-200/80 bg-white/70 dark:border-white/[0.08] dark:bg-white/[0.03]"
+                    >
+                      <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-2 py-1.5 text-[10px] font-semibold text-stone-600 marker:hidden dark:text-stone-300">
+                        <span class="inline-flex min-w-0 items-center gap-1.5">
+                          <Icon name="clock" size="xs" class="shrink-0 text-emerald-600 dark:text-emerald-300" />
+                          <span class="truncate">{{ t('availableChannels.modelMarketplace.timePricing.title') }}</span>
+                          <span class="truncate font-mono text-stone-400 dark:text-stone-500">
+                            {{ card.pricingOptions[0].time_pricing?.timezone }}
+                          </span>
+                        </span>
+                        <Icon name="chevronDown" size="xs" class="shrink-0 text-stone-400" />
+                      </summary>
+
+                      <div class="overflow-x-auto border-t border-stone-200/80 dark:border-white/[0.08]">
+                        <table class="min-w-full text-left text-[10px]">
+                          <thead class="bg-stone-50/80 text-[9px] uppercase tracking-wide text-stone-400 dark:bg-black/10 dark:text-stone-500">
+                            <tr>
+                              <th class="whitespace-nowrap px-2 py-1 font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.window') }}</th>
+                              <th class="whitespace-nowrap px-2 py-1 font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.type') }}</th>
+                              <th class="whitespace-nowrap px-2 py-1 text-right font-semibold">{{ t('availableChannels.pricing.inputPrice') }}</th>
+                              <th class="whitespace-nowrap px-2 py-1 text-right font-semibold">{{ t('availableChannels.pricing.outputPrice') }}</th>
+                              <th class="whitespace-nowrap px-2 py-1 text-right font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.cacheWrite') }}</th>
+                              <th class="whitespace-nowrap px-2 py-1 text-right font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.cacheRead') }}</th>
+                            </tr>
+                          </thead>
+                          <tbody class="divide-y divide-stone-200/70 dark:divide-white/[0.07]">
+                            <tr
+                              v-for="row in timePricingRows(card, card.pricingOptions[0])"
+                              :key="row.id"
+                              :class="[
+                                row.active ? 'bg-emerald-50/80 dark:bg-emerald-500/10' : '',
+                              ]"
+                              data-testid="time-pricing-row"
+                            >
+                              <td class="whitespace-nowrap px-2 py-1.5 font-mono text-stone-700 dark:text-stone-200">
+                                <span class="inline-flex items-center gap-1">
+                                  <Icon
+                                    v-if="row.active"
+                                    name="checkCircle"
+                                    size="xs"
+                                    class="shrink-0 text-emerald-600 dark:text-emerald-300"
+                                  />
+                                  <span>{{ row.windowLabel }}</span>
+                                  <span v-if="row.active" class="font-sans text-[9px] font-semibold text-emerald-700 dark:text-emerald-300">
+                                    {{ t('availableChannels.modelMarketplace.timePricing.active') }}
+                                  </span>
+                                </span>
+                              </td>
+                              <td class="whitespace-nowrap px-2 py-1.5">
+                                <span class="inline-flex items-center rounded-full bg-stone-100 px-1.5 py-0.5 text-[9px] font-semibold text-stone-600 dark:bg-white/[0.07] dark:text-stone-300">
+                                  {{ row.label }} · {{ formatRateMultiplier(row.multiplier) }}
+                                </span>
+                              </td>
+                              <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-stone-800 dark:text-stone-100">{{ formatTimePricingTokenPrice(row.inputPrice) }}</td>
+                              <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-stone-800 dark:text-stone-100">{{ formatTimePricingTokenPrice(row.outputPrice) }}</td>
+                              <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-stone-800 dark:text-stone-100">{{ formatTimePricingTokenPrice(row.cacheWritePrice) }}</td>
+                              <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-stone-800 dark:text-stone-100">{{ formatTimePricingTokenPrice(row.cacheReadPrice) }}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
                   </template>
 
                   <div v-else class="flex min-h-7 items-center justify-between gap-2">
@@ -289,12 +341,17 @@ import {
 import type { GroupPlatform, SubscriptionType } from '@/types'
 import { useClipboard } from '@/composables/useClipboard'
 import {
+  buildTimePricingDisplayRows,
   formatAvailableChannelIntervals,
   formatBillingMode,
   formatCompactRequestPrice,
   formatCompactTokenPrice,
   formatRateMultiplier,
+  formatTimePricingTokenPrice,
+  getActiveTimePricingMultiplier,
+  hasEnabledTimePricing,
   resolveAvailableGroupPriceMultiplier,
+  type TimePricingDisplayRow,
   type AvailableChannelPricingLabels,
 } from '@/utils/availableChannelsCatalog'
 import type { AvailableModelMarketplaceCard } from '@/utils/availableModelMarketplace'
@@ -346,7 +403,7 @@ function pricingUnit(pricing: UserSupportedModelPricing): string {
 
 function requestPrice(card: AvailableModelMarketplaceCard, pricing: UserSupportedModelPricing): string {
   const value = pricing.per_request_price
-  return `${formatCompactRequestPrice(displayPrice(card, value))} ${props.pricingLabels.unitPerRequest}`
+  return `${formatCompactRequestPrice(displayPrice(card, value, pricing))} ${props.pricingLabels.unitPerRequest}`
 }
 
 function hasTieredPricing(pricing: UserSupportedModelPricing): boolean {
@@ -358,14 +415,18 @@ function tieredPricing(
   pricing: UserSupportedModelPricing,
 ): string {
   return formatAvailableChannelIntervals(
-    scalePricing(pricing, priceMultiplier(card, pricing)),
+    scalePricing(pricing, effectiveDisplayMultiplier(card, pricing)),
     props.pricingLabels,
     { compact: true },
   )
 }
 
-function displayPrice(card: AvailableModelMarketplaceCard, value: number | null): number | null {
-  return value == null ? null : value * priceMultiplier(card)
+function displayPrice(
+  card: AvailableModelMarketplaceCard,
+  value: number | null,
+  pricing: UserSupportedModelPricing | null = card.pricingOptions[0] ?? null,
+): number | null {
+  return value == null ? null : value * effectiveDisplayMultiplier(card, pricing)
 }
 
 function priceMultiplier(
@@ -380,28 +441,65 @@ function priceMultiplier(
   )
 }
 
-function hasAdjustedPrice(card: AvailableModelMarketplaceCard): boolean {
-  return Math.abs(priceMultiplier(card) - 1) > RATE_COMPARISON_EPSILON
+function effectiveDisplayMultiplier(
+  card: AvailableModelMarketplaceCard,
+  pricing: UserSupportedModelPricing | null = card.pricingOptions[0] ?? null,
+): number {
+  if (hasTimePricing(pricing)) {
+    return activeTimePricingMultiplier(pricing)
+  }
+  return priceMultiplier(card, pricing)
+}
+
+function hasAdjustedPrice(
+  card: AvailableModelMarketplaceCard,
+  pricing: UserSupportedModelPricing | null = card.pricingOptions[0] ?? null,
+): boolean {
+  return Math.abs(effectiveDisplayMultiplier(card, pricing) - 1) > RATE_COMPARISON_EPSILON
 }
 
 function showOriginalPrice(
   card: AvailableModelMarketplaceCard,
   value: number | null,
+  pricing: UserSupportedModelPricing | null = card.pricingOptions[0] ?? null,
 ): boolean {
-  return value != null && hasAdjustedPrice(card)
+  return value != null && hasAdjustedPrice(card, pricing)
 }
 
-function isDiscountedPrice(card: AvailableModelMarketplaceCard): boolean {
-  return hasAdjustedPrice(card) && priceMultiplier(card) < 1
+function isDiscountedPrice(
+  card: AvailableModelMarketplaceCard,
+  pricing: UserSupportedModelPricing | null = card.pricingOptions[0] ?? null,
+): boolean {
+  return hasAdjustedPrice(card, pricing) && effectiveDisplayMultiplier(card, pricing) < 1
 }
 
-function formattedPriceMultiplier(card: AvailableModelMarketplaceCard): string {
-  return formatRateMultiplier(priceMultiplier(card))
-}
-
-function discountPercent(card: AvailableModelMarketplaceCard): string {
-  const percentage = Math.max(0, (1 - priceMultiplier(card)) * 100)
+function discountPercent(
+  card: AvailableModelMarketplaceCard,
+  pricing: UserSupportedModelPricing | null = card.pricingOptions[0] ?? null,
+): string {
+  const percentage = Math.max(0, (1 - effectiveDisplayMultiplier(card, pricing)) * 100)
   return Number(percentage.toFixed(2)).toString()
+}
+
+function hasTimePricing(pricing: UserSupportedModelPricing | null): boolean {
+  return hasEnabledTimePricing(pricing)
+}
+
+function activeTimePricingMultiplier(pricing: UserSupportedModelPricing | null): number {
+  return getActiveTimePricingMultiplier(pricing)
+}
+
+function timePricingRows(
+  _card: AvailableModelMarketplaceCard,
+  pricing: UserSupportedModelPricing,
+): TimePricingDisplayRow[] {
+  return buildTimePricingDisplayRows(
+    pricing,
+    {
+      otherTimes: t('availableChannels.modelMarketplace.timePricing.otherTimes'),
+      unnamedType: t('availableChannels.modelMarketplace.timePricing.unnamedType'),
+    },
+  )
 }
 
 function scalePricing(

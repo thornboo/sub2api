@@ -155,20 +155,22 @@ type ChannelService struct {
 	groupRepo            GroupRepository
 	authCacheInvalidator APIKeyAuthCacheInvalidator
 	pricingService       *PricingService // 用于「可用渠道」展示时回落到全局定价；可为 nil（测试场景）
+	billingService       *BillingService // 复用真实结算的 LiteLLM → fallback 基础价格链，避免报价与扣费分叉
 
 	cache   atomic.Value // *channelCache
 	cacheSF singleflight.Group
 }
 
 // NewChannelService 创建渠道服务实例。
-// pricingService 仅供 ListAvailable 在渠道未配置定价时回落到全局 LiteLLM 数据；
-// 计费热路径走独立的 ModelPricingResolver，与此参数无关。可传 nil。
-func NewChannelService(repo ChannelRepository, groupRepo GroupRepository, authCacheInvalidator APIKeyAuthCacheInvalidator, pricingService *PricingService) *ChannelService {
+// pricingService 保留图片模式等 LiteLLM 展示元数据；billingService 供 token 模式复用
+// 真实结算的 LiteLLM → fallback 基础价格链。两者均可在不需要报价的测试中传 nil。
+func NewChannelService(repo ChannelRepository, groupRepo GroupRepository, authCacheInvalidator APIKeyAuthCacheInvalidator, pricingService *PricingService, billingService *BillingService) *ChannelService {
 	s := &ChannelService{
 		repo:                 repo,
 		groupRepo:            groupRepo,
 		authCacheInvalidator: authCacheInvalidator,
 		pricingService:       pricingService,
+		billingService:       billingService,
 	}
 	return s
 }
@@ -676,6 +678,9 @@ func validatePricingEntries(pricing []ChannelModelPricing) error {
 func validatePricingBillingMode(pricing []ChannelModelPricing) error {
 	for _, p := range pricing {
 		if err := checkBillingModeRequirements(p); err != nil {
+			return err
+		}
+		if err := ValidateTimePricingForMode(p.TimePricing, p.BillingMode); err != nil {
 			return err
 		}
 		if err := checkPricesNotNegative(p); err != nil {

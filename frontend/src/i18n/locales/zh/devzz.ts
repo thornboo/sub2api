@@ -458,8 +458,17 @@ export default {
             priceVariantsHint: '不同渠道的价格配置不同，请切换价格表格精确比较。',
             originalPrice: '原价',
             savings: '节省 {percent}%',
-            currentGroupRate: '当前分组 {rate}',
-            tieredPricing: '阶梯计费'
+            tieredPricing: '阶梯计费',
+            timePricing: {
+                title: '分时定价',
+                window: '时段',
+                type: '类型',
+                cacheWrite: '缓存写入',
+                cacheRead: '缓存读取',
+                active: '当前',
+                otherTimes: '其余时段',
+                unnamedType: '未命名时段'
+            }
         },
         platformFilter: {
             label: '平台筛选',

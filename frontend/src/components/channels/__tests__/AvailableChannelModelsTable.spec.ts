@@ -44,8 +44,12 @@ const pricingLabels = {
 const IconStub = defineComponent({ template: '<span />' })
 const PlatformIconStub = defineComponent({ template: '<span />' })
 const GroupBadgeStub = defineComponent({
-  props: { name: String },
-  template: '<span class="group-badge">{{ name }}</span>',
+  props: {
+    name: String,
+    rateMultiplier: Number,
+    showRate: { type: Boolean, default: true },
+  },
+  template: '<span class="group-badge">{{ name }}<span v-if="showRate && rateMultiplier !== undefined" data-testid="group-rate">{{ rateMultiplier }}x</span></span>',
 })
 
 describe('AvailableChannelModelsTable', () => {
@@ -101,7 +105,6 @@ describe('AvailableChannelModelsTable', () => {
         rows,
         loading: false,
         emptyLabel: 'No models',
-        userGroupRates: { 1: 0.5 },
         sortBy: 'model',
         sortOrder: 'asc',
       },
@@ -119,5 +122,6 @@ describe('AvailableChannelModelsTable', () => {
     expect(wrapper.text()).not.toContain('$0.8')
     expect(wrapper.text()).not.toContain('$4')
     expect(wrapper.text()).toContain('Public 8 Off')
+    expect(wrapper.find('[data-testid="group-rate"]').exists()).toBe(false)
   })
 })

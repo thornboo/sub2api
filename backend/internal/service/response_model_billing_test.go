@@ -465,6 +465,9 @@ func TestResponseModelBillingAdoptable(t *testing.T) {
 	cost := func(total float64) *CostBreakdown {
 		return &CostBreakdown{TotalCost: total, ActualCost: total}
 	}
+	settledCost := func(total, actual float64) *CostBreakdown {
+		return &CostBreakdown{TotalCost: total, ActualCost: actual}
+	}
 	tests := []struct {
 		name                  string
 		baseline              *CostBreakdown
@@ -478,9 +481,12 @@ func TestResponseModelBillingAdoptable(t *testing.T) {
 		{name: "equal_adopted", baseline: cost(1), response: cost(1), want: true},
 		{name: "float_noise_within_epsilon_adopted", baseline: cost(1), response: cost(1 + 1e-13), want: true},
 		{name: "pricier_rejected", baseline: cost(1), response: cost(1.0001)},
+		{name: "raw_cheaper_but_time_pricing_more_expensive_rejected", baseline: settledCost(1, 1), response: settledCost(0.8, 80)},
+		{name: "raw_pricier_but_time_pricing_cheaper_adopted", baseline: settledCost(1, 1), response: settledCost(1.2, 0.9), want: true},
 
 		// 2. 不得把一笔本应计费的请求归零（价格表里有显式写 0 的条目，能通过确定性识别）
 		{name: "zeroing_a_billable_request_rejected", baseline: cost(1), response: cost(0)},
+		{name: "nonzero_raw_cost_zeroed_by_time_pricing_rejected", baseline: settledCost(1, 1), response: settledCost(0.8, 0)},
 		{name: "negative_cost_rejected_as_zeroing", baseline: cost(1), response: cost(-1)},
 		{name: "already_zero_baseline_unaffected", baseline: cost(0), response: cost(0), want: true},
 
@@ -500,6 +506,126 @@ func TestResponseModelBillingAdoptable(t *testing.T) {
 			))
 		})
 	}
+}
+
+func responseModelScheduleGroup(groupID int64, baselineModel, responseModel string, baselinePrice, responsePrice, baselineMultiplier, responseMultiplier float64) *Group {
+	return &Group{
+		ID:             groupID,
+		RateMultiplier: 1,
+		ModelPricing: []ChannelModelPricing{
+			{
+				Models:      []string{baselineModel},
+				BillingMode: BillingModeToken,
+				InputPrice:  &baselinePrice,
+				OutputPrice: &baselinePrice,
+				TimePricing: &TimePricing{
+					Enabled:           true,
+					Timezone:          "Asia/Shanghai",
+					DefaultLabel:      "baseline",
+					DefaultMultiplier: &baselineMultiplier,
+				},
+			},
+			{
+				Models:      []string{responseModel},
+				BillingMode: BillingModeToken,
+				InputPrice:  &responsePrice,
+				OutputPrice: &responsePrice,
+				TimePricing: &TimePricing{
+					Enabled:           true,
+					Timezone:          "Asia/Shanghai",
+					DefaultLabel:      "response",
+					DefaultMultiplier: &responseMultiplier,
+				},
+			},
+		},
+	}
+}
+
+func TestGatewayServiceRecordUsage_ResponseModelCannotRaiseActualCostThroughTimePricing(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
+	svc.resolver = NewModelPricingResolver(nil, svc.billingService)
+
+	const (
+		baselinePrice      = 2e-6
+		responsePrice      = 1e-6
+		baselineMultiplier = 1.0
+		responseMultiplier = 100.0
+	)
+	groupID := int64(9101)
+	group := responseModelScheduleGroup(groupID, anthropicPriceyFixtureModel, anthropicCheapFixtureModel,
+		baselinePrice, responsePrice, baselineMultiplier, responseMultiplier)
+	pricingAt := time.Date(2026, time.January, 1, 5, 0, 0, 0, time.UTC)
+
+	err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID:             "gateway_response_model_time_pricing_guard",
+			Usage:                 ClaudeUsage{InputTokens: 100, OutputTokens: 50},
+			Model:                 anthropicPriceyFixtureModel,
+			UpstreamResponseModel: anthropicCheapFixtureModel,
+			Duration:              time.Second,
+		},
+		APIKey:    &APIKey{ID: 501, GroupID: &groupID, Group: group},
+		User:      &User{ID: 601},
+		Account:   &Account{ID: 701},
+		PricingAt: pricingAt,
+		ChannelUsageFields: ChannelUsageFields{
+			OriginalModel:      anthropicPriceyFixtureModel,
+			ChannelMappedModel: anthropicPriceyFixtureModel,
+			BillingModelSource: BillingModelSourceResponse,
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	want := (100 + 50) * baselinePrice * baselineMultiplier
+	require.InDelta(t, want, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, want, userRepo.lastAmount, 1e-12)
+}
+
+func TestOpenAIGatewayServiceRecordUsage_ResponseModelCannotRaiseActualCostThroughTimePricing(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{}, nil)
+	svc.resolver = NewModelPricingResolver(nil, svc.billingService)
+
+	const (
+		baselinePrice      = 2e-6
+		responsePrice      = 1e-6
+		baselineMultiplier = 1.0
+		responseMultiplier = 100.0
+	)
+	groupID := int64(9102)
+	group := responseModelScheduleGroup(groupID, openAIPriceyFixtureModel, openAICheapFixtureModel,
+		baselinePrice, responsePrice, baselineMultiplier, responseMultiplier)
+	pricingAt := time.Date(2026, time.January, 1, 5, 0, 0, 0, time.UTC)
+
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID:             "openai_response_model_time_pricing_guard",
+			Model:                 openAIPriceyFixtureModel,
+			UpstreamModel:         openAIPriceyFixtureModel,
+			UpstreamResponseModel: openAICheapFixtureModel,
+			Usage:                 OpenAIUsage{InputTokens: 100, OutputTokens: 50},
+			Duration:              time.Second,
+		},
+		APIKey:    &APIKey{ID: 10, GroupID: &groupID, Group: group},
+		User:      &User{ID: 20},
+		Account:   &Account{ID: 30},
+		PricingAt: pricingAt,
+		ChannelUsageFields: ChannelUsageFields{
+			OriginalModel:      openAIPriceyFixtureModel,
+			ChannelMappedModel: openAIPriceyFixtureModel,
+			BillingModelSource: BillingModelSourceResponse,
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	want := (100 + 50) * baselinePrice * baselineMultiplier
+	require.InDelta(t, want, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, want, userRepo.lastAmount, 1e-12)
 }
 
 // --- 按次/按量计费请求一律不采纳（门的调用点接线） ---

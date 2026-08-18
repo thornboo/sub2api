@@ -3,7 +3,7 @@
 ## Source of truth
 
 - Status: Active
-- Last refreshed: 2026-07-30
+- Last refreshed: 2026-08-17
 - Primary product surfaces:
   - User console: `frontend/src/views/user/**`
   - User API Key management: `frontend/src/views/user/KeysView.vue`, `frontend/src/components/keys/**`
@@ -15,6 +15,7 @@
   - Admin operations monitoring: `frontend/src/views/admin/ops/**`, `frontend/src/components/admin/ops/**`
   - User model marketplace: `frontend/src/views/user/AvailableChannelsView.vue`, `frontend/src/components/channels/**`
   - Admin channel pricing and model delivery: `frontend/src/views/admin/ChannelsView.vue`, `frontend/src/components/admin/channel/**`
+  - Admin pay-as-you-go model pricing: the reusable model-pricing entries in `frontend/src/components/admin/channel/PricingEntryCard.vue`, consumed by both channel pricing and standard-group model-price overrides
   - Admin upstream model capabilities: `frontend/src/components/admin/account/ModelProtocolCapabilitiesModal.vue`
   - dev-zz product records: `docs-site/dev-zz/**`
 - Evidence reviewed:
@@ -29,6 +30,7 @@
   - `docs-site/dev-zz/features/available-channels-model-marketplace.md`
   - `docs-site/dev-zz/features/public-model-catalog.md`
   - `docs-site/dev-zz/features/model-multi-protocol-capabilities-and-routing.md`
+  - `docs-site/dev-zz/features/time-based-model-pricing.md`
   - `backend/ent/schema/api_key.go`
   - `backend/ent/schema/group.go`
   - `backend/ent/schema/usage_log.go`
@@ -61,6 +63,7 @@
   - Let enterprise owners apply shared member policy changes in one atomic batch without overwriting fields they did not explicitly select.
   - Preserve platform administrator-only visibility into upstream account cost, routing, and operational internals.
   - Let prospective users inspect public groups, models, prices, and callable API endpoints before registration through a standalone public catalog.
+  - Let administrators publish model-specific time-based pay-as-you-go prices without coupling pricing eligibility to subscription plans, and let customers see the actual input/output/cache prices for every configured window.
   - Keep public model publication, stable delivery eligibility, upstream protocol capability, and customer-facing API endpoints as separate facts joined by one deterministic `DeliveryDecision` shared by catalog projection and runtime candidate filtering.
   - Keep channel model mapping and channel pricing visibly reconciled so administrators can find and repair omitted pricing coverage before it becomes a runtime restriction failure.
   - Keep model callability separate from endpoint publication: unknown capability evidence may retain an established compatibility route, but only proven delivery decisions may publish endpoint metadata.
@@ -79,6 +82,7 @@
   - A platform admin can see mapped, covered, missing, and pricing-only model counts per platform, repair missing coverage in one action, and retain a deterministic display order after reload.
   - A user never sees a model or endpoint described as available solely because a price row or disconnected upstream capability exists.
   - An anonymous visitor and an authenticated user see the same public-standard-group catalog at `/model-plaza`; personalized access remains in `/available-channels`.
+  - A standard pay-as-you-go group can use multiple same-day or cross-midnight model-price windows, and the displayed schedule always agrees with the multiplier used by request billing.
   - Reviewers can tell from DTO names and routes whether a field is user-safe or admin-only.
 
 ## Personas and jobs
@@ -172,6 +176,13 @@
   - Missing coverage blocks save only when model restriction would reject the omitted model; otherwise it is a visible warning with an explicit repair action.
   - Adding or renaming a mapping may offer a safe pricing repair, but deleting a mapping never silently deletes pricing.
   - Manual ordering is presentation-only. It never implies mapping precedence or changes runtime matching.
+- Principle 12: Time-based pricing belongs to the winning model price, not to subscription entitlement.
+  - A time schedule is part of a token model-pricing entry and follows the existing Group -> Channel -> LiteLLM -> fallback resolution order.
+  - `subscription_type` never gates the new time-based pricing capability. Standard pay-as-you-go groups are the primary product path.
+  - The unlisted-time window is an explicit default pricing state with its own configurable multiplier. Persisted schedules that predate this field fall back to `1x` for compatibility.
+  - Administrators choose the schedule timezone from a searchable IANA timezone selector; valid legacy/custom IANA identifiers remain representable instead of being discarded by a closed list.
+  - Customer price tables derive actual values from the same resolved base prices, effective user/group rate, and time multiplier used by billing; the browser must not maintain a second billing policy.
+  - Legacy group-level `peak_rate_*` fields remain a compatibility fallback only when the winning model price has no time schedule; legacy and model-level time multipliers are never multiplied together.
 - Tradeoffs:
   - First versions may use raw `usage_logs` with strict date limits.
   - Add pre-aggregation only when a measured query path needs it.
@@ -198,6 +209,8 @@
   - Mapping and pricing drag handles reuse the existing `vue-draggable-plus` interaction pattern and stable item identities; index keys are not acceptable for reorderable cards.
   - `ModelProtocolCapabilitiesModal` is labeled as upstream capability management and remains the advanced account-level override surface.
   - `AvailableModelMarketplace` shows customer-callable API paths only; native/compatibility route mode stays admin-only.
+  - `PricingEntryCard` owns model-level time-schedule editing for token billing entries in both channel pricing and group model-price overrides. Subscription-plan controls do not own or gate this editor.
+  - A customer-safe time-price table is shared by `/model-plaza` and `/available-channels`; it shows the configurable other-times row, explicit windows, IANA timezone, administrator-defined type names, and actual token prices.
   - `ModelPlazaView` owns the standalone anonymous catalog shell; it reuses the available-channel marketplace projection in public-only mode instead of maintaining independent model and endpoint rules.
 - Variants and states:
   - Every analytics panel needs loading, empty, error, and stale-data states.
@@ -216,6 +229,11 @@
   - Missing mapping-derived pricing is an error when model restriction is enabled and a warning otherwise. Pricing-only models remain valid and are never auto-removed.
   - Mapping edits never create or delete pricing implicitly. Quick pricing runs only after an explicit administrator action, appends only uncovered models, preserves existing pricing values, and leaves unavailable default prices visible for review.
   - Sorting offers mapping order, natural model-name order, and custom order. Custom order persists across reloads and is described as display order.
+  - Time-price rules support multiple non-overlapping minute-precision windows. Cross-midnight ranges remain one displayed rule, while validation treats them as two circular-day segments.
+  - The other-times row exposes an administrator-defined type name, multiplier input, and `0x` warning; it is not a read-only placeholder.
+  - Timezone editing reuses the searchable `Select` component with supported IANA identifiers, the detected browser timezone, and a creatable fallback for valid identifiers not present in the runtime list.
+  - Explicit time-price rows let administrators define the customer-facing type name independently from the multiplier. A `1.1x` window may still be named "平时"; UI and APIs must never infer business meaning from the numeric multiplier.
+  - The active time-price row uses text and an icon in addition to color. Missing cache prices render as an em dash rather than a numeric zero.
 - Token/component ownership:
   - Extend existing Tailwind utility style and local component patterns.
   - Do not add chart or UI dependencies unless the existing stack cannot represent the required view.
@@ -281,6 +299,7 @@
   - "上游模型协议能力" for account plus final-upstream-model native protocol evidence; never shorten this to a customer-facing "API endpoint".
   - "API 端点" for a path the customer can call on sub2api. Admin route details may additionally say "原生交付" or "兼容交付".
   - "公开模型列表" for `/model-plaza`; it means the active standard non-exclusive portion of the customer catalog, not an administrator inventory and not a personalized entitlement list.
+  - "分时定价" for model-price changes by wall-clock window. Type names such as "高峰", "低谷", "平时", "夜间优惠", or "特殊时段" are administrator-defined customer copy and must not be inferred from whether a multiplier is above, below, or equal to `1x`.
 - Microcopy rules:
   - Avoid explaining the UI in visible product copy.
   - Do use short permission copy where a field is intentionally hidden.
@@ -302,6 +321,17 @@
   - Channel pricing remains the publication source, but pricing alone cannot prove deliverability. Existing capability records remain account-scoped and are not duplicated into channel pricing.
   - Channel pricing entries carry an explicit platform-local `sort_order`; channel mapping order is stored separately from the JSONB mapping object. Runtime mapping and pricing lookup ignore these presentation fields.
   - Existing channels backfill pricing order from row ID and mapping display order from deterministic natural model-name order. New ordering fields must remain backward-compatible for older clients that omit them.
+  - Model-level time pricing applies only to token billing. Per-request, image-per-request, video, audio, and web-search prices retain their existing semantics unless a later design explicitly expands the scope.
+  - A time schedule contains at most 16 explicit rules, uses a valid IANA timezone, rejects equal start/end values and circular-day overlap, accepts cross-midnight windows, and uses left-closed/right-open boundaries.
+  - A request keeps the schedule result selected at its pricing start time for the whole request. WebSocket conversations select again for each independently billed turn.
+  - Asynchronous usage persistence, including token-billed OpenAI Images and cyber failure records, retains the originating request's pricing start time; persistence time is never a new pricing decision.
+  - The winning configured model price supplies the time schedule. A group model-price override therefore overrides a channel model-price schedule together with the rest of that price entry.
+  - An enabled model time schedule with a usable timezone is the complete token sale-rate policy for that winning price entry: the selected schedule multiplier replaces the group default rate, any user-specific group rate, and the legacy group peak rate. When the schedule is absent, disabled, or has no usable timezone, existing group/user/legacy rate behavior remains unchanged. Customer quotes and billing must use this same conditional contract, so a configured `1.1x` produces and charges the same final price, never a hidden composition such as `1.21x`.
+  - Public and authenticated customer catalogs treat the current final price as the primary truth. Model cards, group headings, and pricing-table group badges do not expose a separate current-effective or group multiplier label; an enabled schedule may still show each configured period multiplier inside its expandable price table, while administrator configuration retains the full rule inputs.
+  - Disabling a model time schedule pauses it without deleting its timezone, default period, or explicit rules. Customer token quotes reuse the same LiteLLM-to-fallback base-price chain as settlement when a configured price entry supplies only the schedule.
+  - Response-model billing admission compares final `ActualCost` after time pricing. It may neither raise the user's settled amount nor zero a request that had a positive baseline settled amount.
+  - Time-price configuration is customer sale-price policy. It does not alter upstream account cost, account-statistics pricing, scheduling weights, or provider health.
+  - Legacy group-level peak pricing remains readable for compatibility. When model-level time pricing is present the complete group/user/legacy multiplier chain is bypassed, so no hidden factor can double-charge a request.
   - Public delivery metadata may ignore transient runtime saturation and cooldown, but must exclude inactive, unschedulable, platform-incompatible, and model-ineligible accounts.
   - `/model-plaza` must use the same delivery projection as `/available-channels`, scoped to active standard non-exclusive groups. A bearer token may be accepted by shared transport middleware but must not add exclusive groups, subscription groups, or user-specific rates to the public response.
   - Preserve ADR 0003: enterprise members are non-login entities; member Keys inherit the member's ordered group delegation.
@@ -332,6 +362,7 @@
   - Channel reconciliation tests must cover requested versus channel-mapped billing sources, exact and wildcard coverage, explicit quick-pricing append-only repair, restricted-save blocking, mapping rename/delete safety, and order persistence.
   - Visual QA should be done on the user-run dev server when the user asks for browser validation.
   - Public catalog tests must compare anonymous and authenticated responses, exclude exclusive/subscription/user-rate data, and prove parity with the public-group portion of `/available-channels`.
+  - Time-pricing tests must cover standard groups, price-source precedence, multiple and cross-midnight windows, boundary minutes, overlap rejection, legacy fallback without double multiplication, user-rate composition, actual public prices, and exclusion from per-request billing.
   - Ops tests must prove raw-query and pre-aggregated parity, overview-to-detail filter parity, terminal request de-duplication for stream failures, and deterministic handling of the documented production classification fixture.
 
 ## Open questions

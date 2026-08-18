@@ -23,6 +23,22 @@ export interface PricingInterval {
   sort_order: number
 }
 
+export interface TimePricingRule {
+  label: string
+  start_time: string
+  end_time: string
+  multiplier: number
+}
+
+export interface TimePricing {
+  enabled: boolean
+  timezone: string
+  default_label: string
+  /** Missing on legacy records; billing treats omission as 1x. */
+  default_multiplier?: number
+  rules: TimePricingRule[]
+}
+
 export interface ChannelModelPricing {
   id?: number
   sort_order?: number // display order within the pricing entry's platform
@@ -37,6 +53,7 @@ export interface ChannelModelPricing {
   image_output_price: number | null
   per_request_price: number | null
   intervals: PricingInterval[]
+  time_pricing?: TimePricing
   self_check_enabled_models: string[]
 }
 

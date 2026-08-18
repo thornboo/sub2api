@@ -2050,7 +2050,7 @@ func TestResolveAccountImpactsJoinsPublicAndFinalUpstreamModels(t *testing.T) {
 		},
 		platforms: map[int64]string{10: PlatformOpenAI},
 	}
-	channel := NewChannelService(channelRepo, groupRepo, nil, nil)
+	channel := NewChannelService(channelRepo, groupRepo, nil, nil, nil)
 	svc := NewModelDeliveryService(accountRepo, groupRepo, channel, nil, &config.Config{})
 
 	impacts, err := svc.ResolveAccountImpacts(context.Background(), 82)
@@ -2088,7 +2088,7 @@ func TestResolveAccountImpactsIncludesMessagesDispatchUpstreamModel(t *testing.T
 		}},
 		platforms: map[int64]string{10: PlatformOpenAI},
 	}
-	channel := NewChannelService(channelRepo, groupRepo, nil, nil)
+	channel := NewChannelService(channelRepo, groupRepo, nil, nil, nil)
 	svc := NewModelDeliveryService(accountRepo, groupRepo, channel, nil, &config.Config{})
 
 	impacts, err := svc.ResolveAccountImpacts(context.Background(), 82)

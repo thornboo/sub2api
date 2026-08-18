@@ -592,7 +592,7 @@ type AdminUsageLog struct {
 	AccountRateMultiplier *float64 `json:"account_rate_multiplier"`
 	// AccountStatsCost 自定义定价规则计算的账号统计费用（nil 表示使用默认公式）
 	AccountStatsCost *float64 `json:"account_stats_cost,omitempty"`
-	// ScheduleMeta 调度诊断信息（仅管理员可见）。
+	// ScheduleMeta 请求执行与计费诊断信息（仅管理员可见）。
 	ScheduleMeta *UsageScheduleMeta `json:"schedule_meta,omitempty"`
 	// RoutePlanSource 是企业成员模型感知路由的执行计划来源（仅管理员可见）。
 	RoutePlanSource        string `json:"route_plan_source,omitempty"`
@@ -606,26 +606,31 @@ type AdminUsageLog struct {
 }
 
 type UsageScheduleMeta struct {
-	Provider             string   `json:"provider,omitempty"`
-	Layer                string   `json:"layer,omitempty"`
-	StickyPreviousHit    bool     `json:"sticky_previous_hit,omitempty"`
-	StickySessionHit     bool     `json:"sticky_session_hit,omitempty"`
-	CandidateCount       int      `json:"candidate_count,omitempty"`
-	TopK                 int      `json:"top_k,omitempty"`
-	LatencyMs            int64    `json:"latency_ms,omitempty"`
-	LoadSkew             float64  `json:"load_skew,omitempty"`
-	SelectedAccountID    int64    `json:"selected_account_id,omitempty"`
-	SelectedAccountType  string   `json:"selected_account_type,omitempty"`
-	InboundProtocol      string   `json:"inbound_protocol,omitempty"`
-	UpstreamProtocol     string   `json:"upstream_protocol,omitempty"`
-	ProtocolDeliveryMode string   `json:"protocol_delivery_mode,omitempty"`
-	CapabilitySource     string   `json:"capability_source,omitempty"`
-	ShadowDiffType       string   `json:"shadow_diff_type,omitempty"`
-	ShadowReasonCodes    []string `json:"shadow_reason_codes,omitempty"`
-	ShadowPlanSource     string   `json:"shadow_plan_source,omitempty"`
-	ShadowLegacyGroups   int      `json:"shadow_legacy_groups,omitempty"`
-	ShadowPlannedGroups  int      `json:"shadow_planned_groups,omitempty"`
-	ShadowPrunedGroups   int      `json:"shadow_pruned_groups,omitempty"`
+	Provider              string                   `json:"provider,omitempty"`
+	Layer                 string                   `json:"layer,omitempty"`
+	StickyPreviousHit     bool                     `json:"sticky_previous_hit,omitempty"`
+	StickySessionHit      bool                     `json:"sticky_session_hit,omitempty"`
+	CandidateCount        int                      `json:"candidate_count,omitempty"`
+	TopK                  int                      `json:"top_k,omitempty"`
+	LatencyMs             int64                    `json:"latency_ms,omitempty"`
+	LoadSkew              float64                  `json:"load_skew,omitempty"`
+	SelectedAccountID     int64                    `json:"selected_account_id,omitempty"`
+	SelectedAccountType   string                   `json:"selected_account_type,omitempty"`
+	InboundProtocol       string                   `json:"inbound_protocol,omitempty"`
+	UpstreamProtocol      string                   `json:"upstream_protocol,omitempty"`
+	ProtocolDeliveryMode  string                   `json:"protocol_delivery_mode,omitempty"`
+	CapabilitySource      string                   `json:"capability_source,omitempty"`
+	ShadowDiffType        string                   `json:"shadow_diff_type,omitempty"`
+	ShadowReasonCodes     []string                 `json:"shadow_reason_codes,omitempty"`
+	ShadowPlanSource      string                   `json:"shadow_plan_source,omitempty"`
+	ShadowLegacyGroups    int                      `json:"shadow_legacy_groups,omitempty"`
+	ShadowPlannedGroups   int                      `json:"shadow_planned_groups,omitempty"`
+	ShadowPrunedGroups    int                      `json:"shadow_pruned_groups,omitempty"`
+	PricingAt             *time.Time               `json:"pricing_at,omitempty"`
+	TimePricingMultiplier *float64                 `json:"time_pricing_multiplier,omitempty"`
+	TimePricingTimezone   string                   `json:"time_pricing_timezone,omitempty"`
+	TimePricingLabel      string                   `json:"time_pricing_label,omitempty"`
+	TimePricingRule       *service.TimePricingRule `json:"time_pricing_rule,omitempty"`
 }
 
 type UsageCleanupFilters struct {

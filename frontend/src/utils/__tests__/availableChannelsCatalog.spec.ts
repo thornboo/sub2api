@@ -10,8 +10,12 @@ import {
   formatBillingMode,
   formatCompactRequestPrice,
   formatCompactTokenPrice,
+  formatTimePricingTokenPrice,
   formatRateMultiplier,
   formatTokenPrice,
+  buildTimePricingDisplayRows,
+  getActiveTimePricingMultiplier,
+  hasEnabledTimePricing,
   getRowCacheReadPrice,
   getRowCacheWritePrice,
   getRowImageOutputPrice,
@@ -31,6 +35,222 @@ const labels: AvailableChannelPricingLabels = {
 }
 
 describe('availableChannelsCatalog', () => {
+  it('derives token time-pricing rows that replace the effective group rate', () => {
+    const pricing = {
+      billing_mode: BILLING_MODE_TOKEN,
+      input_price: 0.0000036,
+      output_price: 0.0000108,
+      cache_write_price: 0,
+      cache_read_price: null,
+      image_input_price: null,
+      image_output_price: null,
+      per_request_price: null,
+      intervals: [],
+      time_pricing: {
+        enabled: true,
+        timezone: 'Asia/Shanghai',
+        default_label: '平时',
+        default_multiplier: 0.8,
+        rules: [
+          { label: 'morning', start_time: '09:00', end_time: '12:00', multiplier: 2 },
+          { label: 'night', start_time: '23:00', end_time: '07:00', multiplier: 0.5 },
+          { label: 'free', start_time: '12:00', end_time: '13:00', multiplier: 0 },
+        ],
+      },
+    }
+
+    expect(hasEnabledTimePricing(pricing)).toBe(true)
+    expect(getActiveTimePricingMultiplier(pricing, new Date('2026-08-17T00:59:00.000Z'))).toBe(0.8)
+    expect(getActiveTimePricingMultiplier(pricing, new Date('2026-08-17T01:00:00.000Z'))).toBe(2)
+    expect(getActiveTimePricingMultiplier(pricing, new Date('2026-08-17T04:00:00.000Z'))).toBe(0)
+    expect(getActiveTimePricingMultiplier(pricing, new Date('2026-08-17T04:59:59.000Z'))).toBe(0)
+    expect(getActiveTimePricingMultiplier(pricing, new Date('2026-08-17T05:00:00.000Z'))).toBe(0.8)
+    expect(getActiveTimePricingMultiplier(pricing, new Date('2026-08-17T15:30:00.000Z'))).toBe(0.5)
+    expect(getActiveTimePricingMultiplier(pricing, new Date('2026-08-17T22:30:00.000Z'))).toBe(0.5)
+    expect(getActiveTimePricingMultiplier(pricing, new Date('2026-08-17T23:00:00.000Z'))).toBe(0.8)
+
+    const rows = buildTimePricingDisplayRows(
+      pricing,
+      { otherTimes: 'Other times', unnamedType: 'Unnamed period' },
+      new Date('2026-08-17T01:00:00.000Z'),
+    )
+
+    expect(rows.map((row) => [row.windowLabel, row.label, row.active])).toEqual([
+      ['Other times', '平时', false],
+      ['09:00-12:00', 'morning', true],
+      ['23:00-07:00', 'night', false],
+      ['12:00-13:00', 'free', false],
+    ])
+    expect(rows[1].inputPrice).toBeCloseTo(0.0000072)
+    expect(rows[1].outputPrice).toBeCloseTo(0.0000216)
+    expect(rows[1].cacheWritePrice).toBe(0)
+    expect(rows[1].cacheReadPrice).toBeNull()
+    expect(rows[0].multiplier).toBe(0.8)
+    expect(rows[0].inputPrice).toBeCloseTo(0.00000288)
+    expect(formatTimePricingTokenPrice(rows[1].inputPrice)).toBe('$7.2000')
+    expect(formatTimePricingTokenPrice(rows[1].cacheWritePrice)).toBe('$0.0000')
+    expect(formatTimePricingTokenPrice(rows[1].cacheReadPrice)).toBe('—')
+  })
+
+  it('applies a default multiplier across the whole day when no explicit rules exist', () => {
+    const pricing = {
+      billing_mode: BILLING_MODE_TOKEN,
+      input_price: 0.000001,
+      output_price: 0.000002,
+      cache_write_price: null,
+      cache_read_price: null,
+      image_input_price: null,
+      image_output_price: null,
+      per_request_price: null,
+      intervals: [],
+      time_pricing: {
+        enabled: true,
+        timezone: 'Asia/Shanghai',
+        default_label: '平时',
+        default_multiplier: 1.1,
+        rules: [],
+      },
+    }
+
+    expect(hasEnabledTimePricing(pricing)).toBe(true)
+    expect(getActiveTimePricingMultiplier(pricing, new Date('2026-08-17T01:00:00.000Z'))).toBe(1.1)
+    expect(buildTimePricingDisplayRows(
+      pricing,
+      { otherTimes: 'Other times', unnamedType: 'Unnamed period' },
+      new Date('2026-08-17T01:00:00.000Z'),
+    )).toMatchObject([{
+      source: 'implicit',
+      label: '平时',
+      multiplier: 1.1,
+      active: true,
+      inputPrice: 0.0000011,
+    }])
+  })
+
+  it('uses the winning group model price and schedule instead of the channel schedule', () => {
+    const channels: UserAvailableChannel[] = [{
+      name: 'DeepSeek',
+      description: '',
+      platforms: [{
+        platform: 'deepseek',
+        groups: [{
+          id: 7,
+          name: 'standard',
+          platform: 'deepseek',
+          subscription_type: 'standard',
+          rate_multiplier: 0.8,
+          peak_rate_enabled: false,
+          peak_start: '',
+          peak_end: '',
+          peak_rate_multiplier: 1,
+          is_exclusive: false,
+        }],
+        supported_models: [{
+          name: 'deepseek-chat',
+          platform: 'deepseek',
+          pricing: {
+            billing_mode: BILLING_MODE_TOKEN,
+            input_price: 0.0000036,
+            output_price: 0.0000108,
+            cache_write_price: null,
+            cache_read_price: null,
+            image_input_price: null,
+            image_output_price: null,
+            per_request_price: null,
+            intervals: [],
+            time_pricing: {
+              enabled: true,
+              timezone: 'UTC',
+              default_label: 'standard',
+              rules: [{ label: 'busy', start_time: '09:00', end_time: '12:00', multiplier: 3 }],
+            },
+          },
+          group_pricing: [{
+            group_id: 7,
+            pricing: {
+              billing_mode: BILLING_MODE_TOKEN,
+              input_price: 0.000002,
+              output_price: 0.000006,
+              cache_write_price: null,
+              cache_read_price: null,
+              image_input_price: null,
+              image_output_price: null,
+              per_request_price: null,
+              intervals: [],
+              time_pricing: {
+                enabled: true,
+                timezone: 'Asia/Shanghai',
+                default_label: 'regular',
+                default_multiplier: 2,
+                rules: [{ label: 'peak', start_time: '09:00', end_time: '12:00', multiplier: 2 }],
+              },
+            },
+          }],
+        }],
+      }],
+    }]
+
+    const rows = buildAvailableChannelCatalogRows(channels, { userGroupRates: { 7: 0.5 } })
+    expect(rows).toHaveLength(1)
+    expect(rows[0].pricing?.input_price).toBe(0.000002)
+    expect(rows[0].pricing?.time_pricing?.timezone).toBe('Asia/Shanghai')
+    expect(rows[0].effectiveRateMultiplier).toBe(0.5)
+    expect(getRowInputPrice(rows[0])).toBeCloseTo(0.000004)
+  })
+
+  it('ignores disabled, invalid-timezone, and non-token time pricing for customer display helpers', () => {
+    const base = {
+      billing_mode: BILLING_MODE_TOKEN,
+      input_price: 0.000001,
+      output_price: 0.000002,
+      cache_write_price: null,
+      cache_read_price: null,
+      image_input_price: null,
+      image_output_price: null,
+      per_request_price: null,
+      intervals: [],
+    }
+
+    expect(hasEnabledTimePricing({
+      ...base,
+      time_pricing: {
+        enabled: false,
+        timezone: 'Asia/Shanghai',
+        default_label: 'regular',
+        rules: [{ label: 'peak', start_time: '09:00', end_time: '12:00', multiplier: 2 }],
+      },
+    })).toBe(false)
+    expect(hasEnabledTimePricing({
+      ...base,
+      time_pricing: {
+        enabled: true,
+        timezone: 'Not/AZone',
+        default_label: 'regular',
+        rules: [{ label: 'peak', start_time: '09:00', end_time: '12:00', multiplier: 2 }],
+      },
+    })).toBe(false)
+    expect(getActiveTimePricingMultiplier({
+      ...base,
+      billing_mode: BILLING_MODE_PER_REQUEST,
+      time_pricing: {
+        enabled: true,
+        timezone: 'Asia/Shanghai',
+        default_label: 'regular',
+        rules: [{ label: 'peak', start_time: '09:00', end_time: '12:00', multiplier: 2 }],
+      },
+    })).toBe(1)
+
+    expect(getActiveTimePricingMultiplier({
+      ...base,
+      time_pricing: {
+        enabled: true,
+        timezone: 'Asia/Shanghai',
+        default_label: 'regular',
+        rules: [{ label: 'peak', start_time: '09:00', end_time: '12:00', multiplier: -1 }],
+      },
+    }, new Date('2026-08-17T01:30:00.000Z'))).toBe(1)
+  })
+
 	// Group-specific image pricing is resolved here so the table, export and
 	// marketplace share the settlement precedence instead of drifting apart.
 	it('uses group image tiers and the independent image multiplier without mutating channel pricing', () => {

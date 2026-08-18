@@ -49,8 +49,8 @@ type AvailableChannel struct {
 // ListAvailable 返回所有渠道的可用视图：每个渠道附带关联分组信息与支持模型列表。
 //
 // 支持模型通过 (*Channel).SupportedModels() 计算（mapping ∪ pricing 并联）。
-// 对于渠道未配置定价的模型，进一步用 PricingService 的全局 LiteLLM 数据合成
-// 一份展示用定价，让用户看到默认价格而非"未配置"。
+// 对于渠道未配置定价的模型，进一步复用 BillingService 的 LiteLLM → fallback
+// 基础价格链合成展示用定价，让用户看到的默认价格与真实结算一致。
 //
 // 关联分组信息通过 groupRepo.ListActive 查询后按 ID 映射；渠道 GroupIDs 中未在活跃列表中
 // 的分组（已停用或删除）会被忽略。
@@ -68,8 +68,9 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 		return nil, fmt.Errorf("list active groups: %w", err)
 	}
 	groupByID := make(map[int64]AvailableGroupRef, len(groups))
+	groupEntityByID := make(map[int64]*Group, len(groups))
 	for i := range groups {
-		g := groups[i]
+		g := &groups[i]
 		groupByID[g.ID] = AvailableGroupRef{
 			ID:                          g.ID,
 			Name:                        g.Name,
@@ -90,6 +91,7 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 			AllowMessagesDispatch:       g.AllowMessagesDispatch,
 			MessagesDispatchModelConfig: cloneGroupMessagesDispatchModelConfig(g.MessagesDispatchModelConfig),
 		}
+		groupEntityByID[g.ID] = g
 	}
 
 	out := make([]AvailableChannel, 0, len(channels))
@@ -107,6 +109,18 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 
 		supported := ch.SupportedModels()
 		s.fillGlobalPricingFallback(supported)
+		for modelIndex := range supported {
+			for _, groupRef := range groups {
+				groupPricing := s.availableGroupModelPricing(groupEntityByID[groupRef.ID], supported[modelIndex].Name)
+				if groupPricing == nil {
+					continue
+				}
+				if supported[modelIndex].GroupPricing == nil {
+					supported[modelIndex].GroupPricing = make(map[int64]*ChannelModelPricing)
+				}
+				supported[modelIndex].GroupPricing[groupRef.ID] = groupPricing
+			}
+		}
 
 		out = append(out, AvailableChannel{
 			ID:                 ch.ID,
@@ -126,28 +140,95 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 	return out, nil
 }
 
-// fillGlobalPricingFallback 对未命中渠道定价的支持模型，从全局 LiteLLM 数据合成一份
-// 展示用定价。仅用于「可用渠道」展示，不影响真实计费链路。
+// availableGroupModelPricing mirrors the Group-first pricing precedence for
+// the customer catalog. A matching Group entry replaces Channel pricing as a
+// unit; token fields not explicitly overridden continue to fall back to the
+// global model price, exactly as ModelPricingResolver does at settlement.
+func (s *ChannelService) availableGroupModelPricing(group *Group, model string) *ChannelModelPricing {
+	configured := matchGroupModelPricing(group, model)
+	if configured == nil {
+		return nil
+	}
+	mode := configured.BillingMode
+	if mode == "" {
+		mode = BillingModeToken
+	}
+	if mode != BillingModeToken {
+		result := configured.Clone()
+		result.BillingMode = mode
+		return &result
+	}
+
+	result := s.availableTokenBasePricing(model, nil)
+	if result == nil {
+		result = &ChannelModelPricing{BillingMode: BillingModeToken}
+	}
+	result.BillingMode = BillingModeToken
+	result.Models = append([]string(nil), configured.Models...)
+	result.Platform = configured.Platform
+	result.Intervals = nil // Group token cards never replace official long-context ladders.
+	if configured.InputPrice != nil {
+		result.InputPrice = configured.InputPrice
+	}
+	if configured.OutputPrice != nil {
+		result.OutputPrice = configured.OutputPrice
+	}
+	if configured.CacheWritePrice != nil {
+		result.CacheWritePrice = configured.CacheWritePrice
+	}
+	if configured.CacheReadPrice != nil {
+		result.CacheReadPrice = configured.CacheReadPrice
+	}
+	// These two fields intentionally follow the settlement override semantics:
+	// an omitted Group image-token override does not inherit the Channel value.
+	result.ImageInputPrice = configured.ImageInputPrice
+	result.ImageOutputPrice = configured.ImageOutputPrice
+	result.PerRequestPrice = configured.PerRequestPrice
+	if configured.TimePricing != nil {
+		timePricing := configured.TimePricing.Clone()
+		result.TimePricing = &timePricing
+	}
+	return result
+}
+
+// fillGlobalPricingFallback 对未命中渠道定价的支持模型合成一份展示用定价。
+// 图片/按次模式保留 LiteLLM 元数据；token 模式复用 BillingService 的
+// LiteLLM → fallback 解析链，确保报价与真实结算不分叉。
 //
 // 触发条件：
 //  1. Pricing == nil（渠道完全没声明该模型的定价条目）
 //  2. Pricing 非 nil 但所有价格字段为空（admin UI 建了条目但没填价格）
-//
-// 当 s.pricingService 为 nil（测试场景），跳过回落。
 func (s *ChannelService) fillGlobalPricingFallback(models []SupportedModel) {
-	if s.pricingService == nil {
-		return
-	}
 	for i := range models {
 		if !pricingNeedsFallback(models[i].Pricing) {
 			continue
 		}
-		lp := s.pricingService.GetModelPricing(models[i].Name)
-		if lp == nil {
+		existing := models[i].Pricing
+		if s.pricingService != nil {
+			existing = synthesizePricingFromLiteLLM(s.pricingService.GetModelPricing(models[i].Name), existing)
+		}
+		if !pricingNeedsFallback(existing) || (existing != nil && existing.BillingMode != "" && existing.BillingMode != BillingModeToken) {
+			models[i].Pricing = existing
 			continue
 		}
-		models[i].Pricing = synthesizePricingFromLiteLLM(lp, models[i].Pricing)
+		models[i].Pricing = s.availableTokenBasePricing(models[i].Name, existing)
 	}
+}
+
+// availableTokenBasePricing returns the same token basis used by settlement.
+// The existing shape is retained so channel/group metadata can be overlaid by callers.
+func (s *ChannelService) availableTokenBasePricing(model string, existing *ChannelModelPricing) *ChannelModelPricing {
+	if s.billingService == nil {
+		if s.pricingService == nil {
+			return existing
+		}
+		return synthesizePricingFromLiteLLM(s.pricingService.GetModelPricing(model), existing)
+	}
+	pricing, err := s.billingService.GetModelPricing(model)
+	if err != nil || pricing == nil {
+		return existing
+	}
+	return synthesizePricingFromModelPricing(pricing, existing)
 }
 
 // pricingNeedsFallback 判定一个 ChannelModelPricing 是否需要走全局回落。
@@ -158,7 +239,7 @@ func pricingNeedsFallback(p *ChannelModelPricing) bool {
 	}
 	if p.InputPrice != nil || p.OutputPrice != nil ||
 		p.CacheWritePrice != nil || p.CacheReadPrice != nil ||
-		p.ImageOutputPrice != nil || p.PerRequestPrice != nil {
+		p.ImageInputPrice != nil || p.ImageOutputPrice != nil || p.PerRequestPrice != nil {
 		return false
 	}
 	for _, iv := range p.Intervals {
@@ -213,9 +294,34 @@ func synthesizePricingFromLiteLLM(lp *LiteLLMModelPricing, existing *ChannelMode
 	}
 }
 
+// synthesizePricingFromModelPricing converts BillingService's resolved token basis
+// into the customer catalog shape. Zero is kept as an explicit pointer because an
+// administrator/provider may intentionally configure a free token dimension.
+func synthesizePricingFromModelPricing(pricing *ModelPricing, existing *ChannelModelPricing) *ChannelModelPricing {
+	if pricing == nil {
+		return existing
+	}
+	result := &ChannelModelPricing{BillingMode: BillingModeToken}
+	if existing != nil {
+		*result = existing.Clone()
+		result.BillingMode = BillingModeToken
+	}
+	result.InputPrice = float64ValuePtr(pricing.InputPricePerToken)
+	result.OutputPrice = float64ValuePtr(pricing.OutputPricePerToken)
+	result.CacheWritePrice = float64ValuePtr(pricing.CacheCreationPricePerToken)
+	result.CacheReadPrice = float64ValuePtr(pricing.CacheReadPricePerToken)
+	result.ImageInputPrice = float64ValuePtr(pricing.ImageInputPricePerToken)
+	result.ImageOutputPrice = float64ValuePtr(pricing.ImageOutputPricePerToken)
+	return result
+}
+
 func nonZeroPtr(v float64) *float64 {
 	if v == 0 {
 		return nil
 	}
+	return &v
+}
+
+func float64ValuePtr(v float64) *float64 {
 	return &v
 }

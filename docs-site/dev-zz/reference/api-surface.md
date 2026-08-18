@@ -351,6 +351,8 @@ owner analytics 已落地在用户认证域 `/api/v1/usage/analytics/*`。接口
 
 两个接口复用同一客户安全目录与交付投影。模型条目可选返回 `route_group_ids` 和 `supported_endpoints`：前者只包含本次响应可见、运行时仍可选择的分组；后者每项只包含协议、公共路径和已确认可发布该端点的可见 `group_ids`。只有定价模型能通过 active、可调度且模型匹配的账号形成稳定可调用路由时才返回。原有 Messages 兼容路径可提供 `/v1/messages`，Chat / Responses 则按账号实际选定的上游协议与明确能力证据形成原生或兼容交付。能力为 `unknown` 可保留既有兼容模型，但不发布未经证明的新端点；明确 `unsupported` 不允许被旧选择器绕过。不会返回账号、供应商、上游地址或故障转移拓扑。`GET /v1/models` 同步使用 new-api 兼容的可选字段 `supported_endpoint_types`，且复用同一稳定路由解析器。
 
+token 模型价格可选返回 `time_pricing`，包含 IANA `timezone`、未命中显式窗口时使用的 `default_label` 与 `default_multiplier`，以及非重叠的 `[start_time,end_time)` 规则；每条规则包含管理员配置的客户可见 `label` 和独立倍率。类型名称原样展示，不根据倍率高于、低于或等于 `1x` 推断。旧响应缺少 `default_multiplier` 时客户端按 `1x` 兼容。模型还可返回只针对本次响应可见分组的 `group_pricing`；前端按 `group_id` 选择最终获胜的 Group 模型价，没有覆盖时使用模型的 Channel / 全局展示价。`group_pricing` 不包含不可见分组，也不暴露成本、账号或路由信息。分时规则启用时，当前时段倍率直接替代公开分组默认倍率、登录用户专属倍率和旧 Group peak；未启用时才继续使用原有分组/用户倍率合同。当前 token 报价、时段表、导出和服务端扣费使用同一条件规则。详细合同见 [按量模型分时定价](../features/time-based-model-pricing.md)。
+
 `GET /api/v1/model-plaza` 的响应为公开说明和 `channels` 客户目录。即使请求携带普通用户 token，也不会追加专属分组、订阅分组或用户专属倍率；当 `model_plaza_require_auth=true` 时，token 只用于兼容存量的访问门禁。`model_plaza_enabled=false` 时接口返回 404。公开页面的完整范围见 [公开模型列表与价格页](../features/public-model-catalog.md)。
 
 dev-zz 前端基于这些接口分别构建公开模型列表和登录后的模型级表格、导出视图。具体展示口径见 [公开模型列表与价格页](../features/public-model-catalog.md) 与 [可用渠道模型广场与报价导出](../features/available-channels-model-marketplace.md)。

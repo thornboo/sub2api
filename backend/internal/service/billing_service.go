@@ -167,6 +167,11 @@ type CostBreakdown struct {
 	ActualCost                float64 // 应用倍率后的实际费用
 	BillingMode               string  // 计费模式（"token"/"per_request"/"image"），由 CalculateCostUnified 填充
 	LongContextBillingApplied bool
+	EffectiveRateMultiplier   float64
+	TimePricingMultiplier     float64
+	TimePricingTimezone       string
+	TimePricingLabel          string
+	TimePricingRule           *TimePricingRule
 }
 
 // ErrModelPricingUnavailable indicates that none of the configured pricing
@@ -1034,6 +1039,7 @@ type CostInput struct {
 	UsageUnits                float64 // 音频等连续计量单位（分钟/小时/百万字符）
 	SizeTier                  string  // 按次/图片模式的层级标签（"1K","2K","4K","HD" 等）
 	RateMultiplier            float64
+	PricingAt                 time.Time
 	ServiceTier               string                // "priority","flex","" 等
 	Resolver                  *ModelPricingResolver // 定价解析器
 	Resolved                  *ResolvedPricing      // 可选：预解析的定价结果（避免重复 Resolve 调用）
@@ -1073,6 +1079,7 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 	if input.RateMultiplier < 0 {
 		input.RateMultiplier = 0
 	}
+	input.RateMultiplier = resolveEffectiveTokenRateMultiplier(input, resolved)
 
 	var breakdown *CostBreakdown
 	var err error
@@ -1087,8 +1094,22 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 		if breakdown.BillingMode == "" {
 			breakdown.BillingMode = string(BillingModeToken)
 		}
+		if resolved.Mode == BillingModeToken && breakdown.EffectiveRateMultiplier == 0 && input.RateMultiplier != 0 {
+			breakdown.EffectiveRateMultiplier = input.RateMultiplier
+		}
 	}
 	return breakdown, err
+}
+
+func resolveEffectiveTokenRateMultiplier(input CostInput, resolved *ResolvedPricing) float64 {
+	if resolved == nil || resolved.Mode != BillingModeToken || resolved.TimePricing == nil || !resolved.TimePricing.IsActive() {
+		return input.RateMultiplier
+	}
+	applied := resolved.TimePricing.MultiplierAt(effectivePricingAt(input.PricingAt))
+	// An enabled model schedule is the complete customer-facing rate policy for
+	// that price entry. It replaces group defaults, user overrides, and legacy
+	// group peak rates instead of composing with them.
+	return applied.Multiplier
 }
 
 // calculateTokenCost 按 token 区间计费
@@ -1108,7 +1129,16 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 		applyLongCtx = applyLongCtx && *input.LongContextBillingEnabled
 	}
 
-	return s.computeTokenBreakdown(pricing, input.Tokens, input.RateMultiplier, input.ServiceTier, applyLongCtx), nil
+	breakdown := s.computeTokenBreakdown(pricing, input.Tokens, input.RateMultiplier, input.ServiceTier, applyLongCtx)
+	breakdown.EffectiveRateMultiplier = input.RateMultiplier
+	if resolved.TimePricing != nil && resolved.TimePricing.IsActive() {
+		applied := resolved.TimePricing.MultiplierAt(effectivePricingAt(input.PricingAt))
+		breakdown.TimePricingMultiplier = applied.Multiplier
+		breakdown.TimePricingTimezone = applied.Timezone
+		breakdown.TimePricingLabel = applied.Label
+		breakdown.TimePricingRule = applied.Rule
+	}
+	return breakdown, nil
 }
 
 // computeTokenBreakdown 是 token 计费的核心逻辑，由 calculateTokenCost 和 calculateCostInternal 共用。

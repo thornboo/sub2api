@@ -4688,10 +4688,13 @@ import PricingEntryCard from "@/components/admin/channel/PricingEntryCard.vue";
 import type { PricingFormEntry } from "@/components/admin/channel/types";
 import {
   apiIntervalsToForm,
+  apiTimePricingToForm,
   formIntervalsToAPI,
+  formTimePricingToAPI,
   mTokToPerToken,
   perTokenToMTok,
   toNullableNumber,
+  validateTimePricing,
 } from "@/components/admin/channel/types";
 import type { ChannelModelPricing } from "@/api/admin/channels";
 import { VueDraggable } from "vue-draggable-plus";
@@ -4760,6 +4763,7 @@ const emptyGroupPricing = (): PricingFormEntry => ({
   image_output_price: null,
   per_request_price: null,
   intervals: [],
+  time_pricing: undefined,
   self_check_enabled_models: [],
 });
 
@@ -4780,6 +4784,7 @@ const groupPricingFromAPI = (
     image_output_price: perTokenToMTok(entry.image_output_price),
     per_request_price: entry.per_request_price,
     intervals: apiIntervalsToForm(entry.intervals || []),
+    time_pricing: apiTimePricingToForm(entry.time_pricing),
     self_check_enabled_models: [],
   }));
 
@@ -4800,6 +4805,10 @@ const groupPricingToAPI = (
       image_input_price: mTokToPerToken(entry.image_input_price),
       image_output_price: mTokToPerToken(entry.image_output_price),
       per_request_price: toNullableNumber(entry.per_request_price),
+      time_pricing:
+        entry.billing_mode === "token"
+          ? formTimePricingToAPI(entry.time_pricing)
+          : undefined,
       self_check_enabled_models: [],
       intervals:
         entry.billing_mode === "token"
@@ -6240,6 +6249,18 @@ const validateProfitControlForm = (form: ProfitControlFormState): boolean => {
   return true;
 };
 
+const validateGroupTimePricing = (pricing: PricingFormEntry[]): boolean => {
+  for (const entry of pricing) {
+    const error = validateTimePricing(entry, t);
+    if (!error) continue;
+    const modelLabel =
+      entry.models.join(", ") || t("admin.channels.form.unnamed");
+    appStore.showError(`${modelLabel}: ${error}`);
+    return false;
+  }
+  return true;
+};
+
 const handleCreateGroup = async () => {
   if (!createForm.name.trim()) {
     appStore.showError(t("admin.groups.nameRequired"));
@@ -6253,6 +6274,9 @@ const handleCreateGroup = async () => {
     return;
   }
   if (!validateProfitControlForm(createForm)) {
+    return;
+  }
+  if (!validateGroupTimePricing(createForm.model_pricing)) {
     return;
   }
   submitting.value = true;
@@ -6532,6 +6556,9 @@ const handleUpdateGroup = async () => {
     return;
   }
   if (!validateProfitControlForm(editForm)) {
+    return;
+  }
+  if (!validateGroupTimePricing(editForm.model_pricing)) {
     return;
   }
 

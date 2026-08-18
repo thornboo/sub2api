@@ -7,6 +7,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/stretchr/testify/require"
 )
@@ -75,7 +76,7 @@ func newAvailableChannelService(channels []Channel, groupRepo GroupRepository) *
 	repo := &mockChannelRepository{
 		listAllFn: func(ctx context.Context) ([]Channel, error) { return channels, nil },
 	}
-	return NewChannelService(repo, groupRepo, nil, nil)
+	return NewChannelService(repo, groupRepo, nil, nil, nil)
 }
 
 func TestListAvailable_EmptyActiveGroups_NoGroupsAttached(t *testing.T) {
@@ -139,6 +140,108 @@ func TestListAvailable_ProjectsGroupImagePricing(t *testing.T) {
 	require.InDelta(t, 0.3, *group.ImagePrice4K, 1e-12)
 }
 
+func TestListAvailable_ProjectsWinningGroupModelTimePricing(t *testing.T) {
+	channelInput := 3.6e-6
+	groupInput := 2e-6
+	channels := []Channel{{
+		ID:       1,
+		Name:     "priced",
+		Status:   StatusActive,
+		GroupIDs: []int64{10},
+		ModelPricing: []ChannelModelPricing{{
+			Platform:    PlatformOpenAI,
+			Models:      []string{"deepseek-chat"},
+			BillingMode: BillingModeToken,
+			InputPrice:  &channelInput,
+		}},
+	}}
+	groupRepo := &stubGroupRepoForAvailable{activeGroups: []Group{{
+		ID:               10,
+		Name:             "standard",
+		Platform:         PlatformOpenAI,
+		SubscriptionType: SubscriptionTypeStandard,
+		ModelPricing: []ChannelModelPricing{{
+			Models:      []string{"deepseek-*"},
+			BillingMode: BillingModeToken,
+			InputPrice:  &groupInput,
+			TimePricing: &TimePricing{
+				Enabled:      true,
+				Timezone:     "Asia/Shanghai",
+				DefaultLabel: "regular",
+				Rules:        []TimePricingRule{{Label: "peak", StartTime: "09:00", EndTime: "12:00", Multiplier: 2}},
+			},
+		}},
+	}}}
+
+	out, err := newAvailableChannelService(channels, groupRepo).ListAvailable(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	require.Len(t, out[0].SupportedModels, 1)
+	model := out[0].SupportedModels[0]
+	require.InDelta(t, channelInput, *model.Pricing.InputPrice, 1e-12)
+	require.Contains(t, model.GroupPricing, int64(10))
+	require.InDelta(t, groupInput, *model.GroupPricing[10].InputPrice, 1e-12)
+	require.Equal(t, "Asia/Shanghai", model.GroupPricing[10].TimePricing.Timezone)
+	require.Equal(t, "regular", model.GroupPricing[10].TimePricing.DefaultLabel)
+	require.Equal(t, "peak", model.GroupPricing[10].TimePricing.Rules[0].Label)
+}
+
+func TestListAvailable_GroupScheduleOnlyUsesSettlementFallbackPrice(t *testing.T) {
+	const model = "claude-sonnet-4"
+	defaultMultiplier := 1.1
+	channels := []Channel{{
+		ID:       1,
+		Name:     "fallback-priced",
+		Status:   StatusActive,
+		GroupIDs: []int64{10},
+		ModelMapping: map[string]map[string]string{
+			PlatformAnthropic: {model: model},
+		},
+	}}
+	group := Group{
+		ID:               10,
+		Name:             "standard",
+		Platform:         PlatformAnthropic,
+		SubscriptionType: SubscriptionTypeStandard,
+		ModelPricing: []ChannelModelPricing{{
+			Models:      []string{model},
+			BillingMode: BillingModeToken,
+			TimePricing: &TimePricing{
+				Enabled:           true,
+				Timezone:          "Asia/Shanghai",
+				DefaultLabel:      "平时",
+				DefaultMultiplier: &defaultMultiplier,
+			},
+		}},
+	}
+	repo := &mockChannelRepository{
+		listAllFn: func(context.Context) ([]Channel, error) { return channels, nil },
+	}
+	billing := NewBillingService(&config.Config{}, nil)
+	svc := NewChannelService(repo, &stubGroupRepoForAvailable{activeGroups: []Group{group}}, nil, nil, billing)
+
+	out, err := svc.ListAvailable(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	require.Len(t, out[0].SupportedModels, 1)
+	modelView := out[0].SupportedModels[0]
+	require.NotNil(t, modelView.Pricing)
+	require.NotNil(t, modelView.Pricing.InputPrice)
+	require.NotNil(t, modelView.Pricing.OutputPrice)
+	require.Contains(t, modelView.GroupPricing, group.ID)
+	groupView := modelView.GroupPricing[group.ID]
+	require.NotNil(t, groupView.InputPrice)
+	require.NotNil(t, groupView.OutputPrice)
+	require.NotNil(t, groupView.TimePricing)
+
+	settlementBase, err := billing.GetModelPricing(model)
+	require.NoError(t, err)
+	require.InDelta(t, settlementBase.InputPricePerToken, *groupView.InputPrice, 1e-12)
+	require.InDelta(t, settlementBase.OutputPricePerToken, *groupView.OutputPrice, 1e-12)
+	require.InDelta(t, *modelView.Pricing.InputPrice, *groupView.InputPrice, 1e-12)
+	require.InDelta(t, *modelView.Pricing.OutputPrice, *groupView.OutputPrice, 1e-12)
+}
+
 func TestListAvailable_SortedByName(t *testing.T) {
 	channels := []Channel{
 		{ID: 1, Name: "beta"},
@@ -161,7 +264,7 @@ func TestListAvailable_ListAllErrorPropagates(t *testing.T) {
 		listAllFn: func(ctx context.Context) ([]Channel, error) { return nil, sentinel },
 	}
 	groupRepo := &stubGroupRepoForAvailable{}
-	svc := NewChannelService(repo, groupRepo, nil, nil)
+	svc := NewChannelService(repo, groupRepo, nil, nil, nil)
 	out, err := svc.ListAvailable(context.Background())
 	require.Nil(t, out)
 	require.ErrorIs(t, err, sentinel)

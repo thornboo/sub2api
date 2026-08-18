@@ -103,6 +103,7 @@ type ChannelModelPricing struct {
 	ImageOutputPrice *float64          `json:"image_output_price"`
 	PerRequestPrice  *float64          `json:"per_request_price"`
 	Intervals        []PricingInterval `json:"intervals"`
+	TimePricing      *TimePricing      `json:"time_pricing,omitempty"`
 	// SelfCheckEnabledModels 是渠道定价页的模型自检开关。
 	// 实际持久化按 (channel_id, model) 写入 model_self_check_config。
 	SelfCheckEnabledModels []string
@@ -200,6 +201,10 @@ func (p ChannelModelPricing) Clone() ChannelModelPricing {
 	if p.Intervals != nil {
 		cp.Intervals = make([]PricingInterval, len(p.Intervals))
 		copy(cp.Intervals, p.Intervals)
+	}
+	if p.TimePricing != nil {
+		timePricing := p.TimePricing.Clone()
+		cp.TimePricing = &timePricing
 	}
 	if p.SelfCheckEnabledModels != nil {
 		cp.SelfCheckEnabledModels = make([]string, len(p.SelfCheckEnabledModels))
@@ -517,9 +522,10 @@ type ChannelUsageFields struct {
 
 // SupportedModel 渠道的一个支持模型条目（无通配符、可直接展示给用户）
 type SupportedModel struct {
-	Name     string               // 用户侧模型名
-	Platform string               // 所属平台
-	Pricing  *ChannelModelPricing // 定价详情（nil 表示未配置定价）
+	Name         string                         // 用户侧模型名
+	Platform     string                         // 所属平台
+	Pricing      *ChannelModelPricing           // 渠道/全局展示定价（nil 表示未配置定价）
+	GroupPricing map[int64]*ChannelModelPricing // 分组模型价覆盖；仅包含实际命中的分组
 }
 
 // wildcardSuffix 是模型模式中的通配符后缀标记（仅支持尾部匹配）。

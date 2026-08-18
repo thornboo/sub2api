@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { defineComponent } from 'vue'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import AvailableModelMarketplace from '../AvailableModelMarketplace.vue'
 import type { AvailableModelMarketplaceCard } from '@/utils/availableModelMarketplace'
@@ -122,8 +122,12 @@ const PlatformIconStub = defineComponent({
 })
 
 const GroupBadgeStub = defineComponent({
-  props: { name: String },
-  template: '<span class="group-badge">{{ name }}</span>',
+  props: {
+    name: String,
+    rateMultiplier: Number,
+    showRate: { type: Boolean, default: true },
+  },
+  template: '<span class="group-badge">{{ name }}<span v-if="showRate && rateMultiplier !== undefined" data-testid="group-rate">{{ rateMultiplier }}x</span></span>',
 })
 
 function mountMarketplace(overrides: Partial<InstanceType<typeof AvailableModelMarketplace>['$props']> = {}) {
@@ -156,6 +160,10 @@ function mountMarketplace(overrides: Partial<InstanceType<typeof AvailableModelM
 }
 
 describe('AvailableModelMarketplace', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('separates model cards by group and keeps each group route inside its own section', () => {
     const wrapper = mountMarketplace()
     const publicSection = wrapper.get('[data-group-id="1"]')
@@ -197,7 +205,7 @@ describe('AvailableModelMarketplace', () => {
     expect(publicSection.get('[data-testid="price-discount"]').text()).toBe(
       'availableChannels.modelMarketplace.savings:20',
     )
-    expect(publicSection.find('[data-testid="price-group-rate"]').exists()).toBe(false)
+    expect(publicSection.find('[data-testid="price-effective-rate"]').exists()).toBe(false)
     groupRate.unmount()
 
     const userRate = mountMarketplace({
@@ -214,7 +222,7 @@ describe('AvailableModelMarketplace', () => {
     )
   })
 
-  it('labels group surcharges without presenting them as savings', () => {
+  it('shows final surcharge prices without exposing internal multipliers', () => {
     const surchargeCard: AvailableModelMarketplaceCard = {
       ...cards[0],
       group: {
@@ -232,10 +240,9 @@ describe('AvailableModelMarketplace', () => {
     expect(card.get('[data-testid="effective-output-price"]').text()).toBe('$10')
     expect(card.get('[data-testid="original-input-price"]').text()).toBe('$0.8')
     expect(card.get('[data-testid="original-output-price"]').text()).toBe('$4')
-    expect(card.get('[data-testid="price-group-rate"]').text()).toBe(
-      'availableChannels.modelMarketplace.currentGroupRate:2.5x',
-    )
+    expect(card.find('[data-testid="price-effective-rate"]').exists()).toBe(false)
     expect(card.find('[data-testid="price-discount"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="group-rate"]').exists()).toBe(false)
   })
 
   it('does not repeat an identical original price for a 1x rate', () => {
@@ -317,5 +324,62 @@ describe('AvailableModelMarketplace', () => {
     expect(text).toContain('1K: $0.02')
     expect(text).not.toContain('$0.00003')
     expect(text).not.toContain('$0.002')
+  })
+
+  it('shows configured type names and replaces group and user rates with the scheduled rate', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-17T01:30:00.000Z'))
+
+    const timePricing = {
+      ...pricing,
+      cache_write_price: 0,
+      cache_read_price: 0.00000012,
+      time_pricing: {
+        enabled: true,
+        timezone: 'Asia/Shanghai',
+        default_label: '平时',
+        default_multiplier: 1.1,
+        rules: [
+          { label: '上午繁忙', start_time: '09:00', end_time: '12:00', multiplier: 2 },
+          { label: '夜间优惠', start_time: '23:00', end_time: '07:00', multiplier: 0.5 },
+        ],
+      },
+    }
+    const timeCard: AvailableModelMarketplaceCard = {
+      ...cards[0],
+      pricingOptions: [timePricing],
+      routes: cards[0].routes.map((route) => ({ ...route, pricing: timePricing })),
+    }
+
+    const wrapper = mountMarketplace({
+      cards: [timeCard],
+      applyRateMultiplier: true,
+      userGroupRates: { 1: 0.7 },
+    })
+    const card = wrapper.get('[data-testid="available-model-card"]')
+    const rows = card.findAll('[data-testid="time-pricing-row"]')
+
+    expect(card.get('[data-testid="effective-input-price"]').text()).toBe('$1.6')
+    expect(card.get('[data-testid="effective-output-price"]').text()).toBe('$8')
+    expect(card.get('[data-testid="original-input-price"]').text()).toBe('$0.8')
+    expect(card.find('[data-testid="price-effective-rate"]').exists()).toBe(false)
+    expect(card.text()).toContain('availableChannels.modelMarketplace.timePricing.title')
+    expect(card.text()).toContain('Asia/Shanghai')
+    expect(rows).toHaveLength(3)
+    expect(rows[0].text()).toContain('availableChannels.modelMarketplace.timePricing.otherTimes')
+    expect(rows[0].text()).toContain('平时')
+    expect(rows[0].text()).toContain('1.1x')
+    expect(rows[0].text()).toContain('$0.8800')
+    expect(rows[1].text()).toContain('09:00-12:00')
+    expect(rows[1].text()).toContain('availableChannels.modelMarketplace.timePricing.active')
+    expect(rows[1].text()).toContain('上午繁忙')
+    expect(rows[1].text()).toContain('2x')
+    expect(rows[1].text()).toContain('$1.6000')
+    expect(rows[1].text()).toContain('$8.0000')
+    expect(rows[1].text()).toContain('$0.0000')
+    expect(rows[1].text()).toContain('$0.2400')
+    expect(rows[2].text()).toContain('23:00-07:00')
+    expect(rows[2].text()).toContain('夜间优惠')
+    expect(card.text()).not.toContain('availableChannels.modelMarketplace.timePricing.types.peak')
   })
 })

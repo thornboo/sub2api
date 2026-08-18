@@ -66,6 +66,24 @@ func TestToUserSupportedModels_NilAllowedPlatformsKeepsAll(t *testing.T) {
 	require.Len(t, toUserSupportedModels(src, nil), 2)
 }
 
+func TestToUserSupportedModels_FiltersGroupPricingByVisibleGroup(t *testing.T) {
+	price := 2e-6
+	src := []service.SupportedModel{{
+		Name:     "deepseek-chat",
+		Platform: "openai",
+		GroupPricing: map[int64]*service.ChannelModelPricing{
+			1: {BillingMode: service.BillingModeToken, InputPrice: &price},
+			2: {BillingMode: service.BillingModeToken, InputPrice: &price},
+		},
+	}}
+	visible := map[int64]struct{}{1: {}}
+
+	out := toUserSupportedModels(src, nil, visible)
+	require.Len(t, out, 1)
+	require.Len(t, out[0].GroupPricing, 1)
+	require.Equal(t, int64(1), out[0].GroupPricing[0].GroupID)
+}
+
 func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 	// 通过序列化 userAvailableChannel 结构体验证响应形状：
 	// 只有 name / description / platforms；不含管理端字段。
@@ -122,8 +140,22 @@ func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 	require.False(t, exposesDispatchPolicy, "group DTO must not expose internal endpoint policy fields")
 
 	// pricing interval 白名单：不应暴露 id / sort_order。
+	defaultMultiplier := 0.8
+	sourceTimePricing := &service.TimePricing{
+		Enabled:           true,
+		Timezone:          "Asia/Shanghai",
+		DefaultLabel:      "平时",
+		DefaultMultiplier: &defaultMultiplier,
+		Rules: []service.TimePricingRule{{
+			Label:      "上午繁忙",
+			StartTime:  "09:00",
+			EndTime:    "12:00",
+			Multiplier: 2,
+		}},
+	}
 	pricing := toUserPricing(&service.ChannelModelPricing{
 		BillingMode: service.BillingModeToken,
+		TimePricing: sourceTimePricing,
 		Intervals: []service.PricingInterval{
 			{ID: 7, MinTokens: 0, MaxTokens: nil, SortOrder: 3},
 		},
@@ -138,6 +170,22 @@ func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 		_, exists := ivDecoded[key]
 		require.Falsef(t, exists, "user pricing interval must not expose %q", key)
 	}
+
+	// 分时类型名称是管理员配置的客户文案，与倍率相互独立，并原样进入客户目录。
+	require.NotNil(t, pricing.TimePricing)
+	rawTimePricing, err := json.Marshal(pricing.TimePricing)
+	require.NoError(t, err)
+	var timePricingDecoded map[string]any
+	require.NoError(t, json.Unmarshal(rawTimePricing, &timePricingDecoded))
+	require.Equal(t, "平时", timePricingDecoded["default_label"])
+	require.Equal(t, 0.8, timePricingDecoded["default_multiplier"])
+	rules, ok := timePricingDecoded["rules"].([]any)
+	require.True(t, ok)
+	require.Len(t, rules, 1)
+	rule, ok := rules[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "上午繁忙", rule["label"])
+	require.Equal(t, "上午繁忙", sourceTimePricing.Rules[0].Label)
 }
 
 func TestBuildPlatformSections_GroupsByPlatform(t *testing.T) {

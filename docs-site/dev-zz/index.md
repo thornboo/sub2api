@@ -31,6 +31,7 @@
 
 | 状态 | 文档 | 当前口径 |
 | --- | --- | --- |
+| 已落地 | [按量模型分时定价](./features/time-based-model-pricing.md) | 分时规则属于 Group / Channel 逐模型 token 价格，不依赖订阅；支持多窗口、跨午夜、IANA 时区、客户实际价格表和请求级审计快照。 |
 | 已落地 | [公开模型列表与价格页](./features/public-model-catalog.md) | 从 Home 进入的独立免登录页面；只展示普通新用户默认可见的公开标准分组、模型、公开倍率、价格和客户可调用端点。 |
 | 已落地 | [可用渠道模型广场与报价导出](./features/available-channels-model-marketplace.md) | 用户侧模型表格、当前可见报价导出和管理员全量目录导出已实现。 |
 | 目标设计 | [模型级原生多协议能力与路由](./features/model-multi-protocol-capabilities-and-routing.md) | 第一阶段聚焦一个上游账号、一个模型支持多个原生文本协议；原生候选优先，存量转换路径保持兼容兜底。 |

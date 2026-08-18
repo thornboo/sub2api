@@ -3,12 +3,17 @@
 package repository
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"testing"
+	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
@@ -249,4 +254,81 @@ func TestChannelListOrderBy_AllowsDescendingIDSort(t *testing.T) {
 	}
 
 	require.Equal(t, "c.id DESC, c.id DESC", channelListOrderBy(params))
+}
+
+func TestListModelPricingRoundTripsTimePricing(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	now := time.Now()
+	timePricingJSON := []byte(`{"enabled":true,"timezone":"Asia/Shanghai","default_label":"regular","default_multiplier":0.8,"rules":[{"label":"peak","start_time":"09:00","end_time":"12:00","multiplier":2}]}`)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, channel_id, sort_order, platform, models, billing_mode, input_price, output_price, cache_write_price, cache_read_price, image_input_price, image_output_price, per_request_price, time_pricing, created_at, updated_at
+		 FROM channel_model_pricing WHERE channel_id = $1 ORDER BY platform, sort_order, id`)).
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "channel_id", "sort_order", "platform", "models", "billing_mode",
+			"input_price", "output_price", "cache_write_price", "cache_read_price",
+			"image_input_price", "image_output_price", "per_request_price", "time_pricing",
+			"created_at", "updated_at",
+		}).AddRow(int64(11), int64(7), 0, "anthropic", []byte(`["claude-sonnet-4"]`), service.BillingModeToken,
+			1e-6, 2e-6, nil, nil, nil, nil, nil, timePricingJSON, now, now))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, pricing_id, min_tokens, max_tokens, tier_label,
+		        input_price, output_price, cache_write_price, cache_read_price,
+		        per_request_price, sort_order, created_at, updated_at
+		 FROM channel_pricing_intervals
+		 WHERE pricing_id = ANY($1) ORDER BY pricing_id, sort_order, id`)).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "pricing_id", "min_tokens", "max_tokens", "tier_label",
+			"input_price", "output_price", "cache_write_price", "cache_read_price",
+			"per_request_price", "sort_order", "created_at", "updated_at",
+		}))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT channel_id, model, enabled
+		 FROM model_self_check_config
+		 WHERE channel_id = ANY($1)`)).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"channel_id", "model", "enabled"}))
+
+	repo := &channelRepository{db: db}
+	got, err := repo.ListModelPricing(context.Background(), 7)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.NotNil(t, got[0].TimePricing)
+	require.Equal(t, "Asia/Shanghai", got[0].TimePricing.Timezone)
+	require.Equal(t, "regular", got[0].TimePricing.DefaultLabel)
+	require.NotNil(t, got[0].TimePricing.DefaultMultiplier)
+	require.Equal(t, 0.8, *got[0].TimePricing.DefaultMultiplier)
+	require.Equal(t, 2.0, got[0].TimePricing.Rules[0].Multiplier)
+	require.Equal(t, "peak", got[0].TimePricing.Rules[0].Label)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestTimePricingJSONPreservesDisabledSchedule(t *testing.T) {
+	defaultMultiplier := 0.8
+	original := &service.TimePricing{
+		Enabled:           false,
+		Timezone:          "Asia/Shanghai",
+		DefaultLabel:      "平时",
+		DefaultMultiplier: &defaultMultiplier,
+		Rules: []service.TimePricingRule{{
+			Label:      "高峰",
+			StartTime:  "09:00",
+			EndTime:    "12:00",
+			Multiplier: 2,
+		}},
+	}
+
+	encoded := marshalTimePricing(original)
+	require.NotEqual(t, `{}`, string(encoded))
+	restored := unmarshalTimePricing(encoded)
+	require.NotNil(t, restored)
+	require.False(t, restored.Enabled)
+	require.Equal(t, "Asia/Shanghai", restored.Timezone)
+	require.Equal(t, "平时", restored.DefaultLabel)
+	require.NotNil(t, restored.DefaultMultiplier)
+	require.Equal(t, 0.8, *restored.DefaultMultiplier)
+	require.Len(t, restored.Rules, 1)
+	require.Equal(t, "高峰", restored.Rules[0].Label)
+	require.Equal(t, 2.0, restored.Rules[0].Multiplier)
 }

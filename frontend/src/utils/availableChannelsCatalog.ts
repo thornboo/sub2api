@@ -1,8 +1,11 @@
 import type {
+  UserTimePricing,
+  UserTimePricingRule,
   UserAvailableChannel,
   UserAvailableGroup,
   UserPricingInterval,
   UserSupportedModelPricing,
+  UserSupportedModel,
 } from '@/api/channels'
 import {
   BILLING_MODE_IMAGE,
@@ -30,7 +33,6 @@ export type AvailableChannelSortKey =
   | 'cacheReadPrice'
   | 'imageOutputPrice'
   | 'perRequestPrice'
-
 export interface AvailableChannelCatalogRow {
   id: string
   channelName: string
@@ -66,6 +68,21 @@ export interface AvailableChannelPricingLabels {
   noPricing: string
   unitPerMillion: string
   unitPerRequest: string
+}
+
+export interface TimePricingDisplayRow {
+  id: string
+  source: 'implicit' | 'rule'
+  startTime: string | null
+  endTime: string | null
+  windowLabel: string
+  label: string
+  multiplier: number
+  active: boolean
+  inputPrice: number | null
+  outputPrice: number | null
+  cacheWritePrice: number | null
+  cacheReadPrice: number | null
 }
 
 export interface AvailableChannelExportLabels extends AvailableChannelPricingLabels {
@@ -122,8 +139,6 @@ export function buildAvailableChannelCatalogRows(
       if (sectionGroups.length > 0 && groups.length === 0) return
 
       supportedModels.forEach((model, modelIndex) => {
-        if (options.billingMode && model.pricing?.billing_mode !== options.billingMode) return
-
         const modelGroups = resolveAvailableModelGroupContexts(model, groups)
           .map(({ group }) => group)
         const callabilityMetadataPresent = Array.isArray(model.route_group_ids)
@@ -134,7 +149,8 @@ export function buildAvailableChannelCatalogRows(
 
         groupRows.forEach((rowGroups, groupIndex) => {
           const group = rowGroups[0] ?? null
-          const pricing = resolveAvailableGroupDisplayPricing(model.pricing, group)
+          const pricing = resolveAvailableModelGroupPricing(model, group)
+          if (options.billingMode && pricing?.billing_mode !== options.billingMode) return
           const intervals = expandIntervals ? getValuedIntervals(pricing) : []
           const baseRow = {
             channelName: channel.name,
@@ -225,6 +241,11 @@ export function formatCompactTokenPrice(value: number | null): string {
   return formatScaled(value, PER_MILLION_SCALE)
 }
 
+export function formatTimePricingTokenPrice(value: number | null): string {
+  if (value == null) return '—'
+  return formatScaled(value, PER_MILLION_SCALE, 4)
+}
+
 export function formatRequestPrice(value: number | null, labels: AvailableChannelPricingLabels): string {
   if (value == null) return '-'
   return `${formatScaled(value, 1)} ${labels.unitPerRequest}`
@@ -311,9 +332,77 @@ export function resolveAvailableGroupDisplayPricing(
   return { ...pricing, intervals }
 }
 
+export function resolveAvailableModelGroupPricing(
+  model: Pick<UserSupportedModel, 'pricing' | 'group_pricing'>,
+  group: UserAvailableGroup | null | undefined,
+): UserSupportedModelPricing | null {
+  const groupPricing = group == null
+    ? undefined
+    : arrayOrEmpty(model.group_pricing).find((entry) => entry.group_id === group.id)?.pricing
+  return resolveAvailableGroupDisplayPricing(groupPricing ?? model.pricing, group)
+}
+
 export function formatRateMultiplier(rate: number | null | undefined): string {
   if (rate == null) return '1x'
   return `${Number(rate.toFixed(4)).toString()}x`
+}
+
+export function hasEnabledTimePricing(
+  pricing: Pick<UserSupportedModelPricing, 'billing_mode' | 'time_pricing'> | null | undefined,
+): boolean {
+  return pricing?.billing_mode === BILLING_MODE_TOKEN
+    && Boolean(pricing.time_pricing?.enabled)
+    && isValidTimeZone(pricing.time_pricing?.timezone)
+}
+
+export function getActiveTimePricingMultiplier(
+  pricing: Pick<UserSupportedModelPricing, 'billing_mode' | 'time_pricing'> | null | undefined,
+  at: Date = new Date(),
+): number {
+  if (!hasEnabledTimePricing(pricing)) return 1
+  const activeRule = findActiveTimePricingRule(pricing?.time_pricing, at)
+  return activeRule == null
+    ? resolveDefaultTimePricingMultiplier(pricing?.time_pricing)
+    : normalizeTimePricingMultiplier(activeRule.multiplier)
+}
+
+export function buildTimePricingDisplayRows(
+  pricing: UserSupportedModelPricing,
+  labels: { otherTimes: string; unnamedType: string },
+  at: Date = new Date(),
+): TimePricingDisplayRow[] {
+  if (!hasEnabledTimePricing(pricing)) return []
+
+  const timePricing = pricing.time_pricing as UserTimePricing
+  const activeRule = findActiveTimePricingRule(timePricing, at)
+  const explicitRows = timePricing.rules
+    .filter((rule) => isValidRuleShape(rule))
+    .map((rule, index) => buildTimePricingRow({
+      id: `rule-${index}-${rule.start_time}-${rule.end_time}`,
+      source: 'rule',
+      startTime: rule.start_time,
+      endTime: rule.end_time,
+      windowLabel: formatTimePricingWindow(rule.start_time, rule.end_time),
+      label: normalizeTimePricingLabel(rule.label, labels.unnamedType),
+      multiplier: normalizeTimePricingMultiplier(rule.multiplier),
+      active: rule === activeRule,
+      pricing,
+    }))
+
+  return [
+    buildTimePricingRow({
+      id: 'implicit-default',
+      source: 'implicit',
+      startTime: null,
+      endTime: null,
+      windowLabel: labels.otherTimes,
+      label: normalizeTimePricingLabel(timePricing.default_label, labels.unnamedType),
+      multiplier: resolveDefaultTimePricingMultiplier(timePricing),
+      active: activeRule == null,
+      pricing,
+    }),
+    ...explicitRows,
+  ]
 }
 
 export function formatChannelStatus(
@@ -384,33 +473,43 @@ export function rowHasPricing(row: Pick<AvailableChannelCatalogRow, 'pricing' | 
 export function getRowInputPrice(row: AvailableChannelCatalogRow): number | null {
   return applyRowRateMultiplier(
     row.interval ? row.interval.input_price : row.pricing?.input_price ?? null,
-    row.effectiveRateMultiplier,
+    rowTokenRateMultiplier(row),
   )
 }
 
 export function getRowOutputPrice(row: AvailableChannelCatalogRow): number | null {
   return applyRowRateMultiplier(
     row.interval ? row.interval.output_price : row.pricing?.output_price ?? null,
-    row.effectiveRateMultiplier,
+    rowTokenRateMultiplier(row),
   )
 }
 
 export function getRowCacheWritePrice(row: AvailableChannelCatalogRow): number | null {
   return applyRowRateMultiplier(
     row.interval ? row.interval.cache_write_price : row.pricing?.cache_write_price ?? null,
-    row.effectiveRateMultiplier,
+    rowTokenRateMultiplier(row),
   )
 }
 
 export function getRowCacheReadPrice(row: AvailableChannelCatalogRow): number | null {
   return applyRowRateMultiplier(
     row.interval ? row.interval.cache_read_price : row.pricing?.cache_read_price ?? null,
-    row.effectiveRateMultiplier,
+    rowTokenRateMultiplier(row),
   )
 }
 
 export function getRowImageOutputPrice(row: AvailableChannelCatalogRow): number | null {
-  return applyRowRateMultiplier(row.pricing?.image_output_price ?? null, row.effectiveRateMultiplier)
+  const multiplier = row.pricing?.billing_mode === BILLING_MODE_TOKEN
+    ? rowTokenRateMultiplier(row)
+    : row.effectiveRateMultiplier
+  return applyRowRateMultiplier(row.pricing?.image_output_price ?? null, multiplier)
+}
+
+function rowTokenRateMultiplier(row: AvailableChannelCatalogRow): number {
+  if (hasEnabledTimePricing(row.pricing)) {
+    return getActiveTimePricingMultiplier(row.pricing)
+  }
+  return row.effectiveRateMultiplier
 }
 
 export function getRowPerRequestPrice(row: AvailableChannelCatalogRow): number | null {
@@ -600,6 +699,126 @@ function compareDefaultOrder(a: AvailableChannelCatalogRow, b: AvailableChannelC
 
 function applyRowRateMultiplier(value: number | null, multiplier: number): number | null {
   return value == null ? null : value * multiplier
+}
+
+function buildTimePricingRow(options: {
+  id: string
+  source: 'implicit' | 'rule'
+  startTime: string | null
+  endTime: string | null
+  windowLabel: string
+  label: string
+  multiplier: number
+  active: boolean
+  pricing: UserSupportedModelPricing
+}): TimePricingDisplayRow {
+  const multiplier = normalizeTimePricingMultiplier(options.multiplier)
+  const scale = (value: number | null) => applyRowRateMultiplier(value, multiplier)
+  return {
+    id: options.id,
+    source: options.source,
+    startTime: options.startTime,
+    endTime: options.endTime,
+    windowLabel: options.windowLabel,
+    label: options.label,
+    multiplier,
+    active: options.active,
+    inputPrice: scale(options.pricing.input_price),
+    outputPrice: scale(options.pricing.output_price),
+    cacheWritePrice: scale(options.pricing.cache_write_price),
+    cacheReadPrice: scale(options.pricing.cache_read_price),
+  }
+}
+
+function findActiveTimePricingRule(
+  timePricing: UserTimePricing | null | undefined,
+  at: Date,
+): UserTimePricingRule | null {
+  if (!timePricing?.enabled || !isValidTimeZone(timePricing.timezone)) return null
+  const minuteOfDay = getZonedMinuteOfDay(at, timePricing.timezone)
+  if (minuteOfDay == null) return null
+  return arrayOrEmpty(timePricing.rules).find((rule) => {
+    if (!isValidRuleShape(rule)) return false
+    return isMinuteInTimePricingWindow(
+      minuteOfDay,
+      parseTimeToMinute(rule.start_time) as number,
+      parseTimeToMinute(rule.end_time) as number,
+    )
+  }) ?? null
+}
+
+function isMinuteInTimePricingWindow(minuteOfDay: number, startMinute: number, endMinute: number): boolean {
+  if (startMinute === endMinute) return false
+  if (startMinute < endMinute) {
+    return minuteOfDay >= startMinute && minuteOfDay < endMinute
+  }
+  return minuteOfDay >= startMinute || minuteOfDay < endMinute
+}
+
+function getZonedMinuteOfDay(at: Date, timezone: string): number | null {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      hourCycle: 'h23',
+    }).formatToParts(at)
+    const hour = Number(parts.find((part) => part.type === 'hour')?.value)
+    const minute = Number(parts.find((part) => part.type === 'minute')?.value)
+    if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null
+    return hour * 60 + minute
+  } catch {
+    return null
+  }
+}
+
+function isValidTimeZone(timezone: string | null | undefined): boolean {
+  if (!timezone) return false
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date())
+    return true
+  } catch {
+    return false
+  }
+}
+
+function isValidRuleShape(rule: UserTimePricingRule | null | undefined): rule is UserTimePricingRule {
+  if (!rule) return false
+  const start = parseTimeToMinute(rule.start_time)
+  const end = parseTimeToMinute(rule.end_time)
+  return start != null
+    && end != null
+    && start !== end
+    && Number.isFinite(rule.multiplier)
+    && rule.multiplier >= 0
+    && rule.multiplier <= 100
+}
+
+function parseTimeToMinute(value: string | null | undefined): number | null {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value ?? '')
+  if (!match) return null
+  return Number(match[1]) * 60 + Number(match[2])
+}
+
+function formatTimePricingWindow(startTime: string, endTime: string): string {
+  return `${startTime}-${endTime}`
+}
+
+function normalizeTimePricingMultiplier(multiplier: number): number {
+  if (!Number.isFinite(multiplier) || multiplier < 0 || multiplier > 100) return 1
+  return multiplier
+}
+
+function resolveDefaultTimePricingMultiplier(
+  timePricing: UserTimePricing | null | undefined,
+): number {
+  return normalizeTimePricingMultiplier(timePricing?.default_multiplier ?? 1)
+}
+
+function normalizeTimePricingLabel(label: string | null | undefined, fallback: string): string {
+  const normalized = label?.trim()
+  return normalized || fallback
 }
 
 function formatIntervalRange(min: number, max: number | null): string {

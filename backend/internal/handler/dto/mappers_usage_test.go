@@ -159,6 +159,7 @@ func TestUsageLogFromServiceAdmin_IncludesScheduleMetaAdminOnly(t *testing.T) {
 			ShadowLegacyGroups:  2,
 			ShadowPlannedGroups: 1,
 			ShadowPrunedGroups:  1,
+			TimePricingLabel:    "工作日高峰",
 		},
 	}
 
@@ -173,6 +174,7 @@ func TestUsageLogFromServiceAdmin_IncludesScheduleMetaAdminOnly(t *testing.T) {
 	require.Equal(t, int64(9), adminDTO.ScheduleMeta.SelectedAccountID)
 	require.Equal(t, service.UsageShadowDiffLegacySuccessNewPruned, adminDTO.ScheduleMeta.ShadowDiffType)
 	require.Equal(t, []string{"model_unpublished"}, adminDTO.ScheduleMeta.ShadowReasonCodes)
+	require.Equal(t, "工作日高峰", adminDTO.ScheduleMeta.TimePricingLabel)
 
 	userJSON, err := json.Marshal(userDTO)
 	require.NoError(t, err)
@@ -183,6 +185,7 @@ func TestUsageLogFromServiceAdmin_IncludesScheduleMetaAdminOnly(t *testing.T) {
 	adminJSON, err := json.Marshal(adminDTO)
 	require.NoError(t, err)
 	require.Contains(t, string(adminJSON), `"schedule_meta"`)
+	require.Contains(t, string(adminJSON), `"time_pricing_label":"工作日高峰"`)
 	require.Contains(t, string(adminJSON), `"candidate_count":3`)
 	require.Contains(t, string(adminJSON), `"shadow_diff_type":"legacy_success_new_pruned"`)
 	require.Contains(t, string(adminJSON), `"shadow_reason_codes":["model_unpublished"]`)

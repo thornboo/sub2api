@@ -103,6 +103,57 @@ func TestRecordCyberPolicyUsageLog_BillsRealUpstreamTokens(t *testing.T) {
 	require.InDelta(t, expected.ActualCost, userRepo.lastAmount, 1e-12)
 }
 
+func TestRecordCyberPolicyUsageLog_UsesOriginalRequestPricingAt(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{}, nil)
+	svc.resolver = NewModelPricingResolver(nil, svc.billingService)
+
+	groupID := int64(7301)
+	price := 2e-6
+	defaultMultiplier := 0.5
+	group := &Group{
+		ID:             groupID,
+		RateMultiplier: 1,
+		ModelPricing: []ChannelModelPricing{{
+			Models:      []string{"gpt-5.1"},
+			BillingMode: BillingModeToken,
+			InputPrice:  &price,
+			OutputPrice: &price,
+			TimePricing: &TimePricing{
+				Enabled:           true,
+				Timezone:          "Asia/Shanghai",
+				DefaultLabel:      "off-peak",
+				DefaultMultiplier: &defaultMultiplier,
+				Rules: []TimePricingRule{{
+					Label:      "peak",
+					StartTime:  "09:00",
+					EndTime:    "12:00",
+					Multiplier: 10,
+				}},
+			},
+		}},
+	}
+	pricingAt := time.Date(2026, time.January, 2, 1, 30, 0, 0, time.UTC) // 09:30 Asia/Shanghai
+
+	svc.RecordCyberPolicyUsageLog(context.Background(), CyberPolicyUsageInput{
+		APIKey:      &APIKey{ID: 2, User: &User{ID: 1}, GroupID: &groupID, Group: group},
+		Account:     &Account{ID: 3},
+		PricingAt:   pricingAt,
+		RequestID:   "rid-cyber-pricing-at",
+		Model:       "gpt-5.1",
+		InputTokens: 100,
+	})
+
+	require.Equal(t, 1, usageRepo.calls)
+	require.NotNil(t, usageRepo.lastLog)
+	require.InDelta(t, 100*price*10, usageRepo.lastLog.ActualCost, 1e-12)
+	require.NotNil(t, usageRepo.lastLog.ScheduleMeta)
+	require.NotNil(t, usageRepo.lastLog.ScheduleMeta.PricingAt)
+	require.True(t, usageRepo.lastLog.ScheduleMeta.PricingAt.Equal(pricingAt))
+	require.Equal(t, "peak", usageRepo.lastLog.ScheduleMeta.TimePricingLabel)
+}
+
 func TestRecordCyberPolicyUsageLog_NonStreamZeroTokensZeroCost(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	userRepo := &openAIRecordUsageUserRepoStub{}

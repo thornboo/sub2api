@@ -88,6 +88,24 @@ type userSupportedModelPricing struct {
 	ImageOutputPrice *float64                 `json:"image_output_price"`
 	PerRequestPrice  *float64                 `json:"per_request_price"`
 	Intervals        []userPricingIntervalDTO `json:"intervals"`
+	TimePricing      *userTimePricing         `json:"time_pricing,omitempty"`
+}
+
+// userTimePricing 是客户目录可见的分时售价合同。类型名称是管理员明确
+// 配置的客户文案，与倍率相互独立。
+type userTimePricing struct {
+	Enabled           bool                  `json:"enabled"`
+	Timezone          string                `json:"timezone"`
+	DefaultLabel      string                `json:"default_label"`
+	DefaultMultiplier *float64              `json:"default_multiplier,omitempty"`
+	Rules             []userTimePricingRule `json:"rules"`
+}
+
+type userTimePricingRule struct {
+	Label      string  `json:"label"`
+	StartTime  string  `json:"start_time"`
+	EndTime    string  `json:"end_time"`
+	Multiplier float64 `json:"multiplier"`
 }
 
 // userPricingIntervalDTO 定价区间白名单（去掉内部 ID、SortOrder 等前端不渲染的字段）。
@@ -107,8 +125,14 @@ type userSupportedModel struct {
 	Name               string                     `json:"name"`
 	Platform           string                     `json:"platform"`
 	Pricing            *userSupportedModelPricing `json:"pricing"`
+	GroupPricing       []userGroupModelPricing    `json:"group_pricing,omitempty"`
 	RouteGroupIDs      []int64                    `json:"route_group_ids,omitempty"`
 	SupportedEndpoints []userSupportedEndpoint    `json:"supported_endpoints,omitempty"`
+}
+
+type userGroupModelPricing struct {
+	GroupID int64                      `json:"group_id"`
+	Pricing *userSupportedModelPricing `json:"pricing"`
 }
 
 type userSupportedEndpoint struct {
@@ -443,10 +467,14 @@ func buildPlatformSections(
 	sections := make([]userChannelPlatformSection, 0, len(platforms))
 	for _, platform := range platforms {
 		platformSet := map[string]struct{}{platform: {}}
+		visibleGroupIDs := make(map[int64]struct{}, len(groupsByPlatform[platform]))
+		for _, group := range groupsByPlatform[platform] {
+			visibleGroupIDs[group.ID] = struct{}{}
+		}
 		sections = append(sections, userChannelPlatformSection{
 			Platform:        platform,
 			Groups:          groupsByPlatform[platform],
-			SupportedModels: toUserSupportedModels(ch.SupportedModels, platformSet),
+			SupportedModels: toUserSupportedModels(ch.SupportedModels, platformSet, visibleGroupIDs),
 		})
 	}
 	return sections
@@ -509,8 +537,13 @@ func toUserAvailableGroup(g service.AvailableGroupRef) userAvailableGroup {
 func toUserSupportedModels(
 	src []service.SupportedModel,
 	allowedPlatforms map[string]struct{},
+	visibleGroupIDs ...map[int64]struct{},
 ) []userSupportedModel {
 	out := make([]userSupportedModel, 0, len(src))
+	var allowedGroups map[int64]struct{}
+	if len(visibleGroupIDs) > 0 {
+		allowedGroups = visibleGroupIDs[0]
+	}
 	for i := range src {
 		m := src[i]
 		if allowedPlatforms != nil {
@@ -518,10 +551,24 @@ func toUserSupportedModels(
 				continue
 			}
 		}
+		groupPricing := make([]userGroupModelPricing, 0, len(m.GroupPricing))
+		for groupID, pricing := range m.GroupPricing {
+			if allowedGroups != nil {
+				if _, ok := allowedGroups[groupID]; !ok {
+					continue
+				}
+			}
+			groupPricing = append(groupPricing, userGroupModelPricing{
+				GroupID: groupID,
+				Pricing: toUserPricing(pricing),
+			})
+		}
+		sort.Slice(groupPricing, func(i, j int) bool { return groupPricing[i].GroupID < groupPricing[j].GroupID })
 		out = append(out, userSupportedModel{
-			Name:     m.Name,
-			Platform: m.Platform,
-			Pricing:  toUserPricing(m.Pricing),
+			Name:         m.Name,
+			Platform:     m.Platform,
+			Pricing:      toUserPricing(m.Pricing),
+			GroupPricing: groupPricing,
 		})
 	}
 	return out
@@ -559,5 +606,33 @@ func toUserPricing(p *service.ChannelModelPricing) *userSupportedModelPricing {
 		ImageOutputPrice: p.ImageOutputPrice,
 		PerRequestPrice:  p.PerRequestPrice,
 		Intervals:        intervals,
+		TimePricing:      toUserTimePricing(p.TimePricing),
+	}
+}
+
+func toUserTimePricing(p *service.TimePricing) *userTimePricing {
+	if p == nil {
+		return nil
+	}
+	rules := make([]userTimePricingRule, 0, len(p.Rules))
+	for _, rule := range p.Rules {
+		rules = append(rules, userTimePricingRule{
+			Label:      rule.Label,
+			StartTime:  rule.StartTime,
+			EndTime:    rule.EndTime,
+			Multiplier: rule.Multiplier,
+		})
+	}
+	var defaultMultiplier *float64
+	if p.DefaultMultiplier != nil {
+		value := *p.DefaultMultiplier
+		defaultMultiplier = &value
+	}
+	return &userTimePricing{
+		Enabled:           p.Enabled,
+		Timezone:          p.Timezone,
+		DefaultLabel:      p.DefaultLabel,
+		DefaultMultiplier: defaultMultiplier,
+		Rules:             rules,
 	}
 }

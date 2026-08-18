@@ -719,6 +719,7 @@
                       :key="pIdx"
                       :entry="entry"
                       :platform="section.platform"
+                      hide-time-pricing
                       @update="rule.pricing.splice(pIdx, 1, $event)"
                       @remove="removeRulePricingEntry(sIdx, ruleIndex, pIdx)"
                     />
@@ -780,7 +781,17 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
 import type { Channel, ChannelModelDelivery, ChannelModelPricing, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule, ModelDefaultPricing } from '@/api/admin/channels'
 import type { PricingFormEntry } from '@/components/admin/channel/types'
-import { mTokToPerToken, perTokenToMTok, apiIntervalsToForm, formIntervalsToAPI, findModelConflict, validateIntervals } from '@/components/admin/channel/types'
+import {
+  mTokToPerToken,
+  perTokenToMTok,
+  apiIntervalsToForm,
+  formIntervalsToAPI,
+  apiTimePricingToForm,
+  formTimePricingToAPI,
+  findModelConflict,
+  validateIntervals,
+  validateTimePricing,
+} from '@/components/admin/channel/types'
 import { derivePricingCoverage, naturalModelCompare, normalizeMappingOrder, patternCovers, pricingCoverageSeverity, pricingModelForMapping } from '@/components/admin/channel/pricingCoverage'
 import type { PricingCoverage } from '@/components/admin/channel/pricingCoverage'
 import type { AdminGroup, GroupPlatform } from '@/types'
@@ -1066,6 +1077,7 @@ function createPricingEntry(models: string[] = [], defaults?: ModelDefaultPricin
     image_output_price: defaults?.found ? perTokenToMTok(defaults.image_output_price ?? null) : null,
     per_request_price: null,
     intervals: [],
+    time_pricing: undefined,
     self_check_enabled_models: [],
   }
 }
@@ -1473,6 +1485,7 @@ function accountStatsRulesToAPI(): AccountStatsPricingRule[] {
             image_output_price: mTokToPerToken(p.image_output_price),
             per_request_price: p.per_request_price != null && p.per_request_price !== '' ? Number(p.per_request_price) : null,
             intervals: formIntervalsToAPI(p.intervals || []),
+            time_pricing: undefined,
             self_check_enabled_models: []
           }))
       })
@@ -1541,6 +1554,7 @@ function formToAPI(): {
         image_output_price: mTokToPerToken(entry.image_output_price),
         per_request_price: entry.per_request_price != null && entry.per_request_price !== '' ? Number(entry.per_request_price) : null,
         intervals: formIntervalsToAPI(entry.intervals || []),
+        time_pricing: entry.billing_mode === 'token' ? formTimePricingToAPI(entry.time_pricing) : undefined,
         self_check_enabled_models: sanitizeSelfCheckModels(entry)
       })
     }
@@ -1651,6 +1665,7 @@ function apiToForm(channel: Channel): PlatformSection[] {
         image_output_price: perTokenToMTok(p.image_output_price),
         per_request_price: p.per_request_price,
         intervals: apiIntervalsToForm(p.intervals || []),
+        time_pricing: apiTimePricingToForm(p.time_pricing),
         self_check_enabled_models: sanitizeSelfCheckModels({
           models: p.models || [],
           self_check_enabled_models: p.self_check_enabled_models || []
@@ -1872,6 +1887,7 @@ function distributeRulesToPlatforms(apiRules: AccountStatsPricingRule[]) {
         image_output_price: perTokenToMTok(p.image_output_price),
         per_request_price: p.per_request_price,
         intervals: apiIntervalsToForm(p.intervals || []),
+        time_pricing: undefined,
         self_check_enabled_models: []
       } as PricingFormEntry))
     }
@@ -2005,12 +2021,19 @@ async function handleSubmit() {
   // 校验区间合法性（范围、重叠等）
   for (const section of form.platforms.filter(s => s.enabled)) {
     for (const entry of section.model_pricing) {
-      if (!entry.intervals || entry.intervals.length === 0) continue
-      const intervalErr = validateIntervals(entry.intervals, entry.billing_mode, t)
+      const intervalErr = validateIntervals(entry.intervals || [], entry.billing_mode, t)
       if (intervalErr) {
         const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)
         const modelLabel = entry.models.join(', ') || t('admin.channels.form.unnamed')
         appStore.showError(`${platformLabel} - ${modelLabel}: ${intervalErr}`)
+        activeTab.value = section.platform
+        return
+      }
+      const timePricingErr = validateTimePricing(entry, t)
+      if (timePricingErr) {
+        const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)
+        const modelLabel = entry.models.join(', ') || t('admin.channels.form.unnamed')
+        appStore.showError(`${platformLabel} - ${modelLabel}: ${timePricingErr}`)
         activeTab.value = section.platform
         return
       }

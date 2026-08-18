@@ -7,7 +7,7 @@ import type {
 import type { BillingMode } from '@/constants/channel'
 import { resolveAvailableModelGroupContexts } from '@/utils/availableChannelCallability'
 import {
-  resolveAvailableGroupDisplayPricing,
+  resolveAvailableModelGroupPricing,
   type AvailableChannelGroupScope,
   type AvailableChannelPriceStatus,
 } from '@/utils/availableChannelsCatalog'
@@ -63,10 +63,9 @@ export function buildAvailableModelMarketplaceCards(
       if (section.groups.length > 0 && groups.length === 0) return
 
       section.supported_models.forEach((model, modelIndex) => {
-        if (options.billingMode && model.pricing?.billing_mode !== options.billingMode) return
-
         resolveAvailableModelGroupContexts(model, groups).forEach(({ group, endpoints }) => {
-          const pricing = resolveAvailableGroupDisplayPricing(model.pricing, group)
+          const pricing = resolveAvailableModelGroupPricing(model, group)
+          if (options.billingMode && pricing?.billing_mode !== options.billingMode) return
           const hasPricing = modelHasPricing(pricing)
           if (priceStatus === 'priced' && !hasPricing) return
           if (priceStatus === 'unpriced' && hasPricing) return

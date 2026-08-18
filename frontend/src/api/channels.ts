@@ -41,6 +41,22 @@ export interface UserPricingInterval {
   per_request_price: number | null
 }
 
+export interface UserTimePricingRule {
+  label: string
+  start_time: string
+  end_time: string
+  multiplier: number
+}
+
+export interface UserTimePricing {
+  enabled: boolean
+  timezone: string
+  default_label: string
+  /** Missing on legacy records; billing treats omission as 1x. */
+  default_multiplier?: number
+  rules: UserTimePricingRule[]
+}
+
 export interface UserSupportedModelPricing {
   billing_mode: BillingMode
   input_price: number | null
@@ -51,12 +67,17 @@ export interface UserSupportedModelPricing {
   image_output_price: number | null
   per_request_price: number | null
   intervals: UserPricingInterval[]
+  time_pricing?: UserTimePricing | null
 }
 
 export interface UserSupportedModel {
   name: string
   platform: string
   pricing: UserSupportedModelPricing | null
+  group_pricing?: Array<{
+    group_id: number
+    pricing: UserSupportedModelPricing | null
+  }>
   route_group_ids?: number[]
   supported_endpoints?: UserSupportedEndpoint[]
 }
@@ -107,11 +128,34 @@ export function normalizeAvailableChannels<T extends UserAvailableChannel>(
             ? {
                 ...model.pricing,
                 intervals: arrayOrEmpty(model.pricing.intervals),
+                time_pricing: model.pricing.time_pricing
+                  ? {
+                      ...model.pricing.time_pricing,
+                      rules: arrayOrEmpty(model.pricing.time_pricing.rules),
+                    }
+                  : model.pricing.time_pricing,
               }
             : null,
         }
         if (Array.isArray(model.route_group_ids)) {
           normalized.route_group_ids = arrayOrEmpty(model.route_group_ids)
+        }
+        if (Array.isArray(model.group_pricing)) {
+          normalized.group_pricing = model.group_pricing.map((entry) => ({
+            ...entry,
+            pricing: entry.pricing
+              ? {
+                  ...entry.pricing,
+                  intervals: arrayOrEmpty(entry.pricing.intervals),
+                  time_pricing: entry.pricing.time_pricing
+                    ? {
+                        ...entry.pricing.time_pricing,
+                        rules: arrayOrEmpty(entry.pricing.time_pricing.rules),
+                      }
+                    : entry.pricing.time_pricing,
+                }
+              : null,
+          }))
         }
         if (Array.isArray(model.supported_endpoints)) {
           normalized.supported_endpoints = model.supported_endpoints.map((endpoint) => ({

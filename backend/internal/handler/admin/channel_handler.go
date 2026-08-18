@@ -73,6 +73,7 @@ type channelModelPricingRequest struct {
 	ImageOutputPrice       *float64                 `json:"image_output_price" binding:"omitempty,min=0"`
 	PerRequestPrice        *float64                 `json:"per_request_price" binding:"omitempty,min=0"`
 	Intervals              []pricingIntervalRequest `json:"intervals"`
+	TimePricing            *service.TimePricing     `json:"time_pricing,omitempty"`
 	SelfCheckEnabledModels []string                 `json:"self_check_enabled_models" binding:"omitempty,max=100"`
 }
 
@@ -132,6 +133,7 @@ type availableCatalogPricingResponse struct {
 	ImageOutputPrice *float64                           `json:"image_output_price"`
 	PerRequestPrice  *float64                           `json:"per_request_price"`
 	Intervals        []availableCatalogIntervalResponse `json:"intervals"`
+	TimePricing      *service.TimePricing               `json:"time_pricing,omitempty"`
 }
 
 type availableCatalogIntervalResponse struct {
@@ -238,6 +240,7 @@ type channelModelPricingResponse struct {
 	ImageOutputPrice       *float64                  `json:"image_output_price"`
 	PerRequestPrice        *float64                  `json:"per_request_price"`
 	Intervals              []pricingIntervalResponse `json:"intervals"`
+	TimePricing            *service.TimePricing      `json:"time_pricing,omitempty"`
 	SelfCheckEnabledModels []string                  `json:"self_check_enabled_models"`
 }
 
@@ -356,6 +359,7 @@ func pricingToResponse(p *service.ChannelModelPricing) channelModelPricingRespon
 		ImageOutputPrice:       p.ImageOutputPrice,
 		PerRequestPrice:        p.PerRequestPrice,
 		Intervals:              intervals,
+		TimePricing:            p.TimePricing,
 		SelfCheckEnabledModels: selfCheckEnabledModels,
 	}
 }
@@ -554,6 +558,7 @@ func availableCatalogPricing(p *service.ChannelModelPricing) *availableCatalogPr
 		ImageOutputPrice: p.ImageOutputPrice,
 		PerRequestPrice:  p.PerRequestPrice,
 		Intervals:        intervals,
+		TimePricing:      p.TimePricing,
 	}
 }
 
@@ -599,6 +604,7 @@ func pricingRequestToService(reqs []channelModelPricingRequest) []service.Channe
 			ImageOutputPrice:       r.ImageOutputPrice,
 			PerRequestPrice:        r.PerRequestPrice,
 			Intervals:              intervals,
+			TimePricing:            r.TimePricing,
 			SelfCheckEnabledModels: r.SelfCheckEnabledModels,
 		})
 	}
@@ -606,11 +612,15 @@ func pricingRequestToService(reqs []channelModelPricingRequest) []service.Channe
 }
 
 func accountStatsPricingRuleRequestToService(r accountStatsPricingRuleRequest) service.AccountStatsPricingRule {
+	pricing := pricingRequestToService(r.Pricing)
+	for i := range pricing {
+		pricing[i].TimePricing = nil
+	}
 	return service.AccountStatsPricingRule{
 		Name:       r.Name,
 		GroupIDs:   r.GroupIDs,
 		AccountIDs: r.AccountIDs,
-		Pricing:    pricingRequestToService(r.Pricing),
+		Pricing:    pricing,
 	}
 }
 

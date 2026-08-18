@@ -228,6 +228,12 @@
               />
             </div>
           </div>
+
+          <TimePricingEditor
+            v-if="!hideTimePricing"
+            :model-value="entry.time_pricing"
+            @update:modelValue="emit('update', { ...entry, time_pricing: $event })"
+          />
         </div>
 
         <!-- Per-request mode -->
@@ -311,6 +317,7 @@ import BaseCheckbox from '@/components/common/BaseCheckbox.vue'
 import Icon from '@/components/icons/Icon.vue'
 import IntervalRow from './IntervalRow.vue'
 import ModelTagInput from './ModelTagInput.vue'
+import TimePricingEditor from './TimePricingEditor.vue'
 import type { PricingFormEntry, IntervalFormEntry } from './types'
 import { perTokenToMTok, getPlatformTagClass } from './types'
 import type { BillingMode, ChannelModelDelivery, ModelDeliveryStatus } from '@/api/admin/channels'
@@ -324,8 +331,10 @@ const props = withDefaults(defineProps<{
   modelDelivery?: Record<string, ChannelModelDelivery>
   deliveryLoading?: boolean
   hideTokenIntervals?: boolean
+  hideTimePricing?: boolean
 }>(), {
   hideTokenIntervals: false,
+  hideTimePricing: false,
 })
 
 const emit = defineEmits<{

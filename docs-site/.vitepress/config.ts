@@ -66,6 +66,7 @@ export default defineConfig({
       {
         text: '已落地功能',
         items: [
+          { text: '按量模型分时定价', link: '/dev-zz/features/time-based-model-pricing' },
           { text: '可用渠道模型广场', link: '/dev-zz/features/available-channels-model-marketplace' },
           { text: 'API Key 用量下钻', link: '/dev-zz/features/api-key-usage-drilldown' },
           { text: '管理员用量分析下钻', link: '/dev-zz/features/admin-usage-profile-drilldown' }

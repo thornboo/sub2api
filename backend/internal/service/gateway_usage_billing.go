@@ -613,6 +613,14 @@ type recordUsageOpts struct {
 	// 长上下文计费（仅 Gemini 路径需要）
 	LongContextThreshold  int
 	LongContextMultiplier float64
+	PricingAt             time.Time
+}
+
+func optionalPricingAt(opts *recordUsageOpts) time.Time {
+	if opts == nil {
+		return time.Time{}
+	}
+	return opts.PricingAt
 }
 
 // RecordUsage 记录使用量并扣费（或更新订阅用量）
@@ -733,7 +741,9 @@ func responseModelBillingDeclaration(source, responseModel string, conflict, med
 // responseModelBillingAdoptable 判定按响应模型重算出的成本能否取代基线成本。
 // 三条不变式，任一不满足都必须沿用基线（即开启本模式前的既有行为）：
 //
-//  1. 不得更贵——上游声明永远不能抬高用户费用；epsilon 吸收两次计算之间的浮点末位误差。
+//  1. 不得更贵——上游声明永远不能抬高用户最终结算费用；必须比较应用分组、用户、
+//     高峰或分时规则之后的 ActualCost，不能比较倍率前的 TotalCost。epsilon 吸收两次
+//     计算之间的浮点末位误差。
 //  2. 不得把一笔本应计费的请求归零。价格表里存在把 token 价显式写成 0 的条目
 //     （TokenPricingAbsent 只在 input/output 价**都缺失**时才为真，显式 0 算"有价"因而
 //     能通过确定性识别那道门），放任归零等于让上游自报一个免费模型名就能白嫖。
@@ -747,10 +757,10 @@ func responseModelBillingAdoptable(baseline, response *CostBreakdown, baselineCh
 	if baseline == nil || response == nil {
 		return false
 	}
-	if response.TotalCost > baseline.TotalCost+responseModelBillingCostEpsilon {
+	if response.ActualCost > baseline.ActualCost+responseModelBillingCostEpsilon {
 		return false
 	}
-	if response.TotalCost <= 0 && baseline.TotalCost > 0 {
+	if response.ActualCost <= 0 && baseline.ActualCost > 0 {
 		return false
 	}
 	return !baselineChannelPriced || responseChannelPriced
@@ -771,7 +781,12 @@ func logResponseModelBillingApplied(component string, account *Account, requestI
 		"response_model", responseModel,
 	}
 	if baselineCost != nil && responseCost != nil {
-		attrs = append(attrs, "baseline_cost", baselineCost.TotalCost, "billed_cost", responseCost.TotalCost)
+		attrs = append(attrs,
+			"baseline_cost", baselineCost.ActualCost,
+			"billed_cost", responseCost.ActualCost,
+			"baseline_raw_cost", baselineCost.TotalCost,
+			"billed_raw_cost", responseCost.TotalCost,
+		)
 	}
 	if account != nil {
 		attrs = append(attrs, "platform", account.Platform, "account_id", account.ID)
@@ -822,6 +837,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		pricingAt = timezone.Now()
 	}
 	multiplier, imageMultiplier := computePeakAwareMultipliers(apiKey, multiplier, pricingAt)
+	opts.PricingAt = pricingAt
 
 	// 确定计费模型
 	concreteBillingModel := forwardResultBillingModel(result.Model, result.UpstreamModel)
@@ -965,7 +981,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 		if resolved := s.resolveChannelPricing(ctx, billingModel, apiKey); resolved != nil && resolved.Mode == BillingModeToken {
 			return s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, opts)
 		}
-		return s.calculateImageCost(ctx, result, apiKey, billingModel, imageMultiplier)
+		return s.calculateImageCost(ctx, result, apiKey, billingModel, imageMultiplier, opts)
 	}
 
 	// Voice audio (TTS / STT / realtime) when present on the forward result.
@@ -977,6 +993,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 				Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
 				UsageUnits: result.AudioUsage.DurationOrUnits, SizeTier: result.AudioUsage.Mode,
 				RateMultiplier: multiplier, Resolver: s.resolver, Resolved: resolved,
+				PricingAt: optionalPricingAt(opts),
 			})
 			if err == nil {
 				return cost
@@ -1092,6 +1109,7 @@ func (s *GatewayService) calculateImageCost(
 	apiKey *APIKey,
 	billingModel string,
 	multiplier float64,
+	opts *recordUsageOpts,
 ) *CostBreakdown {
 	sizeTier := NormalizeImageBillingTierOrDefault(result.ImageSize)
 	resolved := s.resolveChannelPricing(ctx, billingModel, apiKey)
@@ -1101,6 +1119,7 @@ func (s *GatewayService) calculateImageCost(
 			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
 			RequestCount: result.ImageCount, SizeTier: sizeTier,
 			RateMultiplier: multiplier, Resolver: s.resolver, Resolved: resolved,
+			PricingAt: optionalPricingAt(opts),
 		})
 		if err == nil {
 			return cost
@@ -1128,6 +1147,7 @@ func (s *GatewayService) calculateImageCost(
 			RateMultiplier: multiplier,
 			Resolver:       s.resolver,
 			Resolved:       resolved,
+			PricingAt:      optionalPricingAt(opts),
 		})
 		if err != nil {
 			logger.LegacyPrintf("service.gateway", "Calculate image token cost failed: %v", err)
@@ -1175,6 +1195,7 @@ func (s *GatewayService) calculateTokenCost(
 			RateMultiplier: multiplier,
 			Resolver:       s.resolver,
 			Resolved:       resolved,
+			PricingAt:      optionalPricingAt(opts),
 		})
 	} else if opts.LongContextThreshold > 0 && (apiKey.Group == nil || apiKey.Group.LongContextPricingEnabled) {
 		// 长上下文双倍计费（如 Gemini 200K 阈值）
@@ -1184,6 +1205,7 @@ func (s *GatewayService) calculateTokenCost(
 		cost, err = s.billingService.CalculateCostUnified(CostInput{
 			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
 			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier, Resolver: s.resolver,
+			PricingAt: optionalPricingAt(opts),
 		})
 	} else {
 		cost, err = s.billingService.CalculateCost(billingModel, tokens, multiplier)
@@ -1275,6 +1297,9 @@ func (s *GatewayService) buildRecordUsageLog(
 		usageLog.RateMultiplier = imageMultiplier
 	}
 	if cost != nil {
+		if cost.BillingMode == string(BillingModeToken) && (cost.EffectiveRateMultiplier != 0 || cost.ActualCost == 0) {
+			usageLog.RateMultiplier = cost.EffectiveRateMultiplier
+		}
 		usageLog.InputCost = cost.InputCost
 		usageLog.OutputCost = cost.OutputCost
 		usageLog.ImageOutputCost = cost.ImageOutputCost
@@ -1284,6 +1309,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		usageLog.ActualCost = cost.ActualCost
 		usageLog.LongContextBillingApplied = cost.LongContextBillingApplied
 	}
+	usageLog.ScheduleMeta = UsageScheduleMetaWithTimePricing(usageLog.ScheduleMeta, optionalPricingAt(opts), cost)
 
 	return usageLog
 }

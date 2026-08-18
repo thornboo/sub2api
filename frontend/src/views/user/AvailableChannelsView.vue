@@ -103,7 +103,6 @@
           :loading="loading"
           :pricing-labels="pricingLabels"
           :tooltips="modelColumnTooltips"
-          :user-group-rates="userGroupRates"
           :sort-by="sortBy"
           :sort-order="sortOrder"
           :empty-label="t('availableChannels.empty')"

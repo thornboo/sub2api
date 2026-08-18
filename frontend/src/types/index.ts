@@ -1827,6 +1827,16 @@ export interface UsageScheduleMeta {
   load_skew?: number
   selected_account_id?: number
   selected_account_type?: string
+  pricing_at?: string | null
+  time_pricing_multiplier?: number | null
+  time_pricing_timezone?: string
+  time_pricing_label?: string
+  time_pricing_rule?: {
+    label?: string
+    start_time: string
+    end_time: string
+    multiplier: number
+  } | null
 }
 
 export interface AdminUsageLog extends UsageLog {
@@ -1840,7 +1850,7 @@ export interface AdminUsageLog extends UsageLog {
   account_rate_multiplier?: number | null
   // 自定义定价规则计算的账号统计费用（nil 时使用 total_cost * multiplier）
   account_stats_cost?: number | null
-  // 调度诊断信息（仅管理员接口返回）
+  // 请求执行与计费诊断信息（仅管理员接口返回）
   schedule_meta?: UsageScheduleMeta | null
 
   // 渠道 ID 和计费等级（仅管理员可见）

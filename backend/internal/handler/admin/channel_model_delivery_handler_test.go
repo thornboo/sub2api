@@ -111,7 +111,7 @@ func TestChannelHandlerGetModelDeliveryMapsAdminProjection(t *testing.T) {
 	}}
 	cfg := &config.Config{}
 	cfg.Gateway.NativeModelProtocolRoutingEnabled = true
-	channelService := service.NewChannelService(channelRepo, groupRepo, nil, nil)
+	channelService := service.NewChannelService(channelRepo, groupRepo, nil, nil, nil)
 	capabilityService := service.NewModelProtocolCapabilityService(capabilityRepo, accountRepo, groupRepo, nil, cfg)
 	deliveryService := service.NewModelDeliveryService(accountRepo, groupRepo, nil, capabilityService, cfg)
 	handler := NewChannelHandler(channelService, nil, nil, deliveryService)

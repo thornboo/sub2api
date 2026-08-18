@@ -50,6 +50,8 @@ type CyberPolicyUsageInput struct {
 	APIKey       *APIKey
 	Account      *Account
 	Subscription *UserSubscription
+	// PricingAt 固定为原请求开始时刻，避免异步 cyber 落账跨越分时边界后重新取当前时间。
+	PricingAt    time.Time
 	RequestID    string
 	Model        string
 	Stream       bool
@@ -103,6 +105,7 @@ func (s *OpenAIGatewayService) RecordCyberPolicyUsageLog(ctx context.Context, in
 		User:               in.APIKey.User,
 		Account:            in.Account,
 		Subscription:       in.Subscription,
+		PricingAt:          in.PricingAt,
 		InboundEndpoint:    in.InboundEndpoint,
 		UpstreamEndpoint:   in.UpstreamEndpoint,
 		UserAgent:          in.UserAgent,
@@ -150,6 +153,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if s.rateLimitService != nil && input.Account != nil && input.Account.Platform == PlatformOpenAI {
 		s.rateLimitService.ResetOpenAI403Counter(ctx, input.Account.ID)
 	}
+	pricingAt := openAIUsagePricingAt(input)
+	ctx = context.WithValue(ctx, openAIPricingAtCtxKey{}, pricingAt)
 
 	apiKey := input.APIKey
 	user := input.User
@@ -184,7 +189,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	// 变价）；未装配 PricingAt 的路径回退记录时刻，保持既有行为。不并入上面的
 	// Resolve，以免污染 user:group 倍率缓存。
 	baseMultiplier := multiplier
-	multiplier, imageMultiplier := computePeakAwareMultipliers(apiKey, baseMultiplier, openAIUsagePricingAt(input))
+	multiplier, imageMultiplier := computePeakAwareMultipliers(apiKey, baseMultiplier, pricingAt)
 	videoMultiplier := resolveVideoRateMultiplier(apiKey, baseMultiplier)
 
 	var cost *CostBreakdown
@@ -361,6 +366,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		usageLog.VideoDurationSeconds = &videoDurationSeconds
 	}
 	if cost != nil {
+		if cost.BillingMode == string(BillingModeToken) && (cost.EffectiveRateMultiplier != 0 || cost.ActualCost == 0) {
+			usageLog.RateMultiplier = cost.EffectiveRateMultiplier
+		}
 		usageLog.InputCost = cost.InputCost
 		usageLog.ImageInputCost = cost.ImageInputCost
 		usageLog.OutputCost = cost.OutputCost
@@ -375,9 +383,12 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		usageLog.RateMultiplier = videoMultiplier
 	} else if result.ImageCount > 0 && (cost == nil || cost.BillingMode != string(BillingModeToken)) {
 		usageLog.RateMultiplier = imageMultiplier
+	} else if cost != nil && cost.BillingMode == string(BillingModeToken) && (cost.EffectiveRateMultiplier != 0 || cost.ActualCost == 0) {
+		usageLog.RateMultiplier = cost.EffectiveRateMultiplier
 	} else {
 		usageLog.RateMultiplier = multiplier
 	}
+	usageLog.ScheduleMeta = UsageScheduleMetaWithTimePricing(usageLog.ScheduleMeta, pricingAt, cost)
 	usageLog.AccountRateMultiplier = &accountRateMultiplier
 	usageLog.BillingType = billingType
 	usageLog.Stream = result.Stream
@@ -573,6 +584,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 				apiKey,
 				candidate,
 				multiplier,
+				OpenAIPricingAtFromContext(ctx),
 				tokens,
 				serviceTier,
 				longContextBillingGate,
@@ -662,6 +674,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 	apiKey *APIKey,
 	billingModel string,
 	multiplier float64,
+	pricingAt time.Time,
 	tokens UsageTokens,
 	serviceTier string,
 	longContextBillingGate *bool,
@@ -671,7 +684,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 		return s.billingService.CalculateCostUnified(CostInput{
 			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
 			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier,
-			ServiceTier: serviceTier, Resolver: s.resolver,
+			PricingAt: pricingAt, ServiceTier: serviceTier, Resolver: s.resolver,
 			LongContextBillingEnabled: longContextBillingGate,
 		})
 	}

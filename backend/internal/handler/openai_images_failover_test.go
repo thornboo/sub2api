@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -63,6 +64,54 @@ type openAIImagesFailoverHTTPUpstream struct {
 	service.HTTPUpstream
 	mu         sync.Mutex
 	accountIDs []int64
+}
+
+type openAIImagesDelayedSuccessUpstream struct {
+	service.HTTPUpstream
+	delay       time.Duration
+	mu          sync.Mutex
+	respondedAt time.Time
+}
+
+func (u *openAIImagesDelayedSuccessUpstream) Do(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	time.Sleep(u.delay)
+	u.mu.Lock()
+	u.respondedAt = time.Now()
+	u.mu.Unlock()
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+			"X-Request-Id": []string{"req_img_pricing_at"},
+		},
+		Body: io.NopCloser(bytes.NewBufferString(
+			"data: {\"type\":\"response.completed\",\"response\":{\"created_at\":1710000000,\"model\":\"gpt-image-2\",\"usage\":{\"input_tokens\":10,\"output_tokens\":5,\"output_tokens_details\":{\"image_tokens\":4}},\"tool_usage\":{\"image_gen\":{\"input_tokens\":10,\"output_tokens\":5,\"output_tokens_details\":{\"image_tokens\":4},\"images\":1}},\"output\":[{\"type\":\"image_generation_call\",\"result\":\"aW1hZ2U=\",\"output_format\":\"png\"}]}}\n\n",
+		)),
+	}, nil
+}
+
+func (u *openAIImagesDelayedSuccessUpstream) responseTime() time.Time {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.respondedAt
+}
+
+type openAIImagesPricingAtUsageRepo struct {
+	service.UsageLogRepository
+	created chan *service.UsageLog
+}
+
+func (r *openAIImagesPricingAtUsageRepo) Create(_ context.Context, log *service.UsageLog) (bool, error) {
+	r.created <- log
+	return true, nil
+}
+
+type openAIImagesPricingAtUserRepo struct {
+	service.UserRepository
+}
+
+func (r *openAIImagesPricingAtUserRepo) DeductBalance(context.Context, int64, float64) error {
+	return nil
 }
 
 func (u *openAIImagesFailoverHTTPUpstream) Do(_ *http.Request, _ string, accountID int64, _ int) (*http.Response, error) {
@@ -202,4 +251,116 @@ func TestOpenAIGatewayHandlerImages_ServerErrorFailsOverAndReturnsClearErrorWhen
 	require.Len(t, events, 2)
 	require.Equal(t, "failover", events[0].Kind)
 	require.Equal(t, "failover", events[1].Kind)
+}
+
+func TestOpenAIGatewayHandlerImages_FreezesPricingAtBeforeSlowUpstream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(3131)
+	accountRepo := openAIImagesFailoverAccountRepo{accounts: []service.Account{{
+		ID:          1,
+		Name:        "image-account",
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeOAuth,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{"access_token": "token-1"},
+	}}}
+	upstream := &openAIImagesDelayedSuccessUpstream{delay: 120 * time.Millisecond}
+	usageRepo := &openAIImagesPricingAtUsageRepo{created: make(chan *service.UsageLog, 1)}
+	userRepo := &openAIImagesPricingAtUserRepo{}
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	billingCache := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+	t.Cleanup(billingCache.Stop)
+	billing := service.NewBillingService(cfg, nil)
+	resolver := service.NewModelPricingResolver(nil, billing)
+	gatewayService := service.NewOpenAIGatewayService(
+		accountRepo,
+		usageRepo,
+		nil,
+		userRepo,
+		nil,
+		nil,
+		nil,
+		cfg,
+		nil,
+		nil,
+		billing,
+		nil,
+		billingCache,
+		upstream,
+		nil,
+		nil,
+		nil,
+		resolver,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+	handler := NewOpenAIGatewayHandler(
+		gatewayService,
+		service.NewConcurrencyService(nil),
+		billingCache,
+		service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg),
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		cfg,
+	)
+
+	inputPrice := 1e-6
+	outputPrice := 2e-6
+	defaultMultiplier := 1.5
+	group := &service.Group{
+		ID:                   groupID,
+		Platform:             service.PlatformOpenAI,
+		RateMultiplier:       1,
+		AllowImageGeneration: true,
+		ModelPricing: []service.ChannelModelPricing{{
+			Models:      []string{"gpt-image-2"},
+			BillingMode: service.BillingModeToken,
+			InputPrice:  &inputPrice,
+			OutputPrice: &outputPrice,
+			TimePricing: &service.TimePricing{
+				Enabled:           true,
+				Timezone:          "Asia/Shanghai",
+				DefaultLabel:      "全天",
+				DefaultMultiplier: &defaultMultiplier,
+			},
+		}},
+	}
+	apiKey := &service.APIKey{
+		ID:      99,
+		GroupID: &groupID,
+		Group:   group,
+		User:    &service.User{ID: 100, Balance: 100},
+	}
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw a cat","quality":"high","size":"1024x1024"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+	c.Set(string(middleware2.ContextKeyAPIKey), apiKey)
+	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 100, Concurrency: 0})
+
+	handler.Images(c)
+
+	var usageLog *service.UsageLog
+	select {
+	case usageLog = <-usageRepo.created:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for image usage log")
+	}
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, usageLog.ScheduleMeta)
+	require.NotNil(t, usageLog.ScheduleMeta.PricingAt)
+	require.Equal(t, "全天", usageLog.ScheduleMeta.TimePricingLabel)
+	respondedAt := upstream.responseTime()
+	require.False(t, respondedAt.IsZero())
+	require.GreaterOrEqual(t, respondedAt.Sub(*usageLog.ScheduleMeta.PricingAt), 100*time.Millisecond,
+		"pricing_at must be captured before the slow upstream response, not when usage is persisted")
 }

@@ -40,6 +40,8 @@ type ResolvedPricing struct {
 	// 渠道定价原始配置（用于区间模式下获取 ImageOutputPrice）
 	channelPricing *ChannelModelPricing
 
+	TimePricing *TimePricing
+
 	longContextPricingEnabled bool
 }
 
@@ -119,6 +121,10 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 	if chPricing != nil {
 		resolved.Source = PricingSourceChannel
 		resolved.channelPricing = chPricing
+		if chPricing.TimePricing != nil && chPricing.TimePricing.IsActive() {
+			tp := chPricing.TimePricing.Clone()
+			resolved.TimePricing = &tp
+		}
 		r.applyTokenOverrides(chPricing, resolved)
 		if !longContextPricingEnabled {
 			r.applyFirstTokenTier(resolved, chPricing)
@@ -139,6 +145,10 @@ func (r *ModelPricingResolver) resolveConfiguredPricing(config *ChannelModelPric
 		mode = BillingModeToken
 	}
 	resolved := &ResolvedPricing{Mode: mode, Source: source, channelPricing: config}
+	if mode == BillingModeToken && config.TimePricing != nil && config.TimePricing.IsActive() {
+		tp := config.TimePricing.Clone()
+		resolved.TimePricing = &tp
+	}
 	if mode == BillingModePerRequest || mode == BillingModeImage || mode == BillingModeVideo {
 		r.applyRequestTierOverrides(config, resolved)
 		return resolved
@@ -213,6 +223,10 @@ func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupI
 
 	switch resolved.Mode {
 	case BillingModeToken:
+		if chPricing.TimePricing != nil && chPricing.TimePricing.IsActive() {
+			tp := chPricing.TimePricing.Clone()
+			resolved.TimePricing = &tp
+		}
 		r.applyTokenOverrides(chPricing, resolved)
 	case BillingModePerRequest, BillingModeImage, BillingModeVideo:
 		r.applyRequestTierOverrides(chPricing, resolved)

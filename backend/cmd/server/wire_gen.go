@@ -108,8 +108,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	if err != nil {
 		return nil, err
 	}
-	channelService := service.NewChannelService(channelRepository, groupRepository, apiKeyAuthCacheInvalidator, pricingService)
 	billingService := service.NewBillingService(configConfig, pricingService)
+	channelService := service.NewChannelService(channelRepository, groupRepository, apiKeyAuthCacheInvalidator, pricingService, billingService)
 	modelPricingResolver := service.NewModelPricingResolver(channelService, billingService)
 	enterpriseMemberBudgetService := service.ProvideEnterpriseMemberBudgetService(enterpriseMemberBudgetRepository, modelPricingResolver, userGroupRateRepository, accountRepository)
 	enterpriseMemberImportRepository := repository.NewEnterpriseMemberImportRepository(db)

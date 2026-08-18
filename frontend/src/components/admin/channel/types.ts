@@ -1,4 +1,4 @@
-import type { BillingMode, PricingInterval } from '@/api/admin/channels'
+import type { BillingMode, PricingInterval, TimePricing, TimePricingRule } from '@/api/admin/channels'
 
 type TranslateFn = (key: string, params?: Record<string, unknown>) => string
 
@@ -27,7 +27,23 @@ export interface PricingFormEntry {
   image_output_price: number | string | null
   per_request_price: number | string | null
   intervals: IntervalFormEntry[]
+  time_pricing?: TimePricingFormEntry
   self_check_enabled_models: string[]
+}
+
+export interface TimePricingRuleFormEntry {
+  label: string
+  start_time: string
+  end_time: string
+  multiplier: number | string | null
+}
+
+export interface TimePricingFormEntry {
+  enabled: boolean
+  timezone: string
+  default_label: string
+  default_multiplier: number | string | null
+  rules: TimePricingRuleFormEntry[]
 }
 
 // 价格转换：后端存 per-token，前端显示 per-MTok ($/1M tokens)
@@ -78,6 +94,177 @@ export function formIntervalsToAPI(intervals: IntervalFormEntry[]): PricingInter
     per_request_price: toNullableNumber(iv.per_request_price),
     sort_order: iv.sort_order
   }))
+}
+
+// ── 分时定价转换与校验 ──────────────────────────────────────
+
+const DEFAULT_TIME_PRICING_TIMEZONE = 'Asia/Shanghai'
+const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/
+const MAX_TIME_PRICING_RULES = 16
+const MAX_TIME_PRICING_LABEL_LENGTH = 32
+
+export function createDefaultTimePricing(): TimePricingFormEntry {
+  return {
+    enabled: false,
+    timezone: DEFAULT_TIME_PRICING_TIMEZONE,
+    default_label: '',
+    default_multiplier: 1,
+    rules: [],
+  }
+}
+
+export function apiTimePricingToForm(timePricing?: TimePricing | null): TimePricingFormEntry | undefined {
+  if (!timePricing) return undefined
+  return {
+    enabled: !!timePricing.enabled,
+    timezone: timePricing.timezone || DEFAULT_TIME_PRICING_TIMEZONE,
+    default_label: timePricing.default_label || '',
+    default_multiplier: timePricing.default_multiplier ?? 1,
+    rules: (timePricing.rules || []).map(rule => ({
+      label: rule.label || '',
+      start_time: rule.start_time || '',
+      end_time: rule.end_time || '',
+      multiplier: rule.multiplier,
+    })),
+  }
+}
+
+export function formTimePricingToAPI(timePricing?: TimePricingFormEntry): TimePricing | undefined {
+  if (!timePricing) return undefined
+  return {
+    enabled: !!timePricing.enabled,
+    timezone: (timePricing.timezone || DEFAULT_TIME_PRICING_TIMEZONE).trim(),
+    default_label: timePricing.default_label.trim(),
+    default_multiplier: toNullableNumber(timePricing.default_multiplier) ?? 1,
+    rules: (timePricing.rules || []).map(rule => ({
+      label: rule.label.trim(),
+      start_time: rule.start_time,
+      end_time: rule.end_time,
+      multiplier: toNullableNumber(rule.multiplier) ?? 1,
+    })),
+  }
+}
+
+export function hasEnabledTimePricing(entry: Pick<PricingFormEntry, 'time_pricing'>): boolean {
+  return !!entry.time_pricing?.enabled
+}
+
+export function validateTimePricing(
+  entry: Pick<PricingFormEntry, 'billing_mode' | 'time_pricing'>,
+  t: TranslateFn,
+): string | null {
+  const schedule = entry.time_pricing
+  if (!schedule?.enabled) return null
+
+  if (entry.billing_mode !== 'token') {
+    return timePricingValidationMessage(t, 'tokenOnly', {})
+  }
+
+  const timezone = schedule.timezone.trim()
+  if (!timezone || !isValidTimeZone(timezone)) {
+    return timePricingValidationMessage(t, 'invalidTimezone', { timezone: timezone || '-' })
+  }
+
+  const defaultLabel = schedule.default_label.trim()
+  if (!defaultLabel) {
+    return timePricingValidationMessage(t, 'defaultLabelRequired', {})
+  }
+  if ([...defaultLabel].length > MAX_TIME_PRICING_LABEL_LENGTH) {
+    return timePricingValidationMessage(t, 'defaultLabelTooLong', { max: MAX_TIME_PRICING_LABEL_LENGTH })
+  }
+
+  const defaultMultiplier = toNullableNumber(schedule.default_multiplier)
+  if (defaultMultiplier === null || defaultMultiplier < 0 || defaultMultiplier > 100) {
+    return timePricingValidationMessage(t, 'defaultMultiplierRange', {
+      value: schedule.default_multiplier ?? '-',
+    })
+  }
+
+  if (schedule.rules.length > MAX_TIME_PRICING_RULES) {
+    return timePricingValidationMessage(t, 'tooManyRules', { max: MAX_TIME_PRICING_RULES })
+  }
+
+  const segments: Array<{ start: number, end: number, label: string, range: string }> = []
+  for (let idx = 0; idx < schedule.rules.length; idx++) {
+    const rule = schedule.rules[idx]
+    const index = idx + 1
+    const label = rule.label.trim()
+    if (!label) {
+      return timePricingValidationMessage(t, 'ruleLabelRequired', { index })
+    }
+    if ([...label].length > MAX_TIME_PRICING_LABEL_LENGTH) {
+      return timePricingValidationMessage(t, 'ruleLabelTooLong', {
+        index,
+        max: MAX_TIME_PRICING_LABEL_LENGTH,
+      })
+    }
+    const start = parseTimeToMinute(rule.start_time)
+    const end = parseTimeToMinute(rule.end_time)
+    if (start === null) {
+      return timePricingValidationMessage(t, 'invalidStart', { index, value: rule.start_time || '-' })
+    }
+    if (end === null) {
+      return timePricingValidationMessage(t, 'invalidEnd', { index, value: rule.end_time || '-' })
+    }
+    if (start === end) {
+      return timePricingValidationMessage(t, 'equalRange', { index, range: formatTimeRange(rule) })
+    }
+    const multiplier = toNullableNumber(rule.multiplier)
+    if (multiplier === null || multiplier < 0 || multiplier > 100) {
+      return timePricingValidationMessage(t, 'multiplierRange', { index, value: rule.multiplier ?? '-' })
+    }
+
+    const range = formatTimeRange(rule)
+    if (start < end) {
+      segments.push({ start, end, label, range })
+    } else {
+      segments.push({ start, end: 24 * 60, label, range })
+      segments.push({ start: 0, end, label, range })
+    }
+  }
+
+  const sorted = segments.sort((a, b) => a.start - b.start || a.end - b.end)
+  for (let i = 1; i < sorted.length; i++) {
+    const previous = sorted[i - 1]
+    const current = sorted[i]
+    if (previous.end > current.start) {
+      return timePricingValidationMessage(t, 'overlap', {
+        first: previous.label,
+        firstRange: previous.range,
+        second: current.label,
+        secondRange: current.range,
+      })
+    }
+  }
+
+  return null
+}
+
+function timePricingValidationMessage(
+  t: TranslateFn,
+  key: string,
+  params: Record<string, unknown>,
+): string {
+  return t(`admin.channels.timePricingValidation.${key}`, params)
+}
+
+function parseTimeToMinute(value: string): number | null {
+  const match = TIME_PATTERN.exec(value)
+  if (!match) return null
+  return Number(match[1]) * 60 + Number(match[2])
+}
+
+function formatTimeRange(rule: Pick<TimePricingRuleFormEntry | TimePricingRule, 'start_time' | 'end_time'>): string {
+  return `${rule.start_time || '-'}-${rule.end_time || '-'}`
+}
+
+function isValidTimeZone(timezone: string): boolean {
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: timezone })
+    return true
+  } catch {
+    return false
+  }
 }
 
 // ── 模型模式冲突检测 ──────────────────────────────────────

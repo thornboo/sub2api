@@ -3782,6 +3782,9 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 	if billingCtx == nil {
 		billingCtx = context.Background()
 	}
+	// 在启动异步记录前拍下原请求冻结的计价时刻；WithoutCancel 会保留 context value，
+	// 但显式传值更容易审计，也避免未来更换异步上下文实现时跨分时边界重新取 Now。
+	pricingAt := service.OpenAIPricingAtFromContext(billingCtx)
 	requestPath := ""
 	if c.Request != nil && c.Request.URL != nil {
 		requestPath = c.Request.URL.Path
@@ -3846,6 +3849,7 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 				APIKey:             apiKey,
 				Account:            account,
 				Subscription:       subscription,
+				PricingAt:          pricingAt,
 				RequestID:          requestID,
 				Model:              model,
 				Stream:             stream,
