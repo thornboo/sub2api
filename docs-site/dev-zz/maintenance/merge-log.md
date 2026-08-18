@@ -1,5 +1,35 @@
 # 上游合并记录
 
+## 2026-08-18 - 继续合并上游 `main`：版本同步提交
+
+分支：
+
+- 目标：`dev-zz`
+- 上游：`origin/main`（与本地 `main` 同为 `49504adc98d2b6d539491e865a340e644548979e`）
+- Base：`e0c48a19ed794a565e3858662520afe0a1f9f0ba`
+- 合并前目标：`66138ae7c114cdf48719e1cb1f21bc5c3fef7e06`
+- 上游 head：`49504adc98d2b6d539491e865a340e644548979e`
+- 结果提交：本次合并提交
+
+上游内容：
+
+- 上游仅新增 GitHub Actions 自动版本同步提交 `chore: sync VERSION to 0.1.178 [skip ci]`，只把 `backend/cmd/server/VERSION` 从 `0.1.177` 改为 `0.1.178`，没有业务代码、前端、数据库、配置、依赖或接口变化。
+
+冲突与解决：
+
+- 以 merge-base `e0c48a19` 执行只读 `git merge-tree`，预演和真实 `git merge --no-commit origin/main` 都只报告 `backend/cmd/server/VERSION` 这 1 个内容冲突。
+- 按 `dev-zz` 的独立发布线策略保留 `VERSION=1.7.36`，不采用上游 `0.1.178`。该取舍只隔离两条发布版本线，不丢弃任何上游运行时功能；最终树除本合并记录外与合并前业务代码一致。
+
+验证：
+
+- 未解决索引、真实冲突标记、whitespace 和 `VERSION=1.7.36` 检查通过。
+- 后端 `cmd/server` 与 `internal/server` 测试通过，docs-site 生产构建通过；提交后验证双父节点、`origin/main` 祖先关系和洁净工作区。
+
+未验证：
+
+- 因上游只有一个未采用的版本文本变化，没有重复运行前一合并已经通过的后端全仓 unit、前端 1924 条 Vitest、typecheck、ESLint 和前端生产构建。
+- 本次仍未使用 Playwright，未推送、发布或部署。
+
 ## 2026-08-18 - 将上游 `main` 合并到正式线 `dev-zz`：配额监控、网关兼容与分时定价合同合流
 
 分支：
