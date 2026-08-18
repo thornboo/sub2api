@@ -274,6 +274,8 @@ export interface PublicSettings {
   self_check_default_interval_seconds: number
   self_check_max_concurrency: number
   self_check_max_tasks_per_round: number
+  /** When true, user monitor shows account quota/balance snapshots (default off). */
+  channel_monitor_show_quota?: boolean
   available_channels_enabled: boolean
   model_plaza_enabled: boolean
   model_plaza_require_auth: boolean

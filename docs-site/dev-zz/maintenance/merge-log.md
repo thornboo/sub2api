@@ -1,5 +1,54 @@
 # 上游合并记录
 
+## 2026-08-18 - 将上游 `main` 合并到正式线 `dev-zz`：配额监控、网关兼容与分时定价合同合流
+
+分支：
+
+- 目标：`dev-zz`
+- 上游：`origin/main`（本地 `main` 与 `origin/main` 均为 `e0c48a19ed794a565e3858662520afe0a1f9f0ba`）
+- Base：`e330c243a8f142f8963d784916da0093ab7084ee`
+- 合并前目标：`9e11478302bc9dfeb30b293c0273f691562ef851`
+- 上游 head：`e0c48a19ed794a565e3858662520afe0a1f9f0ba`
+- 结果提交：本次合并提交
+
+上游要点：
+
+- Channel Monitor 增加配额检查模式、配额快照、8 类平台展示和管理员开关；账号选择器支持服务端搜索与已选项回填，避免大账号池一次性加载。
+- OpenAI / Codex 增强客户端工具恢复、WebSocket HTTP bridge、终态事件、真实客户端 fingerprint、批量账号设置、Team 联动熔断和 passthrough 模型发现；Gemini / Antigravity 补齐 typed tool config、server-side tool invocation 与 skipped 错误策略。
+- 国产供应商修复 Kimi / 智谱 / DeepSeek 的渠道定价、分组入口、调度闸门、计费、断开漏记、`count_tokens` 和 `403` 处理；Grok 增加本站 24h / 7d / 30d 用量汇总并收紧空额度展示。
+- 注册邀请码消费改为与用户创建原子提交；账号页增加批量设置与 Ollama 用量查询；Ops、公告、仪表盘、订阅提醒和暗色原生控件获得一组正确性与体验修复。
+- 上游也加入了一个仅支持简单时间段的渠道分时倍率实现；本次未直接采用该实现，而是与 `dev-zz` 已完成的按量分时定价合同做了显式取舍。
+
+合并策略与冲突：
+
+- 合并前完整读取 `docs-site/dev-zz` 的分支策略、合并流程、补丁、合并记录、变更记录、变更地图和验证矩阵；确认工作区干净、本地 `main` 与 `origin/main` 一致，再以 merge-base `e330c243` 执行只读 `git merge-tree` 预演和 `git merge --no-commit origin/main`。
+- 本次上游范围包含 98 个提交、237 个文件，真实合并产生 36 个冲突文件。冲突集中在分时定价 / 渠道配置、OpenAI gateway / WebSocket / usage、Channel Monitor 设置与 Wire、账号仓储与调度缓存，以及管理端通用界面。
+- 分时定价与渠道配置冲突：`channel_handler.go`、`channel_repo_pricing.go`、`billing_service.go`、`channel.go`、`channel_service_test.go`、`225_channel_model_time_pricing.sql`、`channels.ts`、`PricingEntryCard.vue`、`types.spec.ts`、`types.ts`、`ChannelsView.vue`、`GroupsView.vue` 和中英文渠道文案。
+- 网关、WebSocket 与 usage 冲突：`openai_chat_completions.go`、`openai_gateway_handler.go`、`gateway_service.go`、`gateway_usage_billing.go`、`openai_gateway_usage.go`、`openai_ws_forwarder.go`、`openai_ws_http_bridge_test.go`、`openai_ws_v2_passthrough_adapter.go`、`api_key_auth_cache_impl.go` 和利润测试。
+- 监控、设置、仓储与界面冲突：`channel_monitor_user_handler.go`、`setting_public.go`、`wire.go` / `wire_gen.go`、`account_repo.go`、`scheduler_cache.go` 及测试、`SettingsView.vue`、`AppHeader.vue`、`OpsDashboardHeader.vue`、`OpsErrorDetailsModal.vue` 和共享前端类型。
+- 所有冲突均按字段和控制流逐项合流，没有用全仓或整组 `ours` / `theirs` 覆盖。合并后未保留未解决索引项或真实冲突标记。
+
+关键解决说明：
+
+- `dev-zz` 的分时定价是唯一生效合同：保留 IANA 时区、自定义“其余时段”名称与倍率、每条规则独立名称、最多 16 条、跨午夜、`0x`、`[0,100]`、请求开始时定价、启用后替代分组 / 用户 / 旧 peak 倍率，以及客户目录只展示最终价格的语义。上游 `ChannelTimePricing + Periods` 不支持这些合同，因此没有引入第二套运行时、编辑器或测试；迁移继续使用 `JSONB NOT NULL DEFAULT '{}'`。Group / account-stats 输入中的空禁用对象会兼容丢弃，启用的分时规则则在这些非渠道入口明确拒绝。
+- 用户侧模型状态继续使用 `dev-zz` 的 `/api/v1/model-status` 与授权分组过滤，没有恢复已被替代的 `/api/v1/channel-monitors` 用户路由；管理员 Channel Monitor 则吸收上游配额 fetcher、快照、负缓存、singleflight、公开设置和远程账号搜索。
+- OpenAI Chat / Responses / Messages / WebSocket 保留企业成员 `ActiveGroup`、请求开始定价时刻、交付元数据、渠道 usage 归因和预算持久化失败标记，同时吸收上游在转发错误或客户端断开后提交已观察 partial usage、客户端工具适配、终态事件和 turn 时间戳修复。
+- passthrough 的公开模型发现不再被过期映射误当白名单；Codex fingerprint seed、chat tool flags、账号成本别名和 scheduler cache 字段取并集。Wire 根据最终 provider graph 重新生成。
+- 设置同时保留 `dev-zz` 的模型自检与上游 `channel_monitor_show_quota`；渠道平台颜色增加 Kimi / 智谱 / DeepSeek，顶栏角色完成本地化，Ops SLA 空窗口仍使用更精确的失败 / 未分类口径，自定义错误时间范围与预设范围可以共同工作。
+- 自动拼接处额外发现并修复 Gemini compatibility 的 `policy` 作用域问题；这不是带标记冲突，但会导致合并后编译失败，已通过后端编译和单元测试验证。
+
+验证：
+
+- Wire 从合并后的 provider graph 重新生成；后端 handler / repository / service 编译通过，全仓 `go vet ./...` 通过。
+- 后端 `go test -tags=unit ./... -count=1` 全仓通过，其中 `service` 包约 153 秒；分时定价、Group / account-stats 拒绝与空对象兼容用例也单独通过。
+- 前端 typecheck 与完整 ESLint 通过；分时定价、可用渠道目录、Select 远程搜索、配额视图、用户监控卡片、监控表单账号选择器和账号批量设置定向 Vitest 共 8 个文件、102 条用例通过；全量 Vitest 共 282 个文件、1924 条用例通过；前端生产构建与 docs-site 构建通过。
+- staged whitespace、真实冲突标记、未解决索引、合并父节点与 `origin/main` 祖先关系检查通过。
+
+未验证：
+
+- 未连接真实 PostgreSQL / Redis 验证 migration 225 / 226、配额负缓存和邀请码并发；未向真实 OpenAI、Codex、Gemini、Kimi、智谱、DeepSeek、Grok 或 Ollama 发流量。
+- 按本次会话约束未使用 Playwright，也未做浏览器人工 smoke；未运行 Docker 镜像、Hosted CI、发布、推送或生产部署。
+
 ## 2026-08-17 - 将上游 `main` 合并到正式线 `dev-zz`：国产供应商、多协议与分组日用量汇总
 
 分支：

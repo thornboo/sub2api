@@ -1055,6 +1055,15 @@ func normalizeGroupModelPricing(platform string, pricing []ChannelModelPricing) 
 		out[i] = pricing[i].Clone()
 		out[i].ID = 0
 		out[i].ChannelID = 0
+		if out[i].TimePricing != nil && out[i].TimePricing.Enabled {
+			return nil, infraerrors.BadRequest(
+				"GROUP_MODEL_TIME_PRICING_UNSUPPORTED",
+				"group model pricing does not support time pricing",
+			)
+		}
+		// Group pricing is not a configuration surface for customer time pricing.
+		// Tolerate and discard an empty disabled object from upstream-compatible clients.
+		out[i].TimePricing = nil
 		if strings.TrimSpace(out[i].Platform) == "" {
 			out[i].Platform = platform
 		}

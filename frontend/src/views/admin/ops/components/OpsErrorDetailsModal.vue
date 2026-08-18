@@ -178,6 +178,15 @@ async function fetchErrorLogs() {
       delete params.time_range
       params.start_time = props.preset.startTime
       params.end_time = props.preset.endTime
+    } else if (props.timeRange === 'custom') {
+      if (props.customStartTime && props.customEndTime) {
+        params.start_time = props.customStartTime
+        params.end_time = props.customEndTime
+        delete params.time_range
+      } else {
+        // Safety fallback: avoid sending time_range=custom (backend doesn't support it)
+        params.time_range = '1h'
+      }
     }
 
     const platform = String(props.platform || '').trim()

@@ -235,6 +235,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyModelSelfCheckDefaultIntervalSeconds,
 		SettingKeyModelSelfCheckMaxConcurrency,
 		SettingKeyModelSelfCheckMaxTasksPerRound,
+		SettingKeyChannelMonitorShowQuota,
 		SettingKeyAvailableChannelsEnabled,
 		SettingKeyModelPlazaEnabled,
 		SettingKeyModelPlazaRequireAuth,
@@ -363,6 +364,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		ModelSelfCheckDefaultIntervalSeconds: parseModelSelfCheckInterval(settings[SettingKeyModelSelfCheckDefaultIntervalSeconds]),
 		ModelSelfCheckMaxConcurrency:         parseModelSelfCheckMaxConcurrency(settings[SettingKeyModelSelfCheckMaxConcurrency]),
 		ModelSelfCheckMaxTasksPerRound:       parseModelSelfCheckMaxTasksPerRound(settings[SettingKeyModelSelfCheckMaxTasksPerRound]),
+		ChannelMonitorShowQuota:              settings[SettingKeyChannelMonitorShowQuota] == "true",
 
 		AvailableChannelsEnabled: settings[SettingKeyAvailableChannelsEnabled] == "true",
 
@@ -430,6 +432,10 @@ type ChannelMonitorRuntime struct {
 	DefaultIntervalSeconds int
 	// HideThroughput: when true, user-facing V2 APIs omit RPM/TPM scale signals.
 	HideThroughput bool
+	// ShowQuota: when true, user-facing monitor views keep the quota/balance
+	// snapshots; otherwise the user handler strips them server-side.
+	// Parsed fail-closed (only literal "true" enables). Admin always sees them.
+	ShowQuota bool
 }
 
 // ActiveProbesAllowed reports whether V1 active provider probes may run.
@@ -458,6 +464,7 @@ func (s *SettingService) GetChannelMonitorRuntime(ctx context.Context) ChannelMo
 		SettingKeyChannelMonitorMode,
 		SettingKeyChannelMonitorDefaultIntervalSeconds,
 		SettingKeyChannelMonitorHideThroughput,
+		SettingKeyChannelMonitorShowQuota,
 	})
 	if err != nil {
 		return ChannelMonitorRuntime{
@@ -472,6 +479,7 @@ func (s *SettingService) GetChannelMonitorRuntime(ctx context.Context) ChannelMo
 		Mode:                   normalizeChannelMonitorMode(vals[SettingKeyChannelMonitorMode]),
 		DefaultIntervalSeconds: parseChannelMonitorInterval(vals[SettingKeyChannelMonitorDefaultIntervalSeconds]),
 		HideThroughput:         !isFalseSettingValue(vals[SettingKeyChannelMonitorHideThroughput]),
+		ShowQuota:              vals[SettingKeyChannelMonitorShowQuota] == "true",
 	}
 }
 
@@ -613,7 +621,10 @@ type PublicSettingsInjectionPayload struct {
 	ChannelMonitorDefaultIntervalSeconds int    `json:"channel_monitor_default_interval_seconds"`
 	// ChannelMonitorHideThroughput is public so the user UI can hide RPM/TPM
 	// without waiting for API redaction alone (defense in depth).
-	ChannelMonitorHideThroughput         bool `json:"channel_monitor_hide_throughput"`
+	ChannelMonitorHideThroughput bool `json:"channel_monitor_hide_throughput"`
+	// ChannelMonitorShowQuota gates the user-facing quota/balance display on
+	// monitors; fail-closed (absent/false = hidden). Admin UI always shows it.
+	ChannelMonitorShowQuota              bool `json:"channel_monitor_show_quota"`
 	ModelSelfCheckEnabled                bool `json:"model_self_check_enabled"`
 	ModelSelfCheckDefaultIntervalSeconds int  `json:"self_check_default_interval_seconds"`
 	ModelSelfCheckMaxConcurrency         int  `json:"self_check_max_concurrency"`
@@ -701,6 +712,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		ModelSelfCheckDefaultIntervalSeconds: settings.ModelSelfCheckDefaultIntervalSeconds,
 		ModelSelfCheckMaxConcurrency:         settings.ModelSelfCheckMaxConcurrency,
 		ModelSelfCheckMaxTasksPerRound:       settings.ModelSelfCheckMaxTasksPerRound,
+		ChannelMonitorShowQuota:              settings.ChannelMonitorShowQuota,
 		AvailableChannelsEnabled:             settings.AvailableChannelsEnabled,
 		ModelPlazaEnabled:                    settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:                settings.ModelPlazaRequireAuth,
