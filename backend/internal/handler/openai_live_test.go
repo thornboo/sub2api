@@ -120,6 +120,9 @@ func TestLiveEnabledForAPIKey(t *testing.T) {
 	require.True(t, liveEnabledForAPIKey(nil, &service.APIKey{
 		Group: &service.Group{Platform: service.PlatformOpenAI, AllowLive: true},
 	}))
+	require.False(t, liveEnabledForAPIKey(nil, &service.APIKey{
+		Group: &service.Group{Platform: service.PlatformComposite, AllowLive: true},
+	}))
 }
 
 func TestLiveEnabledForCompositeResolvedOpenAI(t *testing.T) {

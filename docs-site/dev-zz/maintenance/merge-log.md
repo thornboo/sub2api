@@ -1,5 +1,54 @@
 # 上游合并记录
 
+## 2026-08-21 - 将上游 `main` 合并到正式线 `dev-zz`：自适应协议、Codex 恢复与渠道倍率
+
+分支：
+
+- 目标：`dev-zz`
+- 上游：`origin/main`（本地 `main` 与 `origin/main` 均为 `2bc139ab527b4a687546d145dc7bb9063cf14510`）
+- Base：`49504adc98d2b6d539491e865a340e644548979e`
+- 合并前目标：`3d1ee78ab527b4a687546d145dc7bb9063cf14510`
+- 上游 head：`2bc139ab527b4a687546d145dc7bb9063cf14510`
+- 结果提交：本次合并提交
+
+上游要点：
+
+- 国产供应商增加 Adaptive API 协议和按协议独立 base URL；Composite 分组扩展 Kimi、智谱、DeepSeek，并为 Codex Responses、WebSocket 和控制类端点补齐组合平台路由。
+- OpenAI / Codex 增加跨轮客户端工具状态恢复、WebSocket later-turn resume、当前轮 failover、容量恢复、输入 token 预检、buffered-read failover 和 reasoning cache；Grok 增加 tool search discoveries、可调用工具与内联图片工具。
+- 渠道计费增加 Fast / Flex 服务层倍率和缓存创建 / 缓存命中 / 音频输入 / 音频输出倍率；usage 聚合改为单次扫描，迁移 `226` / `227` / `228` 分别补充有效模型索引、Composite 国产供应商和渠道倍率字段。
+- 代理探测目标可配置并增加严格校验；Channel Monitor 补齐配额来源、检查模式和界面本地化；Ops 将本地模型配置明确归类为业务受限并排除在上游 SLA 之外。
+- 上游版本推进到 `0.1.179`；`dev-zz` 按独立发布线继续保留 `1.7.37`。
+
+合并策略与冲突：
+
+- 合并前完整读取 `docs-site/dev-zz` 的分支策略、合并流程、补丁记录、历史合并记录、变更记录、变更地图、验证矩阵，以及分时定价、多协议、企业成员路由和 Ops 失败分类文档；以这些合同作为冲突裁决依据。
+- 以 merge-base `49504adc` 执行只读 `git merge-tree` 预演，再执行 `git merge --no-commit origin/main`。本次上游范围为 79 个提交、214 个文件、9567 行新增和 1482 行删除；预演与真实合并均报告 37 个冲突文件。
+- 版本、README、渠道定价与渠道界面共 14 个冲突：`README.md`、`README_JA.md`、`backend/cmd/server/VERSION`、`channel_handler.go`、`channel_handler_test.go`、`channel_repo_pricing.go`、`channel_repo_pricing_time_test.go`、`channel.go`、`model_pricing_resolver.go`、`IntervalRow.vue`、`PricingEntryCard.vue`、`PricingEntryCard.timePricing.spec.ts`、`types.spec.ts`、`ChannelsView.vue`。
+- Gateway、协议桥、Composite、usage 与 Ops 共 18 个冲突：`gateway_handler.go`、`no_account_error.go`、`openai_alpha_search.go`、`openai_codex_models_handler.go`、`openai_gateway_count_tokens.go`、`openai_gateway_handler.go`、`openai_live.go`、`ops_error_logger.go`、`chatcompletions_responses_bridge.go`、`usage_log_repo_stats.go`、`composite_platform_test.go`、`gateway.go`、`admin_service_composite_group_test.go`、`openai_apikey_responses_probe_test.go`、`openai_gateway_chat_completions.go`、`openai_gateway_messages.go`、`openai_gateway_responses_chat_fallback.go`、`ops_upstream_context.go`。
+- 管理端账号与监控界面共 5 个冲突：`CreateAccountModal.vue`、`EditAccountModal.vue`、`CreateAccountModal.grok.spec.ts`、`UserEditModal.vue`、`MonitorCard.vue`。
+- 所有冲突都按字段和控制流逐项合流，没有整批采用 `ours` / `theirs`；`channel_repo_pricing_time_test.go` 是唯一 modify/delete 冲突，因同一合同已有更新后的分层测试覆盖而保持删除。最终未留下未解决索引项或真实冲突标记。
+
+关键解决说明：
+
+- 渠道定价只保留 `dev-zz` 的一套 `TimePricing` 合同：IANA 时区、默认时段名称和倍率、最多 16 条具名规则、跨午夜、`0x`、`[0,100]`、按请求开始时间定价，以及启用后替代分组 / 用户 / 旧 peak 倍率。没有引入上游功能较弱且语义重叠的 `ChannelTimePricing`；同时吸收 Fast / Flex 和四类 interval multiplier。账号统计定价明确忽略渠道倍率与分时规则，避免把渠道实际结算策略误用到成本统计。
+- Composite / 国产供应商路由按每个候选账号重新解析真实平台，继续保留企业成员 `ActiveGroup`、sticky、预算 / usage 原子归因和“归因不明确就不重放”的边界；Codex 控制端点和 `count_tokens` 对 OpenAI 与支持的 Composite / 国产供应商开放，Live 则依据解析后的目标平台校验。
+- Responses HTTP 支持 OpenAI、Grok 和国产供应商，WebSocket 仍限 OpenAI / Grok。Adaptive 模式下显式国产供应商协议优先于陈旧探测结果：`responses` 固定走 Responses，`chat_completions` / `anthropic` 不被探测覆盖，只有 DeepSeek 的 adaptive 模式按探测决定是否走 Responses。
+- Responses 转 Chat bridge 同时保留 `dev-zz` 的 capability / tool registry 与上游 reasoning cache；WebSocket 合流 later-turn resume、当前轮 failover、重试 payload 和逐次模型映射。OpenAI Messages fallback 在转换后进入既有调用链，不绕过 fork 的企业归因和交付决策。
+- Usage 统计吸收上游单扫描 `GROUPING SETS` 优化，同时保留企业成员、有效模型和 billing type 过滤。Ops 本地模型配置保留路由证据，但标记为业务受限并排除上游归因和 SLA，避免把本地配置问题误报为供应商故障。
+- 前端保留 `dev-zz` 的 stone / neutral / emerald 视觉、分时定价编辑器、企业用户字段和禁用搜索的角色选择器，同时吸收 Adaptive base URL、长上下文计费门控、Fast / Flex 和 interval multiplier 控件、配额本地化。
+- 自动拼接后还额外修复了无冲突标记但会导致编译或语义回退的调用签名、`count_tokens` 平台判断、定价 SQL mock、测试 helper 平台透传和 Composite 公开模型列表；Wire 根据最终 provider graph 重新生成且再次生成无差异。
+
+验证：
+
+- `mise x -C backend -- go generate ./cmd/server` 通过且重新生成无差异；`go test -tags=unit ./... -count=1` 全仓通过，其中 `service` 包约 152 秒。定向验证覆盖 Adaptive / 固定协议、Composite / Codex / Live、无账号错误、Ops、本地模型分类、`count_tokens`、admin handler、repository 和渠道倍率。
+- 前端 typecheck、完整 ESLint 和 10 个冲突相关测试文件的 115 条 Vitest 通过；全量 Vitest 共 292 个测试文件、1973 条用例通过。
+- 后端 `go vet ./...`、`go build ./cmd/server`、前端生产构建和 docs-site 生产构建通过；staged whitespace、真实冲突标记、未解决索引、合并双父节点与 `origin/main` 祖先关系检查通过。
+
+未验证：
+
+- 未连接真实 PostgreSQL / Redis 验证迁移 `226` / `227` / `228` 和实际查询计划；未向真实 OpenAI、Codex、Grok、Kimi、智谱或 DeepSeek 发流量。
+- 未运行 Playwright 或浏览器人工 smoke，未构建 Docker 镜像，也未运行 Hosted CI、发布、推送或生产部署。
+
 ## 2026-08-18 - 继续合并上游 `main`：版本同步提交
 
 分支：

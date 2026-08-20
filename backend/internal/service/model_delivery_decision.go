@@ -491,6 +491,18 @@ func useOpenAIResponsesForSelectedDelivery(account *Account, selectedProtocol Mo
 		return false, fmt.Errorf("selected protocol requires an account")
 	}
 	if selectedProtocol == "" {
+		if account.IsCNProvider() {
+			// CN account protocol configuration is synchronous operator intent and
+			// must override potentially stale asynchronous probe metadata.
+			switch account.GetAPIProtocol() {
+			case APIProtocolResponses:
+				return true, nil
+			case APIProtocolChatCompletions, APIProtocolAnthropic:
+				return false, nil
+			case APIProtocolAdaptive:
+				return account.Platform == PlatformDeepseek, nil
+			}
+		}
 		return account.Type != AccountTypeAPIKey || openai_compat.ShouldUseResponsesAPI(account.Extra), nil
 	}
 	switch selectedProtocol {

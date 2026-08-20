@@ -56,7 +56,11 @@
       </div>
       <div>
         <label class="input-label">{{ t('admin.users.form.roleLabel') }}</label>
-        <Select v-model="form.role" :options="roleOptions" />
+        <Select
+          v-model="form.role"
+          :options="roleOptions"
+          :searchable="false"
+        />
       </div>
       <div>
         <label class="input-label">{{ t('admin.users.notes') }}</label>
@@ -114,7 +118,6 @@ const emit = defineEmits(['close', 'success'])
 const { t } = useI18n(); const appStore = useAppStore(); const { copyToClipboard } = useClipboard()
 
 const submitting = ref(false); const passwordCopied = ref(false)
-const form = reactive({ email: '', password: '', username: '', notes: '', role: 'user', account_type: 'individual' as 'individual' | 'enterprise', enterprise_enabled: true, concurrency: 1, rpm_limit: 0, customAttributes: {} as UserAttributeValuesMap })
 const accountTypeOptions = computed<SelectOption[]>(() => [
   { value: 'individual', label: t('admin.users.form.accountTypes.individual') },
   { value: 'enterprise', label: t('admin.users.form.accountTypes.enterprise') }
@@ -123,6 +126,18 @@ const roleOptions = computed<SelectOption[]>(() => [
   { value: 'user', label: t('admin.users.roles.user') },
   { value: 'admin', label: t('admin.users.roles.admin') }
 ])
+const form = reactive({
+  email: '',
+  password: '',
+  username: '',
+  notes: '',
+  role: 'user' as AdminUser['role'],
+  account_type: 'individual' as 'individual' | 'enterprise',
+  enterprise_enabled: true,
+  concurrency: 1,
+  rpm_limit: 0,
+  customAttributes: {} as UserAttributeValuesMap
+})
 
 watch(() => props.user, (u) => {
   if (u) {

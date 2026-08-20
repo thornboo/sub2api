@@ -583,6 +583,7 @@
                   :platform="section.platform"
                   :model-delivery="deliveryLoaded ? modelDeliveryForPlatform(section.platform) : undefined"
                   :delivery-loading="deliveryLoading"
+                  enable-tier-multipliers
                   @update="updatePricingEntry(sIdx, idx, $event)"
                   @remove="removePricingEntry(sIdx, idx)"
                   @inspect-delivery="openDeliveryDialog"
@@ -789,6 +790,7 @@ import {
   apiTimePricingToForm,
   formTimePricingToAPI,
   findModelConflict,
+  isValidPositiveMultiplier,
   validateIntervals,
   validateTimePricing,
 } from '@/components/admin/channel/types'
@@ -935,9 +937,8 @@ let abortController: AbortController | null = null
 
 // ── Platform config ──
 const platformOrder: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek']
-// composite 分组仅覆盖主平台（与后端 isConcreteRequestPlatform / composite-routes target_platform 一致），
-// 不含国产供应商平台。
-const compositePlatforms: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok']
+// Composite pricing/mapping may target every concrete schedulable provider.
+const compositePlatforms: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek']
 
 // ── Helpers ──
 function formatDate(value: string): string {
@@ -1078,6 +1079,8 @@ function createPricingEntry(models: string[] = [], defaults?: ModelDefaultPricin
     output_price: defaults?.found ? perTokenToMTok(defaults.output_price ?? null) : null,
     cache_write_price: defaults?.found ? perTokenToMTok(defaults.cache_write_price ?? null) : null,
     cache_read_price: defaults?.found ? perTokenToMTok(defaults.cache_read_price ?? null) : null,
+    fast_multiplier: null,
+    flex_multiplier: null,
     image_input_price: defaults?.found ? perTokenToMTok(defaults.image_input_price ?? null) : null,
     image_output_price: defaults?.found ? perTokenToMTok(defaults.image_output_price ?? null) : null,
     per_request_price: null,
@@ -1555,6 +1558,8 @@ function formToAPI(): {
         output_price: mTokToPerToken(entry.output_price),
         cache_write_price: mTokToPerToken(entry.cache_write_price),
         cache_read_price: mTokToPerToken(entry.cache_read_price),
+        fast_multiplier: entry.fast_multiplier != null && entry.fast_multiplier !== '' ? Number(entry.fast_multiplier) : null,
+        flex_multiplier: entry.flex_multiplier != null && entry.flex_multiplier !== '' ? Number(entry.flex_multiplier) : null,
         image_input_price: mTokToPerToken(entry.image_input_price),
         image_output_price: mTokToPerToken(entry.image_output_price),
         per_request_price: entry.per_request_price != null && entry.per_request_price !== '' ? Number(entry.per_request_price) : null,
@@ -1667,6 +1672,8 @@ function apiToForm(channel: Channel): PlatformSection[] {
         output_price: perTokenToMTok(p.output_price),
         cache_write_price: perTokenToMTok(p.cache_write_price),
         cache_read_price: perTokenToMTok(p.cache_read_price),
+        fast_multiplier: p.fast_multiplier,
+        flex_multiplier: p.flex_multiplier,
         image_input_price: perTokenToMTok(p.image_input_price),
         image_output_price: perTokenToMTok(p.image_output_price),
         per_request_price: p.per_request_price,
@@ -2027,6 +2034,14 @@ async function handleSubmit() {
   // 校验区间合法性（范围、重叠等）
   for (const section of form.platforms.filter(s => s.enabled)) {
     for (const entry of section.model_pricing) {
+      if (!isValidPositiveMultiplier(entry.fast_multiplier) ||
+          !isValidPositiveMultiplier(entry.flex_multiplier)) {
+        const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)
+        const modelLabel = entry.models.join(', ') || t('admin.channels.form.unnamed')
+        appStore.showError(`${platformLabel} - ${modelLabel}: ${t('admin.channels.form.multiplierPositive')}`)
+        activeTab.value = section.platform
+        return
+      }
       const intervalErr = validateIntervals(entry.intervals || [], entry.billing_mode, t)
       if (intervalErr) {
         const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)

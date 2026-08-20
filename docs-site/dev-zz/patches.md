@@ -1,5 +1,35 @@
 # 补丁记录
 
+## 2026-08-21 - 上游 main 同步：自适应协议、Codex 恢复与渠道倍率
+
+### 目标
+
+- 将 `origin/main@2bc139ab5` 合入正式线 `dev-zz`，取得国产供应商自适应协议、Composite CN / Codex 路由、OpenAI WebSocket 恢复、Grok 工具、渠道倍率、监控校验和 usage 查询优化。
+- 继续以 `docs-site/dev-zz` 为冲突裁决依据，守住企业成员候选编排、预算 / usage 原子归因、模型交付协议、唯一分时定价合同、stone / neutral / emerald 视觉和 `1.7.37` 发布线。
+
+### 主要变化
+
+- Kimi、智谱和 DeepSeek 账号支持 `adaptive` 协议与 Chat Completions / Anthropic / Responses 分协议 base URL；Composite 可把文本与 Codex 控制入口解析到 CN provider。显式 `api_protocol` 是同步管理员意图，优先于可能滞后的 Responses probe `extra`。
+- OpenAI Responses / Messages / WebSocket 合并后续 turn resume、当前 turn 缓冲重试、客户端工具跨 turn 保留、input token 预检、容量恢复、Chat 缓冲读取 failover 和 reasoning item ID 缓存回注；企业成员首次激活、每候选 Composite 重解析、最终 `ActiveGroup`、sticky、请求级预算和“结果不明确不重放”保持不变。
+- Grok 把客户端 tool-search discoveries 转成可调用工具，保留延迟加载 / namespace / capability registry 边界，并合并内联图片工具；Responses→Chat 同时使用二开的工具注册表 / 上游能力矩阵和新增 reasoning cache，不以其中一套覆盖另一套。
+- 渠道模型价格增加 Fast / Flex 倍率，长上下文区间增加 input / output / cache write / cache read 倍率；既有 `time_pricing` 仍是唯一分时合同。账号统计价格入口丢弃渠道倍率和分时规则，继续只表达供应商成本。
+- usage 总览使用一条 `GROUPING SETS` 查询同时得到总计、入站、上游和路径聚合，并保留 enterprise member、owner、模型来源、billing mode 等过滤；本地模型配置错误不再携带上游账号 / endpoint 归因或计入上游 SLA，路由计划和实际尝试证据仍保留。
+- Channel Monitor 在保存时拒绝不可用配额数据源和非法模式组合；用户 / 管理端把纯配额占位模型 `quota` 显示为本地化标签。代理出口探测允许配置有序 URL 与 `ip-api` / `ipify` / `chatgpt-trace` parser，并在启动时严格校验。
+
+### 冲突与兼容性
+
+- `git merge-tree` 预演和真实 `git merge --no-commit origin/main` 均报告 37 个冲突文件。没有使用整仓或整组 `ours` / `theirs`；每个文件按最终数据结构、控制流和测试合同合流。
+- 定价冲突保留 `TimePricing` 的 IANA 时区、自定义默认 / 规则名称、最多 16 条、跨午夜、`0x` 和请求开始时结算，同时加入 Fast / Flex 与区间倍率。未引入上游较简单的第二套 `ChannelTimePricing`。
+- 网关冲突允许 Composite / CN / Codex 新入口，但继续按请求实际解析平台执行 Live / WebSocket gate；企业成员能力不匹配才可切下一候选，已提交响应、外部任务、WebSocket turn 或结果不明确时不能重放。
+- 管理端冲突保留企业账号能力、stone 视觉和二开表单字段，同时加入自适应 base URL、长上下文显示门控、角色 Select 行为和配额模型格式化。`VERSION` 保持 `1.7.37`，不采用上游 `0.1.179`。
+- 新增迁移 `226_add_usage_log_effective_model_indexes_notx.sql`、`227_composite_routes_add_cn_providers.sql`、`228_channel_pricing_multipliers.sql`，全部按完整文件名追加；没有改写历史迁移。
+
+### 验证
+
+- 冲突相关后端 Handler / route / protocol 定向测试通过；CN adaptive / 显式协议覆盖和管理端渠道 handler 包测试通过。前端冲突相关 10 个文件、115 条用例通过。
+- 前端 typecheck、完整 ESLint 和全量 Vitest 通过：292 个测试文件、1973 条用例。全量后端 unit、vet、build、前端生产构建、docs build 与最终 Git 检查见同日合并记录。
+- 未连接真实 PostgreSQL / Redis、真实 provider 或浏览器人工 smoke；未运行 Docker / Hosted CI，未推送、发布或部署。
+
 ## 2026-08-18 - 按量模型分时定价
 
 ### 目标

@@ -14,6 +14,17 @@
 
 Node 24 runtime 变量只验证 GitHub action 执行环境，不等价于项目构建 Node 升级。升级前端构建 Node 前，需要单独验证依赖兼容。
 
+## 代理出口探测
+
+| 配置 | 默认值 | 说明 |
+| --- | --- | --- |
+| `security.proxy_probe.urls` | `[]` | 按顺序尝试的探测目标；空数组使用内置 `ip-api` → `ipify` 回退 |
+| `security.proxy_probe.urls[].url` | 必填 | 只接受带 host 的 `http` / `https` URL |
+| `security.proxy_probe.urls[].parser` | 必填 | 只接受 `ip-api`、`ipify`、`chatgpt-trace` |
+| `gateway.proxy_probe_response_read_max_bytes` | `1048576` | 单次探测响应的最大读取字节数，必须为正数 |
+
+配置在启动规范化阶段 trim 并校验；任一条目缺少 URL / parser、协议非法或 parser 未知都会使配置加载失败。`security.proxy_probe.insecure_skip_verify` 仍被禁止，不能用自定义目标绕过 TLS 证书校验。
+
 ## API Key 相关配置
 
 | 配置 | 默认值 | 说明 |
@@ -86,10 +97,15 @@ Channel Monitor V2 aggregator 仅在总开关开启、mode 为 `v2` 且 V2 配�
 | `groups.model_pricing` | `[]` | 分组级逐模型 token / per-request / media 价格；公开展示仍通过共享 catalog 投影 |
 | `groups.model_pricing[].time_pricing` | 未启用 | token 模型销售价的 IANA 时区、自定义客户类型名称与多窗口倍率；标准按量分组可用，不受订阅类型限制 |
 | `channel_model_pricing.time_pricing` | `{}` | 渠道逐模型 token 分时规则；类型名称与倍率独立，Group 模型价命中时随整条价格一起被覆盖 |
+| `channel_model_pricing.fast_multiplier` | `null` | Fast / priority service tier 命中时，基于已选标准渠道价格应用的正倍率 |
+| `channel_model_pricing.flex_multiplier` | `null` | Flex service tier 命中时，基于已选标准渠道价格应用的正倍率 |
+| `channel_pricing_intervals.*_multiplier` | `null` | 长上下文区间可分别配置 input / output / cache write / cache read 正倍率；对应绝对价格非空时仍以绝对价格为准 |
 
 usage logs 新增 `upstream_response_model` 与 `upstream_model_mismatch`，并发索引迁移为 `195_add_usage_log_upstream_model_mismatch_index_notx.sql`。新增分组定价迁移为 `217_group_video_model_prices.sql` 到 `221_group_model_pricing.sql`；这些字段不绕过渠道 / 分组交付能力、企业成员候选或 owner/admin 隐私边界。
 
-分时规则只影响 token 销售价。未覆盖时段使用可配置的 `default_label` 与 `default_multiplier`，显式规则也分别保存 `label` 与倍率；类型名称是客户文案，不从倍率推断。旧 JSON 缺失 `default_multiplier` 时兼容为 `1x`；模型规则启用时，当前分时倍率直接替代分组默认倍率、用户专属倍率与旧 `groups.peak_rate_*`，未启用时原倍率链继续兼容。命中的 `pricing_at`、最终倍率、类型名称、时区和规则快照写入管理员可见的 usage `schedule_meta`，后续编辑规则不会回算历史用量。渠道字段由 `225_channel_model_time_pricing.sql` 增加；Group 规则随既有 `groups.model_pricing` JSONB 保存。
+分时规则只影响 token 销售价。未覆盖时段使用可配置的 `default_label` 与 `default_multiplier`，显式规则也分别保存 `label` 与倍率；类型名称是客户文案，不从倍率推断。旧 JSON 缺失 `default_multiplier` 时兼容为 `1x`；模型规则启用时，当前分时倍率直接替代分组默认倍率、用户专属倍率与旧 `groups.peak_rate_*`，未启用时原倍率链继续兼容。命中的 `pricing_at`、最终倍率、类型名称、时区和规则快照写入管理员可见的 usage `schedule_meta`，后续编辑规则不会回算历史用量。渠道分时字段由 `225_channel_model_time_pricing.sql` 增加，服务层级 / 区间倍率由 `228_channel_pricing_multipliers.sql` 增加；Group 规则随既有 `groups.model_pricing` JSONB 保存。账号统计成本模型明确忽略这些渠道倍率，避免把客户销售层价格写入供应商成本口径。
+
+本轮同时追加 `226_add_usage_log_effective_model_indexes_notx.sql`，为 effective requested / upstream model 与时间、ID 建立并发索引；`227_composite_routes_add_cn_providers.sql` 扩展 Composite 目标平台约束到 Kimi、智谱和 DeepSeek。三个迁移均为追加文件，不改写既有迁移或 checksum。
 
 ## 认证验证码提供商
 

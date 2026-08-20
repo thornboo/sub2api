@@ -1,5 +1,13 @@
 # 变更记录
 
+## 2026-08-21
+
+- 同步 `origin/main@2bc139ab5` 到正式线 `dev-zz`：国产供应商账号新增 `adaptive` API 协议与分协议 base URL，Composite 扩展到 Kimi / 智谱 / DeepSeek 及 Codex 控制入口；显式账号协议仍优先于异步 Responses 探测结果。
+- OpenAI / Codex 吸收 WebSocket 后续 turn 恢复、当前 turn 安全 failover、客户端工具跨 turn 保留、input token 预检、请求级容量恢复、Chat 缓冲读取故障转移和 reasoning item 缓存回注；Grok 增加 tool-search discoveries 晋升、客户端 tool search 与内联图片工具适配。
+- 渠道价格增加 Fast / Flex 服务层倍率和长上下文区间的输入、输出、缓存读写倍率；`dev-zz` 的 `time_pricing` 继续是唯一分时定价合同，保留 IANA 时区、自定义类型名称、跨午夜、`0x`、请求开始时结算和替代其它倍率的语义。账号统计成本入口不接受渠道倍率。
+- Channel Monitor 收紧配额数据源与模式组合校验，配额占位模型统一本地化；usage 汇总改为单次 `GROUPING SETS` 扫描，并保留企业成员 / owner 过滤；本地模型配置错误从上游 SLA 归因中排除，但仍保留路由尝试证据。
+- 新增可配置代理出口探测目标；迁移 `226_add_usage_log_effective_model_indexes_notx.sql`、`227_composite_routes_add_cn_providers.sql`、`228_channel_pricing_multipliers.sql` 按完整文件名追加。fork 版本继续保持 `1.7.37`，没有采用上游 `0.1.179`。
+
 ## 2026-08-18
 
 - 同步 `origin/main@e0c48a19` 到正式线 `dev-zz`：Channel Monitor 增加配额模式、快照、远程账号搜索和多平台展示；吸收 OpenAI / Codex 客户端工具、WebSocket、fingerprint、批量账号设置与 Team 熔断修复，以及 Gemini / Antigravity、国产供应商、Grok 用量、邀请码原子兑换、Ops 和暗色界面的上游改进。

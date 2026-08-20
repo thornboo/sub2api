@@ -110,6 +110,9 @@ func classifyNoAccountErrorFromGin(
 		ctx = c.Request.Context()
 	}
 	classification := classifyNoAccountError(ctx, diag, apiKey, routingModel, displayModel, platform)
+	if classification.ModelNotFound {
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
+	}
 	if classification.ModelNotFound && apiKey != nil && apiKey.MemberID != nil {
 		markEnterpriseMemberGroupRetryFromContext(c, service.OpsGroupRetryReasonCapabilityMismatch)
 	}

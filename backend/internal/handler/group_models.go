@@ -92,6 +92,9 @@ func (h *GatewayHandler) configuredCompositeModels(ctx context.Context, groupID 
 		service.PlatformOpenAI,
 		service.PlatformAntigravity,
 		service.PlatformGrok,
+		service.PlatformKimi,
+		service.PlatformZhipu,
+		service.PlatformDeepseek,
 	} {
 		var platformModels []string
 		var hasAccounts bool
@@ -113,7 +116,9 @@ func (h *GatewayHandler) configuredCompositeModels(ctx context.Context, groupID 
 			continue
 		}
 		configuredPlatforms[platform] = struct{}{}
-		if len(platformModels) == 0 {
+		// CN providers have no trustworthy static default catalog; expose only
+		// model-mapping keys discovered from configured accounts.
+		if len(platformModels) == 0 && !service.IsCNProvider(platform) {
 			platformModels = defaultModelIDsForPlatform(platform)
 		}
 		models = appendNormalizedModels(models, seen, platformModels)
