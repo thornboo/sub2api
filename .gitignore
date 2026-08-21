@@ -147,6 +147,7 @@ frontend/coverage/
 aicodex
 output/
 .omx
+.codegraph/
 
 # Vitest / Vite cache at repo root
 .vite/

@@ -364,4 +364,33 @@ describe('OpsErrorDetailModal', () => {
     expect(text).not.toContain('secret-credentials')
     expect(text).not.toContain('secret-member')
   })
+
+  it('prioritizes the upstream root cause and deduplicates diagnostic payloads', async () => {
+    vi.mocked(opsAPI.getRequestErrorDetail).mockResolvedValue(
+      makeErrorDetail({
+        created_at: '2026-08-19T00:00:00Z',
+        status_code: 502,
+        upstream_status_code: 429,
+        model: 'gpt-5.6',
+        request_id: 'rid-1',
+        message: 'All available accounts exhausted',
+        error_body: '{"error":"same"}',
+        upstream_error_message: 'provider rate limit exhausted',
+        upstream_error_detail: '{"error":"same"}',
+        upstream_errors: '[]',
+        account_name: 'account',
+        group_name: 'group'
+      })
+    )
+    vi.mocked(opsAPI.listRequestErrorUpstreamErrors).mockResolvedValue({ items: [], total: 0 })
+
+    const wrapper = mountModal()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('provider rate limit exhausted')
+    expect(wrapper.text()).toContain('admin.ops.errorDetail.upstreamStatus')
+    expect(wrapper.text()).toContain('429')
+    expect(wrapper.findAll('pre')).toHaveLength(2)
+    expect(wrapper.text()).not.toContain('admin.ops.errorDetail.payloads.upstream_detail')
+  })
 })
