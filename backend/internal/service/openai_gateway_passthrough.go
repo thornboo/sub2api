@@ -1544,6 +1544,16 @@ func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffects(
 			// carried by a stream terminal event.
 			accountHeaders = nil
 		}
+		canonicalModel := ""
+		if c != nil {
+			if value, ok := c.Get(OpsUpstreamModelKey); ok {
+				canonicalModel, _ = value.(string)
+				canonicalModel = strings.TrimSpace(canonicalModel)
+			}
+		}
+		if canonicalModel != "" {
+			return statusCode, s.handleOpenAIAccountUpstreamError(ctx, account, statusCode, accountHeaders, payload, canonicalModel)
+		}
 		return statusCode, s.handleOpenAIAccountUpstreamError(ctx, account, statusCode, accountHeaders, payload)
 	default:
 		return statusCode, false

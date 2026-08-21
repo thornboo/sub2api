@@ -336,13 +336,19 @@ func (s *OpenAIGatewayService) handleOpenAIWSFailureAccountSideEffects(ctx conte
 	status := openAIStreamFailureStatus(payload, message)
 	switch status {
 	case http.StatusUnauthorized, http.StatusTooManyRequests, 529:
-		s.handleOpenAIStreamTerminalAccountSideEffects(nil, account, payload, message, headers)
+		accountHeaders := headers
+		if status == http.StatusTooManyRequests {
+			// The enclosing HTTP response succeeded, so its quota headers cannot
+			// describe the semantic 429 carried by this stream event.
+			accountHeaders = nil
+		}
+		s.handleOpenAIAccountUpstreamError(ctx, account, status, accountHeaders, payload, canonicalModel)
 		return true
 	case http.StatusForbidden:
 		if !openAIStream403AccountFailure(payload, message) {
 			return false
 		}
-		s.handleOpenAIStreamTerminalAccountSideEffects(nil, account, payload, message, headers)
+		s.handleOpenAIAccountUpstreamError(ctx, account, status, headers, payload, canonicalModel)
 		return true
 	}
 

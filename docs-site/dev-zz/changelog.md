@@ -2,6 +2,12 @@
 
 ## 2026-08-21
 
+- 继续同步 `origin/main@9f74eb57f`：OpenAI Responses 增加输入 / terminal usage / tool schema 兼容、被拒字段有限同号重试、compact fallback、WebSocket 会话抢占与 API Key 健康熔断；Grok 默认模型和计费目录推进到 4.6，并收紧媒体、Realtime、stream idle、compaction 和容量重试语义。
+- Ops 错误详情增加上游状态、根因优先级、失败尝试快照和诊断 payload 去重；后台 capture writer 使用 generation-bound lease，避免池化复用后的旧 writer 触达新请求，同时保留二开 route trace、外层 writer 生命周期和 stone 阅读型布局。
+- WebSocket 继续锁定连接级公开模型、渠道 / 账号映射、平台、分组和账号；每轮分别保存完整映射链、预算和 usage。后续轮次未知传输结果仍进入 enterprise member budget ambiguous，对已可能发生的上游消费不做整连接重放。
+- 国产供应商原生 Anthropic 路径补齐 `reasoning_effort`，`gpt-5.6-*` 保留 `max` effort；prompt guard 的 `config_loaded` 不再每 5 秒重复写日志，只在首次加载、配置变化或错误恢复时记录。
+- 新增 `gateway.grok_response_header_timeout`（默认 120 秒）和默认关闭的 OpenAI pool API Key 跨实例健康熔断 setting；无数据库迁移，发布版本继续保持 `1.7.37`。
+
 - 同步 `origin/main@2bc139ab5` 到正式线 `dev-zz`：国产供应商账号新增 `adaptive` API 协议与分协议 base URL，Composite 扩展到 Kimi / 智谱 / DeepSeek 及 Codex 控制入口；显式账号协议仍优先于异步 Responses 探测结果。
 - OpenAI / Codex 吸收 WebSocket 后续 turn 恢复、当前 turn 安全 failover、客户端工具跨 turn 保留、input token 预检、请求级容量恢复、Chat 缓冲读取故障转移和 reasoning item 缓存回注；Grok 增加 tool-search discoveries 晋升、客户端 tool search 与内联图片工具适配。
 - 渠道价格增加 Fast / Flex 服务层倍率和长上下文区间的输入、输出、缓存读写倍率；`dev-zz` 的 `time_pricing` 继续是唯一分时定价合同，保留 IANA 时区、自定义类型名称、跨午夜、`0x`、请求开始时结算和替代其它倍率的语义。账号统计成本入口不接受渠道倍率。

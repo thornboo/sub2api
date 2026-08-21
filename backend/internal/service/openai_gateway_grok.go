@@ -177,7 +177,7 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 		s.handleGrokAccountUpstreamError(errCtx, account, resp.StatusCode, resp.Header, respBody)
 		// Quota/rate-limit responses stamp the team+model overlay. Capacity is
 		// request pressure and must not hide sibling accounts.
-		if shouldMarkGrokTeamModelRateLimit(resp.StatusCode, respBody) {
+		if !isModelSelfCheckProbeContext(ctx) && shouldMarkGrokTeamModelRateLimit(resp.StatusCode, respBody) {
 			markGrokTeamModelRateLimit(account, upstreamModel, resolveGrokTeamRateLimitUntil(time.Now().Add(grokTeamRateLimitDefaultTTL), time.Now()))
 		}
 		if s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody) {

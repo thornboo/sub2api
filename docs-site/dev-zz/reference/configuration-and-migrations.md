@@ -51,9 +51,23 @@ Node 24 runtime 变量只验证 GitHub action 执行环境，不等价于项目�
 | --- | ---: | --- |
 | `gateway.openai_first_output_timeout_seconds` | `0` | native HTTP Responses 首个语义输出超时；`0` 禁用，启用时范围 `30-600` 秒 |
 | `gateway.openai_high_effort_first_output_timeout_seconds` | `0` | high / xhigh / max 覆盖；`0` 回退到标准超时，启用时范围 `30-1800` 秒 |
+| `gateway.grok_response_header_timeout` | `120` | Grok 文本 Responses 首字节等待；`0` 禁用独立超时，合法范围 `0-1800` 秒 |
 | `gateway.openai_ws.client_first_message_timeout_seconds` | `30` | WebSocket upgrade 后完整读取并解压首条客户端消息的总超时，必须为正数 |
 
-HTTP 首输出超时包含等待响应头的时间，只用于 native Responses，不作用于 passthrough 或 WebSocket。超时前的单次尝试最多暂存 8 MiB；超时后 failover 可能造成上游重复计费，因此默认关闭。WebSocket 首消息超时保留旧版 30 秒行为，大请求或慢链路可显式调高。
+HTTP 首输出超时包含等待响应头的时间，只用于 native Responses，不作用于 passthrough 或 WebSocket。超时前的单次尝试最多暂存 8 MiB；超时后 failover 可能造成上游重复计费，因此默认关闭。Grok 响应头超时只隔离 xAI/Grok 文本首字节等待，不复用通用 gateway timeout。WebSocket 首消息超时保留旧版 30 秒行为，大请求或慢链路可显式调高。
+
+## OpenAI pool API Key 健康熔断
+
+DB setting `openai_apikey_health_breaker_settings` 是默认关闭的 JSON 配置：
+
+| 字段 | 默认值 | 范围 / 说明 |
+| --- | ---: | --- |
+| `enabled` | `false` | 只作用于 OpenAI pool-mode API Key 账号 |
+| `window_minutes` | `2` | 失败滚动窗口，范围 `1-60` 分钟 |
+| `failure_threshold` | `10` | 窗口内触发临时停调的失败数，范围 `1-10000` |
+| `cooldown_minutes` | `5` | 触发后的临时停调时间，范围 `1-60` 分钟 |
+
+计数使用跨实例健康存储，只累计可归因于选中账号的 429 / 5xx。凭据失败、request / provider scope 错误、同账号可重试、`context.Canceled` 和 deadline 不计入该熔断；设置读取、计数或持久化失败时不扩大停调。成功请求不会额外访问 Redis 清零，而是依赖滚动窗口自然淘汰。触发后会同时写入账号临时停调事实和缓存，不改变企业成员授权分组、候选顺序、最终分组归因或预算合同。
 
 ## 模型原生多协议路由
 

@@ -1,5 +1,35 @@
 # 补丁记录
 
+## 2026-08-21 - 上游 main 继续同步：Responses 兼容、Grok 4.6 与 Ops 根因
+
+### 目标
+
+- 将初始 `origin/main@9d5171c5d` 以及合并期间继续前进的最终 head `9f74eb57f` 合入 `dev-zz`，取得 OpenAI / Grok 兼容、健康熔断、Ops 根因证据和 reasoning effort 修复。
+- 保留企业成员有序候选、最终 `ActiveGroup`、逐轮预算 / usage、WebSocket 连接锁定路由、未知结果不重放、stone 视觉和 `1.7.37` 发布线。
+
+### 主要变化
+
+- Responses 输入、tool schema / name、terminal usage、item ID 和 rejected-field retry 统一兼容；compact fallback 和 WebSocket 同号重试使用有限循环，不因递归重置单次重试状态。
+- OpenAI pool API Key 可通过默认关闭的 DB setting 启用跨实例健康熔断；只累计可归因于账号的 429 / 5xx，不把凭据错误、request / provider scope、context cancel 或 deadline 误计入账号健康。
+- WebSocket 增加会话抢占和恢复，但二开仍以建连时选定的最终公开模型、渠道映射、账号映射、平台、分组和账号作为连接合同。逐轮预算和 usage 保留；后续轮次未知传输结果标记 ambiguous，不跨账号重放。
+- Grok 默认目录迁移到 4.6，补齐媒体尺寸、usage、Realtime 预握手 / 冷却、stream idle、compaction、429 / 529 分类与有限重试；文本 Responses 使用独立响应头超时。
+- Ops backend 保存 upstream status、root cause、失败事件和实际 route evidence；capture state 以 generation 隔离复用。前端优先展示真实上游根因并去重重复 payload，保留 stone 主题和 route trace。
+- 原生 Anthropic / Chat / Responses 转换按最终映射模型规范化 `reasoning_effort`，避免把 `gpt-5.6-*` 的 `max` 降级；prompt guard 配置成功日志改为 change / recovery driven。
+
+### 冲突与兼容性
+
+- 第一段合并有 16 个冲突，集中在 OpenAI Handler、WebSocket、Grok、rate-limit、Ops backend / frontend 和 rollup 测试；全部按最终状态机与文档合同合流。第二段新增 6 个提交自动合并，无冲突。
+- Responses failover 同时保留 stream-start guard、enterprise group retry 标记和上游 rejected-field retry；WebSocket later-turn 不因新重试逻辑放宽跨账号重放边界。
+- Ops writer 同时满足 generation 隔离、外层 writer 恢复和 inactive write 合同；Grok 模型容量不隐藏 sibling credentials，rate-limit 仍先执行二开模型 / Anthropic 特定分类。
+- 自动拼接后额外修复 Responses heartbeat-only 流缺少失败终态、Grok model self-check 污染 team-model cooldown、OpenAI WS 429 丢失模型级限流上下文这 3 个无标记回归。
+- 无数据库迁移；`.gitignore` 保留 `.omx` 并加入 `.codegraph/`，`VERSION` 保持 `1.7.37`。
+
+### 验证
+
+- 定向回归覆盖 WebSocket 锁定模型与逐轮 usage、enterprise budget ambiguous、Ops stale lease / nil writer、Responses 流终态、Grok self-check、模型级 rate-limit、scheduling、rollup、reasoning effort、prompt guard 和 Ops 详情组件。
+- 后端全仓 unit / integration、vet、server build 与 golangci-lint v2.9.0（0 issues）通过；前端完整 ESLint、生产构建、292 个文件 / 1992 条 Vitest，以及 docs build 通过。
+- integration 使用临时 Testcontainers 数据服务；未连接生产数据或真实 provider，未运行浏览器人工 smoke、完整镜像、Hosted CI、推送、发布或部署。
+
 ## 2026-08-21 - 上游 main 同步：自适应协议、Codex 恢复与渠道倍率
 
 ### 目标

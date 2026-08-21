@@ -4,19 +4,19 @@
 
 | 项 | 值 |
 | --- | --- |
-| dev-zz | 本次合并提交（合并前 `3c6621bc5`） |
-| origin/dev-zz | `3c6621bc5` |
-| origin/main | `e330c243a` |
-| merge-base | `e330c243a`（本次合并完成后） |
-| 差异规模 | 1138 个文件，约 195991 行新增、12504 行删除 |
+| dev-zz | 本次最终合并提交（第一段 `7fee26124`，合并前 `e147efa2f`） |
+| origin/dev-zz | `e147efa2f` |
+| origin/main | `9f74eb57f` |
+| merge-base | `9f74eb57f`（本次最终合并完成后） |
+| 差异规模 | 1159 个文件，约 199906 行新增、14203 行删除 |
 
 ## 变更分布
 
 | 区域 | 文件数 | 说明 |
 | --- | ---: | --- |
-| `frontend/` | 352 | 用户/API Key、企业成员、owner 用量分析、管理员用量下钻、可用渠道模型、CN provider、V1/V2 模型状态、运维弹窗栈、主题与控制台 UI |
-| `backend/` | 702 | 企业成员、模型/网关路由、API Key、用量/计费、分组日 rollup、CN provider、监控、Grok、安全、配置、测试、生成物与迁移 |
-| `docs-site/` | 53 | dev-zz 文档中心、功能文档、部署/开发/维护记录 |
+| `frontend/` | 358 | 用户/API Key、企业成员、owner 用量分析、管理员用量下钻、可用渠道模型、CN provider、V1/V2 模型状态、运维弹窗栈、主题与控制台 UI |
+| `backend/` | 716 | 企业成员、模型/网关路由、API Key、用量/计费、分组日 rollup、CN provider、监控、Grok、安全、配置、测试、生成物与迁移 |
+| `docs-site/` | 54 | dev-zz 文档中心、功能文档、部署/开发/维护记录 |
 | `docs/` | 2 | 上游通用协议与 Channel Monitor V2 安全默认值文档 |
 | `deploy/` | 14 | fork 镜像默认值、源码构建脚本、备份脚本、Compose/安装脚本与部署样例 |
 | `.github/` | 5 | CI、release、security scan 和分支镜像的 Node 24 actions runtime 验证 |
@@ -79,6 +79,7 @@
 - 分组支持逐模型、长上下文、视频、语音与搜索定价；公开报价继续由共享 available-channel catalog 投影，不恢复已删除的第二套模型目录。
 - Channel Monitor V2 作为显式 opt-in 的被动聚合视图接入；默认 V1 继续使用 dev-zz 分组模型自检、可选历史 fail-soft 与管理员 Token 用量页面。
 - usage / Ops 保存 requested、sent 与 upstream response model 及 mismatch 证据；渠道只有在响应模型通过安全准入和价格解析时才可按 response model 计费。
+- OpenAI pool-mode API Key 提供默认关闭的跨实例健康熔断，只累计可归因于账号的 429 / 5xx；Responses HTTP / WebSocket 共用 rejected-field compatibility、失败分类和账号健康证据，但连接内路由锁定与企业成员预算结果边界不变。
 - Kimi、智谱和 DeepSeek API Key 账号支持 OpenAI / Anthropic 协议、平台 base URL、余额 / 配额检测和可恢复停调；显式模型交付协议继续优先于账号探测结果。
 - 分组用量支持今日、昨日与总量汇总；日 rollup 使用显式业务时区并由触发器与周期任务幂等维护，生产升级仍需在真实数据副本验证历史回填和跨午夜边界。
 
@@ -91,6 +92,7 @@
 - 前端隐藏 LinuxDo / 微信登录、注册、资料绑定和管理端认证显示入口；后端 OAuth 能力保留。
 - 运维明细弹窗支持父子层叠，Escape、遮罩和滚动锁只作用于最上层弹窗。
 - 运维错误详情和上游响应预览改为阅读型自动换行，降低长 JSON 横向滚动负担。
+- 运维错误详情按 upstream root cause 优先展示 status、失败尝试与诊断 payload，并保留 route trace；capture writer 通过 generation-bound lease 隔离池化 state，旧请求不能访问复用后的新请求状态。
 - 管理端新增独立提示词输入审计工作台，覆盖 Guard 节点配置、运行态、事件筛选/详情和确认删除；功能、阻断和通过事件保存默认均关闭，Guard token 不从管理 API 回显。
 - 提示词审计没有可信运行配置快照时，管理接口返回 `prompt_audit_config_unavailable`，不把默认配置伪装成当前生效状态。
 - `step_up_enabled` 与 `session_binding_enabled` 作为默认关闭的显式安全开关；启用后继续沿用 TOTP、会话绑定和操作审计合同。

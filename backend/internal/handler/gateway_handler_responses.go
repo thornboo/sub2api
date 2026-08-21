@@ -366,9 +366,6 @@ func (h *GatewayHandler) responsesErrorResponse(c *gin.Context, status int, code
 
 // handleResponsesFailoverExhausted writes a failover-exhausted error in Responses format.
 func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastErr *service.UpstreamFailoverError, streamStarted bool) {
-	if streamStarted {
-		return // Can't write error after stream started
-	}
 	if reason, ok := service.OpsGroupRetryReasonForFailoverError(lastErr); ok {
 		markEnterpriseMemberGroupRetryFromContext(c, reason)
 	} else if lastErr == nil {

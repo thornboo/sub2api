@@ -1,5 +1,52 @@
 # 上游合并记录
 
+## 2026-08-21 - 继续同步上游 `main`：Responses 兼容、Grok 4.6 与 Ops 根因证据
+
+分支：
+
+- 目标：`dev-zz`
+- 初始 Base：`2bc139ab527b4a687546d145dc7bb9063cf14510`
+- 合并前目标：`e147efa2f147ee6da94565f91f29dc120531a029`
+- 第一段上游 head：`9d5171c5d1d345f7e0cdacf0e3bc0aa360a15015`
+- 最终上游 head：`9f74eb57f45cbc0f81961382e3207bfc37ad72b8`
+- 第一段结果：`7fee26124`；最终结果：本次合并提交
+
+上游要点：
+
+- OpenAI Responses 增加输入兼容、客户端工具 schema / 名称归一化、terminal usage 兼容、被拒字段的有限同号重试、compact fallback，以及 HTTP / WebSocket 共用的失败分类和 API Key 健康熔断。
+- WebSocket 增加同会话抢占、后续轮次恢复和失败证据；Grok 默认目录推进到 4.6，补齐媒体尺寸、Realtime、限流 / 容量重试、stream idle、compaction 与用量兼容。
+- Ops 错误记录增加 upstream status、root cause、失败尝试快照和 generation-bound capture writer，管理端错误详情按根因优先展示并去重诊断 payload。
+- 最后追加的 6 个提交补齐国产供应商原生 Anthropic 路径的 `reasoning_effort`，保留 `gpt-5.6-*` 的 `max` effort，并让 prompt guard 的 `config_loaded` 只在首次加载、配置变化或错误恢复时记录。
+- 新增 `gateway.grok_response_header_timeout` 和默认关闭的 `openai_apikey_health_breaker_settings`；没有数据库迁移，`dev-zz` 继续保留 `VERSION=1.7.37`。
+
+合并策略与冲突：
+
+- 合并前完整读取 `docs-site/dev-zz` 的分支策略、合并流程、补丁 / 合并记录、变更地图、验证矩阵，以及企业成员路由、WebSocket 预算和 Ops 失败分类文档；先以 merge-base 执行 `git merge-tree`，再使用 `git merge --no-commit`。
+- 第一段从 `2bc139ab5` 到 `9d5171c5d` 的真实合并产生 16 个冲突：`.gitignore`；Handler 的 Responses、Chat、cyber、gateway 与 Ops logger 7 个文件；repository rollup 测试 1 个；service 的 Grok、调度、三个 WebSocket 文件和 rate-limit 6 个；Ops 详情组件及测试 2 个。
+- 第一段解决期间，远端 `origin/main` 从 `9d5171c5d` 前进到 `9f74eb57f`。为避免伪造 merge parent，先把已解决树提交为 `7fee26124`，再对最终 head 做第二次 `merge-tree` 和 `--no-commit` 合并；新增 6 个提交自动合并，未产生冲突。
+- 初始 Base 到最终上游 head 共 51 个提交（43 个非 merge 提交）、208 个上游变更文件、17729 行新增和 1738 行删除。第一段实际合流树为 197 个文件、17376 行新增和 1753 行删除。
+- 所有冲突均按字段、状态机和测试合同逐项合流；没有整组采用 `ours` / `theirs`，最终没有未解决索引项或真实冲突标记。
+
+关键解决说明：
+
+- Responses HTTP / WebSocket 吸收 rejected-field retry、stream-start guard、会话抢占和 API Key health 观测，同时保留企业成员候选标记、首轮安全 failover、后续轮次不跨账号重放、逐轮预算 context 和未知传输结果进入 ambiguous 对账的边界。
+- WebSocket 连接继续锁定公开模型、渠道映射、账号映射、平台、分组和账号；每轮 usage 保存 `requested -> channel -> account` 的完整映射链。合并测试暴露 `UpstreamModel` 一度停在渠道模型，已改为在建连时冻结最终账号映射模型。
+- cyber 阻断同时使用上游逐轮请求体和二开的 billing context / pricing snapshot；调度健康报告吸收上游具体账号与错误对象，但不放弃二开的实际交付模型。
+- Ops capture writer 采用上游 generation-bound 非池化 handle，防止旧 lease 访问复用后的 state；保留二开外层 middleware writer 恢复和 inactive writer 行为。流式失败快照、root cause、失败账号 / 分组 / 平台和 enterprise member 归因与现有 route evidence 合流。
+- Grok 529 / 429 处理保留二开的 Anthropic / 模型级分类优先级，并采用上游的模型容量与同号重试边界；分组 rollup 测试统一使用显式业务时区 helper。
+- 前端保留 stone / neutral / emerald 视觉、route trace 和长文本自动换行，增加 upstream status、根因优先级和诊断 payload 去重；`.gitignore` 同时保留 `.omx` 并加入上游 `.codegraph/`。
+- 全仓 unit 暴露 3 个无冲突标记的语义拼接问题并已修复：Responses 流只提交 heartbeat 时必须补一个 `response.failed` 且不得跨账号重试；Grok model self-check 不得写 team-model cooldown；OpenAI WS 流内 429 必须沿用实际 upstream model 做模型级限流，不能退化为账号级停调。
+
+验证：
+
+- 冲突回归覆盖 WebSocket 锁定模型 / 逐轮 usage、后续轮次预算 ambiguous、Ops stale lease / nil writer、Responses 流终态、Grok self-check、模型级 rate-limit、rejected-field / scheduling、rollup repository 和 prompt guard 配置日志。
+- CI 同款后端 `make test-unit` 与 `make test-integration` 全仓通过；`go vet ./...`、`go build ./cmd/server` 和 `golangci-lint v2.9.0`（0 issues）通过。
+- 前端 typecheck、完整 ESLint、生产构建和全量 Vitest 通过，共 292 个测试文件、1992 条用例；docs-site 生产构建通过。
+
+未验证：
+
+- integration 使用 Testcontainers 临时数据服务验证；未连接生产同量级 PostgreSQL / Redis 或真实 OpenAI、Grok、Kimi、智谱、DeepSeek 上游。未运行浏览器人工 smoke、完整 Docker 镜像、Hosted CI、发布、推送或生产部署。
+
 ## 2026-08-21 - 将上游 `main` 合并到正式线 `dev-zz`：自适应协议、Codex 恢复与渠道倍率
 
 分支：

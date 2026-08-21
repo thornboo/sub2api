@@ -243,7 +243,7 @@ func TestGatewayResponsesFailoverExhaustionMarksEnterpriseGroupRetry(t *testing.
 	}
 }
 
-func TestGatewayResponsesFailoverExhaustionDoesNotRetryAfterStreamStarted(t *testing.T) {
+func TestGatewayResponsesFailoverExhaustionDoesNotRetryAfterStreamStartedAndWritesTerminal(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -254,7 +254,7 @@ func TestGatewayResponsesFailoverExhaustionDoesNotRetryAfterStreamStarted(t *tes
 
 	_, ok := service.OpsGroupRetryReasonFromContext(c)
 	require.False(t, ok)
-	require.Empty(t, recorder.Body.String())
+	require.Equal(t, 1, strings.Count(recorder.Body.String(), "event: response.failed"))
 }
 
 func TestCredentialFailoverExhaustionReturnsFixedSafe503(t *testing.T) {
