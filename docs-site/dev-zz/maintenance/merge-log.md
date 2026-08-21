@@ -1,5 +1,40 @@
 # 上游合并记录
 
+## 2026-08-21 - 继续同步上游 `main`：国产供应商探测、Composite 入口与 sticky 稳定性
+
+分支：
+
+- 目标：`dev-zz`
+- Base：`f646a1f974c26152160ef8327a7d6b9e3488ee83`
+- 合并前目标：`e0839d9a707bc9c29b63fde841a47c3bf235f9e2`
+- 上游 head：`67380eafd5ae2eaa8db910ae738199c3dac62e37`
+- 结果：本次合并提交
+
+上游要点：
+
+- Composite 分组新增 Grok 视频生成入口，并允许按分组开关进入 Messages dispatch；OpenAI 专属的详细 family / model 映射仍只属于 OpenAI 分组。
+- 国产供应商账号测试按平台和显式协议选择入口：Anthropic 协议使用供应商原生端点与协议 API Key，DeepSeek Responses 走 OpenAI probe；无效中继余额 payload 不再被误认成零余额，管理端余额 / 配额刷新改为明确的主动探测操作。
+- OpenAI Chat sticky seed 只使用请求开头连续的 system / developer 前缀，避免后续动态系统消息打散粘性；空 `openai_capabilities` 恢复为“未配置”，不再排除 OAuth 文本账号，而非空且全 false 或格式错误的能力声明继续保持限制性。
+- 前端 token refresh 删除会造成等待者重复取得旧结果的锁循环；启用模型广场时，Home 的 compact、默认导航和 Models CTA 都能按登录要求正确进入 `/model-plaza`。
+
+合并策略与冲突：
+
+- 合并前重新读取 `docs-site/dev-zz` 的分支策略、合并流程、补丁 / 合并记录、变更地图、验证矩阵，以及 Composite、企业成员路由、Messages 和 sticky 相关合同；以 `f646a1f97` 为 merge-base 执行 `git merge-tree` 预演。
+- 本轮共 21 个上游提交（11 个非 merge 提交）、30 个上游变更文件、962 行新增和 98 行删除；预演与 `git merge --no-commit origin/main` 均报告 3 个文本冲突：`HomeView.vue`、`GroupsView.vue` 和 `groupsMessagesDispatch.spec.ts`。
+- Home 保留二开的 stone / neutral / emerald 顶栏、compact/default 布局和现有文档入口，同时统一采用带认证要求判断的 `showModelPlazaEntry`，不恢复上游旧灰色顶栏或重复导航。Groups 同时保留二开 stone 边框与上游 Composite Messages 开关，详细映射继续限制为 OpenAI；测试冲突合并两个独立类型 / helper import。
+- 全量前端测试另外暴露 1 个没有冲突标记的源码合同问题：Home 新增第三个模型广场入口后，旧测试仍假定只有两个链接，且默认 CTA 仍只判断 feature flag。现已让三个入口统一服从 feature flag + 登录要求，并同步更新源码合同测试。
+- Composite 视频与 Messages 只扩展匹配入口，候选账号仍按实际平台重新解析；企业成员有序候选、最终 `ActiveGroup`、sticky、预算 / usage 原子归因和结果不明确禁止重放均未放宽。本轮没有数据库迁移、配置项或依赖变化，`VERSION` 继续保持 `1.7.37`。
+
+验证：
+
+- 定向后端测试覆盖 Composite Messages / 视频、CN 协议账号测试、DeepSeek 余额、sticky seed 和空 capabilities；定向前端测试覆盖 token refresh、CN 余额 / 配额、Home 三种入口和 Groups Messages，两批共 49 条测试执行通过。
+- 后端 `make test-unit` 全仓通过，service 包约 154 秒；`go vet ./...`、`go build ./cmd/server` 和 golangci-lint v2.9.0（0 issues）通过。
+- 前端 typecheck、完整 ESLint、生产构建和全量 Vitest 通过，共 293 个测试文件、2003 条用例；docs-site 生产构建和 Git whitespace、冲突标记、索引、父链及 `origin/main` 祖先检查通过。
+
+未验证：
+
+- 未运行 Testcontainers integration，未连接真实国产供应商 / OpenAI / Grok，未运行浏览器人工 smoke、完整 Docker 镜像、Hosted CI、推送、发布或生产部署。
+
 ## 2026-08-21 - 继续同步上游 `main`：Pool 同账号重试、Antigravity daily 与流式工具名
 
 分支：

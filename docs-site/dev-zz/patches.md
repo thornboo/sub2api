@@ -1,5 +1,31 @@
 # 补丁记录
 
+## 2026-08-21 - 上游 main 增量同步：CN 探测、Composite 入口与 Home 可发现性
+
+### 目标
+
+- 将 `origin/main@67380eafd` 继续合入正式线 `dev-zz`，取得国产供应商账号测试 / 余额修复、Composite Messages / 视频入口、OpenAI sticky 与 capabilities 修复，以及 Home / token refresh 改进。
+- 保留企业成员有序候选、最终 `ActiveGroup`、预算 / usage 原子归因、结果不明确禁止重放、stone 视觉和 `1.7.37` 发布线。
+
+### 主要变化
+
+- CN 账号测试按实际平台和显式协议选择 OpenAI、Responses 或原生 Anthropic 入口；DeepSeek 无效中继余额不再写成零余额，余额 / 配额刷新在管理端显示为明确的主动探测按钮。
+- Composite 分组可开启 Messages dispatch 并进入 Grok 视频生成路由，但 OpenAI family / model 详细映射仍只对 OpenAI 分组开放；每个 Composite 候选继续重新解析实际目标平台。
+- Chat sticky 只散列请求开头连续的 system / developer 前缀；空 OpenAI capabilities 作为未配置处理，明确的非空限制继续生效。
+- token refresh 移除陈旧 peer 结果循环；Home 的 compact、默认导航和 Models CTA 统一按模型广场 feature flag 与登录要求显示。
+
+### 冲突与兼容性
+
+- 21 个上游提交修改 30 个文件；`merge-tree` 和真实 `--no-commit` 合并都产生 3 个冲突：Home、Groups 和 Groups Messages 测试。
+- Home 保留二开的视觉与布局并吸收认证感知的模型广场入口；Groups 保留 stone 样式并扩展 Composite allow toggle，OpenAI 专属映射不外溢；测试合并两个必要 import。
+- 全量测试另发现 Home 第三个入口与旧源码合同不一致，已统一三个入口的可见性条件并更新测试。无数据库迁移、配置和依赖变化；`VERSION` 保持 `1.7.37`。
+
+### 验证
+
+- 冲突与新行为定向测试通过；后端全仓 unit、vet、server build、golangci-lint v2.9.0（0 issues）通过。
+- 前端 typecheck、完整 ESLint、生产构建和全量 Vitest（293 个文件、2003 条用例）通过；docs build 和最终 Git 结构检查通过。
+- 未运行 Testcontainers integration、真实 provider、浏览器 smoke、完整镜像或 Hosted CI；未推送、发布或部署。
+
 ## 2026-08-21 - 上游 main 增量同步：Pool 重试、Antigravity 与工具流修复
 
 ### 目标

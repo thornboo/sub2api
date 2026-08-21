@@ -4,18 +4,18 @@
 
 | 项 | 值 |
 | --- | --- |
-| dev-zz | 本次最终合并提交（合并前 `fe65d78e8`） |
-| origin/dev-zz | `e147efa2f` |
-| origin/main | `f646a1f97` |
-| merge-base | `f646a1f97`（本次最终合并完成后） |
-| 差异规模 | 1159 个文件，约 199970 行新增、14203 行删除 |
+| dev-zz | 本次最终合并提交（合并前 `e0839d9a7`） |
+| origin/dev-zz | `e0839d9a7` |
+| origin/main | `67380eafd` |
+| merge-base | `67380eafd`（本次最终合并完成后） |
+| 差异规模 | 1160 个文件，约 200030 行新增、14213 行删除 |
 
 ## 变更分布
 
 | 区域 | 文件数 | 说明 |
 | --- | ---: | --- |
 | `frontend/` | 358 | 用户/API Key、企业成员、owner 用量分析、管理员用量下钻、可用渠道模型、CN provider、V1/V2 模型状态、运维弹窗栈、主题与控制台 UI |
-| `backend/` | 716 | 企业成员、模型/网关路由、API Key、用量/计费、分组日 rollup、CN provider、监控、Grok、安全、配置、测试、生成物与迁移 |
+| `backend/` | 717 | 企业成员、模型/网关路由、API Key、用量/计费、分组日 rollup、CN provider、监控、Grok、安全、配置、测试、生成物与迁移 |
 | `docs-site/` | 54 | dev-zz 文档中心、功能文档、部署/开发/维护记录 |
 | `docs/` | 2 | 上游通用协议与 Channel Monitor V2 安全默认值文档 |
 | `deploy/` | 14 | fork 镜像默认值、源码构建脚本、备份脚本、Compose/安装脚本与部署样例 |

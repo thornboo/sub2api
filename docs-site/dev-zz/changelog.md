@@ -2,6 +2,11 @@
 
 ## 2026-08-21
 
+- 继续同步 `origin/main@67380eafd`：国产供应商账号测试按平台和显式协议选择 OpenAI、Responses 或原生 Anthropic 入口；DeepSeek 无效中继余额不再被解释为零余额，管理端余额 / 配额刷新改为明确的主动探测按钮。
+- Composite 分组可显式开启 Messages dispatch，并能把视频生成请求路由到实际 Grok 候选；OpenAI family / model 详细映射仍只属于 OpenAI 分组，企业成员候选、最终 `ActiveGroup`、预算 / usage 原子归因和不明确结果禁止重放边界不变。
+- OpenAI Chat sticky 只使用请求开头连续的 system / developer 前缀；空 `openai_capabilities` 恢复为未配置语义。前端同时修复 token refresh 锁循环，Home 的三个模型广场入口统一服从 feature flag 和登录要求。
+- 本轮没有数据库迁移、配置或依赖变化；fork 版本继续保持 `1.7.37`。
+
 - 继续同步 `origin/main@f646a1f97`：OpenAI-compatible Chat Completions / Responses 的 pool 账号在可重试状态且未被停调时恢复同账号重试；该路径继续服从既有账号级次数、sticky、企业成员候选、预算归因和未知结果不重放边界。
 - Responses 转 Chat Completions 的流式 arguments-only delta 不再发送空工具名；Antigravity 改用官方 daily 域名，并只让 `pro` / `ultra` 账号默认走 daily，免费或未知 plan 保持生产端点。
 - CN 额度探测测试 fake 消除并发 append race；nanoID 审计例外和支付集成文档链接同步修正。无数据库迁移、配置、依赖或前端运行时变化，fork 版本继续保持 `1.7.37`。
