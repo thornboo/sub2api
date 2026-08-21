@@ -2,6 +2,10 @@
 
 ## 2026-08-21
 
+- 继续同步 `origin/main@f646a1f97`：OpenAI-compatible Chat Completions / Responses 的 pool 账号在可重试状态且未被停调时恢复同账号重试；该路径继续服从既有账号级次数、sticky、企业成员候选、预算归因和未知结果不重放边界。
+- Responses 转 Chat Completions 的流式 arguments-only delta 不再发送空工具名；Antigravity 改用官方 daily 域名，并只让 `pro` / `ultra` 账号默认走 daily，免费或未知 plan 保持生产端点。
+- CN 额度探测测试 fake 消除并发 append race；nanoID 审计例外和支付集成文档链接同步修正。无数据库迁移、配置、依赖或前端运行时变化，fork 版本继续保持 `1.7.37`。
+
 - 继续同步 `origin/main@9f74eb57f`：OpenAI Responses 增加输入 / terminal usage / tool schema 兼容、被拒字段有限同号重试、compact fallback、WebSocket 会话抢占与 API Key 健康熔断；Grok 默认模型和计费目录推进到 4.6，并收紧媒体、Realtime、stream idle、compaction 和容量重试语义。
 - Ops 错误详情增加上游状态、根因优先级、失败尝试快照和诊断 payload 去重；后台 capture writer 使用 generation-bound lease，避免池化复用后的旧 writer 触达新请求，同时保留二开 route trace、外层 writer 生命周期和 stone 阅读型布局。
 - WebSocket 继续锁定连接级公开模型、渠道 / 账号映射、平台、分组和账号；每轮分别保存完整映射链、预算和 usage。后续轮次未知传输结果仍进入 enterprise member budget ambiguous，对已可能发生的上游消费不做整连接重放。

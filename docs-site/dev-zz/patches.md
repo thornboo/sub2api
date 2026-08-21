@@ -1,5 +1,31 @@
 # 补丁记录
 
+## 2026-08-21 - 上游 main 增量同步：Pool 重试、Antigravity 与工具流修复
+
+### 目标
+
+- 将 `origin/main@f646a1f97` 继续合入正式线 `dev-zz`，吸收 OpenAI-compatible pool 重试、Antigravity 官方 daily 端点、流式工具名兼容和并发测试修复。
+- 保留企业成员有序候选、预算 / usage 原子归因、sticky、未知结果禁止重放以及 `1.7.37` 发布线。
+
+### 主要变化
+
+- Chat Completions / Responses compatibility forwarder 在 pool 账号收到可重试状态且账号未被 rate-limit 处理停调时，返回同账号重试信号；既有 handler 继续负责重试次数、延时、sticky 与最终换号。
+- Responses arguments-only 流式 delta 省略空工具名，防止 OpenAI-compatible 客户端覆盖已累计的 function name。
+- Antigravity 使用官方 daily 域名，并只让 `pro` / `ultra` 账号默认进入 daily；免费、未知、异常 plan 和显式 prod override 保持生产端点。
+- CN 额度探测测试 fake 的并发记录改为互斥保护；nanoID 高危公告加入限期审计例外；支付集成文档链接指向迁移后的 `docs/` 路径。
+
+### 冲突与兼容性
+
+- 13 个上游提交修改 12 个文件；`merge-tree` 和真实 `--no-commit` 合并均无冲突，没有使用 `ours` / `theirs`。
+- 同账号重试没有修改企业成员候选、预算回执、最终 `ActiveGroup`、跨分组 fallback 或 WebSocket 后续轮次边界。
+- 无数据库迁移、配置项、依赖和前端运行时代码变化；`VERSION` 保持 `1.7.37`。
+
+### 验证
+
+- 新增 / 受影响测试、CN `-race`、后端全仓 unit、vet、server build、golangci-lint 和 audit exception 校验通过。
+- 前端 typecheck / lint、docs build、Git whitespace / conflict-marker / ancestry 检查通过。
+- 未重复运行 Testcontainers integration、前端全量 Vitest、完整 Docker 镜像、真实 provider、Hosted CI、推送、发布或部署。
+
 ## 2026-08-21 - 上游 main 继续同步：Responses 兼容、Grok 4.6 与 Ops 根因
 
 ### 目标

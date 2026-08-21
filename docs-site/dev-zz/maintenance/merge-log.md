@@ -1,5 +1,39 @@
 # 上游合并记录
 
+## 2026-08-21 - 继续同步上游 `main`：Pool 同账号重试、Antigravity daily 与流式工具名
+
+分支：
+
+- 目标：`dev-zz`
+- Base：`9f74eb57f45cbc0f81961382e3207bfc37ad72b8`
+- 合并前目标：`fe65d78e80f52ff35fa480c2a0cb3a0a0272643b`
+- 上游 head：`f646a1f974c26152160ef8327a7d6b9e3488ee83`
+- 结果：本次合并提交
+
+上游要点：
+
+- OpenAI-compatible Chat Completions / Responses 在 pool 模式遇到可重试状态码、且现有 rate-limit 处理没有停调账号时，补齐 `RetryableOnSameAccount`，先按账号配置在原账号重试再决定切号。
+- Responses 转 Chat Completions 的流式 arguments-only delta 不再输出空 `name`，避免客户端用后续 `"name":""` 覆盖首个 delta 已累计的工具名。
+- Antigravity daily 地址改为官方 `daily-cloudcode-pa.googleapis.com`；未显式配置环境变量时，`pro` / `ultra` 账号使用 daily，免费、未知或异常 plan 继续使用生产端点，显式 prod / daily 仍优先。
+- CN 供应商额度探测测试 fake 增加互斥锁，消除并发 append race；安全审计为 nanoid 公告补充有期限的例外，支付集成文档修正迁移到 `docs/` 后的链接。
+
+合并策略与冲突：
+
+- 合并前重新核对 `docs-site/dev-zz` 的分支策略、合并流程、补丁 / 合并记录、变更地图和验证矩阵，并以 `9f74eb57f` 为 merge-base 执行 `git merge-tree` 预演。
+- 本轮共 13 个上游提交（7 个非 merge 提交）、12 个变更文件、218 行新增和 25 行删除；预演与 `git merge --no-commit origin/main` 均自动合并，没有文本冲突、未解决索引项或 modify/delete 冲突。
+- Pool 同账号重试仅补齐既有 failover 信号，继续受 handler 的账号级重试上限、sticky、已写响应判定、企业成员候选和预算状态机约束；没有新增跨账号、跨分组或结果不明确后的重放路径。
+- 本轮没有数据库迁移、配置项、依赖或前端变化；`VERSION` 继续保持 `1.7.37`。
+
+验证：
+
+- 定向测试覆盖 Antigravity OAuth / plan 端点选择、Responses arguments delta、Chat / Responses pool-mode 429 同账号重试和 CN 额度探测；CN 并发用例额外通过 `go test -race`。
+- 后端 `make test-unit`、`go vet ./...`、`go build ./cmd/server` 和 golangci-lint 通过；pnpm audit exception 校验通过。
+- 前端 typecheck / lint 和 docs-site 生产构建通过；Git whitespace、冲突标记、索引、父链和 `origin/main` 祖先检查通过。
+
+未验证：
+
+- 本轮没有数据库、配置、依赖或前端运行时代码变化，因此未重复执行 Testcontainers integration、前端全量 Vitest 或完整 Docker 镜像构建；未连接真实 provider，未运行浏览器人工 smoke、Hosted CI、推送、发布或生产部署。
+
 ## 2026-08-21 - 继续同步上游 `main`：Responses 兼容、Grok 4.6 与 Ops 根因证据
 
 分支：
