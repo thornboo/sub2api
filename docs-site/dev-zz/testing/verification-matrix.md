@@ -173,6 +173,9 @@
 | Tool Search / deferred / 动态 identity | `cd backend && go test ./internal/pkg/apicompat -run 'ToolSearch|ResponsesToolRegistry|LoadedTopLevel|Deferred|Hosted' -count=1` |
 | capability extra 与 scheduler cache | `cd backend && go test -tags=unit ./internal/pkg/openai_compat ./internal/repository -run 'ChatFallbackCapabilities|SchedulerMetadataAccount' -count=1` |
 | service capability mismatch | `cd backend && go test -tags=unit ./internal/service ./internal/handler -run 'ChatFallback|AccountCapabilityMismatch' -count=1` |
+| file part、malformed arguments 与流式参数上限 | `cd backend && go test ./internal/pkg/apicompat ./internal/service -run 'FilePart|InvalidToolArguments|ToolArgument|Malformed' -count=1` |
+| DeepSeek client tools 与 Ollama Cloud Chat 兼容 | `cd backend && go test ./internal/service -run 'ClientTools|OllamaCloud' -count=1` |
+| Guardian 父账号亲和、图片 fallback 与 WebSocket replay | `cd backend && go test ./internal/service ./internal/handler -run 'Guardian|Image|HTTPBridge|OrphanReplay|ToolCallOutputContextCoverage' -count=1` |
 
 必要人工核对：
 
@@ -184,6 +187,10 @@
 - capability mismatch 只排除当前账号，不写提前响应、不降低账号健康评分；所有账号均不支持时才返回 `unsupported_feature`。若任一账号已访问上游并失败，最终优先返回 upstream 错误。
 - `allowed_tools` 与有损 custom grammar 只在账号 extra 明确启用时发送，不根据第三方 base URL 猜测。
 - 原始载荷预检必须拒绝关键对象的重复 JSON key，把 `tool_choice.allowed_tools.tools` 与声明/动态工具计入同一资源预算，并拒绝超过 64 个字段的关键/part/嵌套 image URL 对象，或超过 16384 项的 input/content/summary part 数组；历史 identity 必须来自 replay cache，不能在消息转换阶段按 item 回扫全部工具，part 和上游 custom arguments 转换也不得把未知字段解码为通用 map。流式工具 arguments 必须线性累积并执行单调用 16 MiB / 单响应 32 MiB 上限；Responses 超限发 `response.failed`，Messages 超限发 Anthropic `event: error`，两者都停止读取且不生成不完整 done/completed/message_stop。fallback 内其他客户端 400 不得上报账号调度失败。
+- 普通 function arguments 非空时必须是完整 JSON；输出上限或断流造成截断时不得发 `function_call_arguments.done`、`output_item.done` 或正常 completed，流式参数累计仍受单调用 16 MiB / 单响应 32 MiB 上限。
+- Guardian / review lineage 只能解析父 thread 的 sticky hash，不能从客户端接收账号 ID；父账号复用必须限制在当前分组并通过隐私、传输、能力、利润与 DB 二次复核，失败 fallback 不得清除父 thread 原绑定。
+- WebSocket HTTP bridge 只有在 tool output 缺少 call context 时补 replay；已有 context 不得重复，历史 function/tool call 没有任何匹配 output 时不得带入后续轮次。已提交或结果未知的 turn 继续禁止整轮重放。
+- OAuth 图片返回明确安全 / 内容政策文本时作为客户端拒绝；普通建议文本表示图片工具未执行，可在响应未提交时冷却当前账号并受控 failover；完全无图无文本继续沿用既有短暂失败语义。
 
 ## 模型原生多协议能力
 

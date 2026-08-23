@@ -1,5 +1,42 @@
 # 上游合并记录
 
+## 2026-08-24 - 继续同步上游 `main`：工具续链、图片生成与 Guardian 亲和性
+
+分支：
+
+- 目标：`dev-zz`
+- Base：`67380eafd5ae2eaa8db910ae738199c3dac62e37`
+- 合并前目标：`e54b79e9cd0031f013386459aca528a6b88ecb67`
+- 上游 head：`d45135d87df16d48637f04ccd245727bc955ba54`
+- 结果：本次合并提交
+
+上游要点：
+
+- Chat Completions → Responses 兼容层补齐 `file` part，并在普通 function arguments 被输出上限截断为非法 JSON 时停止正常完成，避免把坏调用持久化到下一轮；DeepSeek 原生 Responses 现在能把 Codex 客户端工具降级后再恢复回程 identity。
+- Responses WebSocket / HTTP bridge 只有在当前 tool output 缺少对应 call context 时才补历史 replay，并清除没有配对 output 的孤立历史 tool call，避免重复执行或让下一轮携带无效调用。
+- OpenAI OAuth 图片路径增加 experimental Responses header、文本 fallback 分类、工具不可用冷却与受控同组 failover；内容策略拒绝继续作为明确客户端错误，普通建议文本不再被误报为内容审核。
+- `codex-auto-review` Guardian / review 请求可以用父 thread 的 sticky hash 在当前分组内优先选择父账号；客户端只提供 lineage hint，不传账号 ID，候选仍受分组、隐私、传输、能力、利润和调度复核约束。
+- Ollama Cloud raw Chat Completions 补齐 `reasoning` / `thinking` 与 `reasoning_content` 的请求响应兼容，并按模型族收紧 `max_tokens`；Google One OAuth 模型目录只发布保守白名单或显式 mapping。
+
+合并策略与冲突：
+
+- 合并前重新读取 `docs-site/dev-zz` 的分支策略、合并流程、补丁 / 合并记录、变更地图、验证矩阵，以及企业成员、预算、Responses / WebSocket 和模型路由 ADR；以 `67380eafd` 为 merge-base 执行 `git merge-tree` 预演。
+- 本轮共 21 个上游提交（12 个非 merge 提交）、41 个上游变更文件、2781 行新增和 78 行删除；预演与 `git merge --no-commit origin/main` 均报告 3 个文本冲突：`chatcompletions_responses_bridge.go`、`openai_account_scheduler.go` 和 `openai_gateway_responses_chat_fallback_test.go`。
+- 兼容桥同时保留二开的流式工具参数线性累计、单调用 16 MiB / 单响应 32 MiB 上限和 `response.failed` 终态，并吸收上游 malformed JSON 校验；校验直接读取二开 builder 中的累计参数，不能退回已经不再增量拼接的 `Function.Arguments` 字段。
+- 调度器保留二开“渠道映射后的模型选择不得清理原 sticky”的保护，同时吸收 Guardian 父账号亲和、分组隐私复核和数据库二次 capability 校验；最终 `PreserveStickyBinding` 取两个保护条件的并集，Guardian fallback 不读取或改写普通 session sticky，也不能跨出当前 `groupID`。
+- 测试冲突是两个独立新增用例占用同一插入位置，最终同时保留 Messages → Chat fallback 和输出上限造成非法 tool arguments 两个场景。没有整文件采用 `ours` / `theirs`，最终无未解决索引项。
+- 自动合并的 WebSocket replay、DeepSeek 客户端工具、OAuth 图片生成和 Ollama Cloud 路径按企业成员预算结果、响应提交、sticky / 路由锁和未知结果禁止重放合同复审；本轮没有数据库迁移、配置项、依赖、前端运行时代码或版本文件变化，`VERSION` 继续保持 `1.7.38`。
+
+验证：
+
+- 定向后端测试覆盖兼容桥 file part / malformed arguments / 参数上限、DeepSeek 客户端工具、Guardian 亲和与隐私、OAuth 图片、Ollama Cloud、Google One 目录和 WebSocket replay，相关包全部通过。
+- 后端 `mise x -C backend -- make test-unit` 全仓通过，其中 `internal/service` 约 153 秒；`go vet ./...`、独立 `go build ./cmd/server` 和 golangci-lint v2.9.0（0 issues）通过。
+- 前端 typecheck、完整 ESLint 和 docs-site 生产构建通过；Git whitespace、真实冲突标记、索引、合并父链与 `origin/main` 祖先检查通过。
+
+未验证：
+
+- 本轮没有迁移、schema 或数据访问合同变化，因此未运行 Testcontainers integration；未连接真实 OpenAI、DeepSeek、Ollama Cloud、Google One 或图片上游，未运行浏览器人工 smoke、完整 Docker 镜像、Hosted CI、推送、发布或生产部署。
+
 ## 2026-08-21 - 继续同步上游 `main`：国产供应商探测、Composite 入口与 sticky 稳定性
 
 分支：

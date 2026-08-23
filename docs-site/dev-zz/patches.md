@@ -1,5 +1,32 @@
 # 补丁记录
 
+## 2026-08-24 - 上游 main 增量同步：工具续链、图片生成与 Guardian 亲和性
+
+### 目标
+
+- 将 `origin/main@d45135d87` 继续合入正式线 `dev-zz`，取得 Chat / Responses 工具参数正确性、DeepSeek 客户端工具、WebSocket replay、OAuth 图片、Ollama Cloud、Google One 目录和 Guardian 父账号亲和修复。
+- 保留企业成员产品授权 / 路由计划边界、最终 `ActiveGroup`、预算 / usage 原子归因、结果不明确禁止重放、sticky / WebSocket 锁定、stone 视觉和 `1.7.38` 发布线。
+
+### 主要变化
+
+- Chat file part 转为 Responses `input_file`；普通 function arguments 被截断为非法 JSON 时不再发出完成事件。二开的工具参数 builder 继续按 16 MiB 单调用、32 MiB 单响应限额线性累计。
+- DeepSeek 原生 Responses 支持 Codex client tools 的请求降级与非流式 / SSE 回程恢复；WebSocket HTTP bridge 不再重复补齐已经自带 call context 的 tool output，并移除无 output 配对的孤立历史调用。
+- OpenAI OAuth 图片对“内容审核拒绝、普通文本 fallback、完全无输出”分别分类，普通文本 fallback 触发短期工具冷却和受控账号 failover；上游 experimental Responses header 与流式 / 非流式错误证据保持一致。
+- Guardian / review 自动审查通过父 thread sticky hash 在当前分组内优先命中父账号，并保留分组隐私、传输、能力、利润、数据库二次复核和原 sticky 不被误删的约束。
+- Ollama Cloud 对 raw Chat Completions 的 reasoning 字段双向兼容并限制 `max_tokens`；Google One OAuth 目录不再把通配模型当成可交付模型。
+
+### 冲突与兼容性
+
+- 3 个冲突分别位于 Responses 兼容桥、OpenAI 调度器和 fallback 测试；均按字段 / 控制流合流，没有整文件选边。
+- malformed arguments 校验改为读取二开 builder 的真实累计值；Guardian 与渠道映射两种 sticky 保护合并为逻辑或，不能因为父账号失效清理正常父 thread 绑定，也不能跨组选择账号。
+- 没有 migration、schema、配置、依赖、前端运行时代码或版本变化；普通 Key、企业成员预算回执、异步任务和未知上游结果的既有合同不变。
+
+### 验证
+
+- 定向 apicompat / service / admin handler 回归通过；后端全仓 unit、vet、server build、golangci-lint v2.9.0（0 issues）通过。
+- 前端 typecheck / ESLint、docs-site build、whitespace / 冲突标记 / 索引和最终 merge topology 检查通过。
+- 未运行 Testcontainers integration、真实 provider、浏览器 smoke、Docker 镜像、Hosted CI、推送、发布或生产部署。
+
 ## 2026-08-21 - 上游 main 增量同步：CN 探测、Composite 入口与 Home 可发现性
 
 ### 目标

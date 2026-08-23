@@ -1626,6 +1626,10 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	if err != nil {
 		return nil, fmt.Errorf("restore Grok Responses client tool response: %w", err)
 	}
+	body, err = restoreOpenAIResponsesClientToolPayload(c, body)
+	if err != nil {
+		return nil, fmt.Errorf("restore OpenAI Responses client tool response: %w", err)
+	}
 	body, err = restoreOpenAIResponsesNamespacePayload(c, body)
 	if err != nil {
 		return nil, fmt.Errorf("restore OpenAI namespace response: %w", err)
@@ -1718,6 +1722,10 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 		restoredBody, restoreErr := restoreGrokResponsesClientToolPayload(c, body)
 		if restoreErr != nil {
 			return nil, fmt.Errorf("restore Grok Responses client tool response: %w", restoreErr)
+		}
+		restoredBody, restoreErr = restoreOpenAIResponsesClientToolPayload(c, restoredBody)
+		if restoreErr != nil {
+			return nil, fmt.Errorf("restore OpenAI Responses client tool response: %w", restoreErr)
 		}
 		restoredBody, restoreErr = restoreOpenAIResponsesNamespacePayload(c, restoredBody)
 		if restoreErr != nil {

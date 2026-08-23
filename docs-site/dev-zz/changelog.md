@@ -1,5 +1,13 @@
 # 变更记录
 
+## 2026-08-24
+
+- 同步上游 Chat / Responses 工具正确性修复：文件 part 不再静默丢失，输出上限截断出的非法 function arguments 不再被标记完成，DeepSeek 原生 Responses 可以正确承接 Codex 客户端工具。
+- 修复 Responses WebSocket / HTTP bridge 重复 replay 与孤立 tool call；已有 call context 的后续轮次不重复补历史，未知上游结果继续禁止整轮重放。
+- 稳定 OpenAI OAuth 图片生成：区分内容政策拒绝、普通文本 fallback 和空响应，并对工具不可用账号执行短期冷却与受控 failover。
+- Guardian / review 自动审查优先复用父 thread 在当前分组内的账号，同时继续遵守隐私、能力、利润、sticky、预算和实际分组归因边界。
+- 补齐 Ollama Cloud raw Chat Completions reasoning / `max_tokens` 兼容，并收紧 Google One OAuth 可发布模型目录。
+
 ## 2026-08-21
 
 - 继续同步 `origin/main@67380eafd`：国产供应商账号测试按平台和显式协议选择 OpenAI、Responses 或原生 Anthropic 入口；DeepSeek 无效中继余额不再被解释为零余额，管理端余额 / 配额刷新改为明确的主动探测按钮。

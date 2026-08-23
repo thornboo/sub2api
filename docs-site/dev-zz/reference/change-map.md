@@ -4,11 +4,11 @@
 
 | 项 | 值 |
 | --- | --- |
-| dev-zz | 本次最终合并提交（合并前 `e0839d9a7`） |
-| origin/dev-zz | `e0839d9a7` |
-| origin/main | `67380eafd` |
-| merge-base | `67380eafd`（本次最终合并完成后） |
-| 差异规模 | 1160 个文件，约 200030 行新增、14213 行删除 |
+| dev-zz | 本次最终合并提交（合并前 `e54b79e9c`） |
+| origin/dev-zz | `e54b79e9c` |
+| origin/main | `d45135d87` |
+| merge-base | `d45135d87`（本次最终合并完成后） |
+| 差异规模 | 1160 个文件，约 200102 行新增、14211 行删除 |
 
 ## 变更分布
 
@@ -80,6 +80,10 @@
 - Channel Monitor V2 作为显式 opt-in 的被动聚合视图接入；默认 V1 继续使用 dev-zz 分组模型自检、可选历史 fail-soft 与管理员 Token 用量页面。
 - usage / Ops 保存 requested、sent 与 upstream response model 及 mismatch 证据；渠道只有在响应模型通过安全准入和价格解析时才可按 response model 计费。
 - OpenAI pool-mode API Key 提供默认关闭的跨实例健康熔断，只累计可归因于账号的 429 / 5xx；Responses HTTP / WebSocket 共用 rejected-field compatibility、失败分类和账号健康证据，但连接内路由锁定与企业成员预算结果边界不变。
+- Chat / Responses fallback 会拒绝被输出上限截断成非法 JSON 的普通 function arguments，同时保留单调用 16 MiB / 单响应 32 MiB 的线性参数预算；DeepSeek 原生 Responses 可以降级并恢复 Codex client tools，WebSocket HTTP bridge 不重复 replay 已带 call context 的后续轮次，也不保留没有 output 配对的孤立历史调用。
+- `codex-auto-review` Guardian / review 请求可以用父 thread sticky hash 在当前分组内优先选择父账号；lineage hint 不携带账号 ID，仍受分组、隐私、传输、能力、利润和数据库二次复核约束，失败时不删除父 thread 的有效 sticky。
+- OpenAI OAuth 图片生成区分内容政策拒绝、普通文本 fallback 与完全无输出；普通文本 fallback 可短期冷却当前账号并受控切换同组候选，响应已提交或结果不明确时不得重放。
+- Ollama Cloud raw Chat Completions 对 `reasoning` / `thinking` 与 `reasoning_content` 做受限双向兼容并按模型族收紧 `max_tokens`；Google One OAuth 只发布保守目录或显式 mapping。
 - Kimi、智谱和 DeepSeek API Key 账号支持 OpenAI / Anthropic 协议、平台 base URL、余额 / 配额检测和可恢复停调；显式模型交付协议继续优先于账号探测结果。
 - 分组用量支持今日、昨日与总量汇总；日 rollup 使用显式业务时区并由触发器与周期任务幂等维护，生产升级仍需在真实数据副本验证历史回填和跨午夜边界。
 
