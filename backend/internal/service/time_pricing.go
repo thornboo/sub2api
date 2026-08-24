@@ -22,6 +22,7 @@ var strictHHMMPattern = regexp.MustCompile(`^\d{2}:\d{2}$`)
 type TimePricing struct {
 	Enabled           bool              `json:"enabled"`
 	Timezone          string            `json:"timezone"`
+	WeekdaysOnly      bool              `json:"weekdays_only,omitempty"`
 	DefaultLabel      string            `json:"default_label"`
 	DefaultMultiplier *float64          `json:"default_multiplier,omitempty"`
 	Rules             []TimePricingRule `json:"rules"`
@@ -172,6 +173,9 @@ func (p *TimePricing) MultiplierAt(now time.Time) AppliedTimePricing {
 		return AppliedTimePricing{Multiplier: 1}
 	}
 	local := now.In(loc)
+	if p.WeekdaysOnly && (local.Weekday() == time.Saturday || local.Weekday() == time.Sunday) {
+		return p.defaultApplied()
+	}
 	minute := local.Hour()*60 + local.Minute()
 	for i := range p.Rules {
 		rule := &p.Rules[i]
@@ -189,6 +193,13 @@ func (p *TimePricing) MultiplierAt(now time.Time) AppliedTimePricing {
 				Rule:       &cp,
 			}
 		}
+	}
+	return p.defaultApplied()
+}
+
+func (p *TimePricing) defaultApplied() AppliedTimePricing {
+	if p == nil {
+		return AppliedTimePricing{Multiplier: 1}
 	}
 	return AppliedTimePricing{
 		Multiplier: p.defaultMultiplier(),

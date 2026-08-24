@@ -17,6 +17,7 @@ interface Props {
   groupId?: number | null
   errorType: 'request' | 'upstream'
   preset?: OpsErrorDetailsPreset | null
+  resumeState?: boolean
 }
 
 const props = defineProps<Props>()
@@ -280,6 +281,7 @@ watch(
       invalidateFetchErrorLogs()
       return
     }
+    if (props.resumeState) return
     resetFilters({ resetPageSize: true })
   },
   { immediate: true }

@@ -50,6 +50,7 @@ export interface TimePricingFormEntry {
   default_label: string
   default_multiplier: number | string | null
   rules: TimePricingRuleFormEntry[]
+  weekdays_only?: boolean
 }
 
 // 价格转换：后端存 per-token，前端显示 per-MTok ($/1M tokens)
@@ -130,6 +131,7 @@ export function createDefaultTimePricing(): TimePricingFormEntry {
     default_label: '',
     default_multiplier: 1,
     rules: [],
+    weekdays_only: false,
   }
 }
 
@@ -146,6 +148,7 @@ export function apiTimePricingToForm(timePricing?: TimePricing | null): TimePric
       end_time: rule.end_time || '',
       multiplier: rule.multiplier,
     })),
+    weekdays_only: timePricing.weekdays_only === true,
   }
 }
 
@@ -162,6 +165,7 @@ export function formTimePricingToAPI(timePricing?: TimePricingFormEntry): TimePr
       end_time: rule.end_time,
       multiplier: toNullableNumber(rule.multiplier) ?? 1,
     })),
+    weekdays_only: timePricing.weekdays_only === true,
   }
 }
 

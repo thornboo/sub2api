@@ -18,6 +18,13 @@ func atShanghai(t *testing.T, hh, mm int) time.Time {
 	return time.Date(2026, 8, 17, hh, mm, 0, 0, loc)
 }
 
+func atShanghaiDate(t *testing.T, year int, month time.Month, day, hh, mm int) time.Time {
+	t.Helper()
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	require.NoError(t, err)
+	return time.Date(year, month, day, hh, mm, 0, 0, loc)
+}
+
 func TestValidateTimePricingForMode(t *testing.T) {
 	defaultMultiplier := 0.8
 	valid := &TimePricing{
@@ -137,6 +144,33 @@ func TestTimePricingMultiplierAtBoundariesAndCrossMidnight(t *testing.T) {
 	require.Equal(t, 0.5, p.MultiplierAt(atShanghai(t, 23, 30)).Multiplier)
 	require.Equal(t, 0.5, p.MultiplierAt(atShanghai(t, 6, 30)).Multiplier)
 	require.Equal(t, 0.75, p.MultiplierAt(atShanghai(t, 7, 0)).Multiplier)
+}
+
+func TestTimePricingMultiplierAtWeekdaysOnlyUsesDefaultOnWeekend(t *testing.T) {
+	defaultMultiplier := 0.8
+	p := &TimePricing{
+		Enabled:           true,
+		Timezone:          "Asia/Shanghai",
+		WeekdaysOnly:      true,
+		DefaultLabel:      "周末标准",
+		DefaultMultiplier: &defaultMultiplier,
+		Rules: []TimePricingRule{{
+			Label:      "工作日高峰",
+			StartTime:  "09:00",
+			EndTime:    "12:00",
+			Multiplier: 2,
+		}},
+	}
+
+	weekday := p.MultiplierAt(atShanghaiDate(t, 2026, time.August, 17, 10, 0)) // Monday
+	require.Equal(t, "工作日高峰", weekday.Label)
+	require.Equal(t, 2.0, weekday.Multiplier)
+	require.NotNil(t, weekday.Rule)
+
+	weekend := p.MultiplierAt(atShanghaiDate(t, 2026, time.August, 16, 10, 0)) // Sunday
+	require.Equal(t, "周末标准", weekend.Label)
+	require.Equal(t, 0.8, weekend.Multiplier)
+	require.Nil(t, weekend.Rule)
 }
 
 func TestTimePricingMultiplierAtDSTFallbackUsesWallClockRule(t *testing.T) {

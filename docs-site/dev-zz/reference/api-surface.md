@@ -470,6 +470,26 @@ dev-zz 前端基于这些接口分别构建公开模型列表和登录后的模�
 
 `POST /upstream-cost-pools/:pool_id/recharge-records` 沿用旧充值记录字段：`type`、`paid_amount`、`paid_currency`、`received_credit_amount`、`received_credit_currency`、`reference_fx_rate`、`recorded_at`、`note`；阶段 1 只接受 `recharge` / `bonus` / `adjustment`，仍固定支持 CNY 实付和 USD 上游额度，金额必须非负。管理端 UI 会从资金池 `default_effective_cny_per_usd` / `default_reference_fx_rate` 自动生成普通充值的到账额度和参考汇率，但请求仍提交并固化本次实际值。只有 `recharge` 定义单位成本并更新当前快照；`bonus` 只增加额度，`adjustment` 只保存账本调整，两者都不单独刷新资金池当前成本。充值新增、修改或删除提交后会刷新该资金池所有 active 绑定账号的调度快照。
 
+## 管理端本地进程插件
+
+插件管理接口全部要求管理员身份；上传、启停、删除、保存配置和运行测试同时经过 step-up 校验。插件 UI 使用短时能力 URL 提供已经安装校验的静态资源，不能作为通用文件服务。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/v1/admin/plugins` | 列出已安装插件及其兼容性、状态和绑定摘要 |
+| `GET` | `/api/v1/admin/plugins/:id` | 获取单个插件详情 |
+| `POST` | `/api/v1/admin/plugins/upload` | 上传并校验 `.s2plugin`；新安装默认停用 |
+| `POST` | `/api/v1/admin/plugins/:id/enable` | 按兼容性确认和 rollout 百分比启用插件 |
+| `POST` | `/api/v1/admin/plugins/:id/disable` | 停用插件并停止新请求进入该能力 |
+| `DELETE` | `/api/v1/admin/plugins/:id` | 删除已停用插件及其绑定和已保存包 |
+| `GET` | `/api/v1/admin/plugins/:id/config` | 读取脱敏后的插件配置 |
+| `PUT` | `/api/v1/admin/plugins/:id/config` | 由插件严格校验并原子应用配置后加密保存 |
+| `POST` | `/api/v1/admin/plugins/:id/test` | 对已保存配置执行快速诊断 |
+| `POST` | `/api/v1/admin/plugins/:id/ui-session` | 创建短时 UI asset 与 bridge 会话 |
+| `GET` | `/api/v1/plugin-ui/:token/*path` | 读取短时 token 对应插件包内的静态 UI 资源 |
+
+当前能力仅用于 OpenAI OAuth 出站传输。插件返回的 `request_sent` 是重试安全证据：已发送或无法确认时，宿主不得据此跨账号重放；企业成员最终分组、预算回执、usage 归因和 sticky 仍由宿主控制。插件列表、配置和诊断数据只属于管理员面，不进入普通用户 DTO。
+
 ## 运维失败分类与结构化钻取
 
 | 方法 | 路径 | 说明 |

@@ -157,7 +157,7 @@ func NewRoutingEligibilityVersion(items []RoutingEligibilityScopeRevision) Routi
 		}
 		_, _ = builder.WriteString(string(item.Scope.Type))
 		_ = builder.WriteByte(':')
-		_, _ = builder.WriteString(fmt.Sprintf("%d=%d", item.Scope.ID, item.Revision))
+		_, _ = fmt.Fprintf(&builder, "%d=%d", item.Scope.ID, item.Revision)
 	}
 	sum := sha256.Sum256([]byte(builder.String()))
 	return RoutingEligibilityVersion{

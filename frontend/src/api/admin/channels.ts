@@ -41,6 +41,8 @@ export interface TimePricing {
   /** Missing on legacy records; billing treats omission as 1x. */
   default_multiplier?: number
   rules: TimePricingRule[]
+  /** true means explicit windows apply only on Monday-Friday in the configured timezone. */
+  weekdays_only?: boolean
 }
 
 export interface ChannelModelPricing {

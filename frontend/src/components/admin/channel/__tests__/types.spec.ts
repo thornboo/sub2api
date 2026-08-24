@@ -167,6 +167,7 @@ describe('time pricing helpers', () => {
       default_label: '平时',
       default_multiplier: 0.8,
       rules: [],
+      weekdays_only: false,
     }), t)).toBeNull()
   })
 
@@ -175,6 +176,7 @@ describe('time pricing helpers', () => {
       enabled: false,
       timezone: 'Asia/Shanghai',
       default_label: '平时',
+      weekdays_only: true,
       rules: [
         { label: 'legacy peak', start_time: '09:00', end_time: '12:00', multiplier: 2 },
       ],
@@ -186,6 +188,7 @@ describe('time pricing helpers', () => {
       timezone: 'Asia/Shanghai',
       default_label: '平时',
       default_multiplier: 1,
+      weekdays_only: true,
       rules: [
         { label: 'legacy peak', start_time: '09:00', end_time: '12:00', multiplier: 2 },
       ],

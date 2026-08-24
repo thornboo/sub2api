@@ -1,5 +1,41 @@
 # 上游合并记录
 
+## 2026-08-24 - 继续同步上游 `main`：插件传输、Fast 计费与统一分时价格
+
+分支：
+
+- 目标：`dev-zz`
+- Base：`d45135d87df16d48637f04ccd245727bc955ba54`
+- 合并前目标：`67e91fc7e9d308709f1fd71805733b3954adcd78`
+- 上游 head：`03e8ab41346b42de9ece4e3e5bfcb6ca2b8cb57e`
+- 结果：本次合并提交
+
+上游要点：
+
+- 新增默认停用的本地进程插件框架、管理员插件页面、独立进程 gRPC 合同与迁移 `229_plugins.sql`、`230_plugin_artifacts.sql`；当前只开放 OpenAI OAuth 出站传输能力。
+- OpenAI Responses、Chat Completions 与 WebSocket 增加 `fast` service tier 透传和实际档位计费，另补齐 OAuth quota 自动重置、Codex identity、WebSocket v2 与工具调用 identity 修复。
+- 上游模型目录增加独立读取上限；公开模型价格补充 token 阶梯，渠道分时价格增加仅工作日规则；前后端依赖和 Go 工具链同步更新到 1.27.0。
+- 管理端吸收插件、Ops 详情、账号优先级、IPv6 代理和用户能力编辑；安全工作流更新前端高危依赖 override 与部署环境检查。
+
+合并策略与冲突：
+
+- 合并前重新读取 `docs-site/dev-zz` 的分支策略、合并流程、补丁 / 合并记录、变更地图、配置迁移、API 合同和验证矩阵；以 `d45135d87` 为 merge-base 执行 `git merge-tree` 预演，并创建 `backup/dev-zz-pre-main-20260824-67e91fc7`。
+- 本轮上游增量共 70 个提交（45 个非 merge 提交）、276 个文件、18347 行新增和 1121 行删除；预演与真实 `git merge --no-commit origin/main` 均报告 46 个冲突路径，全部按合同逐项合流，没有整仓选边。
+- 保留 dev-zz 单一 `TimePricing` 与现有模型广场架构，不恢复已经删除的 `ChannelTimePricing`、旧价格区域和旧模型广场组件；上游 `weekdays_only` 拼入现有规则，周末跳过显式规则并回落默认倍率与标签。
+- 插件不能拥有账号选择、企业成员最终分组、预算 / usage、sticky 或 replay 决策；生产默认拒绝未签名包，插件 `request_sent` 继续作为未知结果禁止跨账号重放的证据。Fast 计费只允许按上游实际结果降档，不能把普通请求抬升为 Fast 计费。
+- 保留企业成员 `ActiveGroup`、sticky、预算 / usage 原子归因、未知结果禁止重放、stone UI、隐藏 LinuxDo / 微信默认项和 fork `1.7.39` 版本线；上游 `0.1.180` 不进入 fork 版本文件。
+- 全量单测发现一次无冲突标记的语义回归：兼容桥提前拒绝同名工具，破坏既有“等价定义去重、冲突定义拒绝”合同；已恢复定义级比较，并删除仍引用旧模型广场组件的孤立测试。
+
+验证：
+
+- 后端全仓 unit、Testcontainers integration、`go vet ./...`、server build、Wire 稳定再生成和 golangci-lint v2.13 验证通过；定向覆盖统一 TimePricing、工具定义去重、Fast service tier、插件安全、quota reset 和 OpenAI 转发路径。
+- 前端 typecheck、完整 ESLint、生产构建和全量 Vitest 通过，共 297 个测试文件、2032 条用例；pnpm frozen-lockfile 与高危 audit exception 校验通过。
+- 三组 Compose 安全 / 资源合同脚本与 docs-site 生产构建通过；Git whitespace、真实冲突标记、索引、Wire 生成稳定性、合并父链与 `origin/main` 祖先检查通过。
+
+未验证：
+
+- 未连接真实 OpenAI 或第三方插件进程，未运行浏览器人工 smoke、完整 Docker 镜像、Hosted CI、推送、发布或生产部署。
+
 ## 2026-08-24 - 继续同步上游 `main`：工具续链、图片生成与 Guardian 亲和性
 
 分支：

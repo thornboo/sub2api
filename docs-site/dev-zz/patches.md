@@ -1,5 +1,31 @@
 # 补丁记录
 
+## 2026-08-24 - 上游 main 增量同步：插件、Fast service tier 与工作日分时
+
+### 目标
+
+- 将 `origin/main@03e8ab413` 继续合入正式线 `dev-zz`，取得插件出站传输、Fast service tier、OpenAI quota reset / WebSocket、模型价格和运维安全修复。
+- 保留企业成员最终 `ActiveGroup`、预算 / usage 原子归因、sticky、未知结果禁止重放、单一 TimePricing / 模型广场合同、stone UI 和 `1.7.39` 发布线。
+
+### 主要变化
+
+- 管理员可以上传、校验、配置和灰度启用独立进程 `.s2plugin`；安装和绑定默认停用，生产默认拒绝未签名包。当前插件能力只覆盖 OpenAI OAuth 出站传输，宿主继续控制认证、调度、计费和重试边界。
+- OpenAI 三种入口透传 `fast` service tier，并按请求和上游实际档位的安全交集计费；上游响应只能触发降档，不能把普通请求升级收费。
+- 渠道公开价格沿用 dev-zz 的 `TimePricing`，增加 `weekdays_only`；周末应用默认倍率 / 标签。模型目录增加独立响应大小限制，模型价格和上下文数据同步更新。
+- 新增插件迁移 229/230、quota 自动重置、插件管理 UI、账号优先级、IPv6 代理与 Ops 详情改进；Go 版本和相关 CI 合同统一到 1.27.0，前端安全 override 同步到 lockfile。
+
+### 冲突与兼容性
+
+- 70 个上游提交修改 276 个文件；预演与真实合并均产生 46 个冲突路径，按 dev-zz 文档合同逐项解决。删除上游重新引入的旧 ChannelTimePricing / 模型广场组件及其孤立测试，不形成双实现。
+- 插件返回的发送状态只作为宿主 retry 安全证据；插件不能改变账号候选、企业成员分组、预算回执、usage、sticky 或未知结果处理。现有品牌、认证入口默认值和 fork 版本保持不变。
+- 全量测试发现同名等价工具被兼容桥过早拒绝，已恢复“等价去重、不同定义报错”；Wire 按最终 provider 集重新生成并二次生成稳定。
+
+### 验证
+
+- 后端全仓 unit / integration、vet、server build、Wire 再生成和 golangci-lint v2.13 通过；前端 typecheck、ESLint、生产构建和全量 Vitest（297 个文件、2032 条用例）通过。
+- pnpm frozen-lockfile、audit exception、Compose 安全合同、docs build 和 Git 结构 / 冲突 / whitespace 检查通过。
+- 未连接真实 provider / 插件，未运行浏览器 smoke、完整镜像或 Hosted CI；未推送、发布或部署。
+
 ## 2026-08-24 - 上游 main 增量同步：工具续链、图片生成与 Guardian 亲和性
 
 ### 目标

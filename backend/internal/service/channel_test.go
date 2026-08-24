@@ -197,6 +197,18 @@ func TestChannelModelPricingClone(t *testing.T) {
 		Intervals: []PricingInterval{
 			{MinTokens: 0, TierLabel: "tier1"},
 		},
+		TimePricing: &TimePricing{
+			Enabled:           true,
+			Timezone:          "Asia/Shanghai",
+			DefaultLabel:      "regular",
+			DefaultMultiplier: testPtrFloat64(1),
+			Rules: []TimePricingRule{{
+				Label:      "peak",
+				StartTime:  "09:00",
+				EndTime:    "12:00",
+				Multiplier: 2,
+			}},
+		},
 	}
 
 	cloned := original.Clone()
@@ -207,6 +219,15 @@ func TestChannelModelPricingClone(t *testing.T) {
 
 	cloned.Intervals[0].TierLabel = "hacked"
 	require.Equal(t, "tier1", original.Intervals[0].TierLabel)
+
+	cloned.TimePricing.Timezone = "America/New_York"
+	*cloned.TimePricing.DefaultMultiplier = 0.5
+	cloned.TimePricing.Rules[0].StartTime = "10:00"
+	cloned.TimePricing.Rules[0].Multiplier = 3
+	require.Equal(t, "Asia/Shanghai", original.TimePricing.Timezone)
+	require.Equal(t, 1.0, *original.TimePricing.DefaultMultiplier)
+	require.Equal(t, "09:00", original.TimePricing.Rules[0].StartTime)
+	require.Equal(t, 2.0, original.TimePricing.Rules[0].Multiplier)
 }
 
 // --- BillingMode.IsValid ---

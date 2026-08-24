@@ -483,7 +483,7 @@ func importXLSXTemplateSheet(rows [][]string) string {
 	var builder strings.Builder
 	_, _ = builder.WriteString(`<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>`)
 	for rowIndex, row := range rows {
-		_, _ = builder.WriteString(fmt.Sprintf(`<row r="%d">`, rowIndex+1))
+		_, _ = fmt.Fprintf(&builder, `<row r="%d">`, rowIndex+1)
 		for colIndex, value := range row {
 			ref := importXLSXColumnName(colIndex) + strconv.Itoa(rowIndex+1)
 			_, _ = builder.WriteString(`<c r="` + ref + `" t="inlineStr"><is><t>`)

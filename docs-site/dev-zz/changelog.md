@@ -2,6 +2,12 @@
 
 ## 2026-08-24
 
+- 同步上游 `main`（`03e8ab413`）到 `dev-zz`：新增默认停用的独立进程插件框架和管理页面，当前只允许 OpenAI OAuth 出站传输；插件不能拥有账号选择、企业成员最终分组、预算 / usage、sticky 或 replay 决策，生产默认拒绝未签名包。
+- OpenAI Responses、Chat Completions 与 WebSocket 支持 `fast` service tier，并按上游实际结果安全降档计费；普通请求不能因上游回显被升级收费。另同步 quota 自动重置、Codex identity、WebSocket v2、工具 identity 和模型目录读取上限。
+- 渠道分时价格继续使用 dev-zz 单一 `TimePricing`，吸收仅工作日规则并在周末回落默认倍率 / 标签；公开模型价格补充 token 阶梯，不恢复已经删除的旧 ChannelTimePricing 或旧模型广场组件。
+- 新增迁移 `229_plugins.sql`、`230_plugin_artifacts.sql`，Go / CI 工具链更新到 1.27.0，前端依赖和安全 override 更新；`VERSION` 保持 `1.7.39`，上游 `0.1.180` 不进入 fork 发布线。
+- 全量回归覆盖后端 unit / Testcontainers integration、vet、build、lint，前端 297 个测试文件 / 2032 条用例、typecheck、ESLint、生产构建，以及 docs、audit 和 Compose 合同；未推送、发布或部署。
+
 - 同步上游 Chat / Responses 工具正确性修复：文件 part 不再静默丢失，输出上限截断出的非法 function arguments 不再被标记完成，DeepSeek 原生 Responses 可以正确承接 Codex 客户端工具。
 - 修复 Responses WebSocket / HTTP bridge 重复 replay 与孤立 tool call；已有 call context 的后续轮次不重复补历史，未知上游结果继续禁止整轮重放。
 - 稳定 OpenAI OAuth 图片生成：区分内容政策拒绝、普通文本 fallback 和空响应，并对工具不可用账号执行短期冷却与受控 failover。

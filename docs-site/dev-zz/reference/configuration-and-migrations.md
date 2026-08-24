@@ -6,7 +6,7 @@
 
 | 项 | 当前约定 |
 | --- | --- |
-| Go | `backend/go.mod` 声明 `go 1.26.6`，CI 会校验 `go1.26.6` |
+| Go | `backend/go.mod` 声明 `go 1.27.0`，CI 会校验 `go1.27.0` |
 | 前端构建 Node | GitHub Actions 使用 `node-version: '20'` |
 | GitHub JavaScript actions runtime | CI 设置 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`，用于验证 actions runtime 兼容性 |
 | pnpm | 前端和 docs-site 独立 lockfile，CI 前端使用 pnpm 10.34.5 |
@@ -24,6 +24,29 @@ Node 24 runtime 变量只验证 GitHub action 执行环境，不等价于项目�
 | `gateway.proxy_probe_response_read_max_bytes` | `1048576` | 单次探测响应的最大读取字节数，必须为正数 |
 
 配置在启动规范化阶段 trim 并校验；任一条目缺少 URL / parser、协议非法或 parser 未知都会使配置加载失败。`security.proxy_probe.insecure_skip_verify` 仍被禁止，不能用自定义目标绕过 TLS 证书校验。
+
+## 上游模型目录读取上限
+
+| 配置 | 默认值 | 说明 |
+| --- | ---: | --- |
+| `gateway.models_list_read_max_bytes` | `8388608` | `/v1/models` 等上游模型目录响应的最大读取字节数，必须为正数 |
+
+该上限与普通非流式响应的 `gateway.upstream_response_read_max_bytes` 分离，防止异常或恶意模型目录造成无界内存读取；它只限制目录响应体，不改变账号模型映射、公开模型投影或企业成员交付判断。
+
+## 本地 OAuth 出站传输插件
+
+插件系统默认不携带或启用任何插件。管理员上传的 `.s2plugin` 作为独立进程运行，当前宿主只接受 `openai.oauth.outbound_transport.v1` 能力；宿主继续拥有账号认证、调度、预算、usage、重试和未知结果禁止重放的最终控制权。
+
+| 配置 | 默认值 | 说明 |
+| --- | ---: | --- |
+| `plugins.data_dir` | 空 | 空值使用 `DATA_DIR/plugins`，未设置 `DATA_DIR` 时使用 `./data/plugins` |
+| `plugins.allow_unsigned` | `false` | 只允许隔离的本地开发临时启用；生产应保持关闭 |
+| `plugins.trusted_publishers` | `{}` | 追加第三方 Ed25519 发布者公钥，不覆盖宿主内置信任 |
+| `plugins.max_upload_bytes` | `134217728` | 单个上传包上限，合法范围 `1-1073741824` |
+| `plugins.max_uncompressed_bytes` | `268435456` | 解包后总大小上限，必须不小于上传上限且不超过 `2147483648` |
+| `plugins.start_timeout_seconds` | `15` | 插件进程启动超时，合法范围 `1-120` 秒 |
+
+迁移 `229_plugins.sql` 新增安装与能力绑定表，插件默认 `disabled`、绑定默认不启用，并用 partial unique index 保证同一能力 / 平台 / 账号类型只有一个已启用绑定。迁移 `230_plugin_artifacts.sql` 保存已验证的原始包，供多实例和无状态节点重新复验与解包；两者均为追加迁移，不改写既有账号、路由、usage 或预算数据。完整开发与安全合同见 `docs/PLUGIN_DEVELOPMENT.md` 和 `backend/pkg/pluginapi/docs/`。
 
 ## API Key 相关配置
 
@@ -316,6 +339,8 @@ runner 每分钟检查到期账号，单轮最多 20 个、并发 4、单请求�
 | `backend/migrations/223_group_usage_rollup_timezone.sql` | 修正并固化分组日 rollup 的业务时区口径；升级前后需在真实时区边界核对同一 usage 不重复、不漏计 |
 | `backend/migrations/224_user_platform_quotas_add_cn_providers.sql` | 将用户平台配额约束扩展到 Kimi、智谱和 DeepSeek；不为现有用户自动创建或放宽配额 |
 | `backend/migrations/225_channel_model_time_pricing.sql` | 给 `channel_model_pricing` 增加 `time_pricing jsonb NOT NULL DEFAULT '{}'`；Group 模型规则继续使用既有 JSONB，无新增订阅字段 |
+| `backend/migrations/229_plugins.sql` | 新增本地进程插件安装和能力绑定表；安装、绑定默认停用，并限制同一能力范围只有一个启用绑定 |
+| `backend/migrations/230_plugin_artifacts.sql` | 给插件安装记录追加原始包数据，支持多实例重新复验和解包；既有安装允许为空，重新上传时补齐 |
 
 `152` 使用 `CREATE INDEX CONCURRENTLY`，不能放进普通事务迁移。后续合并上游迁移时，需保留 `_notx` 约定，避免长事务锁表。
 
@@ -418,7 +443,7 @@ GITHUB_RAW_URL=https://raw.githubusercontent.com/thornboo/sub2api/dev-zz/deploy
 
 | 文件 | dev-zz 差异 |
 | --- | --- |
-| `.github/workflows/backend-ci.yml` | actions runtime 走 Node 24 验证；Go 版本校验 1.26.6；前端构建 Node 仍是 20 |
+| `.github/workflows/backend-ci.yml` | actions runtime 走 Node 24 验证；Go 版本校验 1.27.0；前端构建 Node 仍是 20 |
 | `.github/workflows/security-scan.yml` | actions runtime 走 Node 24 验证；前端 audit 仍使用 Node 20 |
 | `.github/workflows/dev-zz-branch-images.yml` | `dev-zz-develop` / `dev-zz` push 构建 GHCR 多架构分支镜像，不更新 `latest` |
 | `.github/workflows/release.yml` | release 产物推送 fork 镜像命名 |

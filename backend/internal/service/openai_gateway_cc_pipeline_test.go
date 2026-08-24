@@ -27,6 +27,7 @@ func TestScanCCStreamStopsOnConversionError(t *testing.T) {
 	emitted := 0
 
 	state := (&OpenAIGatewayService{}).scanCCStream(
+		nil,
 		resp,
 		"test chat fallback",
 		"req_test",

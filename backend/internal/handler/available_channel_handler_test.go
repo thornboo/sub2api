@@ -144,6 +144,7 @@ func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 	sourceTimePricing := &service.TimePricing{
 		Enabled:           true,
 		Timezone:          "Asia/Shanghai",
+		WeekdaysOnly:      true,
 		DefaultLabel:      "平时",
 		DefaultMultiplier: &defaultMultiplier,
 		Rules: []service.TimePricingRule{{
@@ -179,6 +180,7 @@ func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rawTimePricing, &timePricingDecoded))
 	require.Equal(t, "平时", timePricingDecoded["default_label"])
 	require.Equal(t, 0.8, timePricingDecoded["default_multiplier"])
+	require.Equal(t, true, timePricingDecoded["weekdays_only"])
 	rules, ok := timePricingDecoded["rules"].([]any)
 	require.True(t, ok)
 	require.Len(t, rules, 1)

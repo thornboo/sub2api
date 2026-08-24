@@ -161,10 +161,20 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 		markEnterpriseMemberBudgetTransportOutcome(c, err)
 		return err
 	}
+	if errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return err
+	}
 
 	// Transport attempt reached the network path; count as Ollama Cloud activity.
 	if s != nil {
 		scheduleOllamaCloudUsageActivity(s.deferredService, account)
+	}
+
+	// 插件已把请求交给上游时，自动切换账号可能造成重复扣费或重复执行。
+	var pluginErr *PluginTransportError
+	if errors.As(err, &pluginErr) && pluginErr.RequestSent {
+		markEnterpriseMemberBudgetTransportOutcome(c, err)
+		return err
 	}
 
 	if class.Persistent {

@@ -215,6 +215,25 @@ func (s *ChannelService) fillGlobalPricingFallback(models []SupportedModel) {
 	}
 }
 
+// fillGlobalPricingFallback is retained for services that only have the
+// catalog pricing dependency. ChannelService uses the method above so it can
+// prefer the BillingService settlement basis when available.
+func fillGlobalPricingFallback(pricingService *PricingService, models []SupportedModel) {
+	if pricingService == nil {
+		return
+	}
+	for i := range models {
+		if !pricingNeedsFallback(models[i].Pricing) {
+			continue
+		}
+		existing := synthesizePricingFromLiteLLM(pricingService.GetModelPricing(models[i].Name), models[i].Pricing)
+		if pricingNeedsFallback(existing) {
+			continue
+		}
+		models[i].Pricing = existing
+	}
+}
+
 // availableTokenBasePricing returns the same token basis used by settlement.
 // The existing shape is retained so channel/group metadata can be overlaid by callers.
 func (s *ChannelService) availableTokenBasePricing(model string, existing *ChannelModelPricing) *ChannelModelPricing {
