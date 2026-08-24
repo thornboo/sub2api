@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-08-25
+
+- 同步上游 `main`（`e2d9b823f`）到 `dev-zz`：Gemini 工具 schema 移除不支持的嵌套字段，标量 enum 转为字符串，复合 enum 安全丢弃。
+- Responses Lite 的 `additional_tools` 保留 `parallel_tool_calls:false`；上游拒绝 input `status` 时一次清理全部同类型 item，避免逐项重试耗尽预算。
+- Grok OAuth / CLI proxy 使用官方 workspace User-Agent 与 `0.2.120` identity；普通 API Key 和非 CLI 目标不受影响。
+- `VERSION` 保持 `1.7.39`，上游 `0.1.181` 不进入 fork 发布线；本轮无迁移、配置、依赖或前端运行时代码变化。
+
 ## 2026-08-24
 
 - 同步上游 `main`（`03e8ab413`）到 `dev-zz`：新增默认停用的独立进程插件框架和管理页面，当前只允许 OpenAI OAuth 出站传输；插件不能拥有账号选择、企业成员最终分组、预算 / usage、sticky 或 replay 决策，生产默认拒绝未签名包。

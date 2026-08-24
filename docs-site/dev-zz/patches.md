@@ -1,5 +1,28 @@
 # 补丁记录
 
+## 2026-08-25 - 上游 main 增量同步：工具 schema、Lite 并行开关与 CLI 身份
+
+### 目标
+
+- 将 `origin/main@e2d9b823f` 继续合入正式线 `dev-zz`，取得 Gemini tool schema、Responses Lite、rejected-field retry 和 Grok CLI identity 修复。
+- 保留企业成员 `ActiveGroup`、预算 / usage、sticky、插件 / TimePricing 合同和 fork `1.7.39` 发布线。
+
+### 主要变化
+
+- Gemini schema 移除嵌套 `deprecated`，把标量 enum 规范为字符串并丢弃包含复合值的 enum。
+- Responses Lite 的非空 `additional_tools` 继续保留 `parallel_tool_calls:false`；Responses status rejection 一次清理全部同类型 item，避免有限重试预算被逐项消耗。
+- Grok OAuth / CLI proxy 更新到官方 workspace User-Agent 和 `0.2.120`，普通 API Key / 非 CLI 目标不接受该身份覆盖。
+
+### 冲突与兼容性
+
+- 9 个上游提交修改 16 个文件；唯一冲突是 `backend/cmd/server/VERSION`，继续保留 `1.7.39`，不采用上游 `0.1.181`。
+- 自动合并文件按控制流复审；本轮没有改变企业成员路由 / 结算、未知结果禁止重放、插件边界、分时价格、数据库、配置、依赖或前端运行时。
+
+### 验证
+
+- 受影响后端定向测试、全仓 unit、vet、server build 和 golangci-lint v2.13 通过；前端 typecheck / ESLint、docs build 与 Git 结构检查通过。
+- 未重复运行 integration、前端全量 Vitest、完整镜像、真实 provider 或 Hosted CI；未推送、发布或部署。
+
 ## 2026-08-24 - 上游 main 增量同步：插件、Fast service tier 与工作日分时
 
 ### 目标

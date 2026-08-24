@@ -1,5 +1,39 @@
 # 上游合并记录
 
+## 2026-08-25 - 继续同步上游 `main`：Gemini schema、Responses Lite 与 Grok CLI 身份
+
+分支：
+
+- 目标：`dev-zz`
+- Base：`03e8ab41346b42de9ece4e3e5bfcb6ca2b8cb57e`
+- 合并前目标：`32e2c5307594c7329b4b8ab00b29227198267cf7`
+- 上游 head：`e2d9b823f63dc4e8f4014be3fd24a0a73e339867`
+- 结果：本次合并提交
+
+上游要点：
+
+- Gemini Messages 工具 schema 递归移除不支持的 `deprecated`，把字符串、布尔、数字和 `null` enum 统一编码为 Gemini 可接受的字符串；包含对象或数组的 enum 整体丢弃，避免发送半有效定义。
+- Responses Lite 工具已经被搬入 `input[].type=additional_tools` 后，仍视为存在工具，保留必须为 `false` 的 `parallel_tool_calls`，避免被后续无工具规范化误删并触发上游 `unsupported_value`。
+- Responses rejected-field retry 在上游拒绝某类 input item 的 `status` 时，一次删除所有同类型 item 的 status，其他类型不受影响，避免逐项重试耗尽有限预算。
+- Grok OAuth / CLI proxy 使用官方 workspace User-Agent 与 `0.2.120` identity；普通 API Key 和非 CLI 目标继续保留自身 User-Agent，不被伪装为 CLI。
+
+合并策略与冲突：
+
+- 合并前重新读取当前 `docs-site/dev-zz` 分支策略、合并流程、补丁 / 合并记录、变更地图和验证矩阵；fetch 后以 `03e8ab413` 为 merge-base 执行 `git merge-tree` 预演，并创建 `backup/dev-zz-pre-main-20260825-32e2c530`。
+- 本轮上游增量共 9 个提交（5 个非 merge 提交）、16 个文件、245 行新增和 58 行删除；预演与真实 `git merge --no-commit origin/main` 均只有 `backend/cmd/server/VERSION` 一个文本冲突。
+- `VERSION` 继续保留 fork `1.7.39`，不吸收上游 `0.1.181`。其余 15 个文件自动合并后仍逐项复审；改动没有触及企业成员候选 / `ActiveGroup`、预算 / usage、sticky、插件、TimePricing、数据库、配置、依赖或前端运行时代码。
+- Grok identity 只覆盖官方 CLI proxy / OAuth 路径；Responses status 批量清理只作用于上游已经证明不接受 status 的同一 item type；Lite 工具识别只检查实际非空 `additional_tools`，空载体仍按无工具处理。
+
+验证：
+
+- 定向后端测试覆盖 Gemini schema、Grok CLI identity / observed models、Responses Lite `parallel_tool_calls` 与 rejected-status 整类清理，相关 `xai`、repository 和 service 包通过。
+- 后端全仓 unit、`go vet ./...`、server build 和 golangci-lint v2.13（0 issues）通过；前端 typecheck、完整 ESLint 与 docs-site 生产构建通过。
+- Git whitespace、真实冲突标记、索引、合并父链与 `origin/main` 祖先检查通过。
+
+未验证：
+
+- 本轮没有迁移、schema、配置、依赖或前端运行时代码变化，因此未重复运行 Testcontainers integration、前端全量 Vitest 或完整 Docker 镜像；未连接真实 Gemini / Grok / OpenAI，未运行浏览器人工 smoke、Hosted CI、推送、发布或生产部署。
+
 ## 2026-08-24 - 继续同步上游 `main`：插件传输、Fast 计费与统一分时价格
 
 分支：
