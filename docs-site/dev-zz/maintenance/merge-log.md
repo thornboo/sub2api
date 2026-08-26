@@ -1,5 +1,45 @@
 # 上游合并记录
 
+## 2026-08-26 - 继续同步上游 `main`：Codex 目录、模型元数据与 WebSocket 工具续链
+
+分支：
+
+- 目标：`dev-zz`
+- 上游：本地 `main` / `origin/main`
+- Base：`e2d9b823f63dc4e8f4014be3fd24a0a73e339867`
+- 合并前目标：`170266d603e5b16de93150051a9343f901fd2aab`
+- 上游 head：`efb46db0a960fdad94502b1c3a982a0051cf5245`
+- 备份：`backup/dev-zz-pre-main-20260826-170266d6`
+- 结果：本次合并提交
+
+上游要点：
+
+- Codex 模型目录改为按实际分组、平台、账号映射和 capabilities 生成 manifest，并补齐 ETag、CLI 版本、公开 / 控制端点与默认模型目录。
+- 上游模型同步增加 routed catalog 元数据、models.dev capability 补全、账号 extra 快照保存，以及 404/405 时按已配置 mapping 模型继续同步 capability。
+- OpenAI Responses / WebSocket 路径补充 Lite 请求规范化、stale native tool ID 清理、session-id header、quota 429 停用和工具 item ID 兼容测试。
+- 同步邮箱别名并发守卫、Composite 平台聚合 SQL、Kimi concurrency 403 恢复、Antigravity token limit clamp、赞助商 logo 与前端 Codex 配置提示。
+
+合并策略与冲突：
+
+- 合并前重新读取 `docs-site/dev-zz` 的分支策略、合并流程、补丁 / 合并记录、变更地图和验证矩阵；以 `e2d9b823f` 为 merge-base 执行 `git merge-tree` 预演，创建 `backup/dev-zz-pre-main-20260826-170266d6` 后运行 `git merge --no-commit origin/main`，不推送、不发布、不部署。
+- 本轮上游范围共 59 个提交（38 个非 merge 提交），最终 merge diff 为 117 个文件（含本次补丁、变更和合并记录）；预演与真实合并均报告 12 个文本冲突，集中在 Gateway handler / routes、Composite resolver、OpenAI 调度、模型白名单 UI 与上游模型同步。
+- `upstream_models.go` 保留 dev-zz 的 `UpstreamModelDescriptor`、`supported_endpoint_types`、模型映射和账号模型探测语义，同时吸收上游 `SyncUpstreamModelCatalog`、models.dev 元数据补全、账号 extra 快照和 404/405 configured-mapping fallback。
+- WebSocket HTTP bridge 同时保留 dev-zz 后续 turn 结果不明进入 enterprise member budget ambiguous 的边界，并吸收上游 compatible endpoint 上清理 `reasoning.effort=none` 与 stale tool-ID regression。
+- `/backend-api/codex/models` 继续通过统一 `codexModelsHandler` dispatch：官方 OpenAI 仍可走 OpenAI live metadata，非 OpenAI / Composite 分组返回 Codex manifest，并保持企业成员候选编排、Composite 逐候选重解析和 route-lock / no-replay 合同。
+- 前端账号创建、模型白名单和 Key 使用页吸收 Codex catalog UI / 配置提示；保留 dev-zz 模型 mapping 模式、余额 / 配额主动探测、账号保存后同步、stone 控制台方向和隐藏认证入口策略。
+- `VERSION` 保持 fork `1.7.40`，不采用上游 `0.1.183`；本轮没有数据库迁移、配置项或依赖变化。
+
+验证：
+
+- 已完成 Git 结构检查：无未解决索引项、无真实冲突标记，`git diff --check` 与 `git diff --cached --check` 通过。
+- 后端 Codex、Gateway、Composite、sticky、WebSocket、模型同步定向测试以及全仓 unit、`go vet ./...` 和 server build 通过。
+- 前端 typecheck、完整 ESLint、生产构建与全量 Vitest 通过，共 299 个测试文件、2055 条用例。
+- 文档站生产构建通过：`pnpm --dir docs-site docs:build`。
+
+未验证：
+
+- 未连接真实 provider，未运行 Testcontainers integration、浏览器人工 smoke、完整 Docker 镜像或 Hosted CI；未推送、发布或生产部署。
+
 ## 2026-08-25 - 继续同步上游 `main`：Gemini schema、Responses Lite 与 Grok CLI 身份
 
 分支：

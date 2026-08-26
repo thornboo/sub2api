@@ -1,5 +1,31 @@
 # 补丁记录
 
+## 2026-08-26 - 上游 main 增量同步：routed Codex 目录与路由稳定性
+
+### 目标
+
+- 将 `origin/main@efb46db0a` 合入正式线 `dev-zz`，取得按真实路由生成的 Codex 模型目录、模型 metadata / capability 同步和 OpenAI / Composite 正确性修复。
+- 保留企业成员候选与最终 `ActiveGroup`、sticky / WebSocket route lock、未知结果禁止重放、模型 mapping / probe / sync 分工和 fork `1.7.40` 发布线。
+
+### 主要变化
+
+- Codex 模型目录按分组平台、账号 mapping、实际可路由模型和 capability 生成，支持 ETag、配置模型优先、临时不可调度账号的稳定 capability 交集，以及非 OpenAI / Composite manifest。
+- 上游模型同步保存 routed catalog metadata 与账号 extra 快照，结合 models.dev 补齐 reasoning / context 等能力；API Key `/models` 返回 404/405 时仍可从显式 mapping 形成受限目录。
+- OpenAI / WebSocket 吸收 Lite 请求、session-id、stale native tool ID、上游 endpoint 归因和 OAuth quota 429 修复；Composite、Kimi、Antigravity、邮箱绑定和支付结果同步取得对应正确性修复。
+- 前端账号模型选择器同时保留凭据探测与保存账号同步，并加入 Codex catalog 搜索、metadata 提示和 Key 使用配置。
+
+### 冲突与兼容性
+
+- 59 个上游提交形成 117 个最终 merge diff 文件（含本次三份维护记录）；12 个文本冲突逐文件合流，没有整文件采用 `ours` / `theirs`。
+- Gateway / Composite 目录继续经过企业成员候选编排和最终分组解析；sticky spillover 不覆盖 durable binding，已提交或结果未知的请求仍禁止跨账号重放。
+- `VERSION` 保持 `1.7.40`，不采用上游 `0.1.183`；本轮没有迁移、配置或依赖变化。
+
+### 验证
+
+- 后端 Codex / Gateway / Composite / sticky / WebSocket / model sync 定向测试以及全仓 unit、vet 和 server build 通过。
+- 前端 6 个目标测试文件、71 条用例及全量 299 个测试文件、2055 条用例通过；typecheck、完整 ESLint、生产构建、docs build 与 Git 结构检查通过。
+- 未运行真实 provider、Testcontainers integration、浏览器 smoke、完整镜像或 Hosted CI；未推送、发布或部署。
+
 ## 2026-08-25 - 上游 main 增量同步：工具 schema、Lite 并行开关与 CLI 身份
 
 ### 目标

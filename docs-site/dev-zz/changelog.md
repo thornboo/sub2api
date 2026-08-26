@@ -1,5 +1,13 @@
 # 变更记录
 
+## 2026-08-26
+
+- 同步上游 `main`（`efb46db0a`）到 `dev-zz`：Codex 模型目录按当前分组、平台、账号 mapping、实际路由和 capability 生成，并补齐 ETag、配置模型优先与 routed metadata。
+- 模型同步把 models.dev 能力、账号 extra 快照和显式 mapping fallback 合并为受限目录；API Key `/models` 返回 404/405 时不再让已配置模型消失，也不会把临时不可调度扩大成新能力。
+- OpenAI / WebSocket 同步 Lite、session-id、stale tool ID、上游 endpoint 和 quota 429 修复；Composite / sticky 继续遵守企业成员最终 `ActiveGroup`、durable binding、route lock 与未知结果不重放边界。
+- 管理端账号模型选择器和 Key 使用页增加 Codex catalog 搜索 / 配置提示，同时保留 probe 与保存账号 sync 的明确分工；邮箱绑定、支付结果、Kimi 403 和 Antigravity token clamp 同步修复。
+- `VERSION` 保持 `1.7.40`，上游 `0.1.183` 不进入 fork 发布线；本轮没有迁移、配置或依赖变化，未推送、发布或部署。
+
 ## 2026-08-25
 
 - 同步上游 `main`（`e2d9b823f`）到 `dev-zz`：Gemini 工具 schema 移除不支持的嵌套字段，标量 enum 转为字符串，复合 enum 安全丢弃。
