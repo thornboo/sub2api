@@ -1,5 +1,32 @@
 # 补丁记录
 
+## 2026-08-28 - 上游 main 增量同步：请求推理证据、公开分组授权与网关终态
+
+### 目标
+
+- 将 `origin/main@7b693ae42` 合入正式线 `dev-zz`，取得 usage reasoning、流终态、传输错误、OAuth / 支付、图片能力和 Grok / DeepSeek 正确性修复。
+- 保留企业成员最终 `ActiveGroup`、预算 / usage 原子归因、结果不明禁止重放、公开模型目录、隐藏认证入口和 fork `1.7.41` 发布线。
+
+### 主要变化
+
+- usage 新增 `requested_reasoning_effort` 证据：用户看到自己请求的档位，管理员可额外看到策略映射后实际发送的档位；SQL 单条、批量、best-effort、扫描、DTO、导出和前端表格同步对齐。
+- OpenAI raw Chat 流要求观察到有效终态；无终态截断在输出前允许换号，输出后只记录失败并返回协议错误。非流式 HTTP 200 失败事件、WebSocket 正常断开和跨供应商 reasoning replay 同步修复。
+- 管理端可限制用户只绑定授权的公开分组；用户 schema、repository、auth cache、服务、DTO、前端和迁移完整接入，同时保留企业账号字段及用户倍率变更事务。
+- Anthropic / Bedrock 传输错误统一写 Ops、分类持久故障并临时停调；企业成员请求仍先进入 budget ambiguous，不能绕过 no-replay gate。
+- OpenAI 图片能力丢失按 image scope 冷却，OAuth 注册保留 promo code，EasyPay 支持相对 pay URL；Grok typed invalid tool、Codex request sanitation、DeepSeek thinking 和客户端多模态工具回程同步修复。
+
+### 冲突与兼容性
+
+- 59 个上游提交修改 137 个文件；24 个文本冲突按 schema、DTO、SQL、控制流和 dev-zz 产品合同逐项合流。Ent 由最终 schema 重新生成，修复初次自动合并产生的字段下标 panic。
+- 模型广场继续使用登录态无差异的公开客户安全目录，不展示专属 / 订阅分组或用户倍率；公开分组限制只收紧真实绑定授权。注册页不恢复 LinuxDo / 微信入口。
+- 两份 `231_*` 迁移按完整文件名并存：usage 请求推理证据与用户公开分组限制互不覆盖。`VERSION` 保持 `1.7.41`，不采用上游 `0.1.183`。
+
+### 验证
+
+- Ent 按最终 schema 重新生成，受影响后端包、全仓 unit、vet、server build 通过；前端全量测试（301 个测试文件、2066 条用例）、typecheck / ESLint 和 docs build 通过。
+- Git whitespace、冲突标记、索引、合并父链及 `origin/main` 祖先检查通过。
+- 未运行真实 provider、Testcontainers integration、浏览器 smoke、Docker 镜像或 Hosted CI；未推送、发布或部署。
+
 ## 2026-08-26 - 上游 main 增量同步：routed Codex 目录与路由稳定性
 
 ### 目标

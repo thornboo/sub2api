@@ -92,6 +92,7 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // video_duration_seconds
 			sqlmock.AnyArg(), // service_tier
 			sqlmock.AnyArg(), // reasoning_effort
+			sqlmock.AnyArg(), // requested_reasoning_effort
 			sqlmock.AnyArg(), // inbound_endpoint
 			sqlmock.AnyArg(), // upstream_endpoint
 			sqlmock.AnyArg(), // schedule_meta
@@ -207,6 +208,7 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(), // video_duration_seconds
 			serviceTier,
 			sqlmock.AnyArg(),
+			sqlmock.AnyArg(), // requested_reasoning_effort
 			sqlmock.AnyArg(),
 			sqlmock.AnyArg(),
 			sqlmock.AnyArg(), // schedule_meta
@@ -861,6 +863,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullInt64{},  // video_duration_seconds
 			sql.NullString{},
 			sql.NullString{},
+			sql.NullString{}, // requested_reasoning_effort
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
@@ -944,6 +947,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullInt64{},  // video_duration_seconds
 			sql.NullString{Valid: true, String: "priority"},
 			sql.NullString{},
+			sql.NullString{}, // requested_reasoning_effort
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
@@ -1010,6 +1014,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullInt64{},  // video_duration_seconds
 			sql.NullString{Valid: true, String: "flex"},
 			sql.NullString{},
+			sql.NullString{}, // requested_reasoning_effort
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
@@ -1076,6 +1081,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullInt64{},  // video_duration_seconds
 			sql.NullString{Valid: true, String: "priority"},
 			sql.NullString{},
+			sql.NullString{}, // requested_reasoning_effort
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{Valid: true, String: `{"provider":"openai","layer":"load_balance","candidate_count":3}`},

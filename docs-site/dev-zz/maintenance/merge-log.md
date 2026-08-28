@@ -1,5 +1,51 @@
 # 上游合并记录
 
+## 2026-08-28 - 继续同步上游 `main`：推理强度证据、公开分组限制与流终态修复
+
+分支：
+
+- 目标：`dev-zz`
+- 上游：`origin/main`
+- Base：`efb46db0a960fdad94502b1c3a982a0051cf5245`
+- 合并前目标：`097c0178671594f3a03ae07fc25be095fd659225`
+- 上游 head：`7b693ae4295e20329f18ff451b29a38879cb4705`
+- 备份：`backup/dev-zz-pre-main-20260828-097c0178`
+- 结果：本次最终合并提交
+
+上游要点：
+
+- usage 同时保存客户端请求的推理强度和策略映射后实际发送的推理强度；普通用户只见请求值，管理员可对照请求值与上游值。
+- OpenAI raw Chat 流在没有终态前被截断时不再伪装成功；未向客户端输出前允许受控 failover，已经输出后记录失败并禁止重放。HTTP 200 内的终止失败事件、WebSocket 客户端正常关闭和 cyber 策略检测同步修复。
+- Anthropic / Bedrock 传输故障进入统一 Ops 归因与持久故障临时停调；企业成员先标记预算结果不明，既有 no-replay gate 继续阻止可能已产生上游消费的跨候选重放。
+- 管理员可显式限制某个用户能绑定的公开分组；新增用户字段、管理 UI、认证缓存快照和两份追加迁移。模型广场继续使用 dev-zz 的公开客户安全目录，不因登录态扩展专属分组或用户倍率。
+- 同步 OAuth 注册 promo code、EasyPay 相对支付 URL、OpenAI 图片能力冷却、Grok / DeepSeek 工具与 reasoning 兼容、quota refresh 和多模态客户端工具修复。
+
+合并策略与冲突：
+
+- 合并前重新读取 `docs-site/dev-zz` 分支策略、上游合并流程、补丁 / 合并记录、变更地图和验证矩阵；以 `efb46db0a` 为 merge-base 执行 `git merge-tree` 预演，创建本地恢复分支后运行 `git merge --no-commit origin/main`，不推送、不发布、不部署。
+- 本轮上游范围共 59 个提交（24 个非 merge 提交）、137 个上游变更文件；预演与真实合并均报告 24 个文本冲突，位于 Ent 生成物、用户管理、usage SQL / DTO、Gateway 计费与错误归因、模型广场、管理用量页和注册页。
+- 用户管理冲突合并 `account_type` / `enterprise_enabled` 与 `restrict_public_groups`，保留用户倍率变更事务、Key 停用和认证缓存失效；Ent 按最终 schema 重新生成，避免上游字段下标覆盖 fork 企业字段。
+- usage 冲突保留 `session_id`、最终 `ActiveGroup`、企业成员 usage / budget 原子归因和已删除 Key 审计，同时加入 `requested_reasoning_effort` 的单条、批量、best-effort SQL 与 admin-only 上游映射展示。
+- Gateway 冲突保留企业成员 capability mismatch、预算结果不明、`submitGatewayUsageRecordTask` 和 no-replay 边界，同时吸收 requested effort 绑定、raw stream 截断、跨供应商 reasoning、HTTP 200 失败终态和传输故障观测修复。
+- 模型广场继续返回匿名 / 登录一致的 active、standard、非专属客户安全渠道目录；上游“登录后展示授权专属分组 / 用户倍率”的分支不进入该公开接口。公开分组限制只影响实际 Key 绑定和登录控制台的授权面。
+- 注册页只吸收 Email / GitHub / Google OAuth 的 promo code 保留；LinuxDo / 微信注册入口继续按 dev-zz 文档隐藏。`VERSION` 保持 fork `1.7.41`，不采用上游 `0.1.183`。
+
+冲突路径：
+
+- Ent / 用户：`backend/ent/mutation.go`、`backend/ent/runtime/runtime.go`、`backend/internal/handler/admin/user_handler.go`、`backend/internal/handler/dto/mappers.go`、`backend/internal/service/admin_service.go`、`backend/internal/service/admin_user.go`、`backend/internal/service/api_key_service.go`、`backend/internal/service/user.go`。
+- Gateway / usage：`backend/internal/handler/gateway_handler_chat_completions.go`、`backend/internal/handler/gateway_handler_responses.go`、`backend/internal/repository/usage_log_repo_insert.go`、`backend/internal/repository/usage_log_repo_query.go`、`backend/internal/repository/usage_log_repo_request_type_test.go`、`backend/internal/repository/usage_log_session_id_unit_test.go`、`backend/internal/service/gateway_anthropic_apikey_passthrough_test.go`、`backend/internal/service/gateway_usage_billing.go`、`backend/internal/service/openai_gateway_chat_completions_raw.go`、`backend/internal/service/openai_gateway_usage.go`、`backend/internal/service/openai_upstream_transport_error.go`、`backend/internal/service/ratelimit_service.go`。
+- 前端 / 目录：`backend/internal/handler/model_plaza_handler.go`、`backend/internal/handler/model_plaza_handler_test.go`、`frontend/src/views/admin/UsageView.vue`、`frontend/src/views/auth/RegisterView.vue`。
+
+验证：
+
+- 按最终 schema 重新生成 Ent；后端 handler / DTO / repository / service / payment / apicompat 定向包测试通过。
+- 后端全仓 unit、`go vet ./...`、server build，前端全量 Vitest（301 个测试文件、2066 条用例）、typecheck / ESLint，以及 docs-site 生产构建通过。
+- Git 无未解决索引项、无真实冲突标记，whitespace、合并父链和 `origin/main` 祖先检查通过。
+
+未验证：
+
+- 未连接真实 provider，未运行 Testcontainers integration、浏览器人工 smoke、完整 Docker 镜像或 Hosted CI；未推送、发布或生产部署。
+
 ## 2026-08-26 - 继续同步上游 `main`：Codex 目录、模型元数据与 WebSocket 工具续链
 
 分支：

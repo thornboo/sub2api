@@ -75,6 +75,7 @@ var usageLogInsertArgTypes = [...]string{
 	"integer",     // video_duration_seconds
 	"text",        // service_tier
 	"text",        // reasoning_effort
+	"text",        // requested_reasoning_effort
 	"text",        // inbound_endpoint
 	"text",        // upstream_endpoint
 	"jsonb",       // schedule_meta
@@ -285,6 +286,7 @@ func createUsageLogSingle(ctx context.Context, sqlq sqlExecutor, log *service.Us
 			video_duration_seconds,
 			service_tier,
 			reasoning_effort,
+			requested_reasoning_effort,
 			inbound_endpoint,
 			upstream_endpoint,
 			schedule_meta,
@@ -308,7 +310,7 @@ func createUsageLogSingle(ctx context.Context, sqlq sqlExecutor, log *service.Us
 			$38, $39, $40, $41, $42, $43, $44,
 			$45, $46, $47, $48, $49, $50, $51,
 			$52, $53, $54, $55, $56, $57, $58,
-			$59, $60, $61, $62, $63, $64, $65
+			$59, $60, $61, $62, $63, $64, $65, $66
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 		RETURNING id, created_at
@@ -765,6 +767,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			video_duration_seconds,
 			service_tier,
 			reasoning_effort,
+			requested_reasoning_effort,
 			inbound_endpoint,
 			upstream_endpoint,
 			schedule_meta,
@@ -863,6 +866,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				video_duration_seconds,
 				service_tier,
 				reasoning_effort,
+				requested_reasoning_effort,
 				inbound_endpoint,
 				upstream_endpoint,
 				schedule_meta,
@@ -930,6 +934,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				video_duration_seconds,
 				service_tier,
 				reasoning_effort,
+				requested_reasoning_effort,
 				inbound_endpoint,
 				upstream_endpoint,
 				schedule_meta,
@@ -1037,6 +1042,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			video_duration_seconds,
 			service_tier,
 			reasoning_effort,
+			requested_reasoning_effort,
 			inbound_endpoint,
 			upstream_endpoint,
 			schedule_meta,
@@ -1130,6 +1136,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			video_duration_seconds,
 			service_tier,
 			reasoning_effort,
+			requested_reasoning_effort,
 			inbound_endpoint,
 			upstream_endpoint,
 			schedule_meta,
@@ -1197,6 +1204,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			video_duration_seconds,
 			service_tier,
 			reasoning_effort,
+			requested_reasoning_effort,
 			inbound_endpoint,
 			upstream_endpoint,
 			schedule_meta,
@@ -1272,6 +1280,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			video_duration_seconds,
 			service_tier,
 			reasoning_effort,
+			requested_reasoning_effort,
 			inbound_endpoint,
 			upstream_endpoint,
 			schedule_meta,
@@ -1331,6 +1340,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 	videoDurationSeconds := nullInt(log.VideoDurationSeconds)
 	serviceTier := nullString(log.ServiceTier)
 	reasoningEffort := nullString(log.ReasoningEffort)
+	requestedReasoningEffort := nullString(log.RequestedReasoningEffort)
 	inboundEndpoint := nullString(log.InboundEndpoint)
 	upstreamEndpoint := nullString(log.UpstreamEndpoint)
 	scheduleMeta := nullUsageScheduleMetaJSON(log.ScheduleMeta)
@@ -1413,6 +1423,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			videoDurationSeconds,
 			serviceTier,
 			reasoningEffort,
+			requestedReasoningEffort,
 			inboundEndpoint,
 			upstreamEndpoint,
 			scheduleMeta,

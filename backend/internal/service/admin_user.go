@@ -177,6 +177,8 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 		RPMLimit:      input.RPMLimit,
 		Status:        StatusActive,
 		AllowedGroups: input.AllowedGroups,
+
+		RestrictPublicGroups: input.RestrictPublicGroups,
 	}
 	if err := user.SetPassword(input.Password); err != nil {
 		return nil, err
@@ -255,6 +257,7 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	oldEnterpriseDisabledAt := user.EnterpriseDisabledAt
 	oldRPMLimit := user.RPMLimit
 	oldAllowedGroups := append([]int64(nil), user.AllowedGroups...)
+	oldRestrictPublicGroups := user.RestrictPublicGroups
 	groupRatesTouched := input.GroupRates != nil && s.userGroupRateRepo != nil
 
 	// fields 与下面的 input.X 判空条件一一对应：管理员没提交的列不写回，
@@ -361,6 +364,10 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 		user.AllowedGroups = *input.AllowedGroups
 		fields.AllowedGroups = true
 	}
+	if input.RestrictPublicGroups != nil {
+		user.RestrictPublicGroups = *input.RestrictPublicGroups
+		fields.RestrictPublicGroups = true
+	}
 
 	disableKeysForUserRateChange := groupRatesTouched && s.disableKeysOnRateChangeEnabled(ctx)
 	if disableKeysForUserRateChange {
@@ -424,7 +431,7 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	if s.authCacheInvalidator != nil {
 		// RPMLimit 直接参与 billing_cache_service.checkRPM 的三级级联，
 		// allowed_groups 参与 API Key 专属分组授权判断；不失效缓存会让修改在一个 L2 TTL 内失去效果。
-		if user.Concurrency != oldConcurrency || user.Status != oldStatus || user.Role != oldRole || user.AccountType != oldAccountType || !sameOptionalTime(user.EnterpriseDisabledAt, oldEnterpriseDisabledAt) || user.RPMLimit != oldRPMLimit || !sameInt64Set(user.AllowedGroups, oldAllowedGroups) || groupRatesTouched {
+		if user.Concurrency != oldConcurrency || user.Status != oldStatus || user.Role != oldRole || user.AccountType != oldAccountType || !sameOptionalTime(user.EnterpriseDisabledAt, oldEnterpriseDisabledAt) || user.RPMLimit != oldRPMLimit || user.RestrictPublicGroups != oldRestrictPublicGroups || !sameInt64Set(user.AllowedGroups, oldAllowedGroups) || groupRatesTouched {
 			s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, user.ID)
 		}
 	}

@@ -110,8 +110,9 @@
         <UsageFilters v-model="filters" ref="usageFiltersRef" flat :mode="activeTab" :show-object-filters="false" class="border-b border-gray-100 dark:border-dark-700/50" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
           <template #after-reset>
             <div v-if="activeTab !== 'ranking'" class="relative" ref="columnDropdownRef">
-              <button
-                @click="toggleColumnDropdown"
+		      <button
+		        data-testid="usage-column-settings"
+		        @click="toggleColumnDropdown"
                 class="btn btn-secondary px-2 md:px-3"
                 :title="t('admin.users.columnSettings')"
               >
@@ -267,10 +268,11 @@
       class="popover-surface fixed z-[100000030] max-h-80 w-48 overflow-y-auto p-1"
       :style="{ top: `${columnDropdownPosition.top}px`, left: `${columnDropdownPosition.left}px` }"
     >
-      <button
-        v-for="col in currentToggleableColumns"
-        :key="col.key"
-        @click="toggleCurrentColumn(col.key)"
+		<button
+		  v-for="col in currentToggleableColumns"
+		  :key="col.key"
+		  :data-testid="`usage-column-toggle-${col.key}`"
+		  @click="toggleCurrentColumn(col.key)"
         class="popover-item"
       >
         <span>{{ col.label }}</span>
@@ -938,8 +940,8 @@ const exportToExcel = async () => {
 	      t('usage.time'), t('admin.usage.user'), t('admin.usage.apiKeyId'), t('usage.apiKeyFilter'),
 	      t('admin.usage.apiKeyStatus'), t('admin.usage.apiKeyDeletedAt'),
 	      t('admin.usage.account'), t('usage.requestedModel'), t('usage.sentUpstreamModel'),
-	      t('usage.upstreamResponseModel'), t('usage.upstreamModelMismatch'),
-	      t('usage.reasoningEffort'), t('admin.usage.group'),
+		      t('usage.upstreamResponseModel'), t('usage.upstreamModelMismatch'),
+		      t('usage.requestedReasoningEffort'), t('usage.reasoningEffort'), t('admin.usage.group'),
       t('usage.inboundEndpoint'), t('usage.upstreamEndpoint'),
       t('usage.type'),
       t('admin.usage.inputTokens'), t('admin.usage.outputTokens'),
@@ -962,8 +964,9 @@ const exportToExcel = async () => {
 	        log.api_key?.deleted_at ? t('admin.usage.apiKeyDeletedBadge') : (log.api_key ? t('admin.usage.apiKeyActiveBadge') : ''),
 	        log.api_key?.deleted_at || '', log.account?.name || '', log.model,
 	        log.upstream_model || log.model, log.upstream_response_model || '',
-	        log.upstream_model_mismatch == null ? '' : t(log.upstream_model_mismatch ? 'common.yes' : 'common.no'),
-	        formatReasoningEffort(log.reasoning_effort), log.group?.name || '',
+		        log.upstream_model_mismatch == null ? '' : t(log.upstream_model_mismatch ? 'common.yes' : 'common.no'),
+		        formatReasoningEffort(log.reasoning_effort),
+		        formatReasoningEffort(log.upstream_reasoning_effort || log.reasoning_effort), log.group?.name || '',
         log.inbound_endpoint || '', log.upstream_endpoint || '', getRequestTypeLabel(log),
         log.input_tokens, log.output_tokens, log.cache_read_tokens, log.cache_creation_tokens,
         log.input_cost?.toFixed(6) || '0.000000', log.output_cost?.toFixed(6) || '0.000000',

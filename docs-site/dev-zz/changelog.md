@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-08-28
+
+- 同步上游 `main`（`7b693ae42`）到 `dev-zz`：usage 保存请求推理强度与实际发送强度，用户只见自己的请求值，管理员可审计映射差异；管理导出继续保留已删除 Key 证据。
+- OpenAI raw Chat 无终态截断不再伪装成功；非流式 HTTP 200 失败、WebSocket 正常断开、跨供应商 reasoning / tools、图片能力冷却和 quota refresh 同步修复，并继续遵守企业成员预算结果不明与 no-replay 边界。
+- 管理员可限制用户只能绑定授权的公开分组；新增用户字段、管理 UI、auth cache 和迁移。公开模型广场继续保持匿名 / 登录一致的客户安全目录，不展示专属分组、订阅分组或用户倍率。
+- OAuth 注册保留 promo code，EasyPay 支持相对支付 URL；LinuxDo / 微信入口继续隐藏。新增 `231_add_usage_log_requested_reasoning_effort.sql` 与 `231_user_restrict_public_groups.sql`，`VERSION` 保持 `1.7.41`。
+
 ## 2026-08-26
 
 - 同步上游 `main`（`efb46db0a`）到 `dev-zz`：Codex 模型目录按当前分组、平台、账号 mapping、实际路由和 capability 生成，并补齐 ETag、配置模型优先与 routed metadata。

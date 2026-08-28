@@ -3,6 +3,7 @@ package dto
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -74,10 +75,11 @@ func UserFromServiceAdmin(u *service.User) *AdminUser {
 		return nil
 	}
 	return &AdminUser{
-		User:       *base,
-		Notes:      u.Notes,
-		LastUsedAt: u.LastUsedAt,
-		GroupRates: u.GroupRates,
+		User:                 *base,
+		Notes:                u.Notes,
+		LastUsedAt:           u.LastUsedAt,
+		GroupRates:           u.GroupRates,
+		RestrictPublicGroups: u.RestrictPublicGroups,
 	}
 }
 
@@ -659,7 +661,7 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		RequestID:                 l.RequestID,
 		Model:                     requestedModel,
 		ServiceTier:               l.ServiceTier,
-		ReasoningEffort:           l.ReasoningEffort,
+		ReasoningEffort:           userFacingReasoningEffort(l),
 		InboundEndpoint:           l.InboundEndpoint,
 		GroupID:                   l.GroupID,
 		MemberID:                  l.MemberID,
@@ -738,21 +740,22 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 		usageLog.APIKey.MemberID = nil
 	}
 	return &AdminUsageLog{
-		UsageLog:               usageLog,
-		AccountID:              l.AccountID,
-		UpstreamModel:          l.UpstreamModel,
-		UpstreamResponseModel:  l.UpstreamResponseModel,
-		UpstreamModelMismatch:  l.UpstreamModelMismatch,
-		ChannelID:              l.ChannelID,
-		ModelMappingChain:      l.ModelMappingChain,
-		BillingTier:            l.BillingTier,
-		AccountRateMultiplier:  l.AccountRateMultiplier,
-		AccountStatsCost:       l.AccountStatsCost,
-		ScheduleMeta:           UsageScheduleMetaFromService(l.ScheduleMeta),
-		RoutePlanSource:        l.RoutePlanSource,
-		RoutePlanSnapshotAgeMs: l.RoutePlanSnapshotAgeMs,
-		IPAddress:              l.IPAddress,
-		Account:                AccountSummaryFromService(l.Account),
+		UsageLog:                usageLog,
+		AccountID:               l.AccountID,
+		UpstreamModel:           l.UpstreamModel,
+		UpstreamResponseModel:   l.UpstreamResponseModel,
+		UpstreamModelMismatch:   l.UpstreamModelMismatch,
+		UpstreamReasoningEffort: adminUpstreamReasoningEffort(l),
+		ChannelID:               l.ChannelID,
+		ModelMappingChain:       l.ModelMappingChain,
+		BillingTier:             l.BillingTier,
+		AccountRateMultiplier:   l.AccountRateMultiplier,
+		AccountStatsCost:        l.AccountStatsCost,
+		ScheduleMeta:            UsageScheduleMetaFromService(l.ScheduleMeta),
+		RoutePlanSource:         l.RoutePlanSource,
+		RoutePlanSnapshotAgeMs:  l.RoutePlanSnapshotAgeMs,
+		IPAddress:               l.IPAddress,
+		Account:                 AccountSummaryFromService(l.Account),
 	}
 }
 
@@ -787,6 +790,38 @@ func UsageScheduleMetaFromService(meta *service.UsageScheduleMeta) *UsageSchedul
 		TimePricingLabel:      meta.TimePricingLabel,
 		TimePricingRule:       meta.TimePricingRule,
 	}
+}
+
+func userFacingReasoningEffort(l *service.UsageLog) *string {
+	if l == nil {
+		return nil
+	}
+	if requested := strings.TrimSpace(derefString(l.RequestedReasoningEffort)); requested != "" {
+		return &requested
+	}
+	return l.ReasoningEffort
+}
+
+func adminUpstreamReasoningEffort(l *service.UsageLog) *string {
+	if l == nil {
+		return nil
+	}
+	forwarded := strings.TrimSpace(derefString(l.ReasoningEffort))
+	if forwarded == "" {
+		return nil
+	}
+	requested := userFacingReasoningEffort(l)
+	if requested != nil && service.NormalizeMaxReasoningEffort(*requested) == service.NormalizeMaxReasoningEffort(forwarded) {
+		return nil
+	}
+	return &forwarded
+}
+
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func UsageCleanupTaskFromService(task *service.UsageCleanupTask) *UsageCleanupTask {
