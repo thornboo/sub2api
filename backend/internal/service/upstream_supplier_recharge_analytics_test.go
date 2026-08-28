@@ -185,10 +185,103 @@ func TestGetUpstreamSupplierRechargeTrendGroupsUTCMonthsByPaidCurrency(t *testin
 	}, trend.Totals)
 	require.Equal(t, []UpstreamSupplierRechargeTrendPoint{
 		{Period: "2026-07", Currency: "CNY", Amount: 20, RecordCount: 1},
+		{Period: "2026-07", Currency: "USD", Amount: 0, RecordCount: 0},
 		{Period: "2026-08", Currency: "CNY", Amount: 100, RecordCount: 2},
 		{Period: "2026-08", Currency: "USD", Amount: 10, RecordCount: 1},
 	}, trend.Points)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetUpstreamSupplierRechargeTrendFillsMissingDaysByPaidCurrency(t *testing.T) {
+	svc, mock := newUpstreamSupplierRechargeAnalyticsService(t)
+
+	mock.ExpectQuery("analytics-supplier-visible").
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(10)))
+	mock.ExpectQuery("analytics-trend-totals").
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"paid_currency", "amount", "record_count"}).
+			AddRow("CNY", 500.0, 2).
+			AddRow("USD", 20.0, 1))
+	mock.ExpectQuery("analytics-trend-points").
+		WithArgs(int64(10), "day", "YYYY-MM-DD").
+		WillReturnRows(sqlmock.NewRows([]string{"period", "paid_currency", "amount", "record_count"}).
+			AddRow("2026-08-09", "CNY", 200.0, 1).
+			AddRow("2026-08-11", "CNY", 300.0, 1).
+			AddRow("2026-08-11", "USD", 20.0, 1))
+
+	trend, err := svc.GetUpstreamSupplierRechargeTrend(
+		context.Background(),
+		10,
+		UpstreamRechargeTrendGranularityDay,
+	)
+	require.NoError(t, err)
+	require.Equal(t, []UpstreamSupplierRechargeTrendPoint{
+		{Period: "2026-08-09", Currency: "CNY", Amount: 200, RecordCount: 1},
+		{Period: "2026-08-09", Currency: "USD", Amount: 0, RecordCount: 0},
+		{Period: "2026-08-10", Currency: "CNY", Amount: 0, RecordCount: 0},
+		{Period: "2026-08-10", Currency: "USD", Amount: 0, RecordCount: 0},
+		{Period: "2026-08-11", Currency: "CNY", Amount: 300, RecordCount: 1},
+		{Period: "2026-08-11", Currency: "USD", Amount: 20, RecordCount: 1},
+	}, trend.Points)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestFillUpstreamRechargeTrendPeriodsSupportsEveryGranularity(t *testing.T) {
+	tests := []struct {
+		name        string
+		granularity UpstreamRechargeTrendGranularity
+		points      []UpstreamSupplierRechargeTrendPoint
+		wantPeriods []string
+	}{
+		{
+			name:        "day",
+			granularity: UpstreamRechargeTrendGranularityDay,
+			points: []UpstreamSupplierRechargeTrendPoint{
+				{Period: "2026-08-09", Currency: "CNY", Amount: 1, RecordCount: 1},
+				{Period: "2026-08-11", Currency: "CNY", Amount: 1, RecordCount: 1},
+			},
+			wantPeriods: []string{"2026-08-09", "2026-08-10", "2026-08-11"},
+		},
+		{
+			name:        "ISO week across year boundary",
+			granularity: UpstreamRechargeTrendGranularityWeek,
+			points: []UpstreamSupplierRechargeTrendPoint{
+				{Period: "2025-W52", Currency: "CNY", Amount: 1, RecordCount: 1},
+				{Period: "2026-W02", Currency: "CNY", Amount: 1, RecordCount: 1},
+			},
+			wantPeriods: []string{"2025-W52", "2026-W01", "2026-W02"},
+		},
+		{
+			name:        "month",
+			granularity: UpstreamRechargeTrendGranularityMonth,
+			points: []UpstreamSupplierRechargeTrendPoint{
+				{Period: "2025-12", Currency: "CNY", Amount: 1, RecordCount: 1},
+				{Period: "2026-02", Currency: "CNY", Amount: 1, RecordCount: 1},
+			},
+			wantPeriods: []string{"2025-12", "2026-01", "2026-02"},
+		},
+		{
+			name:        "year",
+			granularity: UpstreamRechargeTrendGranularityYear,
+			points: []UpstreamSupplierRechargeTrendPoint{
+				{Period: "2024", Currency: "CNY", Amount: 1, RecordCount: 1},
+				{Period: "2026", Currency: "CNY", Amount: 1, RecordCount: 1},
+			},
+			wantPeriods: []string{"2024", "2025", "2026"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			filled := fillUpstreamRechargeTrendPeriods(test.points, []UpstreamRechargePaymentTotal{{Currency: "CNY"}}, test.granularity)
+			periods := make([]string, 0, len(filled))
+			for _, point := range filled {
+				periods = append(periods, point.Period)
+			}
+			require.Equal(t, test.wantPeriods, periods)
+		})
+	}
 }
 
 func TestGetUpstreamSupplierRechargeTrendReturnsNotFoundForInvalidOrSystemSupplier(t *testing.T) {
