@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-08-29
+
+- 同步上游 OpenAI 流 / WebSocket 模型级限流：普通模型 429 不再扩大为整账号限流，OAuth Spark 配额窗口继续保留真实 reset，首输出前 keepalive 与 failover 模型归因同步增强。
+- 更新 DeepSeek 官方高峰 / 低峰价格与渠道后缀模型定价优先级，并收紧 Fable 模型调度阈值作用域。
+- 管理端账号页改用轻量 ETag 刷新上游账单倍率，保留 dev-zz 供应商 / 资金池视图；批量编辑可显式关闭 Codex fingerprint。
+- 同步 Claude / Grok / Antigravity 兼容、订阅 reset、智谱配额、SMTP TLS、支付币种、monitor singleflight、分组错误提示和版本比较修复。
+
 ## 2026-08-28
 
 - 同步上游 `main`（`7b693ae42`）到 `dev-zz`：usage 保存请求推理强度与实际发送强度，用户只见自己的请求值，管理员可审计映射差异；管理导出继续保留已删除 Key 证据。

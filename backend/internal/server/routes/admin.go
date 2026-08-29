@@ -368,6 +368,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 	{
 		accounts.GET("", h.Admin.Account.List)
 		accounts.GET("/archived", h.Admin.Account.ListArchived)
+		accounts.GET("/upstream-billing-rates", h.Admin.Account.GetUpstreamBillingRates)
 		accounts.GET("/:id/recharge-records", h.Admin.Account.ListUpstreamRechargeRecords)
 		accounts.GET("/:id/upstream-cost-binding", h.Admin.Account.GetAccountUpstreamCostBinding)
 		accounts.GET("/upstream-billing-probe/settings", h.Admin.Account.GetUpstreamBillingProbeSettings)

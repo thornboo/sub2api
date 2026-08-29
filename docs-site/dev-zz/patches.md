@@ -1,5 +1,30 @@
 # 补丁记录
 
+## 2026-08-29 - 上游 main 增量同步：模型级限流、计费与账号刷新
+
+### 目标
+
+- 将 `origin/main@b5827cfd5` 合入正式线 `dev-zz`，取得 OpenAI 模型级 429、DeepSeek 价格、Fable 调度、Claude / Grok / Antigravity 兼容以及账号账单倍率轻量刷新修复。
+- 保留企业成员最终 `ActiveGroup`、预算 / usage 原子归因、后续 WebSocket turn 禁止换号、供应商 / 资金池 UI、模型 mapping / probe / sync 分工和 fork `1.7.42` 发布线。
+
+### 主要变化
+
+- OpenAI 流终态和 WebSocket 握手携带 canonical model；普通模型 429 只冷却账号模型 scope，OAuth Spark 明确配额窗口继续读取真实 reset。Responses 首输出前增加 keepalive，并保持模型 scope failover。
+- DeepSeek 采用官方高峰 / 低峰计价，渠道显式价格不再被带后缀模型的官方兜底覆盖；Fable 阈值仅作用于 Fable 模型。
+- 账号列表使用轻量 ETag 接口刷新上游倍率，不再为倍率变化重载整页；批量编辑可显式关闭 Codex fingerprint，同时保留 dev-zz 的供应商成本上下文和供应商视图。
+- 同步 Claude sticky / attribution / tool arguments、Grok prompt cache、Antigravity mixed tools、订阅 reset、智谱配额、SMTP TLS、支付币种、monitor singleflight 和版本比较修复。
+
+### 冲突与兼容性
+
+- 40 个上游提交形成 74 个业务变更文件；6 个文本冲突按路由并集、最终模型归因、首轮 failover / 后续 no-replay 和账号页双刷新合同逐项合流，没有整文件采用 `ours` / `theirs`。
+- WebSocket 握手 429 测试夹具补齐模型级仓储行为，确认普通 API Key 不被扩大为整账号限流，也不写 OAuth Codex 配额快照。
+- 本轮没有迁移、配置或依赖变化；`VERSION` 保持 `1.7.42`。
+
+### 验证
+
+- Git 结构检查、WebSocket 429 定向回归、前端 97 条目标用例和 typecheck 已通过；相关后端包、完整前端 ESLint 与 docs build 在提交前完成。
+- 未运行真实 provider、Testcontainers integration、浏览器 smoke、Docker 镜像或 Hosted CI；未推送、发布或部署。
+
 ## 2026-08-28 - 上游 main 增量同步：请求推理证据、公开分组授权与网关终态
 
 ### 目标

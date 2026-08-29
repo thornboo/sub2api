@@ -1,5 +1,41 @@
 # 上游合并记录
 
+## 2026-08-29 - 继续同步上游 `main`：模型级限流、计费口径与账号列表轻量刷新
+
+分支：
+
+- 目标：`dev-zz`
+- 上游：本地 `main` / `origin/main`
+- Base：`7b693ae4295e20329f18ff451b29a38879cb4705`
+- 合并前目标：`73753278f8e071cf782341870307b0c8de213cf3`
+- 上游 head：`b5827cfd54d58c248a9480b800444d0b40f0c6ea`
+- 备份：`backup/dev-zz-pre-main-20260829-73753278`
+- 结果：本次最终合并提交
+
+上游要点：
+
+- OpenAI HTTP / WebSocket 流式 429 保留最终模型归因，普通模型只进入模型级冷却；OAuth Spark 继续读取明确的 5h / 7d reset。Responses passthrough 在首个输出前发送 SSE keepalive，并保留 failover 时的模型 scope。
+- DeepSeek 官方高峰 / 低峰价格、带后缀渠道模型的定价优先级、Fable 模型专属调度阈值、Claude Code sticky / attribution / tool arguments、Grok prompt cache identity 和 Antigravity mixed built-in tools 同步修复。
+- 账号页增加上游账单倍率轻量 ETag 刷新，避免定时刷新整页账号列表；批量编辑可显式关闭 Codex fingerprint。账号创建 / 编辑继续保留 dev-zz 的供应商、资金池、模型 mapping / probe / sync 合同。
+- 同步订阅周 / 月 reset 展示、智谱 GLM Coding Plan 配额、monitor singleflight、SMTP TLS 测试、支付币种、版本比较和分组错误展示修复。
+
+合并策略与冲突：
+
+- 合并前重新读取 `docs-site/dev-zz` 分支策略、合并流程、补丁 / 合并记录、变更地图和验证矩阵；fetch 后以 `7b693ae42` 为 merge-base 执行 `git merge-tree` 预演，创建本地恢复分支后运行 `git merge --no-commit origin/main`，不推送、不发布、不部署。
+- 上游范围共 40 个提交，最终业务增量修改 74 个文件；预演和真实合并均报告 6 个文本冲突：`backend/internal/server/routes/admin.go`、`backend/internal/service/openai_gateway_passthrough.go`、`backend/internal/service/openai_ws_forwarder_ingress.go`、`backend/internal/service/openai_ws_forwarder_support.go`、`frontend/src/api/admin/accounts.ts`、`frontend/src/views/admin/AccountsView.vue`。
+- 管理路由与前端 API 导出取并集，同时保留归档、供应商 / 资金池接口和新增账单倍率接口。账号页保留 dev-zz 供应商成本视图、迟到响应隔离和局部成本上下文刷新，并接入上游 ETag 快照刷新，不恢复整页轮询。
+- Passthrough / WebSocket 同时保留 dev-zz 首轮可 failover、后续轮次 no-replay / 客户端重连合同，并吸收 canonical model 归因与 Spark 429 header 语义。普通 API Key 握手 429 的旧测试夹具补齐模型级写入断言，确认不会扩大成账号级限流或写入 OAuth 配额快照。
+- `VERSION` 保持 fork `1.7.42`；本轮没有数据库迁移、配置项或依赖变化。
+
+验证：
+
+- Git whitespace、真实冲突标记和索引检查通过；WebSocket 429 合流回归、前端 5 个目标测试文件共 97 条用例及前端 typecheck 通过。
+- 后端相关包全量测试、前端完整 ESLint 和 docs-site 生产构建在创建合并提交前执行并以最终命令结果为准。
+
+未验证：
+
+- 未连接真实 provider，未运行 Testcontainers integration、浏览器人工 smoke、完整 Docker 镜像或 Hosted CI；未推送、发布或生产部署。
+
 ## 2026-08-28 - 继续同步上游 `main`：推理强度证据、公开分组限制与流终态修复
 
 分支：
