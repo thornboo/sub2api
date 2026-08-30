@@ -171,15 +171,18 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 			s.rateLimitService.HandleTempUnschedulable(stateCtx, account, statusCode, responseBody, model) {
 			return true
 		}
+		// Spark 429 carries dedicated quota semantics and must be consumed before
+		// the generic provider-model policy, which otherwise returns early and can
+		// incorrectly turn a transient Spark response into a long quota cooldown.
+		if statusCode == http.StatusTooManyRequests &&
+			s.rateLimitService.HandleOpenAICodexSparkRateLimit(stateCtx, account, model, statusCode, headers, responseBody) {
+			return false
+		}
 		if !poolModeRetryable && !shouldUseOpenAIAccountRuntimeFailurePolicy(account, statusCode, responseBody) {
 			if handled, shouldFailover := s.rateLimitService.HandleModelScopedFailure(stateCtx, account, model, statusCode, headers, responseBody); handled {
 				return shouldFailover
 			}
 		}
-	}
-	if statusCode == http.StatusTooManyRequests && s.rateLimitService != nil && len(canonicalModel) > 0 &&
-		s.rateLimitService.HandleOpenAICodexSparkRateLimit(stateCtx, account, canonicalModel[0], statusCode, headers, responseBody) {
-		return false
 	}
 	if statusCode == http.StatusTooManyRequests {
 		s.markOpenAIOAuth429RateLimited(stateCtx, account, headers, responseBody)

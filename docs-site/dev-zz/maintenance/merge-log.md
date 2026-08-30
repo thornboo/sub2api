@@ -25,16 +25,18 @@
 - 上游范围共 40 个提交，最终业务增量修改 74 个文件；预演和真实合并均报告 6 个文本冲突：`backend/internal/server/routes/admin.go`、`backend/internal/service/openai_gateway_passthrough.go`、`backend/internal/service/openai_ws_forwarder_ingress.go`、`backend/internal/service/openai_ws_forwarder_support.go`、`frontend/src/api/admin/accounts.ts`、`frontend/src/views/admin/AccountsView.vue`。
 - 管理路由与前端 API 导出取并集，同时保留归档、供应商 / 资金池接口和新增账单倍率接口。账号页保留 dev-zz 供应商成本视图、迟到响应隔离和局部成本上下文刷新，并接入上游 ETag 快照刷新，不恢复整页轮询。
 - Passthrough / WebSocket 同时保留 dev-zz 首轮可 failover、后续轮次 no-replay / 客户端重连合同，并吸收 canonical model 归因与 Spark 429 header 语义。普通 API Key 握手 429 的旧测试夹具补齐模型级写入断言，确认不会扩大成账号级限流或写入 OAuth 配额快照。
+- 首次 Hosted CI 暴露无冲突标记的 Spark 429 判定顺序回归：通用 provider-model failure 抢先返回，使专用 Spark 配额分支无法运行。后续修复保持管理员显式 temp-unsched 规则优先，将 Spark 专用 429 提前到通用模型故障策略之前，恢复配额窗口、瞬时短冷却和不误报 failover 的既有合同。
 - `VERSION` 保持 fork `1.7.42`；本轮没有数据库迁移、配置项或依赖变化。
 
 验证：
 
 - Git whitespace、真实冲突标记和索引检查通过；WebSocket 429 合流回归、前端 5 个目标测试文件共 97 条用例及前端 typecheck 通过。
 - 后端相关包全量测试、前端完整 ESLint 和 docs-site 生产构建在创建合并提交前执行并以最终命令结果为准。
+- CI 修复后的 Spark HTTP / 流式 / 影子账号 429 四条定向回归与完整 `make test-unit` 通过；修复尚未推送，新的 Hosted CI 结果待提交后验证。
 
 未验证：
 
-- 未连接真实 provider，未运行 Testcontainers integration、浏览器人工 smoke、完整 Docker 镜像或 Hosted CI；未推送、发布或生产部署。
+- 未连接真实 provider，未运行 Testcontainers integration、浏览器人工 smoke 或完整 Docker 镜像；修复后尚无新的 Hosted CI 结果，未发布或生产部署。
 
 ## 2026-08-28 - 继续同步上游 `main`：推理强度证据、公开分组限制与流终态修复
 

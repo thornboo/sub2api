@@ -18,12 +18,14 @@
 
 - 40 个上游提交形成 74 个业务变更文件；6 个文本冲突按路由并集、最终模型归因、首轮 failover / 后续 no-replay 和账号页双刷新合同逐项合流，没有整文件采用 `ours` / `theirs`。
 - WebSocket 握手 429 测试夹具补齐模型级仓储行为，确认普通 API Key 不被扩大为整账号限流，也不写 OAuth Codex 配额快照。
+- Hosted CI 暴露一处无冲突标记的优先级拼接回归：通用 provider-model failure 先于 Spark 专用 429 返回，导致 Spark 配额错误被误判为需要 failover，瞬时 429 还会继承全局长窗口。修复后保持管理员显式规则优先，并让 Spark 专用语义先于通用模型故障策略消费 429。
 - 本轮没有迁移、配置或依赖变化；`VERSION` 保持 `1.7.42`。
 
 ### 验证
 
 - Git 结构检查、WebSocket 429 定向回归、前端 97 条目标用例和 typecheck 已通过；相关后端包、完整前端 ESLint 与 docs build 在提交前完成。
-- 未运行真实 provider、Testcontainers integration、浏览器 smoke、Docker 镜像或 Hosted CI；未推送、发布或部署。
+- Spark HTTP / 流式 / 影子账号 429 的 4 条回归与完整 `make test-unit` 在 CI 修复后通过。
+- 未运行真实 provider、Testcontainers integration、浏览器 smoke 或 Docker 镜像；修复后的提交尚未推送，因此尚无新的 Hosted CI 结果，也未发布或部署。
 
 ## 2026-08-28 - 上游 main 增量同步：请求推理证据、公开分组授权与网关终态
 
