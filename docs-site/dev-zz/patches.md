@@ -18,17 +18,17 @@
 
 ### 冲突与兼容性
 
-- 86 个非 merge 上游提交形成 294 个最终变更文件；预演报告 46 个冲突 / modify-delete 路径，均按字段、控制流和 UI 合同合流，没有整仓覆盖 dev-zz 文档策略。
+- 137 个上游提交（95 个非 merge 提交）形成 301 个上游增量文件；相对合并前 `dev-zz` 的合并提交涉及 298 个文件。预演与真实合并报告 47 个冲突 / modify-delete 路径，均按字段、控制流和 UI 合同合流，没有整仓覆盖 dev-zz 文档策略。
 - `VERSION` 保持 `1.7.43`，不采用上游 `0.2.0`。模型广场相关 modify/delete 冲突继续保留 dev-zz 当前公开模型目录与客户安全 DTO，不恢复被替代的旧组件 / 测试。
 - OpenAI / WebSocket 冲突保留首轮 failover 与后续 no-replay 边界；普通 API Key、OAuth、shadow credential 和 group Fast 计费按实际账号类型与分组策略分离，不把上游响应回显错误扩大为升档收费。
 - usage / pricing / channel 冲突保留分时定价、渠道公开报价、企业成员归因和 owner 字段隔离，同时接受上游 cache write 1h、native compaction、account stats 成本和 usage window 修复。
 - 合并后编译发现四处 `calculateRecordUsageCost` direct unit test 沿用旧签名；这些测试均为图片计费基础路径，按旧语义传 `nil` opts，分时价格和内部 opts 语义不被扩大。
+- 完整 unit 继续发现两处非 marker seam：渠道价格 SQL 测试夹具没有随 1h cache write 列扩展，Kimi adaptive 路由仍把原生 Responses 能力硬编码为 DeepSeek。前者补齐查询 / rows，后者改为复用账号的 `SupportsNativeCNResponses()` 能力判断，不改变显式协议优先级。
 
 ### 验证
 
-- 已通过 focused service 验证：`mise x -C backend -- go test ./internal/service -run 'TestOpenAIGatewayServiceRecordUsage|TestGatewayServiceRecordUsage' -count=1`。
-- 受影响后端包通过：`mise x -C backend -- go test ./internal/server ./internal/handler ./internal/handler/admin ./internal/config ./internal/service ./internal/repository ./internal/pkg/apicompat ./migrations -count=1` 初次暴露 handler 测试桩重复声明；确认当前解析后重跑 `mise x -C backend -- go test ./internal/handler -count=1` 通过，其余包在同一最终索引上通过。
-- 前端 typecheck、完整 ESLint 和 11 个目标 Vitest 文件 / 143 条用例通过；docs-site build、whitespace、冲突标记和 unmerged index 检查通过。
+- 后端全仓 unit：`mise x -C backend -- go test -tags=unit ./... -count=1` 通过；`go vet ./...` 与 `go build ./cmd/server` 通过。
+- 前端全量 Vitest 304 个测试文件 / 2112 条用例、typecheck、完整 ESLint 和生产 build 通过；docs-site build、whitespace、冲突标记和 unmerged index 检查通过。
 
 ### 未验证
 

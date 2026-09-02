@@ -23,11 +23,12 @@
 
 合并策略与冲突：
 
-- 合并前重新读取 `docs-site/dev-zz` 分支策略、上游合并流程、补丁 / 合并记录、变更地图和验证矩阵；以 `b5827cfd` 为 merge-base 执行 `git merge-tree --write-tree --messages --name-only` 预演，复用本地恢复分支后运行 `git merge --no-commit main`，不推送、不发布、不部署。
-- 本轮上游范围共 86 个非 merge 提交，最终索引修改 294 个文件；预演报告 46 个冲突 / modify-delete 路径，主要集中在 `VERSION`、OpenAI / Gemini gateway、settings、usage 查询、渠道定价、reasoning policy、模型广场删除替代和管理端 Usage / Groups UI。
+- 合并前重新读取 `docs-site/dev-zz` 分支策略、上游合并流程、补丁 / 合并记录、变更地图和验证矩阵；以 `b5827cfd` 为 merge-base 执行 `git merge-tree --write-tree --messages --name-only` 预演，创建本地恢复分支后运行 `git merge --no-commit origin/main`，不推送、不发布、不部署。
+- 本轮上游范围共 137 个提交（95 个非 merge 提交），上游增量涉及 301 个文件；相对合并前 `dev-zz` 的合并提交涉及 298 个文件（含本次三份维护记录）。预演与真实合并共报告 47 个冲突 / modify-delete 路径，主要集中在 `VERSION`、OpenAI / Gemini gateway、settings、usage 查询、渠道定价、reasoning policy、模型广场删除替代和管理端 Usage / Groups UI。
 - `VERSION` 继续保留 fork `1.7.43`，不采用上游 `0.2.0`。新增迁移按完整文件名追加：`231_add_usage_log_native_compaction_v2.sql`、`232_channel_cache_write_1h_pricing.sql`、`232_group_force_openai_fast.sql`、`232_group_reasoning_effort_over_limit.sql` 和 `233_group_free_openai_fast.sql`。
 - 冲突处理保留 dev-zz 的公开模型目录 / 模型广场替代实现、stone / neutral / emerald 管理端视觉、企业成员最终 `ActiveGroup` / 预算 / usage 原子归因、sticky / WebSocket no-replay、hidden auth surface 和单一 TimePricing 合同，同时吸收上游的计费、reasoning、Fast、usage、兼容层和运行时修复。
 - `calculateRecordUsageCost` 签名新增内部 `recordUsageOpts` 后，四处图片计费 direct unit test 按原测试语义传 `nil`，不改变生产实现；分时价格和长上下文相关路径继续由调用方显式 opts / `PricingAt` 覆盖。
+- 完整单测额外暴露两处无冲突标记的拼接缝：渠道价格 SQL 夹具缺少 1h cache write 字段，Kimi adaptive 路由又把原生 Responses 能力硬限制为 DeepSeek。前者补齐查询列与 rows，后者统一复用 `SupportsNativeCNResponses()`，同时覆盖 DeepSeek 与 Kimi 的既有能力合同。
 
 冲突路径：
 
@@ -36,12 +37,10 @@
 
 验证：
 
-- `mise x -C backend -- go test ./internal/service -run 'TestOpenAIGatewayServiceRecordUsage|TestGatewayServiceRecordUsage' -count=1`
-- `mise x -C backend -- go test ./internal/server ./internal/handler ./internal/handler/admin ./internal/config ./internal/service ./internal/repository ./internal/pkg/apicompat ./migrations -count=1` 初次暴露 `gateway_models_test.go` 重复测试桩；确认当前文件已无重复声明后，重跑 `mise x -C backend -- go test ./internal/handler -count=1` 通过，其余包在同一最终索引上通过。
-- `pnpm --dir frontend typecheck`
-- `pnpm --dir frontend lint:check`
-- `pnpm --dir frontend test:run src/components/admin/group/__tests__/ReasoningEffortPolicyFields.spec.ts src/views/admin/__tests__/groupsOpenAIFast.spec.ts src/views/admin/__tests__/groupsReasoningEffort.spec.ts src/views/admin/__tests__/UsageView.spec.ts src/views/user/__tests__/UsageView.spec.ts src/components/account/__tests__/AccountUsageCell.spec.ts src/components/account/__tests__/UsageProgressBar.spec.ts src/components/admin/usage/__tests__/UsageFilters.spec.ts src/components/admin/usage/__tests__/UsageStatsCards.spec.ts src/components/admin/usage/__tests__/UsageTable.spec.ts src/utils/__tests__/formatDateTimeLocalInput.spec.ts`，共 11 个测试文件、143 条用例通过。
-- `pnpm --dir docs-site docs:build`
+- `mise x -C backend -- go test -tags=unit ./... -count=1` 全仓 unit 通过；Kimi adaptive 三条原生 Responses 路由回归和渠道 1h cache write 定价 round-trip 定向回归同时通过。
+- `mise x -C backend -- go vet ./...` 与 `mise x -C backend -- go build ./cmd/server` 通过。
+- `pnpm --dir frontend test:run` 全量通过，共 304 个测试文件、2112 条用例；`pnpm --dir frontend typecheck`、`pnpm --dir frontend lint:check` 和 `pnpm --dir frontend build` 通过。
+- `pnpm --dir docs-site docs:build` 通过。
 - `git diff --check`、`git diff --cached --check`、`rg -n "^(<<<<<<<|=======|>>>>>>>)$"` 和 `git diff --name-only --diff-filter=U`
 
 未验证：

@@ -500,7 +500,7 @@ func useOpenAIResponsesForSelectedDelivery(account *Account, selectedProtocol Mo
 			case APIProtocolChatCompletions, APIProtocolAnthropic:
 				return false, nil
 			case APIProtocolAdaptive:
-				return account.Platform == PlatformDeepseek, nil
+				return account.SupportsNativeCNResponses(), nil
 			}
 		}
 		return account.Type != AccountTypeAPIKey || openai_compat.ShouldUseResponsesAPI(account.Extra), nil

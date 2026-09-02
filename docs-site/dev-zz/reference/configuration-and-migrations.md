@@ -14,6 +14,20 @@
 
 Node 24 runtime 变量只验证 GitHub action 执行环境，不等价于项目构建 Node 升级。升级前端构建 Node 前，需要单独验证依赖兼容。
 
+## 2026-09-02 追加迁移
+
+本轮上游同步新增五份追加迁移；同号文件按完整文件名并存，不能只按数字前缀去重，也不能改写已经应用的历史 SQL。
+
+| 迁移 | 作用 | 兼容边界 |
+| --- | --- | --- |
+| `231_add_usage_log_native_compaction_v2.sql` | 为 usage 增加 native compaction v2 语义证据与筛选索引 | 不替代既有 `231_add_usage_log_requested_reasoning_effort.sql` 或 `231_user_restrict_public_groups.sql` |
+| `232_channel_cache_write_1h_pricing.sql` | 为渠道模型价与区间价增加 1h cache write 字段 | 保留 dev-zz 单一 `TimePricing` 与既有渠道分时合同 |
+| `232_group_force_openai_fast.sql` | 为分组增加强制 OpenAI Fast 策略 | 与同号 cache write 迁移按完整文件名分别执行 |
+| `232_group_reasoning_effort_over_limit.sql` | 保存 reasoning effort 超限时降档或拒绝策略 | 与模型 scope / exact / prefix / suffix 规则共同生效 |
+| `233_group_free_openai_fast.sql` | 允许 Fast 请求按 Standard 客户价格计费 | 只改变客户计费策略，不把普通请求按上游回显升级收费 |
+
+Kimi / DeepSeek 原生 Responses 的 adaptive 路由没有新增配置或迁移；它复用账号能力 `SupportsNativeCNResponses()`，显式模型交付协议仍优先于 adaptive 判断。
+
 ## 代理出口探测
 
 | 配置 | 默认值 | 说明 |
