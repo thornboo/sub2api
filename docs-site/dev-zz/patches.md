@@ -1,5 +1,39 @@
 # 补丁记录
 
+## 2026-09-02 - 上游 main 增量同步：Fast 分组策略、reasoning 管控与计费目录
+
+### 目标
+
+- 将 `origin/main@5097b3145` 合入正式线 `dev-zz`，取得 OpenAI Fast 分组开关、reasoning effort 模型级管控、native compaction usage 证据、价格目录覆盖补丁、长上下文 above-tier 折算、Kimi Responses 和 OpenAI / WebSocket / fallback 兼容修复。
+- 保留 dev-zz 的 fork `1.7.43` 发布线、公开模型目录替代实现、企业成员最终 `ActiveGroup`、预算 / usage 原子归因、sticky / no-replay、hidden auth surface、stone / neutral / emerald 前端方向和单一 TimePricing 合同。
+
+### 主要变化
+
+- OpenAI / Composite 分组可强制注入 `service_tier=priority`，也可让 Fast 请求按 Standard 客户价格计费；auth snapshot、管理端 DTO、分组生命周期、复制分组、API Key 认证缓存和网关路径同步投影该策略。
+- reasoning effort 映射增加模型 scope 与 exact / prefix / suffix 匹配；超过上限可按历史行为降档，也可配置为拒绝请求。HTTP、Responses fallback 和 WebSocket ingress 共用同一策略语义。
+- 价格目录加载支持最高优先级 `pricing.override_file`，可以浅合并修补或追加模型条目；LiteLLM above-tier 字段会折算为长上下文阈值 / 倍率，并对单侧阶梯、孤儿 cache tier 和阶梯丢失打 WARN。
+- usage 记录新增 native compaction v2 语义标记，用户和管理员 usage 过滤、统计、DTO、数据库插入和测试同步更新；管理员用量查询继续保留 owner/admin 字段边界。
+- 同步 Kimi 原生 Responses、Claude Fable 5.1、Anthropic fallback beta 守卫、OpenAI scheduled automation / delegation bootstrap、WS 会话隔离、终态前关闭拒绝、stale idle 回收、oversized passthrough bridge、API Key chat cache identity、OpenAI 图片工具冷却和账号 refresh token reauth。
+- 新增 / 调整五份数据库迁移，迁移编号按完整文件名并存；Ent / Wire 由合并后的 schema 和 provider graph 重新生成。
+
+### 冲突与兼容性
+
+- 86 个非 merge 上游提交形成 294 个最终变更文件；预演报告 46 个冲突 / modify-delete 路径，均按字段、控制流和 UI 合同合流，没有整仓覆盖 dev-zz 文档策略。
+- `VERSION` 保持 `1.7.43`，不采用上游 `0.2.0`。模型广场相关 modify/delete 冲突继续保留 dev-zz 当前公开模型目录与客户安全 DTO，不恢复被替代的旧组件 / 测试。
+- OpenAI / WebSocket 冲突保留首轮 failover 与后续 no-replay 边界；普通 API Key、OAuth、shadow credential 和 group Fast 计费按实际账号类型与分组策略分离，不把上游响应回显错误扩大为升档收费。
+- usage / pricing / channel 冲突保留分时定价、渠道公开报价、企业成员归因和 owner 字段隔离，同时接受上游 cache write 1h、native compaction、account stats 成本和 usage window 修复。
+- 合并后编译发现四处 `calculateRecordUsageCost` direct unit test 沿用旧签名；这些测试均为图片计费基础路径，按旧语义传 `nil` opts，分时价格和内部 opts 语义不被扩大。
+
+### 验证
+
+- 已通过 focused service 验证：`mise x -C backend -- go test ./internal/service -run 'TestOpenAIGatewayServiceRecordUsage|TestGatewayServiceRecordUsage' -count=1`。
+- 受影响后端包通过：`mise x -C backend -- go test ./internal/server ./internal/handler ./internal/handler/admin ./internal/config ./internal/service ./internal/repository ./internal/pkg/apicompat ./migrations -count=1` 初次暴露 handler 测试桩重复声明；确认当前解析后重跑 `mise x -C backend -- go test ./internal/handler -count=1` 通过，其余包在同一最终索引上通过。
+- 前端 typecheck、完整 ESLint 和 11 个目标 Vitest 文件 / 143 条用例通过；docs-site build、whitespace、冲突标记和 unmerged index 检查通过。
+
+### 未验证
+
+- 未运行真实 provider、Testcontainers integration、浏览器人工 smoke、完整 Docker 镜像或 Hosted CI；本轮只做本地 merge，不推送、不发布、不部署。
+
 ## 2026-08-29 - 上游 main 增量同步：模型级限流、计费与账号刷新
 
 ### 目标

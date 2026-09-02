@@ -299,6 +299,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		EnterpriseMemberModelAdmissionRollout:                  settings.EnterpriseMemberModelAdmissionRollout,
 		EnterpriseMemberModelAdmissionLegacy:                   settings.EnterpriseMemberModelAdmissionLegacy,
 		EnterpriseMemberModelAdmissionLegacyRetirementTarget:   settings.EnterpriseMemberModelAdmissionLegacyRetirementTarget,
+		OpenAITTFTMode:                                         settings.OpenAITTFTMode,
 		EnableFingerprintUnification:                           settings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              settings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       settings.EnableCCHSigning,

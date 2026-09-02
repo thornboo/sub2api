@@ -1,5 +1,53 @@
 # 上游合并记录
 
+## 2026-09-02 - 继续同步上游 `main`：OpenAI Fast 分组策略、reasoning 管控与计费目录修复
+
+分支：
+
+- 目标：`dev-zz`
+- 上游：本地 `main` / `origin/main`
+- Base：`b5827cfd54d58c248a9480b800444d0b40f0c6ea`
+- 合并前目标：`d3e429164b147132d3c959781c4cd7a91d2ace80`
+- 上游 head：`5097b31457e6dc9f49e5f5c9c72b925ce79543b3`
+- 备份：`backup/dev-zz-pre-main-20260902-d3e42916`
+- 结果：本次最终合并提交
+
+上游要点：
+
+- 分组新增 OpenAI Fast 强制开启与 Fast 按 Standard 计费开关，OpenAI / Composite 分组的 auth snapshot、管理端 DTO、创建 / 编辑 / duplicate 和网关路径同步接入。
+- OpenAI / Codex reasoning effort 映射支持按模型 exact / prefix / suffix 限定，并增加超过分组上限时自动降档或拒绝请求的策略。
+- 价格目录支持 `pricing.override_file` 覆盖补丁，长上下文阶梯从 LiteLLM `*_above_*_tokens` 字段数据驱动折算，并补齐 1h cache write 价格字段。
+- usage 新增 native compaction v2 语义标记和用户 / 管理端筛选；用量窗口展示、管理员用量统计、account stats 成本和 cache identity 相关计费口径同步修复。
+- OpenAI / WebSocket / passthrough 同步 session 隔离、close-before-terminal 拒绝、stale idle connection 回收、oversized passthrough bridge、service tier 分离和 API Key chat cache identity 修复。
+- Kimi 原生 Responses、Claude Fable 5.1、Anthropic server-side-fallback beta 守卫、scheduled automation / delegation bootstrap、Ollama Cloud 国产平台用量窗口、账号 reauth / quota cooldown、临时数据库启动重试和赞助商更新同步进入本分支。
+
+合并策略与冲突：
+
+- 合并前重新读取 `docs-site/dev-zz` 分支策略、上游合并流程、补丁 / 合并记录、变更地图和验证矩阵；以 `b5827cfd` 为 merge-base 执行 `git merge-tree --write-tree --messages --name-only` 预演，复用本地恢复分支后运行 `git merge --no-commit main`，不推送、不发布、不部署。
+- 本轮上游范围共 86 个非 merge 提交，最终索引修改 294 个文件；预演报告 46 个冲突 / modify-delete 路径，主要集中在 `VERSION`、OpenAI / Gemini gateway、settings、usage 查询、渠道定价、reasoning policy、模型广场删除替代和管理端 Usage / Groups UI。
+- `VERSION` 继续保留 fork `1.7.43`，不采用上游 `0.2.0`。新增迁移按完整文件名追加：`231_add_usage_log_native_compaction_v2.sql`、`232_channel_cache_write_1h_pricing.sql`、`232_group_force_openai_fast.sql`、`232_group_reasoning_effort_over_limit.sql` 和 `233_group_free_openai_fast.sql`。
+- 冲突处理保留 dev-zz 的公开模型目录 / 模型广场替代实现、stone / neutral / emerald 管理端视觉、企业成员最终 `ActiveGroup` / 预算 / usage 原子归因、sticky / WebSocket no-replay、hidden auth surface 和单一 TimePricing 合同，同时吸收上游的计费、reasoning、Fast、usage、兼容层和运行时修复。
+- `calculateRecordUsageCost` 签名新增内部 `recordUsageOpts` 后，四处图片计费 direct unit test 按原测试语义传 `nil`，不改变生产实现；分时价格和长上下文相关路径继续由调用方显式 opts / `PricingAt` 覆盖。
+
+冲突路径：
+
+- 后端：`backend/cmd/server/VERSION`、`backend/internal/handler/admin/channel_handler.go`、`backend/internal/handler/admin/dashboard_handler_request_type_test.go`、`backend/internal/handler/admin/setting_handler.go`、`backend/internal/handler/admin/setting_handler_audit.go`、`backend/internal/handler/admin/setting_handler_update.go`、`backend/internal/handler/available_channel_handler.go`、`backend/internal/handler/dto/settings.go`、`backend/internal/handler/gemini_v1beta_handler.go`、`backend/internal/handler/openai_gateway_handler.go`、`backend/internal/handler/usage_handler.go`、`backend/internal/repository/channel_repo_pricing.go`、`backend/internal/repository/channel_repo_pricing_time_test.go`、`backend/internal/repository/scheduler_cache.go`、`backend/internal/repository/usage_log_repo_insert.go`、`backend/internal/repository/usage_log_repo_query.go`、`backend/internal/repository/usage_log_repo_trend.go`、`backend/internal/repository/usage_log_session_id_unit_test.go`、`backend/internal/server/routes/admin.go`、`backend/internal/service/api_key_auth_cache_impl.go`、`backend/internal/service/api_key_auth_cache_profit_test.go`、`backend/internal/service/channel.go`、`backend/internal/service/channel_available.go`、`backend/internal/service/domain_constants.go`、`backend/internal/service/gateway_usage_billing.go`、`backend/internal/service/model_plaza_service_test.go`、`backend/internal/service/openai_gateway_chat_completions.go`、`backend/internal/service/openai_gateway_messages_chat_fallback.go`、`backend/internal/service/openai_gateway_responses_chat_fallback.go`、`backend/internal/service/openai_ws_forwarder_ingress_session_test.go`、`backend/internal/service/pricing_service_test.go`、`backend/internal/service/setting_parse.go`、`backend/internal/service/setting_update.go`、`backend/internal/service/settings_view.go`。
+- 前端：`frontend/src/api/admin/settings.ts`、`frontend/src/api/usage.ts`、`frontend/src/components/admin/channel/IntervalRow.vue`、`frontend/src/components/admin/channel/PricingEntryCard.vue`、`frontend/src/components/admin/usage/UsageStatsCards.vue`、`frontend/src/components/modelPlaza/PlazaModelPricingTable.vue`、`frontend/src/components/modelPlaza/__tests__/PlazaModelPricingTable.spec.ts`、`frontend/src/views/admin/ChannelsView.vue`、`frontend/src/views/admin/RedeemView.vue`、`frontend/src/views/admin/SettingsView.vue`、`frontend/src/views/admin/UsageView.vue`、`frontend/src/views/admin/__tests__/UsageView.spec.ts`、`frontend/src/views/user/__tests__/UsageView.spec.ts`。
+
+验证：
+
+- `mise x -C backend -- go test ./internal/service -run 'TestOpenAIGatewayServiceRecordUsage|TestGatewayServiceRecordUsage' -count=1`
+- `mise x -C backend -- go test ./internal/server ./internal/handler ./internal/handler/admin ./internal/config ./internal/service ./internal/repository ./internal/pkg/apicompat ./migrations -count=1` 初次暴露 `gateway_models_test.go` 重复测试桩；确认当前文件已无重复声明后，重跑 `mise x -C backend -- go test ./internal/handler -count=1` 通过，其余包在同一最终索引上通过。
+- `pnpm --dir frontend typecheck`
+- `pnpm --dir frontend lint:check`
+- `pnpm --dir frontend test:run src/components/admin/group/__tests__/ReasoningEffortPolicyFields.spec.ts src/views/admin/__tests__/groupsOpenAIFast.spec.ts src/views/admin/__tests__/groupsReasoningEffort.spec.ts src/views/admin/__tests__/UsageView.spec.ts src/views/user/__tests__/UsageView.spec.ts src/components/account/__tests__/AccountUsageCell.spec.ts src/components/account/__tests__/UsageProgressBar.spec.ts src/components/admin/usage/__tests__/UsageFilters.spec.ts src/components/admin/usage/__tests__/UsageStatsCards.spec.ts src/components/admin/usage/__tests__/UsageTable.spec.ts src/utils/__tests__/formatDateTimeLocalInput.spec.ts`，共 11 个测试文件、143 条用例通过。
+- `pnpm --dir docs-site docs:build`
+- `git diff --check`、`git diff --cached --check`、`rg -n "^(<<<<<<<|=======|>>>>>>>)$"` 和 `git diff --name-only --diff-filter=U`
+
+未验证：
+
+- 未运行真实 provider、Testcontainers integration、浏览器人工 smoke、完整 Docker 镜像或 Hosted CI；本地合并不推送、不发布、不部署。
+
 ## 2026-08-29 - 继续同步上游 `main`：模型级限流、计费口径与账号列表轻量刷新
 
 分支：

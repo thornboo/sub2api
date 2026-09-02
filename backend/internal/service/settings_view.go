@@ -237,6 +237,7 @@ type SystemSettings struct {
 	BackendModeEnabled bool
 
 	// Gateway forwarding behavior
+	OpenAITTFTMode                                       string // Responses first_token_ms 统计口径（默认 semantic）
 	NativeModelProtocolRoutingEnabled                    bool   // 是否允许确认的模型协议能力参与原生路由
 	NativeModelProtocolRoutingSource                     string // settings/config，供管理员识别当前生效来源
 	EnterpriseMemberModelAdmissionMode                   string // 企业成员多分组模型准入模式
@@ -590,6 +591,16 @@ type RateLimit429CooldownSettings struct {
 	CooldownSeconds int `json:"cooldown_seconds"`
 }
 
+// OpenAIImagesOAuthUnavailableCooldownSettings controls how long an OAuth account's image capability is paused when unavailable.
+type OpenAIImagesOAuthUnavailableCooldownSettings struct {
+	CooldownMinutes int `json:"cooldown_minutes"`
+}
+
+const (
+	openAIImagesOAuthUnavailableDefaultCooldownMinutes = 30
+	openAIImagesOAuthUnavailableMaxCooldownMinutes     = 120
+)
+
 // OpenAIAPIKeyHealthBreakerSettings controls cross-instance failure counting for OpenAI pool API keys.
 type OpenAIAPIKeyHealthBreakerSettings struct {
 	Enabled          bool `json:"enabled"`
@@ -645,6 +656,10 @@ func DefaultModelRateLimitSettings() *ModelRateLimitSettings {
 		WindowMinutes:    5,
 		CooldownSeconds:  60,
 	}
+}
+
+func DefaultOpenAIImagesOAuthUnavailableCooldownSettings() *OpenAIImagesOAuthUnavailableCooldownSettings {
+	return &OpenAIImagesOAuthUnavailableCooldownSettings{CooldownMinutes: openAIImagesOAuthUnavailableDefaultCooldownMinutes}
 }
 
 // DefaultBetaPolicySettings 返回默认的 Beta 策略配置

@@ -227,6 +227,7 @@ type SystemSettings struct {
 	OpenAICodexClientVersion                             string                                                       `json:"openai_codex_client_version"`
 	OpenAICodexClientVersionSynced                       string                                                       `json:"openai_codex_client_version_synced"`
 	OpenAICodexVersionAutoSyncEnabled                    bool                                                         `json:"openai_codex_version_auto_sync_enabled"`
+	OpenAITTFTMode                                       string                                                       `json:"openai_ttft_mode"`
 
 	// codex_cli_only 加固
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -478,6 +479,10 @@ type ModelRateLimitSettings struct {
 	FailureThreshold int  `json:"failure_threshold"`
 	WindowMinutes    int  `json:"window_minutes"`
 	CooldownSeconds  int  `json:"cooldown_seconds"`
+}
+
+type OpenAIImagesOAuthUnavailableCooldownSettings struct {
+	CooldownMinutes int `json:"cooldown_minutes"`
 }
 
 // PanelRateLimitSettings 面板 API 限流配置 DTO

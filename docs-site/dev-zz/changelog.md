@@ -1,5 +1,13 @@
 # 变更记录
 
+## 2026-09-02
+
+- 同步上游 `main`（`5097b3145`）到正式线 `dev-zz`：分组新增强制 OpenAI Fast 和 Fast 按 Standard 计费开关，OpenAI / Composite 分组的管理端表单、认证快照、duplicate、网关转发与计费口径同步接入，同时保留 dev-zz 的企业成员最终分组、预算 / usage 原子归因和 sticky / no-replay 边界。
+- OpenAI / Codex reasoning effort 映射支持按模型 exact / prefix / suffix 分组配置，超过分组上限时可选择自动降档或直接拒绝；WebSocket、Responses、Messages fallback 和 API Key chat cache identity 同步吸收上游修复。
+- 价格目录支持 `pricing.override_file` 覆盖补丁，长上下文阶梯改为从目录 above-tier 字段数据驱动，并新增 1h cache write 价格字段；account stats 成本、图片 output token 计费、Codex OAuth / shadow credential tier 和 OpenAI service tier 分离同步修复。
+- usage 新增 native compaction v2 标记与用户 / 管理端筛选；Kimi 原生 Responses、Claude Fable 5.1、Anthropic fallback beta 守卫、Ollama Cloud 国产平台用量窗口、账号 reauth / cooldown、兑换码本地时间解析、临时数据库启动重试和赞助商更新同步进入本分支。
+- 新增迁移 `231_add_usage_log_native_compaction_v2.sql`、`232_channel_cache_write_1h_pricing.sql`、`232_group_force_openai_fast.sql`、`232_group_reasoning_effort_over_limit.sql` 和 `233_group_free_openai_fast.sql`；`VERSION` 保持 fork `1.7.43`，上游 `0.2.0` 不进入 fork 发布线。
+
 ## 2026-08-29
 
 - 同步上游 OpenAI 流 / WebSocket 模型级限流：普通模型 429 不再扩大为整账号限流，OAuth Spark 配额窗口继续保留真实 reset，首输出前 keepalive 与 failover 模型归因同步增强。

@@ -700,6 +700,7 @@ export interface SystemSettings {
   enterprise_member_model_admission_rollout?: EnterpriseMemberModelAdmissionRolloutState;
   enterprise_member_model_admission_legacy?: EnterpriseMemberModelAdmissionLegacyStatus;
   enterprise_member_model_admission_legacy_retirement_target: string;
+  openai_ttft_mode: string;
   enable_fingerprint_unification: boolean;
   enable_metadata_passthrough: boolean;
   enable_cch_signing: boolean;
@@ -1028,6 +1029,7 @@ export interface UpdateSettingsRequest {
   enterprise_member_model_admission_mode?: EnterpriseMemberModelAdmissionMode;
   enterprise_member_model_admission_rollout_policy?: EnterpriseMemberModelAdmissionRolloutPolicy;
   enterprise_member_model_admission_legacy_retirement_target?: string;
+  openai_ttft_mode?: string;
   enable_fingerprint_unification?: boolean;
   enable_metadata_passthrough?: boolean;
   enable_cch_signing?: boolean;
