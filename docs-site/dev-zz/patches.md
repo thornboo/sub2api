@@ -1,5 +1,36 @@
 # 补丁记录
 
+## 2026-09-04 - 上游 main 增量同步：上游错误代理归因与队列边界
+
+### 目标
+
+- 将 `main@b1748c4ea` 合入正式线 `dev-zz`，取得逐次上游失败的事件时代理归因、legacy 详情兼容和错误事件队列的计数 / 字节双重边界。
+- 保留 dev-zz 的企业成员实际分组证据、预算结果不明不重放、transport error 统一处理、Ops 分类 v2 和敏感信息隔离合同。
+
+### 主要变化
+
+- `OpsUpstreamErrorEvent` 同时保存 `GroupID` / `GroupAttempt` 与凭据无关的 `ProxyID` / `ProxyName`；直接路由、WebSocket 默认客户端未知路由、受管代理和 legacy 事件使用可验证的互斥语义。
+- 所有上游失败产生点按实际 attempt 注入代理快照；共享 transport helper 统一负责代理字段、企业成员预算结果和安全 failover，dev-zz 专属 native Messages 协议不可用事件也纳入相同合同。
+- 详情读取只定点规范化代理归因键，保留旧 JSON 未知字段与键顺序；队列最多保留 256 次尝试和约 512 KiB，超限时保留最新失败并记录裁剪计数。
+- 同步赞助商清理；没有数据库迁移、配置、依赖或版本号变化，fork `VERSION` 保持 `1.7.43`。
+
+### 冲突与兼容性
+
+- 三个 OpenAI 图片 / 嵌入冲突保留 dev-zz 的 transport helper，避免恢复上游内联错误响应后造成重复 Ops 记录、响应责任分裂或把结果不明请求错误重放；helper 已吸收代理归因，代理客户端门控接受上游更严格的 `ProxyID + Proxy` 条件。
+- Ops 上下文按字段并集合流，未用整文件 ours / theirs 覆盖。企业成员 `GroupID` / `GroupAttempt`、skip-monitoring 与重试理由继续存在，代理快照、legacy 规范化和队列裁剪同时生效。
+- 合并后修复两个无冲突标记的调用点：首输出超时测试补传 HTTP 代理归因；dev-zz 原生 Messages 协议不可用事件补齐代理字段。
+
+### 验证
+
+- `mise x -C backend -- go test -tags=unit ./internal/service -count=1` 通过；代理归因 / JSON 规范化 / 队列边界 / transport error / first-output timeout 定向回归通过。
+- 后端全量 unit、`go vet ./...` 与 `go build ./cmd/server` 通过。
+- 前端 304 个测试文件 / 2112 个测试、typecheck、lint 和生产构建通过；文档站构建通过。
+- 所有生产 `appendOpsUpstreamError` 直接事件通过字段扫描，未发现缺少 `ProxyName` 的事件。
+
+### 未验证
+
+- 未运行真实 provider、Testcontainers integration、浏览器人工 smoke、完整 Docker 镜像或 Hosted CI；本轮只做本地 merge，不推送、不发布、不部署。
+
 ## 2026-09-02 - 上游 main 增量同步：Fast 分组策略、reasoning 管控与计费目录
 
 ### 目标

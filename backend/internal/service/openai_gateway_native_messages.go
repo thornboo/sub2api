@@ -206,6 +206,8 @@ func (s *OpenAIGatewayService) ForwardNativeAnthropicMessages(
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
 		if isNativeProtocolUnavailableResponse(resp.StatusCode, respBody, upstreamMsg) {
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				ProxyID:            opsUpstreamProxyID(account),
+				ProxyName:          opsUpstreamProxyName(account),
 				Platform:           account.Platform,
 				AccountID:          account.ID,
 				AccountName:        account.Name,

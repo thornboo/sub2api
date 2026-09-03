@@ -338,6 +338,7 @@ HAVING COUNT(*) FILTER (
 | 分类迁移与共享 SQL 合同 | `cd backend && go test ./migrations ./internal/opssql -run 'FailureClassification|OpsFailure' -count=1` |
 | 分类 v2 真实 PostgreSQL 回填、滚动兼容与索引计划 | `cd backend && go test -tags=integration ./internal/repository -run '^TestOpsFailureClassificationV2' -count=1` |
 | Ops Repository、API 和聚合兼容 | `cd backend && go test ./internal/repository ./internal/handler/admin ./internal/service -count=1` |
+| 上游错误代理快照、legacy JSON 和队列边界 | `cd backend && go test -tags=unit ./internal/service -run 'Test(OpsUpstream\|NormalizeOpsUpstream\|ParseOpsUpstream\|SanitizeOpsUpstream\|HandleOpenAIUpstreamTransportError\|NewOpenAIFirstOutputTimeoutError)' -count=1` |
 | 通用弹窗栈 | `pnpm --dir frontend test:run src/components/common/__tests__/BaseDialog.spec.ts` |
 | 通用 Select 外部点击 | `pnpm --dir frontend test:run src/components/common/__tests__/Select.spec.ts` |
 | 运维请求/错误详情弹窗 | `pnpm --dir frontend test:run src/views/admin/ops/components/__tests__/OpsErrorDetailModal.spec.ts src/views/admin/ops/components/__tests__/OpsErrorDetailsModal.spec.ts src/views/admin/ops/components/__tests__/OpsRequestDetailsModal.spec.ts` |
@@ -352,6 +353,9 @@ HAVING COUNT(*) FILTER (
 - 每个归因数字打开的明细使用 overview 响应的 `start_time/end_time` 和相同结构化过滤条件；
 - 最近 15 分钟当前状态按 `request_error_rate_percent_max` 判断，自定义历史窗口不显示“当前已恢复”；
 - recovered upstream attempt 只进入 provider-health 明细，不进入客户可见失败或平台 SLA 终态计数。
+- 每个新上游失败 attempt 必须在事件发生时保存代理 ID / 名称；受管代理只保存 ID 和显示名，明确直连使用 `direct/no_proxy`，WebSocket 默认客户端或无法证明的旧事件使用 `unknown`，不得从账号当前代理绑定反推历史路由。
+- `proxy_id=null` 时 `proxy_name` 只能是 `direct/no_proxy` 或 `unknown`；详情兼容不得重排旧 JSON、删除未知字段或引入代理 URL、主机、用户名、密码和授权数据。
+- 单请求 `upstream_errors` 必须在 256 次尝试和约 512 KiB 内保留最新事件；正文窗口之外的旧事件仍保留核心状态与归因，裁剪数量写入最旧保留事件。
 - 模拟旧实例在迁移后晚写普通 v1 错误、非 recovered HTTP 200 流式终态和严格 recovered 尝试：前两者进入客户可见与未分类，recovered 不进入；hourly/daily 桶保持 v1，强制 preagg 返回未就绪而不是伪装成完整 v2。
 - migration 192 对两种 cyber-policy、provider 403 余额、provider 4xx/5xx 的真实回填结果与 writer 分类一致；migration 193 的 customer-visible、SLA、v1 探针和 reason 查询在 PostgreSQL `EXPLAIN` 中命中目标索引。
 

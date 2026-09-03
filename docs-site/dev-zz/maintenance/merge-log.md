@@ -1,5 +1,54 @@
 # 上游合并记录
 
+## 2026-09-04 - 继续同步上游 `main`：上游错误代理归因与队列边界
+
+分支：
+
+- 目标：`dev-zz`
+- 上游：本地 `main` / `origin/main`
+- Base：`5097b31457e6dc9f49e5f5c9c72b925ce79543b3`
+- 合并前目标：`dfc1265f9eb16c8b59778de7d6c94014869af61b`
+- 上游 head：`b1748c4ea99ce2120401a269142aa071e18a84da`
+- 备份：`backup/dev-zz-pre-main-20260904-dfc1265f`
+- 结果：本次最终合并提交
+
+上游要点：
+
+- 每个 `ops_error_logs.upstream_errors` 上游尝试事件在发生时固化 `proxy_id` / `proxy_name`；直接连接、未知路径和受管代理使用互斥口径，不再根据账号当前代理反推历史请求。
+- HTTP、TLS fingerprint、Bedrock、Gemini、Antigravity、OpenAI HTTP / WebSocket、compact fallback、raw stream truncation 和 first-output timeout 的失败路径统一补齐代理归因；事件只保存代理 ID / 名称，不保存代理 URL、主机、用户名、密码或授权信息。
+- 上游错误事件队列恢复最多 256 次尝试和约 512 KiB 的双重边界；最新 16 次保留诊断 body，较早事件收紧 URL / message，并用 `dropped_earlier_attempts` 记录被裁掉的更早尝试。
+- 详情读取只补写缺失或非法的代理归因键，不重排或重序列化旧 JSON；历史事件默认归为 `unknown`，已有 `direct/no_proxy` 证据保持不变。
+- 同步上游赞助商清理，移除 README 中失效条目及对应静态图片。
+
+合并策略与冲突：
+
+- 合并前重新读取 `docs-site/dev-zz` 分支策略、合并流程、补丁 / 合并记录、变更地图和验证矩阵；以 `5097b3145` 为 merge-base 执行 `git merge-tree --write-tree --messages --name-only` 预演，创建本地恢复分支后运行 `git merge --no-commit main`，不推送、不发布、不部署。
+- 本轮上游范围共 5 个提交（4 个非 merge 提交），上游增量涉及 60 个文件；预演与真实合并均报告 5 个文本冲突。
+- `openai_embeddings.go`、`openai_images.go` 与 `openai_images_responses.go` 保留 dev-zz 统一 `handleOpenAIUpstreamTransportError` 控制流，继续执行持久故障停调、安全 failover 和未知结果不重放；helper 同时吸收上游的事件时代理快照。三条路径接受上游 `ProxyID != nil && Proxy != nil` 的实际代理门控。
+- `ops_upstream_context.go` 合并双方结构：保留 dev-zz 的 `GroupID` / `GroupAttempt` 企业成员实际分组证据，同时吸收代理快照、legacy JSON 规范化和 `DroppedEarlierAttempts`；测试文件保留双方回归。
+- 完整 service 编译发现一处无 marker 拼接缝：`newOpenAIFirstOutputTimeoutError` 新增代理参数后，企业成员预算测试仍使用旧签名；已按 HTTP 实际路由补传代理归因。结构扫描又发现 dev-zz 专属 native Messages 协议不可用事件缺少代理字段，已补齐同一账号快照。
+- `VERSION` 继续保持 fork `1.7.43`；本轮没有数据库迁移、配置项或依赖变化。
+
+冲突路径：
+
+- `backend/internal/service/openai_embeddings.go`
+- `backend/internal/service/openai_images.go`
+- `backend/internal/service/openai_images_responses.go`
+- `backend/internal/service/ops_upstream_context.go`
+- `backend/internal/service/ops_upstream_context_test.go`
+
+验证：
+
+- `mise x -C backend -- go test -tags=unit ./internal/service -count=1` 通过。
+- `mise x -C backend -- go test -tags=unit ./... -count=1`、`mise x -C backend -- go vet ./...` 与 `mise x -C backend -- go build ./cmd/server` 通过。
+- 代理归因、legacy JSON、首输出超时、transport error 和 native Messages 定向 unit 回归通过；全部生产 `appendOpsUpstreamError` 直接事件通过字段扫描，均显式提供 `ProxyName`，共享 helper 路径由 helper 统一提供。
+- `pnpm --dir frontend test:run` 通过（304 个测试文件、2112 个测试），`typecheck`、`lint:check` 与生产构建通过。
+- `pnpm --dir docs-site docs:build` 通过；构建仅报告既存的大 chunk 优化提示。
+
+未验证：
+
+- 未运行真实 provider、Testcontainers integration、浏览器人工 smoke、完整 Docker 镜像或 Hosted CI；本地合并不推送、不发布、不部署。
+
 ## 2026-09-02 - 继续同步上游 `main`：OpenAI Fast 分组策略、reasoning 管控与计费目录修复
 
 分支：

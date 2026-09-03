@@ -569,6 +569,8 @@ urlFallbackLoop:
 			if err != nil {
 				safeErr := sanitizeUpstreamErrorMessage(err.Error())
 				appendOpsUpstreamError(p.c, OpsUpstreamErrorEvent{
+					ProxyID:            opsUpstreamProxyID(p.account),
+					ProxyName:          opsUpstreamProxyName(p.account),
 					Platform:           p.account.Platform,
 					AccountID:          p.account.ID,
 					AccountName:        p.account.Name,
@@ -658,6 +660,8 @@ urlFallbackLoop:
 						upstreamMsg := strings.TrimSpace(extractAntigravityErrorMessage(respBody))
 						upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 						appendOpsUpstreamError(p.c, OpsUpstreamErrorEvent{
+							ProxyID:            opsUpstreamProxyID(p.account),
+							ProxyName:          opsUpstreamProxyName(p.account),
 							Platform:           p.account.Platform,
 							AccountID:          p.account.ID,
 							AccountName:        p.account.Name,
@@ -693,6 +697,8 @@ urlFallbackLoop:
 						upstreamMsg := strings.TrimSpace(extractAntigravityErrorMessage(respBody))
 						upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 						appendOpsUpstreamError(p.c, OpsUpstreamErrorEvent{
+							ProxyID:            opsUpstreamProxyID(p.account),
+							ProxyName:          opsUpstreamProxyName(p.account),
 							Platform:           p.account.Platform,
 							AccountID:          p.account.ID,
 							AccountName:        p.account.Name,
