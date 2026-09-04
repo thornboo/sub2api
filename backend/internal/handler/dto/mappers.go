@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -765,6 +766,27 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 		RoutePlanSnapshotAgeMs:         l.RoutePlanSnapshotAgeMs,
 		IPAddress:                      l.IPAddress,
 		Account:                        AccountSummaryFromService(l.Account),
+	}
+}
+
+// UserUsageStatsFromService maps a usage summary to its user-visible fields.
+// Administrator-only supplier cost evidence must not cross this boundary.
+func UserUsageStatsFromService(stats *usagestats.UsageStats) *UserUsageStats {
+	if stats == nil {
+		return nil
+	}
+	return &UserUsageStats{
+		TotalRequests:            stats.TotalRequests,
+		TotalInputTokens:         stats.TotalInputTokens,
+		TotalOutputTokens:        stats.TotalOutputTokens,
+		TotalCacheTokens:         stats.TotalCacheTokens,
+		TotalCacheCreationTokens: stats.TotalCacheCreationTokens,
+		TotalCacheReadTokens:     stats.TotalCacheReadTokens,
+		TotalTokens:              stats.TotalTokens,
+		TotalCost:                stats.TotalCost,
+		TotalActualCost:          stats.TotalActualCost,
+		AverageDurationMs:        stats.AverageDurationMs,
+		Endpoints:                stats.Endpoints,
 	}
 }
 

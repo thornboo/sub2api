@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -577,6 +578,22 @@ type UsageLog struct {
 	APIKey       *APIKey           `json:"api_key,omitempty"`
 	Group        *Group            `json:"group,omitempty"`
 	Subscription *UserSubscription `json:"subscription,omitempty"`
+}
+
+// UserUsageStats is the user-facing usage summary. Supplier cost evidence is
+// intentionally excluded; it is available only through administrator APIs.
+type UserUsageStats struct {
+	TotalRequests            int64                     `json:"total_requests"`
+	TotalInputTokens         int64                     `json:"total_input_tokens"`
+	TotalOutputTokens        int64                     `json:"total_output_tokens"`
+	TotalCacheTokens         int64                     `json:"total_cache_tokens"`
+	TotalCacheCreationTokens int64                     `json:"total_cache_creation_tokens"`
+	TotalCacheReadTokens     int64                     `json:"total_cache_read_tokens"`
+	TotalTokens              int64                     `json:"total_tokens"`
+	TotalCost                float64                   `json:"total_cost"`
+	TotalActualCost          float64                   `json:"total_actual_cost"`
+	AverageDurationMs        float64                   `json:"average_duration_ms"`
+	Endpoints                []usagestats.EndpointStat `json:"endpoints,omitempty"`
 }
 
 // AdminUsageLog 是管理员接口使用的 usage log DTO（包含管理员字段）。

@@ -730,7 +730,17 @@ func (s *adminServiceImpl) UpdateAccountUpstreamCostBinding(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	if err := validateUpstreamOfficialPricingChannel(ctx, txClient, normalized.OfficialPricingChannelID, priceReferenceCurrency); err != nil {
+	officialPricingChannelID, err := resolveUpstreamOfficialPricingChannel(
+		ctx,
+		txClient,
+		normalized.AccountID,
+		normalized.CostPoolID,
+		normalized.OfficialPricingChannelID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateUpstreamOfficialPricingChannel(ctx, txClient, officialPricingChannelID, priceReferenceCurrency); err != nil {
 		return nil, err
 	}
 
@@ -781,7 +791,7 @@ inserted AS (
 		nullableString(normalized.UpstreamGroupName),
 		priceReferenceCurrency,
 		priceReferenceConfirmed,
-		nullableInt64(normalized.OfficialPricingChannelID),
+		nullableInt64(officialPricingChannelID),
 		normalized.DefaultMultiplier,
 		string(modelFamiliesJSON),
 		nullableString(normalized.Note),
@@ -899,7 +909,17 @@ WHERE account_id = $1
 	if err != nil {
 		return nil, err
 	}
-	if err := validateUpstreamOfficialPricingChannel(ctx, txClient, normalized.OfficialPricingChannelID, priceReferenceCurrency); err != nil {
+	officialPricingChannelID, err := resolveUpstreamOfficialPricingChannel(
+		ctx,
+		txClient,
+		normalized.AccountID,
+		costPoolID,
+		normalized.OfficialPricingChannelID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateUpstreamOfficialPricingChannel(ctx, txClient, officialPricingChannelID, priceReferenceCurrency); err != nil {
 		return nil, err
 	}
 
@@ -950,7 +970,7 @@ inserted AS (
 		nullableString(normalized.UpstreamGroupName),
 		priceReferenceCurrency,
 		priceReferenceConfirmed,
-		nullableInt64(normalized.OfficialPricingChannelID),
+		nullableInt64(officialPricingChannelID),
 		normalized.DefaultMultiplier,
 		string(modelFamiliesJSON),
 		nullableString(normalized.Note),
@@ -1685,6 +1705,50 @@ LIMIT 1`, accountID, costPoolID)
 		return "", false, err
 	}
 	return UpstreamPriceReferenceCurrencyUSD, false, nil
+}
+
+// resolveUpstreamOfficialPricingChannel gives newly added request fields the
+// same non-destructive PUT semantics as the price reference: omission keeps
+// the active binding when the account remains on the same cost pool.
+func resolveUpstreamOfficialPricingChannel(
+	ctx context.Context,
+	exec upstreamCostPoolSQLExecutor,
+	accountID int64,
+	costPoolID int64,
+	requested *int64,
+) (*int64, error) {
+	if requested != nil {
+		return requested, nil
+	}
+
+	rows, err := exec.QueryContext(ctx, `
+SELECT official_pricing_channel_id
+FROM upstream_account_cost_bindings
+WHERE account_id = $1
+  AND cost_pool_id = $2
+  AND status = 'active'
+  AND valid_to IS NULL
+ORDER BY id DESC
+LIMIT 1`, accountID, costPoolID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	if rows.Next() {
+		var channelID sql.NullInt64
+		if err := rows.Scan(&channelID); err != nil {
+			return nil, err
+		}
+		if channelID.Valid {
+			return &channelID.Int64, rows.Err()
+		}
+		return nil, rows.Err()
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return nil, nil
 }
 
 func validateUpstreamOfficialPricingChannel(

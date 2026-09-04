@@ -542,11 +542,7 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	stats.TotalAccountCost = nil
-	stats.UpstreamEndpoints = nil
-	stats.EndpointPaths = nil
-
-	response.Success(c, stats)
+	response.Success(c, dto.UserUsageStatsFromService(stats))
 }
 
 const (

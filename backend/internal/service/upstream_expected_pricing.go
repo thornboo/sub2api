@@ -78,11 +78,3 @@ func upstreamCurrencyAllowsResolvedPricing(currency string, resolved *ResolvedPr
 func upstreamCurrencyIsCNY(currency string) bool {
 	return strings.EqualFold(strings.TrimSpace(currency), UpstreamPriceReferenceCurrencyCNY)
 }
-
-func (s *GatewayService) resolveUpstreamChannelPricing(ctx context.Context, model string, apiKey *APIKey) *ResolvedPricing {
-	return s.resolveChannelPricing(ctx, model, upstreamPricingAPIKey(apiKey))
-}
-
-func (s *OpenAIGatewayService) resolveOpenAIUpstreamChannelPricing(ctx context.Context, model string, apiKey *APIKey) *ResolvedPricing {
-	return s.resolveOpenAIChannelPricing(ctx, model, upstreamPricingAPIKey(apiKey))
-}

@@ -504,17 +504,20 @@ func TestCNYPriceReferencePersistsAndRefreshesSchedulerAtEightTenths(t *testing.
 	admin := newUpstreamRechargeAdminWithCache(t, cache)
 	account := createUpstreamCostPoolAccount(t, nil)
 	priceReferenceCurrency := svc.UpstreamPriceReferenceCurrencyCNY
+	officialPricingChannelID := createActiveOfficialPricingChannel(t)
 
 	binding, err := admin.UpdateAccountUpstreamSupplierBinding(ctx, svc.UpstreamSupplierBindingInput{
-		AccountID:              account.ID,
-		SupplierName:           fmt.Sprintf("cny-reference-supplier-%d", account.ID),
-		PriceReferenceCurrency: &priceReferenceCurrency,
-		DefaultMultiplier:      0.8,
+		AccountID:                account.ID,
+		SupplierName:             fmt.Sprintf("cny-reference-supplier-%d", account.ID),
+		PriceReferenceCurrency:   &priceReferenceCurrency,
+		OfficialPricingChannelID: &officialPricingChannelID,
+		DefaultMultiplier:        0.8,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, binding)
 	require.Equal(t, svc.UpstreamPriceReferenceCurrencyCNY, binding.PriceReferenceCurrency)
 	require.True(t, binding.PriceReferenceConfirmed)
+	require.Equal(t, officialPricingChannelID, *binding.OfficialPricingChannelID)
 
 	cache.reset()
 	_, err = admin.CreateUpstreamRechargeRecord(ctx, svc.UpstreamRechargeRecordInput{
@@ -534,6 +537,7 @@ func TestCNYPriceReferencePersistsAndRefreshesSchedulerAtEightTenths(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, svc.UpstreamPriceReferenceCurrencyCNY, persisted.PriceReferenceCurrency)
 	require.True(t, persisted.PriceReferenceConfirmed)
+	require.Equal(t, officialPricingChannelID, *persisted.OfficialPricingChannelID)
 
 	cache.reset()
 	preserved, err := admin.UpdateAccountUpstreamSupplierBinding(ctx, svc.UpstreamSupplierBindingInput{
@@ -545,6 +549,7 @@ func TestCNYPriceReferencePersistsAndRefreshesSchedulerAtEightTenths(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, svc.UpstreamPriceReferenceCurrencyCNY, preserved.PriceReferenceCurrency)
 	require.True(t, preserved.PriceReferenceConfirmed)
+	require.Equal(t, officialPricingChannelID, *preserved.OfficialPricingChannelID)
 	refreshed = cache.lastAccount()
 	require.NotNil(t, refreshed)
 	require.NotNil(t, refreshed.UpstreamEffectiveDiscount)
@@ -962,6 +967,16 @@ func createUpstreamCostPoolAccount(t *testing.T, extra map[string]any) *svc.Acco
 	}
 	require.NoError(t, accountRepo.Create(context.Background(), account))
 	return account
+}
+
+func createActiveOfficialPricingChannel(t *testing.T) int64 {
+	t.Helper()
+	var channelID int64
+	require.NoError(t, serviceIntegrationDB.QueryRowContext(context.Background(), `
+INSERT INTO channels (name, status)
+VALUES ($1, 'active')
+RETURNING id`, fmt.Sprintf("upstream-official-pricing-%d", time.Now().UnixNano())).Scan(&channelID))
+	return channelID
 }
 
 func requireUpstreamPoolCurrentCost(t *testing.T, poolID int64) (float64, int64) {
