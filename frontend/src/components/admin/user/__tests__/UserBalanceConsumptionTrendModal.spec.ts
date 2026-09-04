@@ -21,7 +21,9 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => key
+      t: (key: string, params?: Record<string, unknown>) => params
+        ? `${key}:${JSON.stringify(params)}`
+        : key
     })
   }
 })
@@ -121,6 +123,11 @@ describe('UserBalanceConsumptionTrendModal', () => {
     expect(wrapper.get('[data-test="today-consumption"]').text()).toBe('$1.2500')
     expect(wrapper.get('[data-test="period-consumption"]').text()).toBe('$3.7500')
     expect(wrapper.get('[data-test="daily-average"]').text()).toBe('$0.1250')
+    expect(wrapper.findAll('[data-test="balance-summary-card"]')).toHaveLength(4)
+    expect(wrapper.findAll('[data-test="balance-summary-card"]').some((card) => card.text().includes('$42.50'))).toBe(false)
+    expect(wrapper.get('[data-test="forecast-runway"]').text()).toContain('"days":340')
+    expect(wrapper.get('[data-test="forecast-date"]').text()).toContain('"date":"2027-05-16"')
+    expect(wrapper.get('[data-test="forecast-date"]').text()).toContain('"days":30')
 
     const chartData = JSON.parse(wrapper.get('.chart-data').text())
     expect(chartData.labels).toHaveLength(30)
@@ -144,5 +151,19 @@ describe('UserBalanceConsumptionTrendModal', () => {
       start_date: '2026-06-04',
       end_date: '2026-06-10'
     }))
+    expect(wrapper.get('[data-test="forecast-runway"]').text()).toContain('"days":80')
+    expect(wrapper.get('[data-test="forecast-date"]').text()).toContain('"days":7')
+  })
+
+  it('does not invent a depletion date when the selected period has no spending', async () => {
+    getUsageTrend.mockResolvedValueOnce({ trend: [] })
+
+    const wrapper = mountModal()
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="forecast-runway"]').text()).toBe(
+      'admin.users.balanceConsumption.forecastNoConsumption'
+    )
+    expect(wrapper.find('[data-test="forecast-date"]').exists()).toBe(false)
   })
 })

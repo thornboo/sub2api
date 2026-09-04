@@ -26,6 +26,13 @@
                 <Icon name="dollar" size="xs" />
                 {{ t('admin.users.balanceConsumption.walletScope') }}
               </span>
+              <span>{{ t('admin.users.balanceConsumption.currentBalance') }}</span>
+              <span data-test="current-balance" class="font-mono text-sm font-semibold text-stone-900 dark:text-white">
+                {{ formatCurrentBalance(user.balance) }}
+              </span>
+              <span v-if="(user.frozen_balance || 0) > 0" class="text-amber-600 dark:text-amber-300">
+                {{ t('admin.users.balanceConsumption.frozenBalance', { amount: formatMoney(user.frozen_balance || 0) }) }}
+              </span>
             </div>
           </div>
         </div>
@@ -35,22 +42,7 @@
       </div>
 
       <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <div class="rounded-xl border border-stone-200/80 bg-white p-4 dark:border-white/10 dark:bg-white/[0.035]">
-          <div class="flex items-center justify-between gap-3">
-            <span class="text-xs font-medium text-stone-500 dark:text-stone-400">
-              {{ t('admin.users.balanceConsumption.currentBalance') }}
-            </span>
-            <Icon name="dollar" size="sm" class="text-emerald-500" />
-          </div>
-          <p data-test="current-balance" class="mt-2 font-mono text-2xl font-semibold text-stone-950 dark:text-white">
-            {{ formatCurrentBalance(user.balance) }}
-          </p>
-          <p v-if="(user.frozen_balance || 0) > 0" class="mt-1 text-xs text-amber-600 dark:text-amber-300">
-            {{ t('admin.users.balanceConsumption.frozenBalance', { amount: formatMoney(user.frozen_balance || 0) }) }}
-          </p>
-        </div>
-
-        <div class="rounded-xl border border-stone-200/80 bg-white p-4 dark:border-white/10 dark:bg-white/[0.035]">
+        <div data-test="balance-summary-card" class="rounded-xl border border-stone-200/80 bg-white p-4 dark:border-white/10 dark:bg-white/[0.035]">
           <div class="flex items-center justify-between gap-3">
             <span class="text-xs font-medium text-stone-500 dark:text-stone-400">
               {{ t('admin.users.balanceConsumption.todayConsumption') }}
@@ -65,7 +57,7 @@
           </p>
         </div>
 
-        <div class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-500/25 dark:bg-emerald-500/10">
+        <div data-test="balance-summary-card" class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-500/25 dark:bg-emerald-500/10">
           <div class="flex items-center justify-between gap-3">
             <span class="text-xs font-medium text-emerald-700 dark:text-emerald-300">
               {{ t('admin.users.balanceConsumption.periodConsumption', { days: selectedRangeDays }) }}
@@ -80,7 +72,7 @@
           </p>
         </div>
 
-        <div class="rounded-xl border border-stone-200/80 bg-white p-4 dark:border-white/10 dark:bg-white/[0.035]">
+        <div data-test="balance-summary-card" class="rounded-xl border border-stone-200/80 bg-white p-4 dark:border-white/10 dark:bg-white/[0.035]">
           <div class="flex items-center justify-between gap-3">
             <span class="text-xs font-medium text-stone-500 dark:text-stone-400">
               {{ t('admin.users.balanceConsumption.dailyAverage') }}
@@ -92,6 +84,25 @@
           </p>
           <p class="mt-1 text-xs text-stone-500 dark:text-stone-400">
             {{ t('admin.users.balanceConsumption.calendarDayAverage') }}
+          </p>
+        </div>
+
+        <div
+          data-test="balance-summary-card"
+          class="rounded-xl border border-sky-200 bg-sky-50/60 p-4 dark:border-sky-500/25 dark:bg-sky-500/10"
+          aria-live="polite"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-xs font-medium text-sky-700 dark:text-sky-300">
+              {{ t('admin.users.balanceConsumption.forecastTitle') }}
+            </span>
+            <Icon name="clock" size="sm" class="text-sky-500" />
+          </div>
+          <p data-test="forecast-runway" class="mt-2 text-lg font-semibold text-stone-950 dark:text-white">
+            {{ forecastRunwayText }}
+          </p>
+          <p v-if="forecastDateText" data-test="forecast-date" class="mt-1 text-xs text-stone-500 dark:text-stone-400">
+            {{ forecastDateText }}
           </p>
         </div>
       </div>
@@ -186,6 +197,7 @@ import { adminAPI } from '@/api/admin'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import type { AdminUser, TrendDataPoint } from '@/types'
+import { calculateBalanceDepletionForecast } from '@/utils/balanceConsumptionForecast'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip)
 
@@ -224,6 +236,33 @@ const periodRequests = computed(() => dailyTrend.value.reduce((sum, point) => su
 const todayConsumption = computed(() => dailyTrend.value.find((point) => point.date === endDate.value)?.actual_cost || 0)
 const dailyAverage = computed(() => dailyTrend.value.length > 0 ? periodConsumption.value / dailyTrend.value.length : 0)
 const hasConsumption = computed(() => dailyTrend.value.some((point) => point.actual_cost > 0))
+const depletionForecast = computed(() => calculateBalanceDepletionForecast(
+  props.user?.balance || 0,
+  dailyAverage.value,
+  endDate.value
+))
+const forecastRunwayText = computed(() => {
+  if (loading.value) return t('admin.users.balanceConsumption.forecastCalculating')
+  switch (depletionForecast.value.status) {
+    case 'depleted':
+      return t('admin.users.balanceConsumption.forecastDepleted')
+    case 'no-consumption':
+      return t('admin.users.balanceConsumption.forecastNoConsumption')
+    case 'less-than-day':
+      return t('admin.users.balanceConsumption.forecastLessThanDay')
+    default:
+      return t('admin.users.balanceConsumption.forecastDays', {
+        days: depletionForecast.value.remainingDays
+      })
+  }
+})
+const forecastDateText = computed(() => {
+  if (loading.value || !depletionForecast.value.depletionDate) return ''
+  return t('admin.users.balanceConsumption.forecastDate', {
+    date: depletionForecast.value.depletionDate,
+    days: selectedRangeDays.value
+  })
+})
 
 const chartData = computed<ChartData<'bar'> | null>(() => {
   if (!hasConsumption.value) return null
