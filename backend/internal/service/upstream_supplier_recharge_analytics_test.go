@@ -43,6 +43,9 @@ func matchUpstreamSupplierRechargeAnalyticsSQL(expectedSQL, actualSQL string) er
 	switch expectedSQL {
 	case "analytics-overview-suppliers":
 		return requireSQLFragments(actualSQL, append(commonRechargeFragments,
+			"WHEN r.paid_currency = 'CNY' THEN r.paid_amount",
+			"WHEN r.paid_currency = 'USD' THEN r.paid_amount * r.reference_fx_rate",
+			"OVER (PARTITION BY p.supplier_id)",
 			"GROUP BY p.supplier_id, r.paid_currency",
 			"ORDER BY p.supplier_id, r.paid_currency",
 		)...)
@@ -86,10 +89,10 @@ func TestGetUpstreamSupplierRechargeOverviewGroupsByPaidCurrency(t *testing.T) {
 	svc, mock := newUpstreamSupplierRechargeAnalyticsService(t)
 
 	mock.ExpectQuery("analytics-overview-suppliers").
-		WillReturnRows(sqlmock.NewRows([]string{"supplier_id", "paid_currency", "amount", "record_count"}).
-			AddRow(int64(10), "CNY", 80.5, 1).
-			AddRow(int64(10), "USD", 25.25, 1).
-			AddRow(int64(11), "CNY", 20.0, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"supplier_id", "paid_currency", "amount", "record_count", "reference_cny_amount"}).
+			AddRow(int64(10), "CNY", 80.5, 1, 257.25).
+			AddRow(int64(10), "USD", 25.25, 1, 257.25).
+			AddRow(int64(11), "CNY", 20.0, 1, 20.0))
 
 	overview, err := svc.GetUpstreamSupplierRechargeOverview(context.Background())
 	require.NoError(t, err)
@@ -99,14 +102,16 @@ func TestGetUpstreamSupplierRechargeOverviewGroupsByPaidCurrency(t *testing.T) {
 	}, overview.Totals)
 	require.Equal(t, []UpstreamSupplierRechargeTotal{
 		{
-			SupplierID: 10,
+			SupplierID:         10,
+			ReferenceCNYAmount: 257.25,
 			Totals: []UpstreamRechargePaymentTotal{
 				{Currency: "CNY", Amount: 80.5, RecordCount: 1},
 				{Currency: "USD", Amount: 25.25, RecordCount: 1},
 			},
 		},
 		{
-			SupplierID: 11,
+			SupplierID:         11,
+			ReferenceCNYAmount: 20,
 			Totals: []UpstreamRechargePaymentTotal{
 				{Currency: "CNY", Amount: 20, RecordCount: 1},
 			},
@@ -119,7 +124,7 @@ func TestGetUpstreamSupplierRechargeOverviewReturnsEmptySlices(t *testing.T) {
 	svc, mock := newUpstreamSupplierRechargeAnalyticsService(t)
 
 	mock.ExpectQuery("analytics-overview-suppliers").
-		WillReturnRows(sqlmock.NewRows([]string{"supplier_id", "paid_currency", "amount", "record_count"}))
+		WillReturnRows(sqlmock.NewRows([]string{"supplier_id", "paid_currency", "amount", "record_count", "reference_cny_amount"}))
 
 	overview, err := svc.GetUpstreamSupplierRechargeOverview(context.Background())
 	require.NoError(t, err)

@@ -168,7 +168,7 @@ const { t } = useI18n()
 const loading = ref(false)
 const error = ref<string | null>(null)
 const trend = ref<UpstreamSupplierRechargeTrend | null>(null)
-const selectedGranularity = ref<UpstreamRechargeTrendGranularity>('month')
+const selectedGranularity = ref<UpstreamRechargeTrendGranularity>('day')
 let requestSeq = 0
 
 const palette = [
@@ -276,7 +276,7 @@ watch(
   () => [props.show, props.supplierId] as const,
   ([show]) => {
     if (show) {
-      selectedGranularity.value = 'month'
+      selectedGranularity.value = 'day'
       loadTrend()
     } else {
       requestSeq += 1

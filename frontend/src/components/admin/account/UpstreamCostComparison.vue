@@ -41,14 +41,22 @@
       <table class="min-w-[1120px] divide-y divide-stone-200 text-sm dark:divide-white/10">
         <thead class="sticky top-0 z-10 bg-stone-50 dark:bg-stone-950">
           <tr>
-            <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.supplier') }}</th>
-            <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.boundAccounts') }}</th>
-            <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.currentCost') }}</th>
-            <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.rechargeRatio') }}</th>
-            <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.poolDiscountUSD') }}</th>
-            <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.totalPaid') }}</th>
-            <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.rechargeRecords.records') }}</th>
-            <th class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.upstreamCost.status') }}</th>
+            <th
+              v-for="column in sortableColumns"
+              :key="column.key"
+              class="px-4 py-3 text-left text-[13px] font-medium text-stone-500 dark:text-stone-400"
+              :aria-sort="sortAria(column.key)"
+            >
+              <button
+                type="button"
+                class="sortable-header"
+                :data-test="`sort-${column.key}`"
+                @click="toggleSort(column.key)"
+              >
+                <span>{{ column.label }}</span>
+                <Icon :name="sortIcon(column.key)" size="xs" />
+              </button>
+            </th>
             <th class="px-4 py-3 text-right text-[13px] font-medium text-stone-500 dark:text-stone-400">{{ t('admin.accounts.columns.actions') }}</th>
           </tr>
         </thead>
@@ -65,7 +73,7 @@
           </tr>
           <template v-else>
             <tr
-              v-for="row in rows"
+              v-for="row in sortedRows"
               :key="row.supplierID"
               class="hover:bg-stone-50/70 dark:hover:bg-white/[0.035]"
             >
@@ -222,6 +230,7 @@ interface SupplierCostRow {
   showPoolName: boolean
   bindingCount: number
   recordCount: number
+  paidReferenceCNY: number
   paidTotals: UpstreamRechargeCurrencyTotal[]
 }
 
@@ -246,6 +255,22 @@ const supplierMutating = ref(false)
 const archiveTarget = ref<SupplierCostRow | null>(null)
 const deleteTarget = ref<SupplierCostRow | null>(null)
 
+type SupplierSortKey = 'supplier' | 'boundAccounts' | 'currentCost' | 'rechargeRatio' | 'poolDiscount' | 'totalPaid' | 'records' | 'status'
+type SupplierSortOrder = 'asc' | 'desc'
+
+const sortKey = ref<SupplierSortKey | null>(null)
+const sortOrder = ref<SupplierSortOrder>('asc')
+const sortableColumns = computed<Array<{ key: SupplierSortKey; label: string }>>(() => [
+  { key: 'supplier', label: t('admin.accounts.upstreamCost.supplier') },
+  { key: 'boundAccounts', label: t('admin.accounts.upstreamCost.boundAccounts') },
+  { key: 'currentCost', label: t('admin.accounts.upstreamCost.currentCost') },
+  { key: 'rechargeRatio', label: t('admin.accounts.upstreamCost.rechargeRatio') },
+  { key: 'poolDiscount', label: t('admin.accounts.upstreamCost.poolDiscountUSD') },
+  { key: 'totalPaid', label: t('admin.accounts.upstreamCost.totalPaid') },
+  { key: 'records', label: t('admin.accounts.upstreamCost.rechargeRecords.records') },
+  { key: 'status', label: t('admin.accounts.upstreamCost.status') }
+])
+
 const isReserved = (row: SupplierCostRow) => row.isSystem
 const isActivePool = (pool: UpstreamCostPool) => pool.status === 'active' && !pool.archived_at
 const overviewTotals = computed(() => sortCurrencyTotals(props.rechargeOverview?.totals || []))
@@ -253,6 +278,13 @@ const supplierPaidTotalsByID = computed(() => {
   const result = new Map<number, UpstreamRechargeCurrencyTotal[]>()
   for (const supplier of props.rechargeOverview?.suppliers || []) {
     result.set(supplier.supplier_id, sortCurrencyTotals(supplier.totals || []))
+  }
+  return result
+})
+const supplierPaidReferenceCNYByID = computed(() => {
+  const result = new Map<number, number>()
+  for (const supplier of props.rechargeOverview?.suppliers || []) {
+    result.set(supplier.supplier_id, Number(supplier.reference_cny_amount) || 0)
   }
   return result
 })
@@ -370,6 +402,7 @@ const rows = computed<SupplierCostRow[]>(() => {
       showPoolName: false,
       bindingCount: 0,
       recordCount: 0,
+      paidReferenceCNY: 0,
       paidTotals: []
     })
   }
@@ -389,6 +422,7 @@ const rows = computed<SupplierCostRow[]>(() => {
         showPoolName: false,
         bindingCount: 0,
         recordCount: 0,
+        paidReferenceCNY: 0,
         paidTotals: []
       })
     }
@@ -415,6 +449,7 @@ const rows = computed<SupplierCostRow[]>(() => {
         showPoolName: pools.filter(isActivePool).length > 1,
         bindingCount: pools.reduce((sum, pool) => sum + (pool.binding_count || 0), 0),
         recordCount: pools.reduce((sum, pool) => sum + (pool.record_count || 0), 0),
+        paidReferenceCNY: supplierPaidReferenceCNYByID.value.get(row.supplierID) || 0,
         paidTotals: supplierPaidTotalsByID.value.get(row.supplierID) || []
       }
     })
@@ -423,6 +458,85 @@ const rows = computed<SupplierCostRow[]>(() => {
       return a.supplierName.localeCompare(b.supplierName)
     })
 })
+
+const sortedRows = computed(() => {
+  if (!sortKey.value) return rows.value
+  const direction = sortOrder.value === 'asc' ? 1 : -1
+  return [...rows.value].sort((left, right) => {
+    const leftMissing = isSortValueMissing(left, sortKey.value!)
+    const rightMissing = isSortValueMissing(right, sortKey.value!)
+    if (leftMissing !== rightMissing) return leftMissing ? 1 : -1
+    const result = compareSupplierRows(left, right, sortKey.value!)
+    if (result !== 0) return result * direction
+    return left.supplierName.localeCompare(right.supplierName) || left.supplierID - right.supplierID
+  })
+})
+
+const toggleSort = (key: SupplierSortKey) => {
+  if (sortKey.value === key) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+    return
+  }
+  sortKey.value = key
+  sortOrder.value = 'asc'
+}
+
+const sortIcon = (key: SupplierSortKey): 'arrowUp' | 'arrowDown' | 'arrowsUpDown' => {
+  if (sortKey.value !== key) return 'arrowsUpDown'
+  return sortOrder.value === 'asc' ? 'arrowUp' : 'arrowDown'
+}
+
+const sortAria = (key: SupplierSortKey): 'ascending' | 'descending' | 'none' => {
+  if (sortKey.value !== key) return 'none'
+  return sortOrder.value === 'asc' ? 'ascending' : 'descending'
+}
+
+const compareSupplierRows = (left: SupplierCostRow, right: SupplierCostRow, key: SupplierSortKey): number => {
+  switch (key) {
+    case 'supplier':
+      return left.supplierName.localeCompare(right.supplierName)
+    case 'boundAccounts':
+      return left.bindingCount - right.bindingCount
+    case 'currentCost':
+      return compareOptionalNumbers(currentEffectiveCost(left), currentEffectiveCost(right))
+    case 'rechargeRatio':
+    case 'poolDiscount':
+      return compareOptionalNumbers(discountFactor(left), discountFactor(right))
+    case 'totalPaid':
+      return left.paidReferenceCNY - right.paidReferenceCNY
+    case 'records':
+      return left.recordCount - right.recordCount
+    case 'status':
+      return statusSortRank(left) - statusSortRank(right)
+  }
+}
+
+const isSortValueMissing = (row: SupplierCostRow, key: SupplierSortKey): boolean => {
+  if (key === 'currentCost') return currentEffectiveCost(row) == null
+  if (key === 'rechargeRatio' || key === 'poolDiscount') return !Number.isFinite(discountFactor(row))
+  return false
+}
+
+const compareOptionalNumbers = (left: number | null | undefined, right: number | null | undefined): number => {
+  if (left == null && right == null) return 0
+  if (left == null) return 1
+  if (right == null) return -1
+  const leftNumber = Number(left)
+  const rightNumber = Number(right)
+  const leftValid = Number.isFinite(leftNumber)
+  const rightValid = Number.isFinite(rightNumber)
+  if (leftValid && rightValid) return leftNumber - rightNumber
+  if (leftValid) return -1
+  if (rightValid) return 1
+  return 0
+}
+
+const statusSortRank = (row: SupplierCostRow) => {
+  if (row.supplierStatus === 'archived' || row.pool?.archived_at) return 3
+  if (!row.pool) return 2
+  if (!hasCurrentCost(row)) return 1
+  return 0
+}
 
 const discountFactor = (row: SupplierCostRow) => {
   if (!row.pool?.current_snapshot_id) return Number.POSITIVE_INFINITY
@@ -447,7 +561,8 @@ const discountLabel = (row: SupplierCostRow) => {
   if (!Number.isFinite(factor)) return '-'
   return formatUpstreamDiscountLabel(factor * 10, {
     suffix: t('admin.accounts.upstreamCost.discountSuffix'),
-    notConfiguredLabel: t('admin.accounts.upstreamCost.notConfigured')
+    notConfiguredLabel: t('admin.accounts.upstreamCost.notConfigured'),
+    fractionDigits: 2
   })
 }
 
@@ -514,3 +629,23 @@ const rowDotClass = (row: SupplierCostRow) => {
   return 'bg-stone-300 dark:bg-stone-600'
 }
 </script>
+
+<style scoped>
+.sortable-header {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.375rem;
+  white-space: nowrap;
+  color: inherit;
+  transition: color 120ms ease;
+}
+
+.sortable-header:hover {
+  color: rgb(87 83 78);
+}
+
+:global(.dark) .sortable-header:hover {
+  color: rgb(245 245 244);
+}
+</style>

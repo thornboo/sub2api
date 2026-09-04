@@ -126,6 +126,7 @@ function mountComparison(options: {
   hasSnapshot?: boolean
   costPools?: Record<string, unknown>[]
   rechargeOverview?: Record<string, unknown> | null
+  suppliers?: Record<string, unknown>[]
 } = {}) {
   const bindingCount = options.bindingCount ?? 0
   const supplierStatus = options.supplierStatus ?? 'active'
@@ -135,7 +136,7 @@ function mountComparison(options: {
 
   return mount(UpstreamCostComparison, {
     props: {
-      suppliers: [
+      suppliers: options.suppliers ?? [
         {
           id: 7,
           name: supplierName,
@@ -197,7 +198,101 @@ describe('UpstreamCostComparison', () => {
     expect(wrapper.text()).not.toContain('Best')
     expect(wrapper.text()).toContain('All-supplier total paid')
     expect(wrapper.text()).toContain('Pool discount (USD basis)')
+    expect(wrapper.text()).toContain('8.57/10')
     expect(wrapper.text()).not.toContain('主余额池')
+  })
+
+  it('sorts every supplier data column and exposes the active direction accessibly', async () => {
+    const wrapper = mountComparison({
+      suppliers: [
+        { id: 7, name: 'Zulu', status: 'active', note: null, is_system: false },
+        { id: 8, name: 'Alpha', status: 'active', note: null, is_system: false },
+        { id: 9, name: 'No cost', status: 'active', note: null, is_system: false }
+      ],
+      costPools: [
+        {
+          id: 9, supplier_id: 7, supplier_name: 'Zulu', name: 'Zulu pool', is_default: true,
+          status: 'active', archived_at: null, reference_fx_rate: 7,
+          current_effective_cny_per_usd: 6, current_snapshot_id: 10, binding_count: 3, record_count: 4
+        },
+        {
+          id: 10, supplier_id: 8, supplier_name: 'Alpha', name: 'Alpha pool', is_default: true,
+          status: 'active', archived_at: null, reference_fx_rate: 7,
+          current_effective_cny_per_usd: 2, current_snapshot_id: 11, binding_count: 1, record_count: 2
+        },
+        {
+          id: 11, supplier_id: 9, supplier_name: 'No cost', name: 'No cost pool', is_default: true,
+          status: 'active', archived_at: null, reference_fx_rate: 7,
+          current_effective_cny_per_usd: null, current_snapshot_id: null, binding_count: 2, record_count: 3
+        }
+      ]
+    })
+
+    const sortKeys = ['supplier', 'boundAccounts', 'currentCost', 'rechargeRatio', 'poolDiscount', 'totalPaid', 'records', 'status']
+    expect(wrapper.findAll('thead button[data-test^="sort-"]')).toHaveLength(sortKeys.length)
+    for (const key of sortKeys) {
+      expect(wrapper.get(`[data-test="sort-${key}"]`).element.closest('th')?.getAttribute('aria-sort')).toBe('none')
+    }
+
+    const rowNames = () => wrapper.findAll('tbody tr').map((row) => row.find('td').text().trim())
+    await wrapper.get('[data-test="sort-currentCost"]').trigger('click')
+    expect(rowNames()).toEqual(['Alpha', 'Zulu', 'No cost'])
+    expect(wrapper.get('[data-test="sort-currentCost"]').element.closest('th')?.getAttribute('aria-sort')).toBe('ascending')
+
+    await wrapper.get('[data-test="sort-currentCost"]').trigger('click')
+    expect(rowNames()).toEqual(['Zulu', 'Alpha', 'No cost'])
+    expect(wrapper.get('[data-test="sort-currentCost"]').element.closest('th')?.getAttribute('aria-sort')).toBe('descending')
+
+    await wrapper.get('[data-test="sort-supplier"]').trigger('click')
+    expect(rowNames()).toEqual(['Alpha', 'No cost', 'Zulu'])
+    expect(wrapper.get('[data-test="sort-currentCost"]').element.closest('th')?.getAttribute('aria-sort')).toBe('none')
+
+    const ascendingCases: Array<[string, string[]]> = [
+      ['boundAccounts', ['Alpha', 'No cost', 'Zulu']],
+      ['rechargeRatio', ['Alpha', 'Zulu', 'No cost']],
+      ['poolDiscount', ['Alpha', 'Zulu', 'No cost']],
+      ['records', ['Alpha', 'No cost', 'Zulu']],
+      ['status', ['Alpha', 'Zulu', 'No cost']]
+    ]
+    for (const [key, expectedNames] of ascendingCases) {
+      await wrapper.get(`[data-test="sort-${key}"]`).trigger('click')
+      expect(rowNames()).toEqual(expectedNames)
+      expect(wrapper.get(`[data-test="sort-${key}"]`).element.closest('th')?.getAttribute('aria-sort')).toBe('ascending')
+    }
+  })
+
+  it('sorts mixed-currency cumulative payments by the backend reference CNY amount', async () => {
+    const wrapper = mountComparison({
+      suppliers: [
+        { id: 7, name: 'Small CNY', status: 'active', note: null, is_system: false },
+        { id: 8, name: 'Large USD', status: 'active', note: null, is_system: false }
+      ],
+      costPools: [],
+      rechargeOverview: {
+        totals: [
+          { currency: 'CNY', amount: 1, record_count: 1 },
+          { currency: 'USD', amount: 1000, record_count: 1 }
+        ],
+        suppliers: [
+          {
+            supplier_id: 7,
+            reference_cny_amount: 1,
+            totals: [{ currency: 'CNY', amount: 1, record_count: 1 }]
+          },
+          {
+            supplier_id: 8,
+            reference_cny_amount: 7000,
+            totals: [{ currency: 'USD', amount: 1000, record_count: 1 }]
+          }
+        ]
+      }
+    })
+
+    const rowNames = () => wrapper.findAll('tbody tr').map((row) => row.find('td').text().trim())
+    await wrapper.get('[data-test="sort-totalPaid"]').trigger('click')
+    expect(rowNames()).toEqual(['Small CNY', 'Large USD'])
+    await wrapper.get('[data-test="sort-totalPaid"]').trigger('click')
+    expect(rowNames()).toEqual(['Large USD', 'Small CNY'])
   })
 
   it('renders multi-currency overview totals and supplier paid totals', () => {
@@ -210,6 +305,7 @@ describe('UpstreamCostComparison', () => {
         suppliers: [
           {
             supplier_id: 7,
+            reference_cny_amount: 1287.5,
             totals: [
               { currency: 'USD', amount: 12.5, record_count: 2 },
               { currency: 'CNY', amount: 1200, record_count: 3 }

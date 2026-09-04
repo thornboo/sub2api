@@ -2280,7 +2280,8 @@ const accountUpstreamEffectiveDiscountLabel = (account: Account): string => {
   if (factor === null) return '-'
   return formatUpstreamDiscountLabel(factor * 10, {
     suffix: t('admin.accounts.upstreamCost.discountSuffix'),
-    notConfiguredLabel: t('admin.accounts.upstreamCost.notConfigured')
+    notConfiguredLabel: t('admin.accounts.upstreamCost.notConfigured'),
+    fractionDigits: 2
   })
 }
 

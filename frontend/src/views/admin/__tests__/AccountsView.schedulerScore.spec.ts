@@ -369,7 +369,7 @@ describe('admin AccountsView scheduler score column', () => {
     await flushPromises()
 
     const confirmedCell = wrapper.get('[data-test="upstream-discount-11"]')
-    expect(confirmedCell.text()).toContain('8.0admin.accounts.upstreamCost.discountSuffix')
+    expect(confirmedCell.text()).toContain('8.00admin.accounts.upstreamCost.discountSuffix')
     expect(confirmedCell.text()).toContain('admin.accounts.upstreamCost.priceReferenceShortCNY')
 
     const legacyCell = wrapper.get('[data-test="upstream-discount-12"]')

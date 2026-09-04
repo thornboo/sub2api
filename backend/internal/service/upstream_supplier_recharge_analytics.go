@@ -32,8 +32,9 @@ type UpstreamRechargePaymentTotal struct {
 }
 
 type UpstreamSupplierRechargeTotal struct {
-	SupplierID int64                          `json:"supplier_id"`
-	Totals     []UpstreamRechargePaymentTotal `json:"totals"`
+	SupplierID         int64                          `json:"supplier_id"`
+	ReferenceCNYAmount float64                        `json:"reference_cny_amount"`
+	Totals             []UpstreamRechargePaymentTotal `json:"totals"`
 }
 
 type UpstreamSupplierRechargeOverview struct {
@@ -305,7 +306,14 @@ func (s *adminServiceImpl) queryUpstreamSupplierRechargeTotals(ctx context.Conte
 SELECT p.supplier_id,
        r.paid_currency,
        COALESCE(SUM(r.paid_amount), 0)::double precision AS amount,
-       COUNT(*)::int AS record_count
+       COUNT(*)::int AS record_count,
+       COALESCE(SUM(SUM(
+           CASE
+               WHEN r.paid_currency = 'CNY' THEN r.paid_amount
+               WHEN r.paid_currency = 'USD' THEN r.paid_amount * r.reference_fx_rate
+               ELSE 0
+           END
+       )) OVER (PARTITION BY p.supplier_id), 0)::double precision AS reference_cny_amount
 FROM upstream_recharge_records r
 JOIN upstream_cost_pools p ON p.id = r.cost_pool_id
 JOIN upstream_suppliers supplier ON supplier.id = p.supplier_id
@@ -320,19 +328,22 @@ ORDER BY p.supplier_id, r.paid_currency`)
 	defer func() { _ = rows.Close() }()
 
 	bySupplier := make(map[int64][]UpstreamRechargePaymentTotal)
+	referenceCNYBySupplier := make(map[int64]float64)
 	order := make([]int64, 0)
 	for rows.Next() {
 		var (
-			supplierID int64
-			total      UpstreamRechargePaymentTotal
+			supplierID         int64
+			total              UpstreamRechargePaymentTotal
+			referenceCNYAmount float64
 		)
-		if err := rows.Scan(&supplierID, &total.Currency, &total.Amount, &total.RecordCount); err != nil {
+		if err := rows.Scan(&supplierID, &total.Currency, &total.Amount, &total.RecordCount, &referenceCNYAmount); err != nil {
 			return nil, err
 		}
 		if _, ok := bySupplier[supplierID]; !ok {
 			order = append(order, supplierID)
 		}
 		bySupplier[supplierID] = append(bySupplier[supplierID], total)
+		referenceCNYBySupplier[supplierID] = referenceCNYAmount
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -341,8 +352,9 @@ ORDER BY p.supplier_id, r.paid_currency`)
 	items := make([]UpstreamSupplierRechargeTotal, 0, len(order))
 	for _, supplierID := range order {
 		items = append(items, UpstreamSupplierRechargeTotal{
-			SupplierID: supplierID,
-			Totals:     bySupplier[supplierID],
+			SupplierID:         supplierID,
+			ReferenceCNYAmount: referenceCNYBySupplier[supplierID],
+			Totals:             bySupplier[supplierID],
 		})
 	}
 	return items, nil

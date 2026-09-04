@@ -486,6 +486,7 @@ export const calculateUpstreamCost = (
 export interface UpstreamDiscountLabelOptions {
   suffix?: string
   notConfiguredLabel?: string
+  fractionDigits?: number
 }
 
 export const formatUpstreamDiscountLabel = (
@@ -493,7 +494,7 @@ export const formatUpstreamDiscountLabel = (
   options: UpstreamDiscountLabelOptions = {}
 ): string => {
   if (!Number.isFinite(displayDiscount)) return options.notConfiguredLabel ?? '未配置'
-  return `${Number(displayDiscount).toFixed(1)}${options.suffix ?? '折'}`
+  return `${Number(displayDiscount).toFixed(options.fractionDigits ?? 1)}${options.suffix ?? '折'}`
 }
 
 export const formatUpstreamRatio = (value?: number): string => {

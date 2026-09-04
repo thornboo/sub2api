@@ -109,26 +109,26 @@ describe('UpstreamRechargeTrendModal', () => {
   it('loads and renders multi-currency recharge trend data', async () => {
     getUpstreamSupplierRechargeTrend.mockResolvedValue({
       supplier_id: 7,
-      granularity: 'month',
+      granularity: 'day',
       totals: [
         { currency: 'USD', amount: 30, record_count: 2 },
         { currency: 'CNY', amount: 700, record_count: 1 }
       ],
       points: [
-        { period: '2026-01', currency: 'USD', amount: 10, record_count: 1 },
-        { period: '2026-02', currency: 'USD', amount: 20, record_count: 1 },
-        { period: '2026-02', currency: 'CNY', amount: 700, record_count: 1 }
+        { period: '2026-01-01', currency: 'USD', amount: 10, record_count: 1 },
+        { period: '2026-01-02', currency: 'USD', amount: 20, record_count: 1 },
+        { period: '2026-01-02', currency: 'CNY', amount: 700, record_count: 1 }
       ]
     })
 
     const wrapper = mountModal()
     await flushPromises()
 
-    expect(getUpstreamSupplierRechargeTrend).toHaveBeenCalledWith(7, 'month')
+    expect(getUpstreamSupplierRechargeTrend).toHaveBeenCalledWith(7, 'day')
     expect(wrapper.text()).toContain('Supplier A')
     expect(wrapper.text()).toContain('700 CNY')
     expect(wrapper.text()).toContain('30 USD')
-    expect(wrapper.get('[data-test="chart-labels"]').text()).toBe('2026-01,2026-02')
+    expect(wrapper.get('[data-test="chart-labels"]').text()).toBe('2026-01-01,2026-01-02')
     expect(wrapper.get('[data-test="chart-datasets"]').text()).toContain('CNY:0/700')
     expect(wrapper.get('[data-test="chart-datasets"]').text()).toContain('USD:10/20')
   })
@@ -137,35 +137,35 @@ describe('UpstreamRechargeTrendModal', () => {
     getUpstreamSupplierRechargeTrend
       .mockResolvedValueOnce({
         supplier_id: 7,
-        granularity: 'month',
+        granularity: 'day',
         totals: [{ currency: 'CNY', amount: 700, record_count: 2 }],
-        points: [{ period: '2026-08', currency: 'CNY', amount: 700, record_count: 2 }]
+        points: [{ period: '2026-08-14', currency: 'CNY', amount: 700, record_count: 2 }]
       })
       .mockResolvedValueOnce({
         supplier_id: 7,
-        granularity: 'day',
+        granularity: 'month',
         totals: [{ currency: 'CNY', amount: 700, record_count: 2 }],
         points: [
-          { period: '2026-08-13', currency: 'CNY', amount: 200, record_count: 1 },
-          { period: '2026-08-14', currency: 'CNY', amount: 500, record_count: 1 }
+          { period: '2026-07', currency: 'CNY', amount: 200, record_count: 1 },
+          { period: '2026-08', currency: 'CNY', amount: 500, record_count: 1 }
         ]
       })
 
     const wrapper = mountModal()
     await flushPromises()
 
-    expect(wrapper.get('[data-test="trend-granularity-month"]').attributes('aria-pressed')).toBe('true')
-    await wrapper.get('[data-test="trend-granularity-day"]').trigger('click')
+    expect(wrapper.get('[data-test="trend-granularity-day"]').attributes('aria-pressed')).toBe('true')
+    await wrapper.get('[data-test="trend-granularity-month"]').trigger('click')
     await flushPromises()
 
-    expect(getUpstreamSupplierRechargeTrend).toHaveBeenNthCalledWith(1, 7, 'month')
-    expect(getUpstreamSupplierRechargeTrend).toHaveBeenNthCalledWith(2, 7, 'day')
-    expect(wrapper.get('[data-test="trend-granularity-day"]').attributes('aria-pressed')).toBe('true')
-    expect(wrapper.get('[data-test="chart-labels"]').text()).toBe('2026-08-13,2026-08-14')
-    expect(wrapper.text()).toContain('Grouped by Day')
+    expect(getUpstreamSupplierRechargeTrend).toHaveBeenNthCalledWith(1, 7, 'day')
+    expect(getUpstreamSupplierRechargeTrend).toHaveBeenNthCalledWith(2, 7, 'month')
+    expect(wrapper.get('[data-test="trend-granularity-month"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-test="chart-labels"]').text()).toBe('2026-07,2026-08')
+    expect(wrapper.text()).toContain('Grouped by Month')
   })
 
-  it('restores the monthly default when the modal is closed and reopened', async () => {
+  it('restores the daily default when the modal is closed and reopened', async () => {
     getUpstreamSupplierRechargeTrend.mockImplementation(async (_supplierId: number, granularity: string) => ({
       supplier_id: 7,
       granularity,
@@ -175,23 +175,23 @@ describe('UpstreamRechargeTrendModal', () => {
 
     const wrapper = mountModal()
     await flushPromises()
-    await wrapper.get('[data-test="trend-granularity-day"]').trigger('click')
+    await wrapper.get('[data-test="trend-granularity-month"]').trigger('click')
     await flushPromises()
     await wrapper.setProps({ show: false })
     await flushPromises()
     await wrapper.setProps({ show: true })
     await flushPromises()
 
-    expect(getUpstreamSupplierRechargeTrend).toHaveBeenNthCalledWith(1, 7, 'month')
-    expect(getUpstreamSupplierRechargeTrend).toHaveBeenNthCalledWith(2, 7, 'day')
-    expect(getUpstreamSupplierRechargeTrend).toHaveBeenNthCalledWith(3, 7, 'month')
-    expect(wrapper.get('[data-test="trend-granularity-month"]').attributes('aria-pressed')).toBe('true')
+    expect(getUpstreamSupplierRechargeTrend).toHaveBeenNthCalledWith(1, 7, 'day')
+    expect(getUpstreamSupplierRechargeTrend).toHaveBeenNthCalledWith(2, 7, 'month')
+    expect(getUpstreamSupplierRechargeTrend).toHaveBeenNthCalledWith(3, 7, 'day')
+    expect(wrapper.get('[data-test="trend-granularity-day"]').attributes('aria-pressed')).toBe('true')
   })
 
   it('shows an empty state when the supplier has no trend points', async () => {
     getUpstreamSupplierRechargeTrend.mockResolvedValue({
       supplier_id: 7,
-      granularity: 'month',
+      granularity: 'day',
       totals: [],
       points: []
     })

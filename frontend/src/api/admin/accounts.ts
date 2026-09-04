@@ -334,6 +334,7 @@ export interface UpstreamRechargeCurrencyTotal {
 
 export interface UpstreamSupplierRechargeOverviewItem {
   supplier_id: number
+  reference_cny_amount: number
   totals: UpstreamRechargeCurrencyTotal[]
 }
 

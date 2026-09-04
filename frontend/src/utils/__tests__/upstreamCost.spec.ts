@@ -96,8 +96,9 @@ describe('upstreamCost utils', () => {
   it('formats discount labels with localized suffixes', () => {
     expect(formatUpstreamDiscountLabel(1.43, {
       suffix: '/10',
-      notConfiguredLabel: 'Not configured'
-    })).toBe('1.4/10')
+      notConfiguredLabel: 'Not configured',
+      fractionDigits: 2
+    })).toBe('1.43/10')
     expect(formatUpstreamDiscountLabel(undefined, {
       suffix: '/10',
       notConfiguredLabel: 'Not configured'
