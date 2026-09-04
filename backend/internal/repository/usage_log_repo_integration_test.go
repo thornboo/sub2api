@@ -718,20 +718,28 @@ func (s *UsageLogRepoSuite) TestDashboardStats_TodayTotalsAndPerformance() {
 	mustCreateAccount(s.T(), s.client, &service.Account{Name: "a-ov", OverloadUntil: &resetAt, Schedulable: true})
 
 	d1, d2, d3 := 100, 200, 300
+	bindingID := int64(42)
+	upstreamMultiplier := 0.5
+	upstreamCurrency := service.UpstreamPriceReferenceCurrencyUSD
+	upstreamExpectedCost := 0.6
 	logToday := &service.UsageLog{
-		UserID:              userToday.ID,
-		APIKeyID:            apiKey1.ID,
-		AccountID:           accNormal.ID,
-		Model:               "claude-3",
-		GroupID:             &group.ID,
-		InputTokens:         10,
-		OutputTokens:        20,
-		CacheCreationTokens: 3,
-		CacheReadTokens:     4,
-		TotalCost:           1.5,
-		ActualCost:          1.2,
-		DurationMs:          &d1,
-		CreatedAt:           testMaxTime(todayStart.Add(2*time.Minute), now.Add(-2*time.Minute)),
+		UserID:                         userToday.ID,
+		APIKeyID:                       apiKey1.ID,
+		AccountID:                      accNormal.ID,
+		Model:                          "claude-3",
+		GroupID:                        &group.ID,
+		InputTokens:                    10,
+		OutputTokens:                   20,
+		CacheCreationTokens:            3,
+		CacheReadTokens:                4,
+		TotalCost:                      1.5,
+		ActualCost:                     1.2,
+		UpstreamCostBindingID:          &bindingID,
+		UpstreamGroupMultiplier:        &upstreamMultiplier,
+		UpstreamPriceReferenceCurrency: &upstreamCurrency,
+		UpstreamExpectedCost:           &upstreamExpectedCost,
+		DurationMs:                     &d1,
+		CreatedAt:                      testMaxTime(todayStart.Add(2*time.Minute), now.Add(-2*time.Minute)),
 	}
 	_, err = s.repo.Create(s.ctx, logToday)
 	s.Require().NoError(err, "Create logToday")
@@ -792,11 +800,18 @@ func (s *UsageLogRepoSuite) TestDashboardStats_TodayTotalsAndPerformance() {
 	s.Require().Equal(baseStats.TotalTokens+int64(51), stats.TotalTokens, "TotalTokens mismatch")
 	s.Require().Equal(baseStats.TotalCost+2.3, stats.TotalCost, "TotalCost mismatch")
 	s.Require().Equal(baseStats.TotalActualCost+2.0, stats.TotalActualCost, "TotalActualCost mismatch")
-	// account_cost falls back to total_cost when account_stats_cost is NULL
-	s.Require().Equal(baseStats.TotalAccountCost+2.3, stats.TotalAccountCost, "TotalAccountCost mismatch")
+	// Only rows carrying immutable upstream evidence participate. Legacy rows stay excluded.
+	s.Require().NotNil(stats.TotalAccountCost)
+	baseAccountCost := 0.0
+	if baseStats.TotalAccountCost != nil {
+		baseAccountCost = *baseStats.TotalAccountCost
+	}
+	s.Require().Equal(baseAccountCost+upstreamExpectedCost, *stats.TotalAccountCost, "TotalAccountCost mismatch")
 	s.Require().GreaterOrEqual(stats.TodayRequests, int64(1), "expected TodayRequests >= 1")
 	s.Require().GreaterOrEqual(stats.TodayCost, 0.0, "expected TodayCost >= 0")
-	s.Require().GreaterOrEqual(stats.TodayAccountCost, 0.0, "expected TodayAccountCost >= 0")
+	if stats.TodayAccountCost != nil {
+		s.Require().GreaterOrEqual(*stats.TodayAccountCost, 0.0, "expected TodayAccountCost >= 0")
+	}
 
 	wantRpm, wantTpm, err := s.repo.getPerformanceStats(s.ctx, 0)
 	s.Require().NoError(err, "getPerformanceStats")
@@ -817,6 +832,10 @@ func (s *UsageLogRepoSuite) TestDashboardStatsWithRange_Fallback() {
 	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-range"})
 
 	d1, d2, d3 := 100, 200, 300
+	bindingID := int64(42)
+	upstreamMultiplier := 0.5
+	upstreamCurrency := service.UpstreamPriceReferenceCurrencyUSD
+	upstreamExpectedCost := 0.4
 	logOutside := &service.UsageLog{
 		UserID:       user1.ID,
 		APIKeyID:     apiKey1.ID,
@@ -833,18 +852,22 @@ func (s *UsageLogRepoSuite) TestDashboardStatsWithRange_Fallback() {
 	s.Require().NoError(err)
 
 	logRange := &service.UsageLog{
-		UserID:              user1.ID,
-		APIKeyID:            apiKey1.ID,
-		AccountID:           account.ID,
-		Model:               "claude-3",
-		InputTokens:         10,
-		OutputTokens:        20,
-		CacheCreationTokens: 1,
-		CacheReadTokens:     2,
-		TotalCost:           1.0,
-		ActualCost:          0.9,
-		DurationMs:          &d1,
-		CreatedAt:           rangeStart.Add(2 * time.Hour),
+		UserID:                         user1.ID,
+		APIKeyID:                       apiKey1.ID,
+		AccountID:                      account.ID,
+		Model:                          "claude-3",
+		InputTokens:                    10,
+		OutputTokens:                   20,
+		CacheCreationTokens:            1,
+		CacheReadTokens:                2,
+		TotalCost:                      1.0,
+		ActualCost:                     0.9,
+		UpstreamCostBindingID:          &bindingID,
+		UpstreamGroupMultiplier:        &upstreamMultiplier,
+		UpstreamPriceReferenceCurrency: &upstreamCurrency,
+		UpstreamExpectedCost:           &upstreamExpectedCost,
+		DurationMs:                     &d1,
+		CreatedAt:                      rangeStart.Add(2 * time.Hour),
 	}
 	_, err = s.repo.Create(s.ctx, logRange)
 	s.Require().NoError(err)
@@ -875,8 +898,9 @@ func (s *UsageLogRepoSuite) TestDashboardStatsWithRange_Fallback() {
 	s.Require().Equal(int64(45), stats.TotalTokens)
 	s.Require().Equal(1.5, stats.TotalCost)
 	s.Require().Equal(1.4, stats.TotalActualCost)
-	// account_cost = COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1) = total_cost
-	s.Require().Equal(1.5, stats.TotalAccountCost)
+	// The second in-range row is legacy-only and must not be mixed into the audited total.
+	s.Require().NotNil(stats.TotalAccountCost)
+	s.Require().Equal(upstreamExpectedCost, *stats.TotalAccountCost)
 	s.Require().InEpsilon(150.0, stats.AverageDurationMs, 0.0001)
 }
 
@@ -939,8 +963,10 @@ func (s *UsageLogRepoSuite) TestGetAccountTodayStats() {
 	s.Require().NoError(err, "GetAccountTodayStats")
 	s.Require().Equal(int64(2), stats.Requests)
 	s.Require().Equal(int64(40), stats.Tokens)
-	// account cost = SUM(total_cost * account_rate_multiplier)
-	s.Require().InEpsilon(1.5, stats.Cost, 0.0001)
+	// Legacy rows have no immutable upstream evidence and must remain unknown.
+	s.Require().Nil(stats.Cost)
+	s.Require().Zero(stats.UpstreamExpectedCostCount)
+	s.Require().Equal(int64(2), stats.MissingUpstreamCostCount)
 	// standard cost = SUM(total_cost)
 	s.Require().InEpsilon(1.5, stats.StandardCost, 0.0001)
 	// user cost = SUM(actual_cost)

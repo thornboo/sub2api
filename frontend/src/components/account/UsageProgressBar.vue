@@ -13,7 +13,7 @@
           {{ formatTokens }}
         </span>
         <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800" :title="t('usage.accountBilled')">
-          A ${{ formatAccountCost }}
+          A {{ formatAccountCost }}
         </span>
         <span
           v-if="windowStats?.user_cost != null"
@@ -220,8 +220,8 @@ const formatTokens = computed(() => {
 })
 
 const formatAccountCost = computed(() => {
-  if (!props.windowStats) return '0.00'
-  return props.windowStats.cost.toFixed(2)
+  if (!props.windowStats || props.windowStats.cost == null) return t('usage.noUpstreamCostEvidence')
+  return `$${props.windowStats.cost.toFixed(2)}`
 })
 
 const formatUserCost = computed(() => {

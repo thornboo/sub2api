@@ -608,6 +608,13 @@ type AdminUsageLog struct {
 	AccountRateMultiplier *float64 `json:"account_rate_multiplier"`
 	// AccountStatsCost 自定义定价规则计算的账号统计费用（nil 表示使用默认公式）
 	AccountStatsCost *float64 `json:"account_stats_cost,omitempty"`
+	// UpstreamExpectedCost is the independently calculated amount the selected
+	// upstream account should bill. These fields are admin-only audit evidence.
+	UpstreamCostBindingID          *int64   `json:"upstream_cost_binding_id,omitempty"`
+	UpstreamGroupMultiplier        *float64 `json:"upstream_group_multiplier,omitempty"`
+	UpstreamPriceReferenceCurrency *string  `json:"upstream_price_reference_currency,omitempty"`
+	UpstreamReferenceFXRate        *float64 `json:"upstream_reference_fx_rate,omitempty"`
+	UpstreamExpectedCost           *float64 `json:"upstream_expected_cost,omitempty"`
 	// ScheduleMeta 请求执行与计费诊断信息（仅管理员可见）。
 	ScheduleMeta *UsageScheduleMeta `json:"schedule_meta,omitempty"`
 	// RoutePlanSource 是企业成员模型感知路由的执行计划来源（仅管理员可见）。

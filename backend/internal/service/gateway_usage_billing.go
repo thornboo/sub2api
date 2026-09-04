@@ -853,6 +853,19 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	usageLog := s.buildRecordUsageLog(ctx, input, result, apiKey, user, account, subscription,
 		requestedModel, multiplier, imageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost, opts)
 
+	// Reprice the complete request independently with the actual upstream model
+	// and no customer multiplier. The supplier-side group multiplier is applied
+	// only after this base amount has been resolved.
+	upstreamBillingModel := upstreamSentModel(result.Model, result.UpstreamModel)
+	if responseModel := strings.TrimSpace(result.UpstreamResponseModel); responseModel != "" && !result.UpstreamResponseModelConflict {
+		if identified, _ := s.hasIdentifiedResponseModelPricing(withUpstreamExpectedPricing(ctx, account), responseModel, upstreamPricingAPIKey(apiKey)); identified {
+			upstreamBillingModel = responseModel
+		}
+	}
+	upstreamBaseCost := s.calculateUpstreamExpectedBaseCost(
+		ctx, result, apiKey, account, upstreamBillingModel, account.UpstreamPriceReferenceCurrency, pricingAt, opts,
+	)
+
 	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
 	if usageLog.GroupID != nil {
 		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,
@@ -869,6 +882,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 			cost.TotalCost,
 		)
 	}
+	applyUpstreamExpectedCost(usageLog, account, upstreamBaseCost, upstreamBillingModel)
 
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
 		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
@@ -973,6 +987,60 @@ func (s *GatewayService) calculateRecordUsageCost(
 		}
 	}
 	return tokenCost
+}
+
+// calculateUpstreamExpectedBaseCost is the strict pricing entry point used by
+// audit evidence. Unlike the customer billing path, it must preserve the
+// distinction between a configured zero price and an unknown token price.
+func (s *GatewayService) calculateUpstreamExpectedBaseCost(
+	ctx context.Context,
+	result *ForwardResult,
+	apiKey *APIKey,
+	account *Account,
+	billingModel string,
+	priceReferenceCurrency string,
+	pricingAt time.Time,
+	opts *recordUsageOpts,
+) *CostBreakdown {
+	ctx = withUpstreamExpectedPricing(ctx, account)
+	if result == nil || apiKey == nil || strings.TrimSpace(billingModel) == "" {
+		return nil
+	}
+	pricingAPIKey := upstreamPricingAPIKey(apiKey)
+	resolved := s.resolveChannelPricing(ctx, billingModel, pricingAPIKey)
+	if !upstreamCurrencyAllowsResolvedPricing(priceReferenceCurrency, resolved) {
+		return nil
+	}
+	if upstreamCurrencyIsCNY(priceReferenceCurrency) && result.SearchCount > 0 {
+		// Search defaults are USD-denominated and channels do not currently
+		// expose a separate CNY search price card.
+		return nil
+	}
+	if result.AudioUsage != nil {
+		switch strings.ToLower(strings.TrimSpace(result.AudioUsage.Mode)) {
+		case "realtime", "tts", "stt":
+		default:
+			return nil
+		}
+		if upstreamCurrencyIsCNY(priceReferenceCurrency) && (resolved == nil || resolved.Mode != BillingModePerRequest) {
+			return nil
+		}
+	}
+	if result.ImageCount > 0 && resolved == nil {
+		if _, known := getDefaultGrokImagineImagePrice(billingModel, NormalizeImageBillingTierOrDefault(result.ImageSize)); !known {
+			if s.billingService == nil || s.billingService.pricingService == nil {
+				return nil
+			}
+			pricing := s.billingService.pricingService.GetModelPricing(billingModel)
+			if pricing == nil || pricing.OutputCostPerImage <= 0 {
+				return nil
+			}
+		}
+	}
+	if result.ImageCount <= 0 && result.AudioUsage == nil && !s.hasResolvableTokenPricing(ctx, billingModel, pricingAPIKey) {
+		return nil
+	}
+	return s.calculateRecordUsageCost(ctx, result, pricingAPIKey, billingModel, 1, 1, pricingAt, opts)
 }
 
 // compositeBillableModel 决定 composite 分组请求的计费模型：来源覆盖把计费模型

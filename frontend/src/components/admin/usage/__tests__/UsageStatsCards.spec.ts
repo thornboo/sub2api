@@ -15,6 +15,9 @@ const messages: Record<string, string> = {
   'usage.cacheReadTokensLabel': 'Cache Read',
   'usage.totalCost': 'Total Cost',
   'usage.accountCost': 'Cost',
+  'usage.upstreamExpectedCost': 'Expected upstream cost',
+  'usage.upstreamCostCoverage': 'evidence {covered}/{total}',
+  'usage.noUpstreamCostEvidence': 'no cost evidence',
   'usage.standardCost': 'Standard',
   'usage.avgDuration': 'Avg Duration',
 }
@@ -24,7 +27,13 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => messages[key] ?? key,
+      t: (key: string, params?: Record<string, number>) => {
+        let value = messages[key] ?? key
+        for (const [name, replacement] of Object.entries(params ?? {})) {
+          value = value.replace(`{${name}}`, String(replacement))
+        }
+        return value
+      },
     }),
   }
 })
@@ -40,6 +49,8 @@ const stats = {
   total_cost: 0.001,
   total_actual_cost: 0.001,
   total_account_cost: 0.001,
+  upstream_expected_cost_count: 1,
+  missing_upstream_cost_count: 2,
   average_duration_ms: 250,
 }
 
@@ -63,6 +74,8 @@ describe('UsageStatsCards', () => {
     expect(text).toContain('12')
     expect(text).toContain('Cache Read')
     expect(text).toContain('22')
+    expect(text).toContain('Expected upstream cost')
+    expect(text).toContain('evidence 1/3')
   })
 
   it('keeps the cache tooltip out of the layout while it is hidden', () => {

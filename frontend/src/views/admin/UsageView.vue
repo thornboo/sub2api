@@ -960,7 +960,9 @@ const exportToExcel = async () => {
       t('admin.usage.cacheReadTokens'), t('admin.usage.cacheCreationTokens'),
       t('admin.usage.inputCost'), t('admin.usage.outputCost'),
       t('admin.usage.cacheReadCost'), t('admin.usage.cacheCreationCost'),
-      t('usage.rate'), t('usage.accountMultiplier'), t('usage.original'), t('usage.userBilled'), t('usage.accountBilled'),
+      t('usage.rate'), t('usage.accountMultiplier'), t('usage.upstreamMultiplier'),
+      t('usage.upstreamPriceReference'), t('usage.upstreamReferenceFx'), t('usage.upstreamCostBindingId'),
+      t('usage.original'), t('usage.userBilled'), t('usage.accountBilled'), t('usage.upstreamExpectedCost'),
       t('usage.firstToken'), t('usage.duration'),
       t('admin.usage.requestId'), t('usage.userAgent'), t('admin.usage.ipAddress')
     ]
@@ -984,8 +986,11 @@ const exportToExcel = async () => {
         log.input_cost?.toFixed(6) || '0.000000', log.output_cost?.toFixed(6) || '0.000000',
         log.cache_read_cost?.toFixed(6) || '0.000000', log.cache_creation_cost?.toFixed(6) || '0.000000',
         log.rate_multiplier?.toPrecision(4) || '1.00', (log.account_rate_multiplier ?? 1).toPrecision(4),
+        log.upstream_group_multiplier?.toPrecision(6) || '', log.upstream_price_reference_currency || '',
+        log.upstream_reference_fx_rate?.toPrecision(6) || '', log.upstream_cost_binding_id || '',
         log.total_cost?.toFixed(6) || '0.000000', log.actual_cost?.toFixed(6) || '0.000000',
-        ((log.account_stats_cost ?? log.total_cost) * (log.account_rate_multiplier ?? 1)).toFixed(6), log.first_token_ms ?? '', log.duration_ms,
+        ((log.account_stats_cost ?? log.total_cost) * (log.account_rate_multiplier ?? 1)).toFixed(6),
+        log.upstream_expected_cost?.toFixed(6) || '', log.first_token_ms ?? '', log.duration_ms,
         log.request_id || '', log.user_agent || '', log.ip_address || ''
       ])
       if (rows.length) {

@@ -512,7 +512,7 @@
               {{ formatKeyTokens }}
             </span>
             <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800" :title="t('usage.accountBilled')">
-              A ${{ formatKeyCost }}
+              A {{ formatKeyCost }}
             </span>
             <span
               v-if="todayStats.user_cost != null"
@@ -593,7 +593,7 @@
             {{ formatKeyTokens }}
           </span>
           <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800" :title="t('usage.accountBilled')">
-            A ${{ formatKeyCost }}
+            A {{ formatKeyCost }}
           </span>
           <span
             v-if="todayStats.user_cost != null"
@@ -1552,8 +1552,8 @@ const formatKeyTokens = computed(() => {
 })
 
 const formatKeyCost = computed(() => {
-  if (!props.todayStats) return '0.00'
-  return props.todayStats.cost.toFixed(2)
+  if (!props.todayStats || props.todayStats.cost == null) return t('usage.noUpstreamCostEvidence')
+  return `$${props.todayStats.cost.toFixed(2)}`
 })
 
 const formatKeyUserCost = computed(() => {

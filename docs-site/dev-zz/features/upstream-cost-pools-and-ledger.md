@@ -1,6 +1,6 @@
 # 上游供应商资金池与成本账本
 
-> 状态：部分落地。阶段 1 后端兼容层已实现：`166_upstream_cost_pools.sql` 新增供应商、资金池、账号成本绑定和成本快照表；旧账号级充值接口保留，但会写入账号默认资金池。本期账本只支持 `recharge` / `bonus` / `adjustment` 三类非负金额记录，只有具有实付与到账金额的 `recharge` 定义单位成本并生成成本快照；`bonus` 增加额度但不单独改写当前成本。2026-07-09 已补齐供应商重命名 / 备注 / 归档 / 受限硬删除与账号供应商归属；2026-07-10 又把稳定的默认充值换算 / 参考汇率收回供应商默认资金池配置，并把供应商新增 / 编辑改为 Modal、日常充值收敛为金额输入和自动到账。资金池高级管理页、显式合池、退款 / 冲正 / 作废账本、余额查询迁移和 usage 成本证据仍是后续阶段。
+> 状态：部分落地。阶段 1 后端兼容层已实现：`166_upstream_cost_pools.sql` 新增供应商、资金池、账号成本绑定和成本快照表；旧账号级充值接口保留，但会写入账号默认资金池。本期账本只支持 `recharge` / `bonus` / `adjustment` 三类非负金额记录，只有具有实付与到账金额的 `recharge` 定义单位成本并生成成本快照；`bonus` 增加额度但不单独改写当前成本。2026-07-09 已补齐供应商重命名 / 备注 / 归档 / 受限硬删除与账号供应商归属；2026-07-10 又把稳定的默认充值换算 / 参考汇率收回供应商默认资金池配置，并把供应商新增 / 编辑改为 Modal、日常充值收敛为金额输入和自动到账。2026-09-04 已落地第一批 usage 上游应扣证据：按实际账号和最终上游模型固化绑定 ID、分组倍率、计价基准、参考汇率与上游应扣金额。资金池人民币采购成本、显式合池、退款 / 冲正 / 作废账本和余额查询迁移仍是后续阶段。
 
 ## 这份设计解决什么
 
@@ -299,6 +299,7 @@ status
 upstream_group_name
 price_reference_currency
 price_reference_confirmed
+official_pricing_channel_id
 default_multiplier
 model_family_multipliers
 note
@@ -318,6 +319,7 @@ updated_at
 | `upstream_group_name` | 这把上游 key 在供应商侧所属的分组，例如 `claude-sale` |
 | `price_reference_currency` | 上游分组价目表基准，`CNY` 表示人民币官方价，`USD` 表示美元官方价；历史数据暂存 `USD` 仅为保持旧公式 |
 | `price_reference_confirmed` | 管理员是否明确确认过计价基准；历史数据为 `false`，不参与成本优先排序或调度 |
+| `official_pricing_channel_id` | 明确选择的上游官方价目表容器；按渠道 ID 直接读取，禁止根据调用用户分组推断 |
 | `default_multiplier` | 兼容存储列，当前承载这把上游 key 的分组倍率；API / UI 对外命名为 `upstream_group_multiplier` |
 | `model_family_multipliers` | 模型族覆盖，例如 haiku / sonnet / opus |
 | `valid_from` / `valid_to` | 绑定历史区间 |
@@ -387,6 +389,19 @@ note
 - 新快照生效时，应关闭旧快照的 `valid_to`。
 
 ### usage 成本证据字段
+
+当前已通过 `234_usage_log_upstream_expected_cost.sql` 落地第一批可对账证据：
+
+```text
+upstream_cost_binding_id
+upstream_group_multiplier
+upstream_price_reference_currency
+upstream_reference_fx_rate
+upstream_expected_cost
+upstream_expected_cost_usd
+```
+
+`upstream_expected_cost` 表示根据实际成功账号、最终上游计费模型、完整请求用量和供应商侧倍率独立计算的“上游应扣额度”。计算基数会按最终上游模型重新走独立计价路径，不复用旧 `account_stats_cost`，也不继承调用用户分组的模型覆盖价、分时价、图片/音频/搜索覆盖价；公式统一为“上游官方价目表金额 × 实际命中的上游分组倍率”。账号绑定可显式选择一个渠道作为“上游官方价目表容器”，运行时按渠道 ID 直接读取，不再根据调用用户的分组寻找渠道。美元绑定可以留空并回落到内置美元官方价；人民币绑定必须选择明确价目表，禁止把内置美元价仅改写成 `CNY` 标签。模型族倍率按最终上游模型做最长匹配，未命中时回落默认倍率，实际采用的倍率会固化到 usage。参考汇率不改变单条记录的上游原始扣额；数据库生成 `upstream_expected_cost_usd` 作为跨账号聚合使用的参考 USD 金额，避免直接相加 CNY 与 USD。缺少已确认绑定、缺少对应币种的明确价卡或无法解析最终上游模型价格时保持为空，不使用硬编码媒体默认价伪造证据，也不伪装成零成本；历史记录不使用当前账号配置倒算。聚合接口同时返回金额证据覆盖数和缺失数：全无证据时金额为 `null`，部分覆盖时金额只代表已覆盖记录。
 
 长期应在 usage 写入路径固化上游成本证据。字段可以落在 `usage_logs`、`usage_billing` 或专门的 usage cost detail 表中：
 

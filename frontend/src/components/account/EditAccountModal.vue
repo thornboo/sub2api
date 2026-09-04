@@ -783,6 +783,18 @@
               />
               <p class="input-hint">{{ t('admin.accounts.upstreamCost.priceReferenceCurrencyHint') }}</p>
             </div>
+            <div>
+              <label class="input-label">{{ t('admin.accounts.upstreamCost.officialPricingChannel') }}</label>
+              <Select
+                v-model="upstreamOfficialPricingChannelID"
+                :options="upstreamOfficialPricingChannelOptions"
+                :placeholder="t('admin.accounts.upstreamCost.officialPricingChannelPlaceholder')"
+                :disabled="upstreamSupplierBindingReadOnly"
+                data-testid="upstream-official-pricing-channel"
+                clearable
+              />
+              <p class="input-hint">{{ t('admin.accounts.upstreamCost.officialPricingChannelHint') }}</p>
+            </div>
             <p class="rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600 dark:bg-white/[0.04] dark:text-stone-300 md:col-span-3">
               {{ upstreamPriceReferenceFormulaPreview }}
             </p>
@@ -3428,6 +3440,7 @@ const upstreamSupplierSelectionDirty = ref(false)
 const upstreamGroupName = ref('')
 const upstreamGroupMultiplier = ref('1')
 const upstreamPriceReferenceCurrency = ref<UpstreamPriceReferenceCurrency | null>(null)
+const upstreamOfficialPricingChannelID = ref<number | null>(null)
 const upstreamSupplierLoading = ref(false)
 const upstreamSupplierLoadError = ref('')
 
@@ -3700,6 +3713,11 @@ const upstreamPriceReferenceCurrencyOptions = computed(() => [
   { value: 'CNY', label: t('admin.accounts.upstreamCost.priceReferenceCurrencyCNY') },
   { value: 'USD', label: t('admin.accounts.upstreamCost.priceReferenceCurrencyUSD') }
 ])
+const upstreamOfficialPricingChannelOptions = computed(() =>
+  channelRecommendations.value
+    .filter((channel) => channel.status === 'active')
+    .map((channel) => ({ value: channel.id, label: channel.name }))
+)
 const formatUpstreamGroupMultiplierValue = (value?: number | null): string => {
   const numericValue = Number(value)
   return Number.isFinite(numericValue) && numericValue > 0 ? `${numericValue}` : '1'
@@ -3707,6 +3725,10 @@ const formatUpstreamGroupMultiplierValue = (value?: number | null): string => {
 const parseUpstreamGroupMultiplierValue = (): number => {
   const numericValue = Number(upstreamGroupMultiplier.value)
   return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : 1
+}
+const parseUpstreamOfficialPricingChannelID = (): number | null => {
+  const channelID = Number(upstreamOfficialPricingChannelID.value)
+  return Number.isFinite(channelID) && channelID > 0 ? channelID : null
 }
 const upstreamPriceReferenceFormulaPreview = computed(() => {
   if (!upstreamPriceReferenceCurrency.value) {
@@ -3735,10 +3757,12 @@ const upstreamSupplierSelectValue = computed<string | number | boolean | null>({
         upstreamPriceReferenceCurrency.value = upstreamCostBinding.value.price_reference_confirmed
           ? upstreamCostBinding.value.price_reference_currency
           : null
+        upstreamOfficialPricingChannelID.value = upstreamCostBinding.value.official_pricing_channel_id ?? null
       } else {
         upstreamGroupName.value = ''
         upstreamGroupMultiplier.value = '1'
         upstreamPriceReferenceCurrency.value = null
+        upstreamOfficialPricingChannelID.value = null
       }
       return
     }
@@ -3746,6 +3770,7 @@ const upstreamSupplierSelectValue = computed<string | number | boolean | null>({
     upstreamGroupName.value = ''
     upstreamGroupMultiplier.value = '1'
     upstreamPriceReferenceCurrency.value = null
+    upstreamOfficialPricingChannelID.value = null
   }
 })
 const showMixedChannelWarning = ref(false)
@@ -4343,6 +4368,7 @@ const resetUpstreamSupplierBindingState = () => {
   upstreamGroupName.value = ''
   upstreamGroupMultiplier.value = '1'
   upstreamPriceReferenceCurrency.value = null
+  upstreamOfficialPricingChannelID.value = null
   upstreamSupplierLoadError.value = ''
 }
 
@@ -4367,6 +4393,9 @@ const hydrateUpstreamSupplierBinding = (binding: UpstreamAccountCostBinding | nu
   upstreamPriceReferenceCurrency.value = bindingCanBePreserved && binding?.price_reference_confirmed
     ? binding.price_reference_currency
     : null
+  upstreamOfficialPricingChannelID.value = bindingCanBePreserved
+    ? binding?.official_pricing_channel_id ?? null
+    : null
   upstreamSupplierSelectionDirty.value = false
 }
 
@@ -4374,7 +4403,10 @@ const loadUpstreamSupplierBinding = async (accountID: number) => {
   resetUpstreamSupplierBindingState()
   upstreamSupplierLoading.value = true
   try {
-    const suppliers = await adminAPI.accounts.listUpstreamSuppliers()
+    const [suppliers] = await Promise.all([
+      adminAPI.accounts.listUpstreamSuppliers(),
+      loadChannelModelRecommendations()
+    ])
     let binding: UpstreamAccountCostBinding | null = null
     try {
       binding = await adminAPI.accounts.getAccountUpstreamCostBinding(accountID)
@@ -4422,6 +4454,7 @@ const buildUpstreamSupplierBindingPayload = (): UpstreamSupplierBindingPayload |
     ...(upstreamPriceReferenceCurrency.value
       ? { price_reference_currency: upstreamPriceReferenceCurrency.value }
       : {}),
+    official_pricing_channel_id: parseUpstreamOfficialPricingChannelID(),
     upstream_group_multiplier: parseUpstreamGroupMultiplierValue()
   }
 }
@@ -4452,6 +4485,9 @@ const upstreamSupplierBindingChanged = (payload: UpstreamSupplierBindingPayload 
       return true
     }
   } else if (payload.price_reference_currency) {
+    return true
+  }
+  if ((payload.official_pricing_channel_id ?? null) !== (current.official_pricing_channel_id ?? null)) {
     return true
   }
   const currentMultiplier = Number(current.upstream_group_multiplier ?? current.default_multiplier ?? 1)
@@ -5586,6 +5622,16 @@ const handleSubmit = async () => {
     !upstreamPriceReferenceCurrency.value
   ) {
     appStore.showError(t('admin.accounts.upstreamCost.priceReferenceCurrencyRequired'))
+    return
+  }
+  if (
+    showUpstreamSupplierBinding.value &&
+    upstreamSupplierID.value &&
+    !upstreamSupplierBindingReadOnly.value &&
+    upstreamPriceReferenceCurrency.value === 'CNY' &&
+    !upstreamOfficialPricingChannelID.value
+  ) {
+    appStore.showError(t('admin.accounts.upstreamCost.officialPricingChannelRequired'))
     return
   }
 

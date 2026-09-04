@@ -105,6 +105,11 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // billing_tier
 			sqlmock.AnyArg(), // billing_mode
 			sqlmock.AnyArg(), // account_stats_cost
+			sqlmock.AnyArg(), // upstream_cost_binding_id
+			sqlmock.AnyArg(), // upstream_group_multiplier
+			sqlmock.AnyArg(), // upstream_price_reference_currency
+			sqlmock.AnyArg(), // upstream_reference_fx_rate
+			sqlmock.AnyArg(), // upstream_expected_cost
 			sqlmock.AnyArg(), // session_id
 			log.NativeCompactionV2,
 			createdAt,
@@ -222,6 +227,11 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(), // billing_tier
 			sqlmock.AnyArg(), // billing_mode
 			sqlmock.AnyArg(), // account_stats_cost
+			sqlmock.AnyArg(), // upstream_cost_binding_id
+			sqlmock.AnyArg(), // upstream_group_multiplier
+			sqlmock.AnyArg(), // upstream_price_reference_currency
+			sqlmock.AnyArg(), // upstream_reference_fx_rate
+			sqlmock.AnyArg(), // upstream_expected_cost
 			sqlmock.AnyArg(), // session_id
 			log.NativeCompactionV2,
 			createdAt,
@@ -252,6 +262,33 @@ func TestBuildUsageLogBestEffortInsertQuery_IncludesRequestedModelColumn(t *test
 	require.Contains(t, query, "\n\t\t\trequest_id,\n\t\t\tmodel,\n\t\t\trequested_model,\n\t\t\tupstream_model,\n\t\t\tupstream_response_model,\n\t\t\tupstream_model_mismatch,")
 	require.Len(t, args, len(prepared.args))
 	require.Equal(t, prepared.args[5], args[5])
+}
+
+func TestPrepareUsageLogInsertKeepsUpstreamCostEvidenceTogether(t *testing.T) {
+	bindingID := int64(42)
+	multiplier := 0.5
+	currency := service.UpstreamPriceReferenceCurrencyUSD
+	fx := 7.0
+	expected := 3.0
+	prepared := prepareUsageLogInsert(&service.UsageLog{
+		UserID:                         1,
+		APIKeyID:                       2,
+		AccountID:                      3,
+		Model:                          "gpt-test",
+		UpstreamCostBindingID:          &bindingID,
+		UpstreamGroupMultiplier:        &multiplier,
+		UpstreamPriceReferenceCurrency: &currency,
+		UpstreamReferenceFXRate:        &fx,
+		UpstreamExpectedCost:           &expected,
+	})
+
+	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
+	start := len(prepared.args) - 8
+	require.Equal(t, &bindingID, prepared.args[start])
+	require.Equal(t, &multiplier, prepared.args[start+1])
+	require.Equal(t, sql.NullString{String: currency, Valid: true}, prepared.args[start+2])
+	require.Equal(t, &fx, prepared.args[start+3])
+	require.Equal(t, &expected, prepared.args[start+4])
 }
 
 func TestExecUsageLogInsertNoResult_PersistsRequestedModel(t *testing.T) {
@@ -665,12 +702,14 @@ func TestUsageLogRepositoryGetStatsWithFiltersRequestedModelSource(t *testing.T)
 			"cost",
 			"actual_cost",
 			"account_cost",
+			"upstream_expected_cost_count",
+			"missing_upstream_cost_count",
 			"avg_duration_ms",
 		}).
-			AddRow(1, 1, nil, nil, int64(1), int64(2), int64(3), int64(1), int64(3), 1.2, 1.0, 1.2, 20.0).
-			AddRow(0, 1, "/v1/responses", nil, int64(1), int64(2), int64(3), int64(1), int64(3), 1.2, 1.0, 1.2, 20.0).
-			AddRow(1, 0, nil, "/v1/responses", int64(1), int64(2), int64(3), int64(1), int64(3), 1.2, 1.0, 1.2, 20.0).
-			AddRow(0, 0, "/v1/responses", "/v1/responses", int64(1), int64(2), int64(3), int64(1), int64(3), 1.2, 1.0, 1.2, 20.0))
+			AddRow(1, 1, nil, nil, int64(1), int64(2), int64(3), int64(1), int64(3), 1.2, 1.0, 1.2, int64(1), int64(0), 20.0).
+			AddRow(0, 1, "/v1/responses", nil, int64(1), int64(2), int64(3), int64(1), int64(3), 1.2, 1.0, 1.2, int64(1), int64(0), 20.0).
+			AddRow(1, 0, nil, "/v1/responses", int64(1), int64(2), int64(3), int64(1), int64(3), 1.2, 1.0, 1.2, int64(1), int64(0), 20.0).
+			AddRow(0, 0, "/v1/responses", "/v1/responses", int64(1), int64(2), int64(3), int64(1), int64(3), 1.2, 1.0, 1.2, int64(1), int64(0), 20.0))
 
 	stats, err := repo.GetStatsWithFilters(context.Background(), filters)
 	require.NoError(t, err)
@@ -706,8 +745,10 @@ func TestUsageLogRepositoryGetStatsWithFiltersRequestTypePriority(t *testing.T) 
 			"cost",
 			"actual_cost",
 			"account_cost",
+			"upstream_expected_cost_count",
+			"missing_upstream_cost_count",
 			"avg_duration_ms",
-		}).AddRow(1, 1, nil, nil, int64(1), int64(2), int64(3), int64(1), int64(3), 1.2, 1.0, 1.2, 20.0))
+		}).AddRow(1, 1, nil, nil, int64(1), int64(2), int64(3), int64(1), int64(3), 1.2, 1.0, 1.2, int64(1), int64(0), 20.0))
 
 	stats, err := repo.GetStatsWithFilters(context.Background(), filters)
 	require.NoError(t, err)
@@ -733,17 +774,21 @@ func TestUsageLogRepositoryGetModelStatsAccountCostColumn(t *testing.T) {
 			"cost", "actual_cost", "account_cost",
 		}).
 			AddRow("claude-opus-4-6", int64(10), int64(100), int64(200), int64(5), int64(3), int64(308), 2.5, 2.0, 1.8).
-			AddRow("claude-sonnet-4-6", int64(5), int64(50), int64(100), int64(0), int64(0), int64(150), 1.0, 0.8, 0.7))
+			AddRow("claude-sonnet-4-6", int64(5), int64(50), int64(100), int64(0), int64(0), int64(150), 1.0, 0.8, 0.7).
+			AddRow("unknown-model", int64(2), int64(10), int64(10), int64(0), int64(0), int64(20), 0.1, 0.1, nil))
 
 	results, err := repo.GetModelStatsWithFilters(context.Background(), start, end, 0, 0, 0, 0, nil, nil, nil)
 	require.NoError(t, err)
-	require.Len(t, results, 2)
+	require.Len(t, results, 3)
 	require.Equal(t, "claude-opus-4-6", results[0].Model)
 	require.Equal(t, 2.5, results[0].Cost)
 	require.Equal(t, 2.0, results[0].ActualCost)
-	require.Equal(t, 1.8, results[0].AccountCost)
+	require.NotNil(t, results[0].AccountCost)
+	require.Equal(t, 1.8, *results[0].AccountCost)
 	require.Equal(t, "claude-sonnet-4-6", results[1].Model)
-	require.Equal(t, 0.7, results[1].AccountCost)
+	require.NotNil(t, results[1].AccountCost)
+	require.Equal(t, 0.7, *results[1].AccountCost)
+	require.Nil(t, results[2].AccountCost)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -784,18 +829,22 @@ func TestUsageLogRepositoryGetGroupStatsAccountCostColumn(t *testing.T) {
 			"cost", "actual_cost", "account_cost",
 		}).
 			AddRow(int64(1), "azure-cc", int64(100), int64(5000), 10.0, 8.5, 7.2).
-			AddRow(int64(2), "max", int64(50), int64(2000), 5.0, 4.0, 3.5))
+			AddRow(int64(2), "max", int64(50), int64(2000), 5.0, 4.0, 3.5).
+			AddRow(int64(3), "unknown", int64(2), int64(20), 0.1, 0.1, nil))
 
 	results, err := repo.GetGroupStatsWithFilters(context.Background(), start, end, 0, 0, 0, 0, nil, nil, nil)
 	require.NoError(t, err)
-	require.Len(t, results, 2)
+	require.Len(t, results, 3)
 	require.Equal(t, int64(1), results[0].GroupID)
 	require.Equal(t, "azure-cc", results[0].GroupName)
 	require.Equal(t, 10.0, results[0].Cost)
 	require.Equal(t, 8.5, results[0].ActualCost)
-	require.Equal(t, 7.2, results[0].AccountCost)
+	require.NotNil(t, results[0].AccountCost)
+	require.Equal(t, 7.2, *results[0].AccountCost)
 	require.Equal(t, int64(2), results[1].GroupID)
-	require.Equal(t, 3.5, results[1].AccountCost)
+	require.NotNil(t, results[1].AccountCost)
+	require.Equal(t, 3.5, *results[1].AccountCost)
+	require.Nil(t, results[2].AccountCost)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -821,24 +870,44 @@ func TestUsageLogRepositoryGetGroupStatsWithUsageFiltersAppliesRequestedModelFil
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestUsageLogRepositoryGetStatsWithFiltersAlwaysReturnsAccountCost(t *testing.T) {
+func TestUsageLogRepositoryGetStatsWithFiltersReturnsAccountCostWithEvidence(t *testing.T) {
 	db, mock := newSQLMock(t)
 	repo := &usageLogRepository{sql: db}
 
-	// No AccountID filter set - TotalAccountCost should still be returned
 	filters := usagestats.UsageLogFilters{}
 
 	mock.ExpectQuery("(?s)FROM usage_logs.*GROUP BY GROUPING SETS").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"inbound_grouped", "upstream_grouped", "inbound_endpoint", "upstream_endpoint",
 			"requests", "input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens",
-			"cost", "actual_cost", "account_cost", "avg_duration_ms",
-		}).AddRow(1, 1, nil, nil, int64(50), int64(1000), int64(2000), int64(60), int64(40), 15.0, 12.5, 11.0, 100.0))
+			"cost", "actual_cost", "account_cost", "upstream_expected_cost_count", "missing_upstream_cost_count", "avg_duration_ms",
+		}).AddRow(1, 1, nil, nil, int64(50), int64(1000), int64(2000), int64(60), int64(40), 15.0, 12.5, 11.0, int64(40), int64(10), 100.0))
 
 	stats, err := repo.GetStatsWithFilters(context.Background(), filters)
 	require.NoError(t, err)
-	require.NotNil(t, stats.TotalAccountCost, "TotalAccountCost must always be returned, even without AccountID filter")
+	require.NotNil(t, stats.TotalAccountCost)
 	require.Equal(t, 11.0, *stats.TotalAccountCost)
+	require.Equal(t, int64(40), stats.UpstreamExpectedCostCount)
+	require.Equal(t, int64(10), stats.MissingUpstreamCostCount)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUsageLogRepositoryGetStatsWithFiltersKeepsMissingCostUnknown(t *testing.T) {
+	db, mock := newSQLMock(t)
+	repo := &usageLogRepository{sql: db}
+
+	mock.ExpectQuery("(?s)FROM usage_logs.*GROUP BY GROUPING SETS").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"inbound_grouped", "upstream_grouped", "inbound_endpoint", "upstream_endpoint",
+			"requests", "input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens",
+			"cost", "actual_cost", "account_cost", "upstream_expected_cost_count", "missing_upstream_cost_count", "avg_duration_ms",
+		}).AddRow(1, 1, nil, nil, int64(3), int64(10), int64(20), int64(0), int64(0), 0.1, 0.08, 0.0, int64(0), int64(3), 10.0))
+
+	stats, err := repo.GetStatsWithFilters(context.Background(), usagestats.UsageLogFilters{})
+	require.NoError(t, err)
+	require.Nil(t, stats.TotalAccountCost)
+	require.Zero(t, stats.UpstreamExpectedCostCount)
+	require.Equal(t, int64(3), stats.MissingUpstreamCostCount)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -990,6 +1059,11 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullFloat64{},
+			sql.NullInt64{},
+			sql.NullFloat64{},
+			sql.NullString{},
+			sql.NullFloat64{},
+			sql.NullFloat64{},
 			sql.NullString{},
 			false, // native_compaction_v2
 			now,
@@ -1075,6 +1149,11 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // billing_tier
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
+			sql.NullInt64{},   // upstream_cost_binding_id
+			sql.NullFloat64{}, // upstream_group_multiplier
+			sql.NullString{},  // upstream_price_reference_currency
+			sql.NullFloat64{}, // upstream_reference_fx_rate
+			sql.NullFloat64{}, // upstream_expected_cost
 			sql.NullString{},  // session_id
 			false,             // native_compaction_v2
 			now,
@@ -1143,6 +1222,11 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // billing_tier
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
+			sql.NullInt64{},   // upstream_cost_binding_id
+			sql.NullFloat64{}, // upstream_group_multiplier
+			sql.NullString{},  // upstream_price_reference_currency
+			sql.NullFloat64{}, // upstream_reference_fx_rate
+			sql.NullFloat64{}, // upstream_expected_cost
 			sql.NullString{},  // session_id
 			true,              // native_compaction_v2
 			now,
@@ -1212,6 +1296,11 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // billing_tier
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
+			sql.NullInt64{},   // upstream_cost_binding_id
+			sql.NullFloat64{}, // upstream_group_multiplier
+			sql.NullString{},  // upstream_price_reference_currency
+			sql.NullFloat64{}, // upstream_reference_fx_rate
+			sql.NullFloat64{}, // upstream_expected_cost
 			sql.NullString{},  // session_id
 			false,             // native_compaction_v2
 			now,

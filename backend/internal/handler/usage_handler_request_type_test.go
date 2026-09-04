@@ -394,7 +394,7 @@ func TestUserUsageDashboardModelsOmitsAccountCost(t *testing.T) {
 			TotalTokens: 30,
 			Cost:        0.10,
 			ActualCost:  0.08,
-			AccountCost: 0.07,
+			AccountCost: usageCostPtr(0.07),
 		}},
 	}
 	router := newUserUsageRequestTypeTestRouter(repo)
@@ -480,8 +480,8 @@ func TestUserUsageDashboardModelsRejectsAdminModelSources(t *testing.T) {
 
 func TestUserUsageSnapshotUsesScopedFilters(t *testing.T) {
 	repo := &userUsageRepoCapture{
-		modelStats: []usagestats.ModelStat{{Model: "gpt-5", AccountCost: 0.07}},
-		groupStats: []usagestats.GroupStat{{GroupID: 1, GroupName: "default", AccountCost: 0.06}},
+		modelStats: []usagestats.ModelStat{{Model: "gpt-5", AccountCost: usageCostPtr(0.07)}},
+		groupStats: []usagestats.GroupStat{{GroupID: 1, GroupName: "default", AccountCost: usageCostPtr(0.06)}},
 	}
 	router := newUserUsageRequestTypeTestRouter(repo)
 

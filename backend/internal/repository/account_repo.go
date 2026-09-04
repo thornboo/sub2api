@@ -3328,6 +3328,10 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 	if err != nil {
 		return nil, err
 	}
+	upstreamBillingProfiles, err := r.loadUpstreamBillingProfiles(ctx, accountIDs)
+	if err != nil {
+		return nil, err
+	}
 
 	outAccounts := make([]service.Account, 0, len(accounts))
 	for _, acc := range accounts {
@@ -3359,10 +3363,82 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		if discount, ok := upstreamDiscounts[acc.ID]; ok {
 			out.UpstreamEffectiveDiscount = discount
 		}
+		if profile, ok := upstreamBillingProfiles[acc.ID]; ok {
+			out.UpstreamCostBindingID = &profile.bindingID
+			out.UpstreamOfficialPricingChannelID = profile.officialPricingChannelID
+			out.UpstreamGroupMultiplier = &profile.groupMultiplier
+			out.UpstreamModelFamilyMultipliers = profile.modelFamilyMultipliers
+			out.UpstreamPriceReferenceCurrency = profile.priceReferenceCurrency
+			out.UpstreamReferenceFXRate = &profile.referenceFXRate
+		}
 		outAccounts = append(outAccounts, *out)
 	}
 
 	return outAccounts, nil
+}
+
+type upstreamBillingProfile struct {
+	bindingID                int64
+	officialPricingChannelID *int64
+	groupMultiplier          float64
+	modelFamilyMultipliers   []service.UpstreamCostModelFamilyMultiplier
+	priceReferenceCurrency   string
+	referenceFXRate          float64
+}
+
+// loadUpstreamBillingProfiles loads only confirmed, active supplier pricing
+// evidence. A recharge snapshot is deliberately not required: this profile
+// calculates upstream account credit consumption, not the CNY acquisition cost
+// of those credits.
+func (r *accountRepository) loadUpstreamBillingProfiles(ctx context.Context, accountIDs []int64) (map[int64]upstreamBillingProfile, error) {
+	result := make(map[int64]upstreamBillingProfile)
+	accountIDs = uniquePositiveInt64s(accountIDs)
+	if len(accountIDs) == 0 || r == nil || r.sql == nil {
+		return result, nil
+	}
+	rows, err := r.sql.QueryContext(ctx, `
+SELECT binding.account_id,
+       binding.id,
+	   binding.official_pricing_channel_id,
+       binding.default_multiplier::double precision,
+	   binding.model_family_multipliers::text,
+       binding.price_reference_currency,
+       pool.reference_fx_rate::double precision
+FROM upstream_account_cost_bindings binding
+JOIN upstream_cost_pools pool ON pool.id = binding.cost_pool_id
+JOIN upstream_suppliers supplier ON supplier.id = pool.supplier_id
+WHERE binding.account_id = ANY($1)
+  AND binding.status = $2
+  AND binding.valid_to IS NULL
+  AND binding.price_reference_confirmed = TRUE
+  AND binding.default_multiplier > 0
+  AND pool.status = $2
+  AND pool.archived_at IS NULL
+  AND supplier.status = $2
+  AND supplier.archived_at IS NULL
+  AND supplier.is_system = FALSE`, pq.Array(accountIDs), service.StatusActive)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var accountID int64
+		var profile upstreamBillingProfile
+		var officialPricingChannelID sql.NullInt64
+		var modelFamiliesJSON string
+		if err := rows.Scan(&accountID, &profile.bindingID, &officialPricingChannelID, &profile.groupMultiplier, &modelFamiliesJSON, &profile.priceReferenceCurrency, &profile.referenceFXRate); err != nil {
+			return nil, err
+		}
+		if officialPricingChannelID.Valid {
+			id := officialPricingChannelID.Int64
+			profile.officialPricingChannelID = &id
+		}
+		if modelFamiliesJSON != "" {
+			_ = json.Unmarshal([]byte(modelFamiliesJSON), &profile.modelFamilyMultipliers)
+		}
+		result[accountID] = profile
+	}
+	return result, rows.Err()
 }
 
 func (r *accountRepository) loadUpstreamEffectiveDiscounts(ctx context.Context, accountIDs []int64) (map[int64]*float64, error) {

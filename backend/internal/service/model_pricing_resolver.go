@@ -72,21 +72,26 @@ type PricingInput struct {
 // 2. 如果指定了 GroupID，查找渠道定价并覆盖
 func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) *ResolvedPricing {
 	longContextPricingEnabled := input.Group == nil || input.Group.LongContextPricingEnabled
-	if groupPricing := matchGroupModelPricing(input.Group, input.Model); groupPricing != nil {
-		// Group token cards only override the first-tier / flat rates.
-		// Long-context ladders come from official presets, gated by the checkbox.
-		if groupPricing.BillingMode == "" || groupPricing.BillingMode == BillingModeToken {
-			stripped := groupPricing.Clone()
-			stripped.Intervals = nil
-			groupPricing = &stripped
+	upstreamMetadata, upstreamPricing := upstreamExpectedPricingMetadata(ctx)
+	if !upstreamPricing {
+		if groupPricing := matchGroupModelPricing(input.Group, input.Model); groupPricing != nil {
+			// Group token cards only override the first-tier / flat rates.
+			// Long-context ladders come from official presets, gated by the checkbox.
+			if groupPricing.BillingMode == "" || groupPricing.BillingMode == BillingModeToken {
+				stripped := groupPricing.Clone()
+				stripped.Intervals = nil
+				groupPricing = &stripped
+			}
+			resolved := r.resolveConfiguredPricing(groupPricing, input.Model, PricingSourceGroup)
+			resolved.longContextPricingEnabled = longContextPricingEnabled
+			return resolved
 		}
-		resolved := r.resolveConfiguredPricing(groupPricing, input.Model, PricingSourceGroup)
-		resolved.longContextPricingEnabled = longContextPricingEnabled
-		return resolved
 	}
 
 	var chPricing *ChannelModelPricing
-	if input.GroupID != nil && r.channelService != nil {
+	if upstreamPricing && upstreamMetadata.channelID > 0 && r.channelService != nil {
+		chPricing = r.channelService.GetOfficialModelPricing(ctx, upstreamMetadata.channelID, upstreamMetadata.platform, input.Model)
+	} else if !upstreamPricing && input.GroupID != nil && r.channelService != nil {
 		chPricing = r.lookupChannelPricingNormalized(ctx, *input.GroupID, input.Model)
 		if chPricing != nil {
 			mode := chPricing.BillingMode
@@ -121,12 +126,12 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 	if chPricing != nil {
 		resolved.Source = PricingSourceChannel
 		resolved.channelPricing = chPricing
-		if chPricing.TimePricing != nil && chPricing.TimePricing.IsActive() {
+		if !isUpstreamExpectedPricing(ctx) && chPricing.TimePricing != nil && chPricing.TimePricing.IsActive() {
 			tp := chPricing.TimePricing.Clone()
 			resolved.TimePricing = &tp
 		}
 		r.applyTokenOverrides(chPricing, resolved)
-	} else if input.GroupID != nil && r.channelService != nil {
+	} else if !upstreamPricing && input.GroupID != nil && r.channelService != nil {
 		r.applyChannelOverrides(ctx, *input.GroupID, input.Model, resolved)
 	}
 
@@ -227,7 +232,7 @@ func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupI
 
 	switch resolved.Mode {
 	case BillingModeToken:
-		if chPricing.TimePricing != nil && chPricing.TimePricing.IsActive() {
+		if !isUpstreamExpectedPricing(ctx) && chPricing.TimePricing != nil && chPricing.TimePricing.IsActive() {
 			tp := chPricing.TimePricing.Clone()
 			resolved.TimePricing = &tp
 		}

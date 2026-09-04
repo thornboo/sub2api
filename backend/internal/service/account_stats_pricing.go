@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"math"
 	"strings"
 )
 
@@ -249,4 +250,60 @@ func applyAccountStatsCost(
 	usageLog.AccountStatsCost = resolveAccountStatsCost(
 		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, totalCost, serviceTier,
 	)
+}
+
+// applyUpstreamExpectedCost snapshots the independently reproduced amount that
+// the selected upstream account should bill for this request. upstreamBaseCost
+// must already be calculated from the final upstream billing model with every
+// customer-facing multiplier removed.
+func applyUpstreamExpectedCost(usageLog *UsageLog, account *Account, upstreamBaseCost *CostBreakdown, billingModel string) {
+	if usageLog == nil || account == nil || account.UpstreamCostBindingID == nil || account.UpstreamGroupMultiplier == nil {
+		return
+	}
+	if upstreamBaseCost == nil {
+		return
+	}
+	multiplier := resolveUpstreamModelMultiplier(account, billingModel)
+	if multiplier <= 0 || math.IsNaN(multiplier) || math.IsInf(multiplier, 0) {
+		return
+	}
+	currency := strings.ToUpper(strings.TrimSpace(account.UpstreamPriceReferenceCurrency))
+	if currency != UpstreamPriceReferenceCurrencyUSD && currency != UpstreamPriceReferenceCurrencyCNY {
+		return
+	}
+	var referenceFXRate *float64
+	if account.UpstreamReferenceFXRate != nil && *account.UpstreamReferenceFXRate > 0 && !math.IsNaN(*account.UpstreamReferenceFXRate) && !math.IsInf(*account.UpstreamReferenceFXRate, 0) {
+		fx := *account.UpstreamReferenceFXRate
+		referenceFXRate = &fx
+	}
+	baseCost := upstreamBaseCost.TotalCost
+	if baseCost < 0 || math.IsNaN(baseCost) || math.IsInf(baseCost, 0) {
+		return
+	}
+	expected := baseCost * multiplier
+	bindingID := *account.UpstreamCostBindingID
+	groupMultiplier := multiplier
+	usageLog.UpstreamCostBindingID = &bindingID
+	usageLog.UpstreamGroupMultiplier = &groupMultiplier
+	usageLog.UpstreamPriceReferenceCurrency = &currency
+	usageLog.UpstreamReferenceFXRate = referenceFXRate
+	usageLog.UpstreamExpectedCost = &expected
+}
+
+func resolveUpstreamModelMultiplier(account *Account, model string) float64 {
+	if account == nil || account.UpstreamGroupMultiplier == nil {
+		return 0
+	}
+	model = strings.ToLower(strings.TrimSpace(model))
+	bestLength := -1
+	multiplier := *account.UpstreamGroupMultiplier
+	for _, candidate := range account.UpstreamModelFamilyMultipliers {
+		family := strings.ToLower(strings.TrimSpace(candidate.Family))
+		if family == "" || !strings.Contains(model, family) || len(family) <= bestLength {
+			continue
+		}
+		bestLength = len(family)
+		multiplier = candidate.GroupMultiplier
+	}
+	return multiplier
 }

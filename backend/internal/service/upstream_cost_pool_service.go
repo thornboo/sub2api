@@ -131,51 +131,54 @@ type UpstreamCostModelFamilyMultiplier struct {
 }
 
 type UpstreamAccountCostBinding struct {
-	ID                      int64                               `json:"id"`
-	AccountID               int64                               `json:"account_id"`
-	AccountName             string                              `json:"account_name,omitempty"`
-	AccountPlatform         string                              `json:"account_platform,omitempty"`
-	CostPoolID              int64                               `json:"cost_pool_id"`
-	CostPoolName            string                              `json:"cost_pool_name,omitempty"`
-	SupplierID              int64                               `json:"supplier_id,omitempty"`
-	SupplierName            string                              `json:"supplier_name,omitempty"`
-	Status                  string                              `json:"status"`
-	DefaultMultiplier       float64                             `json:"default_multiplier"`
-	UpstreamGroupName       *string                             `json:"upstream_group_name,omitempty"`
-	PriceReferenceCurrency  string                              `json:"price_reference_currency"`
-	PriceReferenceConfirmed bool                                `json:"price_reference_confirmed"`
-	UpstreamGroupMultiplier float64                             `json:"upstream_group_multiplier"`
-	ModelFamilyMultipliers  []UpstreamCostModelFamilyMultiplier `json:"model_family_multipliers"`
-	Note                    *string                             `json:"note,omitempty"`
-	ValidFrom               time.Time                           `json:"valid_from"`
-	ValidTo                 *time.Time                          `json:"valid_to,omitempty"`
-	CreatedAt               time.Time                           `json:"created_at"`
-	UpdatedAt               time.Time                           `json:"updated_at"`
+	ID                       int64                               `json:"id"`
+	AccountID                int64                               `json:"account_id"`
+	AccountName              string                              `json:"account_name,omitempty"`
+	AccountPlatform          string                              `json:"account_platform,omitempty"`
+	CostPoolID               int64                               `json:"cost_pool_id"`
+	CostPoolName             string                              `json:"cost_pool_name,omitempty"`
+	SupplierID               int64                               `json:"supplier_id,omitempty"`
+	SupplierName             string                              `json:"supplier_name,omitempty"`
+	Status                   string                              `json:"status"`
+	DefaultMultiplier        float64                             `json:"default_multiplier"`
+	UpstreamGroupName        *string                             `json:"upstream_group_name,omitempty"`
+	PriceReferenceCurrency   string                              `json:"price_reference_currency"`
+	PriceReferenceConfirmed  bool                                `json:"price_reference_confirmed"`
+	OfficialPricingChannelID *int64                              `json:"official_pricing_channel_id,omitempty"`
+	UpstreamGroupMultiplier  float64                             `json:"upstream_group_multiplier"`
+	ModelFamilyMultipliers   []UpstreamCostModelFamilyMultiplier `json:"model_family_multipliers"`
+	Note                     *string                             `json:"note,omitempty"`
+	ValidFrom                time.Time                           `json:"valid_from"`
+	ValidTo                  *time.Time                          `json:"valid_to,omitempty"`
+	CreatedAt                time.Time                           `json:"created_at"`
+	UpdatedAt                time.Time                           `json:"updated_at"`
 }
 
 type UpstreamCostBindingInput struct {
-	AccountID              int64
-	CostPoolID             int64
-	UpstreamGroupName      *string
-	PriceReferenceCurrency *string
-	DefaultMultiplier      float64
-	ModelFamilyMultipliers []UpstreamCostModelFamilyMultiplier
-	Note                   *string
-	CreatedBy              *int64
+	AccountID                int64
+	CostPoolID               int64
+	UpstreamGroupName        *string
+	PriceReferenceCurrency   *string
+	OfficialPricingChannelID *int64
+	DefaultMultiplier        float64
+	ModelFamilyMultipliers   []UpstreamCostModelFamilyMultiplier
+	Note                     *string
+	CreatedBy                *int64
 }
 
 type UpstreamSupplierBindingInput struct {
-	AccountID              int64
-	SupplierID             int64
-	SupplierName           string
-	CostPoolID             int64
-	Clear                  bool
-	UpstreamGroupName      *string
-	PriceReferenceCurrency *string
-	DefaultMultiplier      float64
-	ModelFamilyMultipliers []UpstreamCostModelFamilyMultiplier
-	Note                   *string
-	CreatedBy              *int64
+	AccountID                int64
+	SupplierID               int64
+	SupplierName             string
+	CostPoolID               int64
+	Clear                    bool
+	UpstreamGroupName        *string
+	PriceReferenceCurrency   *string
+	OfficialPricingChannelID *int64
+	DefaultMultiplier        float64
+	ModelFamilyMultipliers   []UpstreamCostModelFamilyMultiplier
+	Note                     *string
+	CreatedBy                *int64
 }
 
 type CreateUpstreamSupplierInput struct {
@@ -727,6 +730,9 @@ func (s *adminServiceImpl) UpdateAccountUpstreamCostBinding(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+	if err := validateUpstreamOfficialPricingChannel(ctx, txClient, normalized.OfficialPricingChannelID, priceReferenceCurrency); err != nil {
+		return nil, err
+	}
 
 	rows, err := txClient.QueryContext(ctx, `
 WITH archived AS (
@@ -745,12 +751,13 @@ inserted AS (
         upstream_group_name,
         price_reference_currency,
         price_reference_confirmed,
+        official_pricing_channel_id,
         default_multiplier,
         model_family_multipliers,
         note,
         created_by
     )
-	    SELECT $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9
+	    SELECT $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10
 	    WHERE (SELECT COUNT(*) FROM archived) >= 0
 	    RETURNING id,
 	              account_id,
@@ -759,6 +766,7 @@ inserted AS (
 	              upstream_group_name,
 	              price_reference_currency,
 	              price_reference_confirmed,
+	              official_pricing_channel_id,
 	              default_multiplier,
 	              model_family_multipliers,
 	              note,
@@ -773,6 +781,7 @@ inserted AS (
 		nullableString(normalized.UpstreamGroupName),
 		priceReferenceCurrency,
 		priceReferenceConfirmed,
+		nullableInt64(normalized.OfficialPricingChannelID),
 		normalized.DefaultMultiplier,
 		string(modelFamiliesJSON),
 		nullableString(normalized.Note),
@@ -890,6 +899,9 @@ WHERE account_id = $1
 	if err != nil {
 		return nil, err
 	}
+	if err := validateUpstreamOfficialPricingChannel(ctx, txClient, normalized.OfficialPricingChannelID, priceReferenceCurrency); err != nil {
+		return nil, err
+	}
 
 	rows, err := txClient.QueryContext(ctx, `
 WITH archived AS (
@@ -908,12 +920,13 @@ inserted AS (
         upstream_group_name,
         price_reference_currency,
         price_reference_confirmed,
+        official_pricing_channel_id,
         default_multiplier,
         model_family_multipliers,
         note,
         created_by
     )
-	    SELECT $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9
+	    SELECT $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10
 	    WHERE (SELECT COUNT(*) FROM archived) >= 0
 	    RETURNING id,
 	              account_id,
@@ -922,6 +935,7 @@ inserted AS (
 	              upstream_group_name,
 	              price_reference_currency,
 	              price_reference_confirmed,
+	              official_pricing_channel_id,
 	              default_multiplier,
 	              model_family_multipliers,
 	              note,
@@ -936,6 +950,7 @@ inserted AS (
 		nullableString(normalized.UpstreamGroupName),
 		priceReferenceCurrency,
 		priceReferenceConfirmed,
+		nullableInt64(normalized.OfficialPricingChannelID),
 		normalized.DefaultMultiplier,
 		string(modelFamiliesJSON),
 		nullableString(normalized.Note),
@@ -1542,6 +1557,9 @@ func normalizeUpstreamCostBindingInput(input UpstreamCostBindingInput) (Upstream
 	if input.CostPoolID <= 0 {
 		return UpstreamCostBindingInput{}, infraerrors.BadRequest("INVALID_UPSTREAM_COST_POOL_ID", "invalid upstream cost pool id")
 	}
+	if input.OfficialPricingChannelID != nil && *input.OfficialPricingChannelID <= 0 {
+		return UpstreamCostBindingInput{}, infraerrors.BadRequest("INVALID_UPSTREAM_OFFICIAL_PRICING_CHANNEL", "invalid upstream official pricing channel")
+	}
 
 	normalizedFamilies := make([]UpstreamCostModelFamilyMultiplier, 0, len(input.ModelFamilyMultipliers))
 	seen := make(map[string]struct{}, len(input.ModelFamilyMultipliers))
@@ -1588,20 +1606,22 @@ func normalizeUpstreamSupplierBindingInput(input UpstreamSupplierBindingInput) (
 		return UpstreamSupplierBindingInput{}, infraerrors.BadRequest("INVALID_UPSTREAM_SUPPLIER_NAME", "upstream supplier name is too long")
 	}
 	costBinding, err := normalizeUpstreamCostBindingInput(UpstreamCostBindingInput{
-		AccountID:              input.AccountID,
-		CostPoolID:             1,
-		UpstreamGroupName:      input.UpstreamGroupName,
-		PriceReferenceCurrency: input.PriceReferenceCurrency,
-		DefaultMultiplier:      input.DefaultMultiplier,
-		ModelFamilyMultipliers: input.ModelFamilyMultipliers,
-		Note:                   input.Note,
-		CreatedBy:              input.CreatedBy,
+		AccountID:                input.AccountID,
+		CostPoolID:               1,
+		UpstreamGroupName:        input.UpstreamGroupName,
+		PriceReferenceCurrency:   input.PriceReferenceCurrency,
+		OfficialPricingChannelID: input.OfficialPricingChannelID,
+		DefaultMultiplier:        input.DefaultMultiplier,
+		ModelFamilyMultipliers:   input.ModelFamilyMultipliers,
+		Note:                     input.Note,
+		CreatedBy:                input.CreatedBy,
 	})
 	if err != nil {
 		return UpstreamSupplierBindingInput{}, err
 	}
 	input.UpstreamGroupName = costBinding.UpstreamGroupName
 	input.PriceReferenceCurrency = costBinding.PriceReferenceCurrency
+	input.OfficialPricingChannelID = costBinding.OfficialPricingChannelID
 	input.DefaultMultiplier = costBinding.DefaultMultiplier
 	input.ModelFamilyMultipliers = costBinding.ModelFamilyMultipliers
 	input.Note = costBinding.Note
@@ -1667,6 +1687,32 @@ LIMIT 1`, accountID, costPoolID)
 	return UpstreamPriceReferenceCurrencyUSD, false, nil
 }
 
+func validateUpstreamOfficialPricingChannel(
+	ctx context.Context,
+	exec upstreamCostPoolSQLExecutor,
+	channelID *int64,
+	currency string,
+) error {
+	if channelID == nil {
+		if currency == UpstreamPriceReferenceCurrencyCNY {
+			return infraerrors.BadRequest("UPSTREAM_OFFICIAL_PRICING_CHANNEL_REQUIRED", "CNY upstream pricing requires an explicit official pricing channel")
+		}
+		return nil
+	}
+	rows, err := exec.QueryContext(ctx, `SELECT 1 FROM channels WHERE id = $1 AND status = 'active'`, *channelID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		return infraerrors.BadRequest("INVALID_UPSTREAM_OFFICIAL_PRICING_CHANNEL", "upstream official pricing channel is unavailable")
+	}
+	return rows.Err()
+}
+
 func upstreamCostPoolStringPtr(value string) *string {
 	return &value
 }
@@ -1730,6 +1776,7 @@ SELECT binding.id,
        binding.upstream_group_name,
        binding.price_reference_currency,
        binding.price_reference_confirmed,
+       binding.official_pricing_channel_id,
        binding.default_multiplier::double precision,
        binding.model_family_multipliers::text,
        binding.note,
@@ -1873,6 +1920,7 @@ func scanUpstreamAccountCostBinding(scanner upstreamRechargeScanner) (*UpstreamA
 		&upstreamGroup,
 		&item.PriceReferenceCurrency,
 		&item.PriceReferenceConfirmed,
+		&item.OfficialPricingChannelID,
 		&item.DefaultMultiplier,
 		&modelFamilies,
 		&note,

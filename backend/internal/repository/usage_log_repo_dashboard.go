@@ -203,10 +203,13 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
 			COALESCE(SUM(account_cost), 0) as total_account_cost,
+			COALESCE(SUM(upstream_expected_cost_count), 0) as upstream_expected_cost_count,
+			COALESCE(SUM(missing_upstream_cost_count), 0) as missing_upstream_cost_count,
 			COALESCE(SUM(total_duration_ms), 0) as total_duration_ms
 		FROM usage_dashboard_daily
 	`
 	var totalDurationMs int64
+	var totalAccountCost float64
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
@@ -219,10 +222,15 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 		&stats.TotalCacheReadTokens,
 		&stats.TotalCost,
 		&stats.TotalActualCost,
-		&stats.TotalAccountCost,
+		&totalAccountCost,
+		&stats.UpstreamExpectedCostCount,
+		&stats.MissingUpstreamCostCount,
 		&totalDurationMs,
 	); err != nil {
 		return err
+	}
+	if stats.UpstreamExpectedCostCount > 0 {
+		stats.TotalAccountCost = &totalAccountCost
 	}
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheCreationTokens + stats.TotalCacheReadTokens
 	if stats.TotalRequests > 0 {
@@ -239,10 +247,13 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 			total_cost as today_cost,
 			actual_cost as today_actual_cost,
 			account_cost as today_account_cost,
+			upstream_expected_cost_count,
+			missing_upstream_cost_count,
 			active_users as active_users
 		FROM usage_dashboard_daily
 		WHERE bucket_date = $1::date
 	`
+	var todayAccountCost float64
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
@@ -255,12 +266,17 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 		&stats.TodayCacheReadTokens,
 		&stats.TodayCost,
 		&stats.TodayActualCost,
-		&stats.TodayAccountCost,
+		&todayAccountCost,
+		&stats.TodayUpstreamExpectedCostCount,
+		&stats.TodayMissingUpstreamCostCount,
 		&stats.ActiveUsers,
 	); err != nil {
 		if err != sql.ErrNoRows {
 			return err
 		}
+	}
+	if stats.TodayUpstreamExpectedCostCount > 0 {
+		stats.TodayAccountCost = &todayAccountCost
 	}
 	stats.TodayTokens = stats.TodayInputTokens + stats.TodayOutputTokens + stats.TodayCacheCreationTokens + stats.TodayCacheReadTokens
 
@@ -291,7 +307,7 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 				cache_read_tokens,
 				total_cost,
 				actual_cost,
-				COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1) AS account_cost,
+				upstream_expected_cost_usd AS account_cost,
 				COALESCE(duration_ms, 0) AS duration_ms
 			FROM usage_logs
 			WHERE created_at >= LEAST($1::timestamptz, $3::timestamptz)
@@ -306,6 +322,8 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 			COALESCE(SUM(total_cost) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_cost,
 			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_actual_cost,
 			COALESCE(SUM(account_cost) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_account_cost,
+			COUNT(account_cost) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz) AS upstream_expected_cost_count,
+			COUNT(*) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz AND account_cost IS NULL) AS missing_upstream_cost_count,
 			COALESCE(SUM(duration_ms) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_duration_ms,
 			COUNT(*) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz) AS today_requests,
 			COALESCE(SUM(input_tokens) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_input_tokens,
@@ -314,10 +332,13 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 			COALESCE(SUM(cache_read_tokens) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_cache_read_tokens,
 			COALESCE(SUM(total_cost) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_cost,
 			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_actual_cost,
-			COALESCE(SUM(account_cost) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_account_cost
+			COALESCE(SUM(account_cost) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_account_cost,
+			COUNT(account_cost) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz) AS today_upstream_expected_cost_count,
+			COUNT(*) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz AND account_cost IS NULL) AS today_missing_upstream_cost_count
 		FROM scoped
 	`
 	var totalDurationMs int64
+	var totalAccountCost, todayAccountCost float64
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
@@ -330,7 +351,9 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 		&stats.TotalCacheReadTokens,
 		&stats.TotalCost,
 		&stats.TotalActualCost,
-		&stats.TotalAccountCost,
+		&totalAccountCost,
+		&stats.UpstreamExpectedCostCount,
+		&stats.MissingUpstreamCostCount,
 		&totalDurationMs,
 		&stats.TodayRequests,
 		&stats.TodayInputTokens,
@@ -339,9 +362,17 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 		&stats.TodayCacheReadTokens,
 		&stats.TodayCost,
 		&stats.TodayActualCost,
-		&stats.TodayAccountCost,
+		&todayAccountCost,
+		&stats.TodayUpstreamExpectedCostCount,
+		&stats.TodayMissingUpstreamCostCount,
 	); err != nil {
 		return err
+	}
+	if stats.UpstreamExpectedCostCount > 0 {
+		stats.TotalAccountCost = &totalAccountCost
+	}
+	if stats.TodayUpstreamExpectedCostCount > 0 {
+		stats.TodayAccountCost = &todayAccountCost
 	}
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheCreationTokens + stats.TotalCacheReadTokens
 	if stats.TotalRequests > 0 {

@@ -1409,7 +1409,9 @@ export interface AccountSchedulerGroupScore {
 export interface WindowStats {
   requests: number
   tokens: number
-  cost: number // Account cost (account multiplier)
+  cost: number | null // Upstream expected cost; null means no evidence
+  upstream_expected_cost_count: number
+  missing_upstream_cost_count: number
   standard_cost?: number
   user_cost?: number
 }
@@ -1894,6 +1896,11 @@ export interface AdminUsageLog extends UsageLog {
   account_rate_multiplier?: number | null
   // 自定义定价规则计算的账号统计费用（nil 时使用 total_cost * multiplier）
   account_stats_cost?: number | null
+  upstream_cost_binding_id?: number | null
+  upstream_group_multiplier?: number | null
+  upstream_price_reference_currency?: 'CNY' | 'USD' | null
+  upstream_reference_fx_rate?: number | null
+  upstream_expected_cost?: number | null
   // 请求执行与计费诊断信息（仅管理员接口返回）
   schedule_meta?: UsageScheduleMeta | null
 
@@ -2008,7 +2015,9 @@ export interface DashboardStats {
   total_tokens: number
   total_cost: number // 累计标准计费
   total_actual_cost: number // 累计实际扣除
-  total_account_cost: number // 累计账号成本
+  total_account_cost: number | null // 累计上游应扣成本；null 表示无证据
+  upstream_expected_cost_count: number
+  missing_upstream_cost_count: number
 
   // 今日 Token 使用统计
   today_requests: number
@@ -2019,7 +2028,9 @@ export interface DashboardStats {
   today_tokens: number
   today_cost: number // 今日标准计费
   today_actual_cost: number // 今日实际扣除
-  today_account_cost: number // 今日账号成本
+  today_account_cost: number | null // 今日上游应扣成本；null 表示无证据
+  today_upstream_expected_cost_count: number
+  today_missing_upstream_cost_count: number
 
   // 系统运行统计
   average_duration_ms: number // 平均响应时间
@@ -2072,7 +2083,7 @@ export interface ModelStat {
   total_tokens: number
   cost: number // 标准计费
   actual_cost: number // 实际扣除
-  account_cost?: number // 账号成本（仅管理员接口返回）
+  account_cost?: number | null // 上游应扣成本（仅管理员接口返回；null 表示无证据）
 }
 
 export interface EndpointStat {
@@ -2090,7 +2101,7 @@ export interface GroupStat {
   total_tokens: number
   cost: number // 标准计费
   actual_cost: number // 实际扣除
-  account_cost?: number // 账号成本（仅管理员接口返回）
+  account_cost?: number | null // 上游应扣成本（仅管理员接口返回；null 表示无证据）
 }
 
 export interface UserBreakdownItem {
@@ -2103,7 +2114,7 @@ export interface UserBreakdownItem {
   total_tokens: number
   cost: number
   actual_cost: number
-  account_cost: number
+  account_cost: number | null
 }
 
 export interface UserUsageTrendPoint {
@@ -2311,26 +2322,30 @@ export interface AccountUsageHistory {
   requests: number
   tokens: number
   cost: number
-  actual_cost: number // Account cost (account multiplier)
+  actual_cost: number | null // Upstream expected cost; null means no evidence
+  upstream_expected_cost_count: number
+  missing_upstream_cost_count: number
   user_cost: number // User/API key billed cost (group multiplier)
 }
 
 export interface AccountUsageSummary {
   days: number
   actual_days_used: number
-  total_cost: number // Account cost (account multiplier)
+  total_cost: number | null // Upstream expected cost; null means no evidence
+  upstream_expected_cost_count: number
+  missing_upstream_cost_count: number
   total_user_cost: number
   total_standard_cost: number
   total_requests: number
   total_tokens: number
-  avg_daily_cost: number // Account cost
+  avg_daily_cost: number | null // Covered upstream expected daily average
   avg_daily_user_cost: number
   avg_daily_requests: number
   avg_daily_tokens: number
   avg_duration_ms: number
   today: {
     date: string
-    cost: number
+    cost: number | null
     user_cost: number
     requests: number
     tokens: number
@@ -2338,7 +2353,7 @@ export interface AccountUsageSummary {
   highest_cost_day: {
     date: string
     label: string
-    cost: number
+    cost: number | null
     user_cost: number
     requests: number
   } | null
@@ -2346,7 +2361,7 @@ export interface AccountUsageSummary {
     date: string
     label: string
     requests: number
-    cost: number
+    cost: number | null
     user_cost: number
   } | null
 }

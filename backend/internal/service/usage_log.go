@@ -184,6 +184,14 @@ type UsageLog struct {
 	AccountRateMultiplier *float64
 	// AccountStatsCost 账号统计定价预计算费用（nil = 使用默认公式 total_cost × account_rate_multiplier）
 	AccountStatsCost *float64
+	// UpstreamExpectedCost is the amount of upstream account credits this
+	// request should consume according to the selected account's confirmed
+	// supplier pricing binding. Nil means the evidence was incomplete.
+	UpstreamCostBindingID          *int64
+	UpstreamGroupMultiplier        *float64
+	UpstreamPriceReferenceCurrency *string
+	UpstreamReferenceFXRate        *float64
+	UpstreamExpectedCost           *float64
 
 	BillingType        int8
 	RequestType        RequestType

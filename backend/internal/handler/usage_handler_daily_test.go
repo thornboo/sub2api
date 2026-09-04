@@ -473,7 +473,7 @@ func TestGetMyAPIKeyModelStatsReturnsUserSafeFields(t *testing.T) {
 				TotalTokens:         3700,
 				Cost:                9.99,
 				ActualCost:          1.23,
-				AccountCost:         0.44,
+				AccountCost:         usageCostPtr(0.44),
 			},
 		},
 	}
@@ -522,7 +522,7 @@ func TestDashboardModelsReturnsUserSafeFields(t *testing.T) {
 				TotalTokens: 1200,
 				Cost:        8.88,
 				ActualCost:  0.72,
-				AccountCost: 0.31,
+				AccountCost: usageCostPtr(0.31),
 			},
 		},
 	}

@@ -34,9 +34,12 @@ const messages: Record<string, string> = {
   'usage.serviceTierStandard': 'Standard',
   'usage.rate': 'Rate',
   'usage.accountMultiplier': 'Account rate',
+  'usage.upstreamMultiplier': 'Upstream group rate',
+  'usage.upstreamPriceReference': 'Upstream price reference',
   'usage.original': 'Original',
   'usage.userBilled': 'User billed',
   'usage.accountBilled': 'Account billed',
+  'usage.upstreamExpectedCost': 'Expected upstream cost',
   'usage.imageUnit': ' images',
   'usage.imageCount': 'Image count',
   'usage.imageBillingSize': 'Billing size',
@@ -380,13 +383,55 @@ describe('admin UsageTable tooltip', () => {
     expect(text).toContain('Fast')
     expect(text).toContain('Rate')
     expect(text).toContain('1.00x')
-    expect(text).toContain('Account rate')
+    expect(text).not.toContain('Account rate')
     expect(text).toContain('User billed')
-    expect(text).toContain('Account billed')
+    expect(text).not.toContain('Account billed')
     expect(text).toContain('$0.092883')
     expect(text).toContain('$5.0000 / 1M tokens')
     expect(text).toContain('$30.0000 / 1M tokens')
     expect(text).toContain('$0.069568')
+  })
+
+  it('prefers immutable upstream cost evidence over the legacy account formula', async () => {
+    const row = {
+      ...baseImageRow,
+      request_id: 'req-upstream-cost-evidence',
+      total_cost: 10,
+      actual_cost: 12,
+      account_stats_cost: 8,
+      account_rate_multiplier: 0.5,
+      upstream_group_multiplier: 0.3,
+      upstream_price_reference_currency: 'CNY',
+      upstream_expected_cost: 3,
+    }
+
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [row],
+        loading: false,
+        columns: [],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    const tooltipTriggers = wrapper.findAll('.group.relative')
+    await tooltipTriggers[tooltipTriggers.length - 1].trigger('mouseenter')
+    await nextTick()
+
+    const text = wrapper.text()
+    expect(text).toContain('Expected upstream cost')
+    expect(text).toContain('Upstream group rate')
+    expect(text).toContain('0.30x')
+    expect(text).toContain('Upstream price reference')
+    expect(text).toContain('CNY')
+    expect(text).toContain('¥3.000000')
   })
 
   it('shows requested and upstream models separately for admin rows', () => {

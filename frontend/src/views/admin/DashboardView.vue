@@ -119,8 +119,8 @@
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
                     class="text-orange-500 dark:text-orange-400"
-                    :title="t('admin.dashboard.accountCost')"
-                    >${{ formatCost(stats.today_account_cost) }}</span
+                    :title="upstreamCostEvidenceTitle(stats.today_upstream_expected_cost_count, stats.today_missing_upstream_cost_count)"
+                    >{{ formatUpstreamCost(stats.today_account_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
@@ -155,8 +155,8 @@
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
                     class="text-orange-500 dark:text-orange-400"
-                    :title="t('admin.dashboard.accountCost')"
-                    >${{ formatCost(stats.total_account_cost) }}</span
+                    :title="upstreamCostEvidenceTitle(stats.upstream_expected_cost_count, stats.missing_upstream_cost_count)"
+                    >{{ formatUpstreamCost(stats.total_account_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
@@ -594,6 +594,16 @@ const formatCost = (value: number | null | undefined): string => {
     return safeValue.toFixed(3)
   }
   return safeValue.toFixed(4)
+}
+
+const formatUpstreamCost = (value: number | null | undefined): string => {
+  return value == null ? t('admin.dashboard.noUpstreamCostEvidence') : `$${formatCost(value)}`
+}
+
+const upstreamCostEvidenceTitle = (covered: number, missing: number): string => {
+  const total = covered + missing
+  if (covered <= 0) return t('admin.dashboard.noUpstreamCostEvidence')
+  return `${t('admin.dashboard.accountCost')} · ${t('admin.dashboard.upstreamCostCoverage', { covered, total })}`
 }
 
 const formatDuration = (ms: number): string => {

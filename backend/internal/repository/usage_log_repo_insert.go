@@ -88,6 +88,11 @@ var usageLogInsertArgTypes = [...]string{
 	"text",        // billing_tier
 	"text",        // billing_mode
 	"numeric",     // account_stats_cost
+	"bigint",      // upstream_cost_binding_id
+	"numeric",     // upstream_group_multiplier
+	"text",        // upstream_price_reference_currency
+	"numeric",     // upstream_reference_fx_rate
+	"numeric",     // upstream_expected_cost
 	"text",        // session_id
 	"boolean",     // native_compaction_v2
 	"timestamptz", // created_at
@@ -300,6 +305,11 @@ func createUsageLogSingle(ctx context.Context, sqlq sqlExecutor, log *service.Us
 			billing_tier,
 			billing_mode,
 			account_stats_cost,
+			upstream_cost_binding_id,
+			upstream_group_multiplier,
+			upstream_price_reference_currency,
+			upstream_reference_fx_rate,
+			upstream_expected_cost,
 			session_id,
 			native_compaction_v2,
 			created_at
@@ -313,7 +323,7 @@ func createUsageLogSingle(ctx context.Context, sqlq sqlExecutor, log *service.Us
 			$45, $46, $47, $48, $49, $50, $51,
 			$52, $53, $54, $55, $56, $57, $58,
 			$59, $60, $61, $62, $63, $64, $65, $66,
-			$67
+			$67, $68, $69, $70, $71, $72
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 		RETURNING id, created_at
@@ -783,6 +793,11 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			billing_tier,
 			billing_mode,
 			account_stats_cost,
+			upstream_cost_binding_id,
+			upstream_group_multiplier,
+			upstream_price_reference_currency,
+			upstream_reference_fx_rate,
+			upstream_expected_cost,
 			session_id,
 			native_compaction_v2,
 			created_at
@@ -883,6 +898,11 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				billing_tier,
 				billing_mode,
 				account_stats_cost,
+				upstream_cost_binding_id,
+				upstream_group_multiplier,
+				upstream_price_reference_currency,
+				upstream_reference_fx_rate,
+				upstream_expected_cost,
 				session_id,
 				native_compaction_v2,
 				created_at
@@ -952,6 +972,11 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				billing_tier,
 				billing_mode,
 				account_stats_cost,
+				upstream_cost_binding_id,
+				upstream_group_multiplier,
+				upstream_price_reference_currency,
+				upstream_reference_fx_rate,
+				upstream_expected_cost,
 				session_id,
 				native_compaction_v2,
 				created_at
@@ -1061,6 +1086,11 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			billing_tier,
 			billing_mode,
 			account_stats_cost,
+			upstream_cost_binding_id,
+			upstream_group_multiplier,
+			upstream_price_reference_currency,
+			upstream_reference_fx_rate,
+			upstream_expected_cost,
 			session_id,
 			native_compaction_v2,
 			created_at
@@ -1156,6 +1186,11 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			billing_tier,
 			billing_mode,
 			account_stats_cost,
+			upstream_cost_binding_id,
+			upstream_group_multiplier,
+			upstream_price_reference_currency,
+			upstream_reference_fx_rate,
+			upstream_expected_cost,
 			session_id,
 			native_compaction_v2,
 			created_at
@@ -1225,6 +1260,11 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			billing_tier,
 			billing_mode,
 			account_stats_cost,
+			upstream_cost_binding_id,
+			upstream_group_multiplier,
+			upstream_price_reference_currency,
+			upstream_reference_fx_rate,
+			upstream_expected_cost,
 			session_id,
 			native_compaction_v2,
 			created_at
@@ -1302,6 +1342,11 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			billing_tier,
 			billing_mode,
 			account_stats_cost,
+			upstream_cost_binding_id,
+			upstream_group_multiplier,
+			upstream_price_reference_currency,
+			upstream_reference_fx_rate,
+			upstream_expected_cost,
 			session_id,
 			native_compaction_v2,
 			created_at
@@ -1447,7 +1492,12 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			billingTier,
 			billingMode,
 			log.AccountStatsCost, // account_stats_cost
-			sessionID,            // session_id
+			log.UpstreamCostBindingID,
+			log.UpstreamGroupMultiplier,
+			nullString(log.UpstreamPriceReferenceCurrency),
+			log.UpstreamReferenceFXRate,
+			log.UpstreamExpectedCost,
+			sessionID, // session_id
 			log.NativeCompactionV2,
 			createdAt,
 		},

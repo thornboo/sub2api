@@ -426,6 +426,7 @@ export interface UpstreamAccountCostBinding {
   upstream_group_name?: string | null
   price_reference_currency: UpstreamPriceReferenceCurrency
   price_reference_confirmed: boolean
+  official_pricing_channel_id?: number | null
   upstream_group_multiplier?: number
   model_family_multipliers: UpstreamCostModelFamilyMultiplier[]
   note?: string | null
@@ -441,6 +442,7 @@ export interface UpstreamSupplierBindingPayload {
   cost_pool_id?: number | null
   upstream_group_name?: string | null
   price_reference_currency?: UpstreamPriceReferenceCurrency
+  official_pricing_channel_id?: number | null
   upstream_group_multiplier?: number
   default_multiplier?: number
   model_families?: UpstreamCostModelFamilyMultiplier[]

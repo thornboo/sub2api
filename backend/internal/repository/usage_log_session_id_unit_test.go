@@ -32,10 +32,21 @@ func newSessionIDUsageLog(sessionID *string) *service.UsageLog {
 // arg slice / arg-type table so the five INSERT column lists stay in sync. session_id
 // is immediately before native_compaction_v2; created_at is always last.
 func TestPrepareUsageLogInsert_SessionIDArgWiring(t *testing.T) {
-	require.Len(t, usageLogInsertArgTypes, 67,
-		"arg-type table must preserve upstream response audit, enterprise attribution, schedule_meta, route_plan fields and session_id")
+	require.Len(t, usageLogInsertArgTypes, 72,
+		"arg-type table must preserve upstream response audit, enterprise attribution, schedule_meta, route_plan, upstream cost evidence and session_id")
 	sessionID := "sess-persisted-123"
-	prepared := prepareUsageLogInsert(newSessionIDUsageLog(&sessionID))
+	bindingID := int64(42)
+	multiplier := 0.8
+	currency := service.UpstreamPriceReferenceCurrencyCNY
+	fx := 7.2
+	expectedCost := 3.5
+	log := newSessionIDUsageLog(&sessionID)
+	log.UpstreamCostBindingID = &bindingID
+	log.UpstreamGroupMultiplier = &multiplier
+	log.UpstreamPriceReferenceCurrency = &currency
+	log.UpstreamReferenceFXRate = &fx
+	log.UpstreamExpectedCost = &expectedCost
+	prepared := prepareUsageLogInsert(log)
 
 	require.Len(t, prepared.args, len(usageLogInsertArgTypes),
 		"prepared args must match the arg-type table length")
@@ -51,6 +62,19 @@ func TestPrepareUsageLogInsert_SessionIDArgWiring(t *testing.T) {
 		"session_id arg type must be text")
 	require.Equal(t, "boolean", usageLogInsertArgTypes[len(usageLogInsertArgTypes)-2],
 		"native_compaction_v2 arg type must be boolean")
+	require.Equal(t, "bigint", usageLogInsertArgTypes[len(usageLogInsertArgTypes)-8])
+	require.Equal(t, "numeric", usageLogInsertArgTypes[len(usageLogInsertArgTypes)-7])
+	require.Equal(t, "text", usageLogInsertArgTypes[len(usageLogInsertArgTypes)-6])
+	require.Equal(t, "numeric", usageLogInsertArgTypes[len(usageLogInsertArgTypes)-5])
+	require.Equal(t, "numeric", usageLogInsertArgTypes[len(usageLogInsertArgTypes)-4])
+	require.Equal(t, &bindingID, prepared.args[len(prepared.args)-8])
+	require.Equal(t, &multiplier, prepared.args[len(prepared.args)-7])
+	priceReference, ok := prepared.args[len(prepared.args)-6].(sql.NullString)
+	require.True(t, ok)
+	require.True(t, priceReference.Valid)
+	require.Equal(t, currency, priceReference.String)
+	require.Equal(t, &fx, prepared.args[len(prepared.args)-5])
+	require.Equal(t, &expectedCost, prepared.args[len(prepared.args)-4])
 }
 
 // TestPrepareUsageLogInsert_SessionIDNullWhenAbsent proves an absent session id is

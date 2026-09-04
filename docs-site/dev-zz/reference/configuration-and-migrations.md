@@ -355,6 +355,9 @@ runner 每分钟检查到期账号，单轮最多 20 个、并发 4、单请求�
 | `backend/migrations/225_channel_model_time_pricing.sql` | 给 `channel_model_pricing` 增加 `time_pricing jsonb NOT NULL DEFAULT '{}'`；Group 模型规则继续使用既有 JSONB，无新增订阅字段 |
 | `backend/migrations/229_plugins.sql` | 新增本地进程插件安装和能力绑定表；安装、绑定默认停用，并限制同一能力范围只有一个启用绑定 |
 | `backend/migrations/230_plugin_artifacts.sql` | 给插件安装记录追加原始包数据，支持多实例重新复验和解包；既有安装允许为空，重新上传时补齐 |
+| `backend/migrations/234_usage_log_upstream_expected_cost.sql` | 给 usage log 增加实际账号的供应商绑定、上游倍率、计价基准、参考汇率和上游应扣成本快照；历史行保持为空，不按当前配置倒算；首次新增字段时清零旧预聚合表中的 legacy `account_cost`，避免把旧口径冒充成新证据 |
+| `backend/migrations/235_dashboard_upstream_cost_evidence_coverage.sql` | 给小时/日预聚合增加上游成本证据覆盖数和缺失数；历史桶全部标记为缺失证据，使 API 能把未知成本返回为 `null` 而不伪装成零 |
+| `backend/migrations/236_upstream_official_pricing_channel.sql` | 给账号成本绑定增加显式官方价目表渠道，并为 usage 生成统一用于跨币种聚合的参考 USD 成本列；人民币绑定必须选择价目表，避免通过下游用户分组猜价 |
 
 `152` 使用 `CREATE INDEX CONCURRENTLY`，不能放进普通事务迁移。后续合并上游迁移时，需保留 `_notx` 约定，避免长事务锁表。
 

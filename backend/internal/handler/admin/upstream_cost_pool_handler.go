@@ -46,25 +46,27 @@ type upstreamCostPoolRechargeRecordRequest struct {
 }
 
 type upstreamCostBindingRequest struct {
-	CostPoolID              int64                       `json:"cost_pool_id"`
-	UpstreamGroupName       *string                     `json:"upstream_group_name"`
-	PriceReferenceCurrency  *string                     `json:"price_reference_currency"`
-	UpstreamGroupMultiplier *float64                    `json:"upstream_group_multiplier"`
-	DefaultMultiplier       *float64                    `json:"default_multiplier"`
-	ModelFamilies           []upstreamCostFamilyRequest `json:"model_families"`
-	Note                    *string                     `json:"note"`
+	CostPoolID               int64                       `json:"cost_pool_id"`
+	UpstreamGroupName        *string                     `json:"upstream_group_name"`
+	PriceReferenceCurrency   *string                     `json:"price_reference_currency"`
+	OfficialPricingChannelID *int64                      `json:"official_pricing_channel_id"`
+	UpstreamGroupMultiplier  *float64                    `json:"upstream_group_multiplier"`
+	DefaultMultiplier        *float64                    `json:"default_multiplier"`
+	ModelFamilies            []upstreamCostFamilyRequest `json:"model_families"`
+	Note                     *string                     `json:"note"`
 }
 
 type upstreamSupplierBindingRequest struct {
-	SupplierID              *int64                      `json:"supplier_id"`
-	SupplierName            *string                     `json:"supplier_name"`
-	CostPoolID              *int64                      `json:"cost_pool_id"`
-	UpstreamGroupName       *string                     `json:"upstream_group_name"`
-	PriceReferenceCurrency  *string                     `json:"price_reference_currency"`
-	UpstreamGroupMultiplier *float64                    `json:"upstream_group_multiplier"`
-	DefaultMultiplier       *float64                    `json:"default_multiplier"`
-	ModelFamilies           []upstreamCostFamilyRequest `json:"model_families"`
-	Note                    *string                     `json:"note"`
+	SupplierID               *int64                      `json:"supplier_id"`
+	SupplierName             *string                     `json:"supplier_name"`
+	CostPoolID               *int64                      `json:"cost_pool_id"`
+	UpstreamGroupName        *string                     `json:"upstream_group_name"`
+	PriceReferenceCurrency   *string                     `json:"price_reference_currency"`
+	OfficialPricingChannelID *int64                      `json:"official_pricing_channel_id"`
+	UpstreamGroupMultiplier  *float64                    `json:"upstream_group_multiplier"`
+	DefaultMultiplier        *float64                    `json:"default_multiplier"`
+	ModelFamilies            []upstreamCostFamilyRequest `json:"model_families"`
+	Note                     *string                     `json:"note"`
 }
 
 type upstreamSupplierRequest struct {
@@ -401,13 +403,14 @@ func (h *AccountHandler) UpdateAccountUpstreamCostBinding(c *gin.Context) {
 		return
 	}
 	input := service.UpstreamCostBindingInput{
-		AccountID:              accountID,
-		CostPoolID:             req.CostPoolID,
-		UpstreamGroupName:      req.UpstreamGroupName,
-		PriceReferenceCurrency: req.PriceReferenceCurrency,
-		DefaultMultiplier:      1,
-		ModelFamilyMultipliers: make([]service.UpstreamCostModelFamilyMultiplier, 0, len(req.ModelFamilies)),
-		Note:                   req.Note,
+		AccountID:                accountID,
+		CostPoolID:               req.CostPoolID,
+		UpstreamGroupName:        req.UpstreamGroupName,
+		PriceReferenceCurrency:   req.PriceReferenceCurrency,
+		OfficialPricingChannelID: req.OfficialPricingChannelID,
+		DefaultMultiplier:        1,
+		ModelFamilyMultipliers:   make([]service.UpstreamCostModelFamilyMultiplier, 0, len(req.ModelFamilies)),
+		Note:                     req.Note,
 	}
 	if req.DefaultMultiplier != nil {
 		input.DefaultMultiplier = *req.DefaultMultiplier
@@ -463,11 +466,12 @@ func (h *AccountHandler) UpdateAccountUpstreamSupplierBinding(c *gin.Context) {
 	var raw map[string]json.RawMessage
 	_ = json.Unmarshal(body, &raw)
 	input := service.UpstreamSupplierBindingInput{
-		AccountID:              accountID,
-		PriceReferenceCurrency: req.PriceReferenceCurrency,
-		DefaultMultiplier:      1,
-		ModelFamilyMultipliers: make([]service.UpstreamCostModelFamilyMultiplier, 0, len(req.ModelFamilies)),
-		Note:                   req.Note,
+		AccountID:                accountID,
+		PriceReferenceCurrency:   req.PriceReferenceCurrency,
+		OfficialPricingChannelID: req.OfficialPricingChannelID,
+		DefaultMultiplier:        1,
+		ModelFamilyMultipliers:   make([]service.UpstreamCostModelFamilyMultiplier, 0, len(req.ModelFamilies)),
+		Note:                     req.Note,
 	}
 	input.UpstreamGroupName = req.UpstreamGroupName
 	if supplierIDRaw, ok := raw["supplier_id"]; ok && string(supplierIDRaw) == "null" {

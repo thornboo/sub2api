@@ -69,7 +69,7 @@
               </div>
             </div>
             <p class="text-2xl font-bold text-gray-900 dark:text-white">
-              ${{ formatCost(stats.summary.total_cost) }}
+              {{ formatUpstreamCost(stats.summary.total_cost) }}
             </p>
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.stats.accumulatedCost') }}
@@ -120,7 +120,7 @@
               </div>
             </div>
             <p class="text-2xl font-bold text-gray-900 dark:text-white">
-              ${{ formatCost(stats.summary.avg_daily_cost) }}
+              {{ formatUpstreamCost(stats.summary.avg_daily_cost) }}
             </p>
              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {{
@@ -195,7 +195,7 @@
               <div class="flex items-center justify-between">
                 <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('usage.accountBilled') }}</span>
                 <span class="text-sm font-semibold text-gray-900 dark:text-white"
-                  >${{ formatCost(stats.summary.today?.cost || 0) }}</span
+                  >{{ formatUpstreamCost(stats.summary.today?.cost) }}</span
                 >
               </div>
               <div class="flex items-center justify-between">
@@ -250,7 +250,7 @@
               <div class="flex items-center justify-between">
                 <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('usage.accountBilled') }}</span>
                 <span class="text-sm font-semibold text-orange-600 dark:text-orange-400"
-                  >${{ formatCost(stats.summary.highest_cost_day?.cost || 0) }}</span
+                  >{{ formatUpstreamCost(stats.summary.highest_cost_day?.cost) }}</span
                 >
               </div>
               <div class="flex items-center justify-between">
@@ -305,7 +305,7 @@
               <div class="flex items-center justify-between">
                 <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('usage.accountBilled') }}</span>
                 <span class="text-sm font-semibold text-gray-900 dark:text-white"
-                  >${{ formatCost(stats.summary.highest_request_day?.cost || 0) }}</span
+                  >{{ formatUpstreamCost(stats.summary.highest_request_day?.cost) }}</span
                 >
               </div>
               <div class="flex items-center justify-between">
@@ -415,7 +415,7 @@
               <div class="flex items-center justify-between">
                 <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('usage.accountBilled') }}</span>
                 <span class="text-sm font-semibold text-gray-900 dark:text-white"
-                  >${{ formatCost(stats.summary.today?.cost || 0) }}</span
+                  >{{ formatUpstreamCost(stats.summary.today?.cost) }}</span
                 >
               </div>
               <div class="flex items-center justify-between">
@@ -718,6 +718,10 @@ const formatCost = (value: number): string => {
     return value.toFixed(3)
   }
   return value.toFixed(4)
+}
+
+const formatUpstreamCost = (value: number | null | undefined): string => {
+  return value == null ? t('usage.noUpstreamCostEvidence') : `$${formatCost(value)}`
 }
 
 const formatNumber = (value: number): string => {

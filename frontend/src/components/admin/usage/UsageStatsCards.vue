@@ -69,7 +69,8 @@
         </p>
         <p class="text-xs text-stone-400 dark:text-stone-500">
           <template v-if="showAccountCost && totalAccountCost != null">
-            <span class="text-orange-500">{{ t('usage.accountCost') }} ${{ totalAccountCost.toFixed(4) }}</span>
+            <span class="text-orange-500">{{ t('usage.upstreamExpectedCost') }} ${{ totalAccountCost.toFixed(4) }}</span>
+            <span class="text-stone-400"> ({{ upstreamCostCoverage }})</span>
             <span> · </span>
           </template>
           <span>
@@ -109,6 +110,14 @@ const { t } = useI18n()
 const totalAccountCost = computed(() => {
   const stats = props.stats as (AdminUsageStatsResponse & { total_account_cost?: number }) | null
   return stats?.total_account_cost ?? null
+})
+const upstreamCostCoverage = computed(() => {
+  const stats = props.stats as AdminUsageStatsResponse | null
+  const covered = stats?.upstream_expected_cost_count ?? 0
+  const missing = stats?.missing_upstream_cost_count ?? 0
+  const total = covered + missing
+  if (total === 0) return t('usage.noUpstreamCostEvidence')
+  return t('usage.upstreamCostCoverage', { covered, total })
 })
 const showAccountCost = computed(() => props.showAccountCost)
 const strikeStandardCost = computed(() => props.strikeStandardCost)

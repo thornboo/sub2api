@@ -533,6 +533,42 @@ func (s *ChannelService) GetChannelModelPricing(ctx context.Context, groupID int
 	return &cp
 }
 
+// GetOfficialModelPricing reads an explicitly selected channel as an upstream
+// official-price catalog. Unlike GetChannelModelPricing it is keyed by channel,
+// never by the downstream caller's group.
+func (s *ChannelService) GetOfficialModelPricing(ctx context.Context, channelID int64, platform, model string) *ChannelModelPricing {
+	if channelID <= 0 {
+		return nil
+	}
+	cache, err := s.loadCache(ctx)
+	if err != nil {
+		slog.Warn("failed to load official pricing channel", "channel_id", channelID, "error", err)
+		return nil
+	}
+	channel := cache.byID[channelID]
+	if channel == nil || !channel.IsActive() {
+		return nil
+	}
+	normalizedModel := normalizeChannelPricingModelName(model)
+	for _, wantedPlatform := range matchingPlatforms(platform) {
+		for i := range channel.ModelPricing {
+			pricing := &channel.ModelPricing[i]
+			if pricing.Platform != wantedPlatform {
+				continue
+			}
+			for _, configuredModel := range pricing.Models {
+				prefix, wildcard := splitWildcardSuffix(configuredModel)
+				configured := normalizeChannelPricingModelName(prefix)
+				if (!wildcard && configured == normalizedModel) || (wildcard && strings.HasPrefix(normalizedModel, configured)) {
+					copy := pricing.Clone()
+					return &copy
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // ResolveChannelMapping 解析渠道级模型映射（热路径 O(1)）
 // 返回映射结果，包含映射后的模型名、渠道 ID、计费模型来源。
 func (s *ChannelService) ResolveChannelMapping(ctx context.Context, groupID int64, model string) ChannelMappingResult {

@@ -322,6 +322,85 @@ func TestGatewayServiceRecordUsage_PreservesLoopedChannelAndAccountUpstreamModel
 	require.Equal(t, "gpt-5.6-sol", *usageRepo.lastLog.UpstreamModel)
 }
 
+func TestGatewayServiceRecordUsage_UpstreamExpectedCostUsesFinalUpstreamModel(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+	tokens := UsageTokens{InputTokens: 20, OutputTokens: 10}
+	upstreamBaseCost, err := svc.billingService.CalculateCost("claude-sonnet-4", tokens, 1)
+	require.NoError(t, err)
+	requestedCost, err := svc.billingService.CalculateCost("claude-3-5-haiku-latest", tokens, 1.1)
+	require.NoError(t, err)
+	require.NotEqual(t, requestedCost.TotalCost, upstreamBaseCost.TotalCost,
+		"test models must have different list prices")
+
+	bindingID := int64(42)
+	upstreamMultiplier := 0.5
+	err = svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID:     "gateway_upstream_expected_final_model",
+			Usage:         ClaudeUsage{InputTokens: 20, OutputTokens: 10},
+			Model:         "claude-3-5-haiku-latest",
+			UpstreamModel: "claude-sonnet-4",
+			Duration:      time.Second,
+		},
+		APIKey: &APIKey{ID: 501, Quota: 100},
+		User:   &User{ID: 601},
+		Account: &Account{
+			ID:                             701,
+			UpstreamCostBindingID:          &bindingID,
+			UpstreamGroupMultiplier:        &upstreamMultiplier,
+			UpstreamPriceReferenceCurrency: UpstreamPriceReferenceCurrencyUSD,
+		},
+		ChannelUsageFields: ChannelUsageFields{
+			OriginalModel:      "claude-3-5-haiku-latest",
+			BillingModelSource: BillingModelSourceRequested,
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.NotNil(t, usageRepo.lastLog.UpstreamExpectedCost)
+	require.InDelta(t, upstreamBaseCost.TotalCost*upstreamMultiplier, *usageRepo.lastLog.UpstreamExpectedCost, 1e-12)
+	require.NotEqual(t, usageRepo.lastLog.TotalCost*upstreamMultiplier, *usageRepo.lastLog.UpstreamExpectedCost,
+		"upstream expectation must not reuse the customer billing model")
+}
+
+func TestGatewayServiceRecordUsage_UnknownUpstreamPriceLeavesEvidenceMissing(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+	bindingID := int64(42)
+	upstreamMultiplier := 0.5
+
+	err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID:     "gateway_upstream_expected_unknown_price",
+			Usage:         ClaudeUsage{InputTokens: 20, OutputTokens: 10},
+			Model:         "claude-3-5-haiku-latest",
+			UpstreamModel: "unpriced-upstream-model-2099",
+			Duration:      time.Second,
+		},
+		APIKey: &APIKey{ID: 501, Quota: 100},
+		User:   &User{ID: 601},
+		Account: &Account{
+			ID:                             701,
+			UpstreamCostBindingID:          &bindingID,
+			UpstreamGroupMultiplier:        &upstreamMultiplier,
+			UpstreamPriceReferenceCurrency: UpstreamPriceReferenceCurrencyUSD,
+		},
+		ChannelUsageFields: ChannelUsageFields{
+			OriginalModel:      "claude-3-5-haiku-latest",
+			BillingModelSource: BillingModelSourceRequested,
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Nil(t, usageRepo.lastLog.UpstreamExpectedCost)
+	require.Nil(t, usageRepo.lastLog.UpstreamCostBindingID)
+	require.Nil(t, usageRepo.lastLog.UpstreamGroupMultiplier)
+	require.Nil(t, usageRepo.lastLog.UpstreamPriceReferenceCurrency)
+}
+
 func TestGatewayServiceRecordUsage_EmptyImageSizeDefaultsBeforeBillingAndPersistence(t *testing.T) {
 	imagePrice2K := 0.19
 	groupID := int64(901)

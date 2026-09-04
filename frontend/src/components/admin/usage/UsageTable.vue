@@ -279,8 +279,8 @@
                 </div>
               </div>
             </div>
-            <div v-if="showAccountBilling && row.account_rate_multiplier != null" class="mt-0.5 text-[11px] text-orange-500 dark:text-orange-400">
-              A ${{ formatCost(accountBilled(row)) }}
+            <div v-if="showAccountBilling && row.upstream_expected_cost != null" class="mt-0.5 text-[11px] text-orange-500 dark:text-orange-400">
+              A {{ upstreamCostCurrencySymbol(row) }}{{ formatCost(upstreamExpectedCost(row)) }}
             </div>
           </div>
         </template>
@@ -543,20 +543,20 @@
             <span class="font-semibold text-green-400">${{ formatCost(tooltipData?.actual_cost) }}</span>
           </div>
           <!-- Account billing (separated from user billing) -->
-          <template v-if="showAccountBilling">
+          <template v-if="showAccountBilling && tooltipData?.upstream_expected_cost != null">
             <div class="flex items-center justify-between gap-6 border-t border-white/10 pt-1.5">
-              <span class="text-gray-400">{{ t('usage.accountMultiplier') }}</span>
-              <span class="font-semibold text-emerald-300">{{ formatMultiplier(tooltipData?.account_rate_multiplier ?? 1) }}x</span>
+              <span class="text-gray-400">{{ t('usage.upstreamMultiplier') }}</span>
+              <span class="font-semibold text-emerald-300">{{ formatMultiplier(tooltipData?.upstream_group_multiplier ?? 1) }}x</span>
             </div>
             <div class="flex items-center justify-between gap-6">
-              <span class="text-gray-400">{{ t('usage.accountBilled') }}</span>
+              <span class="text-gray-400">{{ t('usage.upstreamExpectedCost') }}</span>
               <span class="font-semibold text-green-400">
-                ${{ formatCost(accountBilled({
-                  total_cost: tooltipData?.total_cost,
-                  account_stats_cost: tooltipData?.account_stats_cost,
-                  account_rate_multiplier: tooltipData?.account_rate_multiplier,
-                })) }}
+                {{ upstreamCostCurrencySymbol(tooltipData) }}{{ formatCost(upstreamExpectedCost(tooltipData)) }}
               </span>
+            </div>
+            <div class="flex items-center justify-between gap-6">
+              <span class="text-gray-400">{{ t('usage.upstreamPriceReference') }}</span>
+              <span class="font-medium text-white">{{ tooltipData?.upstream_price_reference_currency || '-' }}</span>
             </div>
           </template>
         </div>
@@ -631,12 +631,13 @@ const formatTotalTokens = (row: AdminUsageLog | null): string => formatCount(
   toFiniteNumber(row?.cache_read_tokens)
 )
 
-/** Compute the account-billed cost for display: (account_stats_cost ?? total_cost) * rate_multiplier */
-function accountBilled(row: { total_cost?: unknown; account_stats_cost?: unknown; account_rate_multiplier?: unknown }): number {
-  const base = row.account_stats_cost != null
-    ? toFiniteNumber(row.account_stats_cost)
-    : toFiniteNumber(row.total_cost)
-  return base * toFiniteNumber(row.account_rate_multiplier, 1)
+/** Read only immutable upstream evidence; callers hide the field when absent. */
+function upstreamExpectedCost(row: { upstream_expected_cost?: unknown } | null): number {
+  return toFiniteNumber(row?.upstream_expected_cost)
+}
+
+function upstreamCostCurrencySymbol(row: { upstream_price_reference_currency?: unknown } | null): string {
+  return String(row?.upstream_price_reference_currency || '').toUpperCase() === 'CNY' ? '¥' : '$'
 }
 
 

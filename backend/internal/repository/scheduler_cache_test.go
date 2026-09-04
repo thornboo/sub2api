@@ -37,6 +37,31 @@ func TestSchedulerMetadataAccountKeepsOpenAISubscriptionIdentity(t *testing.T) {
 	require.Empty(t, metadata.GetCredential("access_token"))
 }
 
+func TestSchedulerMetadataAccountKeepsUpstreamExpectedCostEvidence(t *testing.T) {
+	bindingID := int64(73)
+	pricingChannelID := int64(91)
+	multiplier := 0.8
+	fx := 7.2
+	account := service.Account{
+		ID:                               24,
+		UpstreamCostBindingID:            &bindingID,
+		UpstreamOfficialPricingChannelID: &pricingChannelID,
+		UpstreamGroupMultiplier:          &multiplier,
+		UpstreamModelFamilyMultipliers:   []service.UpstreamCostModelFamilyMultiplier{{Family: "gpt", GroupMultiplier: 0.5}},
+		UpstreamPriceReferenceCurrency:   service.UpstreamPriceReferenceCurrencyCNY,
+		UpstreamReferenceFXRate:          &fx,
+	}
+
+	metadata := buildSchedulerMetadataAccount(account)
+
+	require.Equal(t, account.UpstreamCostBindingID, metadata.UpstreamCostBindingID)
+	require.Equal(t, account.UpstreamOfficialPricingChannelID, metadata.UpstreamOfficialPricingChannelID)
+	require.Equal(t, account.UpstreamGroupMultiplier, metadata.UpstreamGroupMultiplier)
+	require.Equal(t, account.UpstreamModelFamilyMultipliers, metadata.UpstreamModelFamilyMultipliers)
+	require.Equal(t, account.UpstreamPriceReferenceCurrency, metadata.UpstreamPriceReferenceCurrency)
+	require.Equal(t, account.UpstreamReferenceFXRate, metadata.UpstreamReferenceFXRate)
+}
+
 func TestSchedulerMetadataAccountProjectsUpstreamBillingProbe(t *testing.T) {
 	lastError := strings.Repeat("upstream diagnostic ", 512)
 	probe := map[string]any{

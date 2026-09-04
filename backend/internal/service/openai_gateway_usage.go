@@ -407,6 +407,34 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ImageSizeBreakdown:       result.ImageSizeBreakdown,
 		NativeCompactionV2:       input.NativeCompactionV2,
 	}
+
+	// Resolve a separate upstream list-price base from the actual model and the
+	// complete request usage. Customer/group multipliers are intentionally 1;
+	// the supplier-side multiplier is applied when the evidence is snapshotted.
+	upstreamBillingModel := sentModel
+	if responseModel := strings.TrimSpace(result.UpstreamResponseModel); responseModel != "" && !result.UpstreamResponseModelConflict {
+		if identified, _ := s.hasIdentifiedOpenAIResponsePricing(withUpstreamExpectedPricing(ctx, account), responseModel, upstreamPricingAPIKey(apiKey)); identified {
+			upstreamBillingModel = responseModel
+		}
+	}
+	upstreamBillingModels := s.filterCNProviderBillingModelCandidates(
+		withUpstreamExpectedPricing(ctx, account),
+		account,
+		upstreamPricingAPIKey(apiKey),
+		usageBillingModelCandidates(upstreamBillingModel),
+	)
+	upstreamBaseCost, upstreamBaseErr := s.calculateOpenAIUpstreamExpectedBaseCost(
+		ctx, result, apiKey, account, upstreamBillingModels, account.UpstreamPriceReferenceCurrency,
+		tokens, serviceTier, longContextBillingGate, pricingAt,
+	)
+	if upstreamBaseErr != nil {
+		upstreamBaseCost = nil
+		logger.L().With(
+			zap.String("component", "service.openai_gateway"),
+			zap.Strings("upstream_billing_models", upstreamBillingModels),
+			zap.Int64("account_id", account.ID),
+		).Debug("openai_usage.upstream_expected_cost_unavailable", zap.Error(upstreamBaseErr))
+	}
 	applyAPIKeyUsageAttribution(usageLog, apiKey)
 	ApplyUsageRoutingPlanEvidence(ctx, usageLog)
 	isVideoUsage := isGrokVideoUsageResult(result, billingModels)
@@ -496,6 +524,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			tokens, cost.TotalCost,
 		)
 	}
+	applyUpstreamExpectedCost(usageLog, account, upstreamBaseCost, firstUsageBillingModel(upstreamBillingModels))
 
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
 		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
@@ -542,6 +571,59 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	}
 
 	return nil
+}
+
+func (s *OpenAIGatewayService) calculateOpenAIUpstreamExpectedBaseCost(
+	ctx context.Context,
+	result *OpenAIForwardResult,
+	apiKey *APIKey,
+	account *Account,
+	billingModels []string,
+	priceReferenceCurrency string,
+	tokens UsageTokens,
+	serviceTier string,
+	longContextBillingGate *bool,
+	pricingAt time.Time,
+) (*CostBreakdown, error) {
+	ctx = withUpstreamExpectedPricing(ctx, account)
+	pricingAPIKey := upstreamPricingAPIKey(apiKey)
+	billingModel := firstUsageBillingModel(billingModels)
+	resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, pricingAPIKey)
+	if !upstreamCurrencyAllowsResolvedPricing(priceReferenceCurrency, resolved) {
+		return nil, ErrModelPricingUnavailable
+	}
+	if upstreamCurrencyIsCNY(priceReferenceCurrency) && result != nil && (result.WebSearchCalls > 0 || result.SearchCount > 0) {
+		return nil, ErrModelPricingUnavailable
+	}
+	if result != nil && result.AudioUsage != nil {
+		switch strings.ToLower(strings.TrimSpace(result.AudioUsage.Mode)) {
+		case "realtime", "tts", "stt":
+		default:
+			return nil, ErrModelPricingUnavailable
+		}
+		if upstreamCurrencyIsCNY(priceReferenceCurrency) && (resolved == nil || resolved.Mode != BillingModePerRequest) {
+			return nil, ErrModelPricingUnavailable
+		}
+	}
+	if upstreamCurrencyIsCNY(priceReferenceCurrency) && isGrokVideoUsageResult(result, billingModels) &&
+		(resolved == nil || (resolved.Mode != BillingModeVideo && resolved.Mode != BillingModeToken)) {
+		return nil, ErrModelPricingUnavailable
+	}
+	if result != nil && result.ImageCount > 0 && resolved == nil {
+		if _, known := getDefaultGrokImagineImagePrice(billingModel, NormalizeImageBillingTierOrDefault(result.ImageSize)); !known {
+			if s.billingService == nil || s.billingService.pricingService == nil {
+				return nil, ErrModelPricingUnavailable
+			}
+			pricing := s.billingService.pricingService.GetModelPricing(billingModel)
+			if pricing == nil || pricing.OutputCostPerImage <= 0 {
+				return nil, ErrModelPricingUnavailable
+			}
+		}
+	}
+	return s.calculateOpenAIRecordUsageCost(
+		ctx, result, pricingAPIKey, billingModels, 1, 1, 1, 1,
+		tokens, serviceTier, longContextBillingGate, pricingAt,
+	)
 }
 
 // hasIdentifiedOpenAIResponsePricing 判断上游自报的响应模型是否可以作为计费基准，

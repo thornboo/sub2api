@@ -146,11 +146,13 @@ func NewUsageCache() *UsageCache {
 // standard_cost: 标准费用（total_cost，不含倍率）
 // user_cost: 用户/API Key 口径费用（actual_cost，受分组倍率影响）
 type WindowStats struct {
-	Requests     int64   `json:"requests"`
-	Tokens       int64   `json:"tokens"`
-	Cost         float64 `json:"cost"`
-	StandardCost float64 `json:"standard_cost"`
-	UserCost     float64 `json:"user_cost"`
+	Requests                  int64    `json:"requests"`
+	Tokens                    int64    `json:"tokens"`
+	Cost                      *float64 `json:"cost"`
+	UpstreamExpectedCostCount int64    `json:"upstream_expected_cost_count"`
+	MissingUpstreamCostCount  int64    `json:"missing_upstream_cost_count"`
+	StandardCost              float64  `json:"standard_cost"`
+	UserCost                  float64  `json:"user_cost"`
 }
 
 // UsageProgress 使用量进度
@@ -649,7 +651,7 @@ func applySyntheticWindowStats(info *UsageInfo, extra map[string]any) {
 	info.FiveHour.WindowStats = &WindowStats{
 		Requests:     int64(parseExtraInt(raw["requests"])),
 		Tokens:       int64(parseExtraInt(raw["tokens"])),
-		Cost:         parseExtraFloat64(raw["cost"]),
+		Cost:         float64Ptr(parseExtraFloat64(raw["cost"])),
 		StandardCost: parseExtraFloat64(raw["standard_cost"]),
 		UserCost:     parseExtraFloat64(raw["user_cost"]),
 	}
@@ -1381,11 +1383,13 @@ func (s *AccountUsageService) addWindowStats(ctx context.Context, account *Accou
 		}
 
 		windowStats = &WindowStats{
-			Requests:     stats.Requests,
-			Tokens:       stats.Tokens,
-			Cost:         stats.Cost,
-			StandardCost: stats.StandardCost,
-			UserCost:     stats.UserCost,
+			Requests:                  stats.Requests,
+			Tokens:                    stats.Tokens,
+			Cost:                      stats.Cost,
+			UpstreamExpectedCostCount: stats.UpstreamExpectedCostCount,
+			MissingUpstreamCostCount:  stats.MissingUpstreamCostCount,
+			StandardCost:              stats.StandardCost,
+			UserCost:                  stats.UserCost,
 		}
 
 		// 缓存窗口统计（1 分钟）
@@ -1409,11 +1413,13 @@ func (s *AccountUsageService) GetTodayStats(ctx context.Context, accountID int64
 	}
 
 	return &WindowStats{
-		Requests:     stats.Requests,
-		Tokens:       stats.Tokens,
-		Cost:         stats.Cost,
-		StandardCost: stats.StandardCost,
-		UserCost:     stats.UserCost,
+		Requests:                  stats.Requests,
+		Tokens:                    stats.Tokens,
+		Cost:                      stats.Cost,
+		UpstreamExpectedCostCount: stats.UpstreamExpectedCostCount,
+		MissingUpstreamCostCount:  stats.MissingUpstreamCostCount,
+		StandardCost:              stats.StandardCost,
+		UserCost:                  stats.UserCost,
 	}, nil
 }
 
@@ -1481,11 +1487,13 @@ func windowStatsFromAccountStats(stats *usagestats.AccountStats) *WindowStats {
 		return &WindowStats{}
 	}
 	return &WindowStats{
-		Requests:     stats.Requests,
-		Tokens:       stats.Tokens,
-		Cost:         stats.Cost,
-		StandardCost: stats.StandardCost,
-		UserCost:     stats.UserCost,
+		Requests:                  stats.Requests,
+		Tokens:                    stats.Tokens,
+		Cost:                      stats.Cost,
+		UpstreamExpectedCostCount: stats.UpstreamExpectedCostCount,
+		MissingUpstreamCostCount:  stats.MissingUpstreamCostCount,
+		StandardCost:              stats.StandardCost,
+		UserCost:                  stats.UserCost,
 	}
 }
 
@@ -1795,7 +1803,7 @@ func buildGeminiUsageProgress(used, limit int64, resetAt time.Time, tokens int64
 		WindowStats: &WindowStats{
 			Requests: used,
 			Tokens:   tokens,
-			Cost:     cost,
+			Cost:     float64Ptr(cost),
 		},
 	}
 }

@@ -47,7 +47,7 @@ export default {
       cache: 'Cache',
       actual: 'Actual',
       standard: 'Standard',
-      accountCost: 'Cost',
+      accountCost: 'Upstream cost (reference USD)',
       noDataAvailable: 'No data available',
       recentUsage: 'Recent Usage',
       viewModelDistribution: 'Model Distribution',

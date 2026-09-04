@@ -19,7 +19,7 @@ export default {
       newUsersToday: '今日新增用户',
       actual: '实际',
       standard: '标准',
-      accountCost: '成本',
+      accountCost: '上游成本（参考 USD）',
       todayTokens: '今日 Token',
       totalTokens: '总 Token',
       input: '输入',

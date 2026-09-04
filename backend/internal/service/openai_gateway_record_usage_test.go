@@ -2111,6 +2111,13 @@ func TestOpenAIGatewayServiceRecordUsage_BillsCompactOpenAIModelAlias(t *testing
 		OutputTokens: 10,
 	}, 1.1)
 	require.NoError(t, err)
+	upstreamBaseCost, err := svc.billingService.CalculateCost("gpt-5.4", UsageTokens{
+		InputTokens:  20,
+		OutputTokens: 10,
+	}, 1)
+	require.NoError(t, err)
+	bindingID := int64(42)
+	upstreamMultiplier := 0.5
 
 	err = svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
 		Result: &OpenAIForwardResult{
@@ -2120,9 +2127,14 @@ func TestOpenAIGatewayServiceRecordUsage_BillsCompactOpenAIModelAlias(t *testing
 			Usage:         usage,
 			Duration:      time.Second,
 		},
-		APIKey:  &APIKey{ID: 10},
-		User:    &User{ID: 20},
-		Account: &Account{ID: 30},
+		APIKey: &APIKey{ID: 10},
+		User:   &User{ID: 20},
+		Account: &Account{
+			ID:                             30,
+			UpstreamCostBindingID:          &bindingID,
+			UpstreamGroupMultiplier:        &upstreamMultiplier,
+			UpstreamPriceReferenceCurrency: UpstreamPriceReferenceCurrencyUSD,
+		},
 	})
 
 	require.NoError(t, err)
@@ -2133,6 +2145,10 @@ func TestOpenAIGatewayServiceRecordUsage_BillsCompactOpenAIModelAlias(t *testing
 	require.InDelta(t, expectedCost.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
 	require.True(t, usageRepo.lastLog.ActualCost > 0, "cost must not be zero")
 	require.InDelta(t, expectedCost.ActualCost, userRepo.lastAmount, 1e-12)
+	require.NotNil(t, usageRepo.lastLog.UpstreamExpectedCost)
+	require.InDelta(t, upstreamBaseCost.TotalCost*upstreamMultiplier, *usageRepo.lastLog.UpstreamExpectedCost, 1e-12)
+	require.NotEqual(t, usageRepo.lastLog.TotalCost*upstreamMultiplier, *usageRepo.lastLog.UpstreamExpectedCost,
+		"upstream expectation must use the final upstream model, not the customer billing model")
 }
 
 func TestOpenAIGatewayServiceRecordUsage_FallsBackToUpstreamModelWhenPrimaryUnpriceable(t *testing.T) {

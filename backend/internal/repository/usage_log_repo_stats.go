@@ -280,7 +280,9 @@ func (r *usageLogRepository) GetAccountTodayStats(ctx context.Context, accountID
 		SELECT
 			COUNT(*) as requests,
 			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as tokens,
-			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as cost,
+			SUM(upstream_expected_cost_usd) as cost,
+			COUNT(upstream_expected_cost_usd) as upstream_expected_cost_count,
+			COUNT(*) FILTER (WHERE upstream_expected_cost_usd IS NULL) as missing_upstream_cost_count,
 			COALESCE(SUM(total_cost), 0) as standard_cost,
 			COALESCE(SUM(actual_cost), 0) as user_cost
 		FROM usage_logs
@@ -296,6 +298,8 @@ func (r *usageLogRepository) GetAccountTodayStats(ctx context.Context, accountID
 		&stats.Requests,
 		&stats.Tokens,
 		&stats.Cost,
+		&stats.UpstreamExpectedCostCount,
+		&stats.MissingUpstreamCostCount,
 		&stats.StandardCost,
 		&stats.UserCost,
 	); err != nil {
@@ -310,7 +314,9 @@ func (r *usageLogRepository) GetAccountWindowStats(ctx context.Context, accountI
 		SELECT
 			COUNT(*) as requests,
 			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as tokens,
-			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as cost,
+			SUM(upstream_expected_cost_usd) as cost,
+			COUNT(upstream_expected_cost_usd) as upstream_expected_cost_count,
+			COUNT(*) FILTER (WHERE upstream_expected_cost_usd IS NULL) as missing_upstream_cost_count,
 			COALESCE(SUM(total_cost), 0) as standard_cost,
 			COALESCE(SUM(actual_cost), 0) as user_cost
 		FROM usage_logs
@@ -326,6 +332,8 @@ func (r *usageLogRepository) GetAccountWindowStats(ctx context.Context, accountI
 		&stats.Requests,
 		&stats.Tokens,
 		&stats.Cost,
+		&stats.UpstreamExpectedCostCount,
+		&stats.MissingUpstreamCostCount,
 		&stats.StandardCost,
 		&stats.UserCost,
 	); err != nil {
@@ -347,7 +355,9 @@ func (r *usageLogRepository) GetAccountWindowStatsBatch(ctx context.Context, acc
 			account_id,
 			COUNT(*) as requests,
 			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as tokens,
-			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as cost,
+			SUM(upstream_expected_cost_usd) as cost,
+			COUNT(upstream_expected_cost_usd) as upstream_expected_cost_count,
+			COUNT(*) FILTER (WHERE upstream_expected_cost_usd IS NULL) as missing_upstream_cost_count,
 			COALESCE(SUM(total_cost), 0) as standard_cost,
 			COALESCE(SUM(actual_cost), 0) as user_cost
 		FROM usage_logs
@@ -368,6 +378,8 @@ func (r *usageLogRepository) GetAccountWindowStatsBatch(ctx context.Context, acc
 			&stats.Requests,
 			&stats.Tokens,
 			&stats.Cost,
+			&stats.UpstreamExpectedCostCount,
+			&stats.MissingUpstreamCostCount,
 			&stats.StandardCost,
 			&stats.UserCost,
 		); err != nil {
@@ -707,7 +719,8 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 				cache_read_tokens,
 				total_cost,
 				actual_cost,
-				COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1) AS account_cost,
+				upstream_expected_cost_usd AS account_cost,
+				upstream_expected_cost_usd IS NOT NULL AS has_upstream_expected_cost,
 				duration_ms
 			FROM usage_logs
 			%s
@@ -725,6 +738,8 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 			COALESCE(SUM(total_cost), 0) AS cost,
 			COALESCE(SUM(actual_cost), 0) AS actual_cost,
 			COALESCE(SUM(account_cost), 0) AS account_cost,
+			COUNT(*) FILTER (WHERE has_upstream_expected_cost) AS upstream_expected_cost_count,
+			COUNT(*) FILTER (WHERE NOT has_upstream_expected_cost) AS missing_upstream_cost_count,
 			COALESCE(AVG(duration_ms), 0) AS avg_duration_ms
 		FROM scoped
 		GROUP BY GROUPING SETS (
@@ -749,6 +764,7 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 			inboundGrouped, upstreamGrouped                                      int
 			inboundEndpoint, upstreamEndpoint                                    sql.NullString
 			requests, inputTokens, outputTokens, cacheCreationTokens, cacheReads int64
+			upstreamExpectedCostCount, missingUpstreamCostCount                  int64
 			cost, actualCost, accountCost, averageDurationMs                     float64
 		)
 		if err := rows.Scan(
@@ -764,6 +780,8 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 			&cost,
 			&actualCost,
 			&accountCost,
+			&upstreamExpectedCostCount,
+			&missingUpstreamCostCount,
 			&averageDurationMs,
 		); err != nil {
 			return nil, err
@@ -786,6 +804,8 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 			stats.TotalCost = cost
 			stats.TotalActualCost = actualCost
 			totalAccountCost = accountCost
+			stats.UpstreamExpectedCostCount = upstreamExpectedCostCount
+			stats.MissingUpstreamCostCount = missingUpstreamCostCount
 			stats.AverageDurationMs = averageDurationMs
 		case inboundGrouped == 0 && upstreamGrouped == 1:
 			stats.Endpoints = append(stats.Endpoints, EndpointStat{
@@ -820,7 +840,9 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 	sortEndpointStats(stats.UpstreamEndpoints)
 	sortEndpointStats(stats.EndpointPaths)
 
-	stats.TotalAccountCost = &totalAccountCost
+	if stats.UpstreamExpectedCostCount > 0 {
+		stats.TotalAccountCost = &totalAccountCost
+	}
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheTokens
 
 	return stats, nil
@@ -840,9 +862,6 @@ type EndpointStat = usagestats.EndpointStat
 
 func (r *usageLogRepository) getEndpointStatsByColumnWithFilters(ctx context.Context, endpointColumn string, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, modelSource string, requestType *int16, stream *bool, billingType *int8, billingMode string, memberFilters UsageLogFilters) (results []EndpointStat, err error) {
 	actualCostExpr := "COALESCE(SUM(actual_cost), 0) as actual_cost"
-	if accountID > 0 && userID == 0 && apiKeyID == 0 {
-		actualCostExpr = "COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as actual_cost"
-	}
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -930,7 +949,9 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 			COUNT(*) as requests,
 			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as tokens,
 			COALESCE(SUM(total_cost), 0) as cost,
-			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as actual_cost,
+			SUM(upstream_expected_cost_usd) as actual_cost,
+			COUNT(upstream_expected_cost_usd) as upstream_expected_cost_count,
+			COUNT(*) FILTER (WHERE upstream_expected_cost_usd IS NULL) as missing_upstream_cost_count,
 			COALESCE(SUM(actual_cost), 0) as user_cost
 		FROM usage_logs
 		WHERE account_id = $1 AND created_at >= $2 AND created_at < $3
@@ -957,20 +978,23 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 		var requests int64
 		var tokens int64
 		var cost float64
-		var actualCost float64
+		var actualCost *float64
+		var upstreamExpectedCostCount, missingUpstreamCostCount int64
 		var userCost float64
-		if err = rows.Scan(&date, &requests, &tokens, &cost, &actualCost, &userCost); err != nil {
+		if err = rows.Scan(&date, &requests, &tokens, &cost, &actualCost, &upstreamExpectedCostCount, &missingUpstreamCostCount, &userCost); err != nil {
 			return nil, err
 		}
 		t, _ := time.Parse("2006-01-02", date)
 		history = append(history, AccountUsageHistory{
-			Date:       date,
-			Label:      t.Format("01/02"),
-			Requests:   requests,
-			Tokens:     tokens,
-			Cost:       cost,
-			ActualCost: actualCost,
-			UserCost:   userCost,
+			Date:                      date,
+			Label:                     t.Format("01/02"),
+			Requests:                  requests,
+			Tokens:                    tokens,
+			Cost:                      cost,
+			ActualCost:                actualCost,
+			UpstreamExpectedCostCount: upstreamExpectedCostCount,
+			MissingUpstreamCostCount:  missingUpstreamCostCount,
+			UserCost:                  userCost,
 		})
 	}
 	if err = rows.Err(); err != nil {
@@ -978,18 +1002,25 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 	}
 
 	var totalAccountCost, totalUserCost, totalStandardCost float64
+	var totalUpstreamExpectedCostCount, totalMissingUpstreamCostCount int64
+	coveredDays := 0
 	var totalRequests, totalTokens int64
 	var highestCostDay, highestRequestDay *AccountUsageHistory
 
 	for i := range history {
 		h := &history[i]
-		totalAccountCost += h.ActualCost
+		if h.ActualCost != nil {
+			totalAccountCost += *h.ActualCost
+			coveredDays++
+		}
+		totalUpstreamExpectedCostCount += h.UpstreamExpectedCostCount
+		totalMissingUpstreamCostCount += h.MissingUpstreamCostCount
 		totalUserCost += h.UserCost
 		totalStandardCost += h.Cost
 		totalRequests += h.Requests
 		totalTokens += h.Tokens
 
-		if highestCostDay == nil || h.ActualCost > highestCostDay.ActualCost {
+		if h.ActualCost != nil && (highestCostDay == nil || *h.ActualCost > *highestCostDay.ActualCost) {
 			highestCostDay = h
 		}
 		if highestRequestDay == nil || h.Requests > highestRequestDay.Requests {
@@ -1008,30 +1039,38 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 		return nil, err
 	}
 
+	var totalAccountCostPtr, avgDailyCostPtr *float64
+	if totalUpstreamExpectedCostCount > 0 {
+		totalAccountCostPtr = &totalAccountCost
+		average := totalAccountCost / float64(coveredDays)
+		avgDailyCostPtr = &average
+	}
 	summary := AccountUsageSummary{
-		Days:              daysCount,
-		ActualDaysUsed:    actualDaysUsed,
-		TotalCost:         totalAccountCost,
-		TotalUserCost:     totalUserCost,
-		TotalStandardCost: totalStandardCost,
-		TotalRequests:     totalRequests,
-		TotalTokens:       totalTokens,
-		AvgDailyCost:      totalAccountCost / float64(actualDaysUsed),
-		AvgDailyUserCost:  totalUserCost / float64(actualDaysUsed),
-		AvgDailyRequests:  float64(totalRequests) / float64(actualDaysUsed),
-		AvgDailyTokens:    float64(totalTokens) / float64(actualDaysUsed),
-		AvgDurationMs:     avgDuration,
+		Days:                      daysCount,
+		ActualDaysUsed:            actualDaysUsed,
+		TotalCost:                 totalAccountCostPtr,
+		UpstreamExpectedCostCount: totalUpstreamExpectedCostCount,
+		MissingUpstreamCostCount:  totalMissingUpstreamCostCount,
+		TotalUserCost:             totalUserCost,
+		TotalStandardCost:         totalStandardCost,
+		TotalRequests:             totalRequests,
+		TotalTokens:               totalTokens,
+		AvgDailyCost:              avgDailyCostPtr,
+		AvgDailyUserCost:          totalUserCost / float64(actualDaysUsed),
+		AvgDailyRequests:          float64(totalRequests) / float64(actualDaysUsed),
+		AvgDailyTokens:            float64(totalTokens) / float64(actualDaysUsed),
+		AvgDurationMs:             avgDuration,
 	}
 
 	todayStr := timezone.Now().Format("2006-01-02")
 	for i := range history {
 		if history[i].Date == todayStr {
 			summary.Today = &struct {
-				Date     string  `json:"date"`
-				Cost     float64 `json:"cost"`
-				UserCost float64 `json:"user_cost"`
-				Requests int64   `json:"requests"`
-				Tokens   int64   `json:"tokens"`
+				Date     string   `json:"date"`
+				Cost     *float64 `json:"cost"`
+				UserCost float64  `json:"user_cost"`
+				Requests int64    `json:"requests"`
+				Tokens   int64    `json:"tokens"`
 			}{
 				Date:     history[i].Date,
 				Cost:     history[i].ActualCost,
@@ -1045,11 +1084,11 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 
 	if highestCostDay != nil {
 		summary.HighestCostDay = &struct {
-			Date     string  `json:"date"`
-			Label    string  `json:"label"`
-			Cost     float64 `json:"cost"`
-			UserCost float64 `json:"user_cost"`
-			Requests int64   `json:"requests"`
+			Date     string   `json:"date"`
+			Label    string   `json:"label"`
+			Cost     *float64 `json:"cost"`
+			UserCost float64  `json:"user_cost"`
+			Requests int64    `json:"requests"`
 		}{
 			Date:     highestCostDay.Date,
 			Label:    highestCostDay.Label,
@@ -1061,11 +1100,11 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 
 	if highestRequestDay != nil {
 		summary.HighestRequestDay = &struct {
-			Date     string  `json:"date"`
-			Label    string  `json:"label"`
-			Requests int64   `json:"requests"`
-			Cost     float64 `json:"cost"`
-			UserCost float64 `json:"user_cost"`
+			Date     string   `json:"date"`
+			Label    string   `json:"label"`
+			Requests int64    `json:"requests"`
+			Cost     *float64 `json:"cost"`
+			UserCost float64  `json:"user_cost"`
 		}{
 			Date:     highestRequestDay.Date,
 			Label:    highestRequestDay.Label,

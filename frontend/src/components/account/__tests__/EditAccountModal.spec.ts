@@ -7,6 +7,7 @@ const {
   listUpstreamSuppliersMock,
   getAccountUpstreamCostBindingMock,
   updateAccountUpstreamSupplierBindingMock,
+  listChannelsMock,
   checkMixedChannelRiskMock,
   authIsSimpleMode
 } = vi.hoisted(() => ({
@@ -14,6 +15,7 @@ const {
   listUpstreamSuppliersMock: vi.fn(),
   getAccountUpstreamCostBindingMock: vi.fn(),
   updateAccountUpstreamSupplierBindingMock: vi.fn(),
+  listChannelsMock: vi.fn(),
   checkMixedChannelRiskMock: vi.fn(),
   authIsSimpleMode: { value: true }
 }))
@@ -51,7 +53,7 @@ vi.mock('@/api/admin', () => ({
       list: vi.fn().mockResolvedValue([])
     },
     channels: {
-      list: vi.fn().mockResolvedValue({ items: [], total: 0 })
+      list: listChannelsMock
     }
   }
 }))
@@ -342,6 +344,8 @@ function mountModal(account = buildAccount()) {
 describe('EditAccountModal', () => {
   beforeEach(() => {
     authIsSimpleMode.value = true
+    listChannelsMock.mockReset()
+    listChannelsMock.mockResolvedValue({ items: [{ id: 99, name: 'Official CNY', status: 'active' }], total: 1 })
     listUpstreamSuppliersMock.mockReset()
     listUpstreamSuppliersMock.mockResolvedValue([])
     getAccountUpstreamCostBindingMock.mockReset()
@@ -780,6 +784,7 @@ describe('EditAccountModal', () => {
     await wrapper.get('[data-testid="upstream-group-name"]').setValue('claude-premium')
     await wrapper.get('[data-testid="upstream-group-multiplier"]').setValue('1.4')
     await wrapper.get('[data-testid="upstream-price-reference-currency"]').setValue('CNY')
+    await wrapper.get('[data-testid="upstream-official-pricing-channel"]').setValue('99')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
 
@@ -790,6 +795,7 @@ describe('EditAccountModal', () => {
       cost_pool_id: 20,
       upstream_group_name: 'claude-premium',
       price_reference_currency: 'CNY',
+      official_pricing_channel_id: 99,
       upstream_group_multiplier: 1.4
     })
   })
@@ -840,12 +846,20 @@ describe('EditAccountModal', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
 
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    expect(updateAccountUpstreamSupplierBindingMock).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-testid="upstream-official-pricing-channel"]').setValue('99')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountUpstreamSupplierBindingMock).toHaveBeenCalledWith(account.id, {
       supplier_id: 10,
       cost_pool_id: 20,
       upstream_group_name: 'kimi',
       price_reference_currency: 'CNY',
+      official_pricing_channel_id: 99,
       upstream_group_multiplier: 0.8
     })
   })

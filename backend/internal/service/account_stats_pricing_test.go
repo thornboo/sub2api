@@ -929,6 +929,218 @@ func TestApplyAccountStatsCost_UsesUsageLogServiceTier(t *testing.T) {
 	require.InDelta(t, 0.4, *usageLog.AccountStatsCost, 1e-12)
 }
 
+func TestApplyUpstreamExpectedCostUSDReference(t *testing.T) {
+	bindingID := int64(42)
+	multiplier := 0.5
+	base := 6.0
+	currency := UpstreamPriceReferenceCurrencyUSD
+	log := &UsageLog{TotalCost: 10, AccountStatsCost: &base}
+	account := &Account{
+		UpstreamCostBindingID:          &bindingID,
+		UpstreamGroupMultiplier:        &multiplier,
+		UpstreamPriceReferenceCurrency: currency,
+	}
+
+	applyUpstreamExpectedCost(log, account, &CostBreakdown{TotalCost: base}, "gpt-5.6-sol")
+
+	require.NotNil(t, log.UpstreamExpectedCost)
+	require.InDelta(t, 3, *log.UpstreamExpectedCost, 1e-12)
+	require.Equal(t, bindingID, *log.UpstreamCostBindingID)
+	require.Equal(t, currency, *log.UpstreamPriceReferenceCurrency)
+}
+
+func TestApplyUpstreamExpectedCostCNYReference(t *testing.T) {
+	bindingID := int64(42)
+	multiplier := 0.8
+	fx := 7.0
+	base := 1.0
+	log := &UsageLog{AccountStatsCost: &base}
+	account := &Account{
+		UpstreamCostBindingID:          &bindingID,
+		UpstreamGroupMultiplier:        &multiplier,
+		UpstreamPriceReferenceCurrency: UpstreamPriceReferenceCurrencyCNY,
+		UpstreamReferenceFXRate:        &fx,
+	}
+
+	applyUpstreamExpectedCost(log, account, &CostBreakdown{TotalCost: base}, "glm-5.2")
+
+	require.NotNil(t, log.UpstreamExpectedCost)
+	require.InDelta(t, 0.8, *log.UpstreamExpectedCost, 1e-12)
+	require.Equal(t, fx, *log.UpstreamReferenceFXRate)
+}
+
+func TestApplyUpstreamExpectedCostLeavesMissingEvidenceUnknown(t *testing.T) {
+	log := &UsageLog{TotalCost: 6}
+	applyUpstreamExpectedCost(log, &Account{}, &CostBreakdown{TotalCost: 6}, "gpt-5.6-sol")
+	require.Nil(t, log.UpstreamExpectedCost)
+}
+
+func TestApplyUpstreamExpectedCostDoesNotReuseLegacyAccountStatsCost(t *testing.T) {
+	bindingID := int64(42)
+	multiplier := 0.5
+	legacyCost := 99.0
+	log := &UsageLog{TotalCost: 88, AccountStatsCost: &legacyCost}
+	account := &Account{
+		UpstreamCostBindingID:          &bindingID,
+		UpstreamGroupMultiplier:        &multiplier,
+		UpstreamPriceReferenceCurrency: UpstreamPriceReferenceCurrencyUSD,
+	}
+
+	applyUpstreamExpectedCost(log, account, &CostBreakdown{TotalCost: 6}, "gpt-5.6-sol")
+
+	require.NotNil(t, log.UpstreamExpectedCost)
+	require.InDelta(t, 3, *log.UpstreamExpectedCost, 1e-12)
+}
+
+func TestUpstreamPricingAPIKeyStripsCustomerPricingOverrides(t *testing.T) {
+	groupID := int64(77)
+	price := 99.0
+	apiKey := &APIKey{
+		ID:      10,
+		GroupID: &groupID,
+		Group: &Group{
+			ID:                    groupID,
+			Platform:              PlatformOpenAI,
+			RateMultiplier:        3,
+			PeakRateEnabled:       true,
+			ImagePrice1K:          &price,
+			WebSearchPricePerCall: &price,
+			SearchPricePer1k:      &price,
+			ModelPricing: []ChannelModelPricing{{
+				Models: []string{"gpt-5.4"}, InputPrice: &price,
+			}},
+		},
+	}
+
+	got := upstreamPricingAPIKey(apiKey)
+	require.NotSame(t, apiKey, got)
+	require.NotSame(t, apiKey.Group, got.Group)
+	require.Zero(t, got.Group.ID, "downstream group identity must not enter upstream pricing")
+	require.True(t, got.Group.LongContextPricingEnabled)
+	require.Empty(t, got.Group.ModelPricing)
+	require.Nil(t, got.Group.ImagePrice1K)
+	require.Nil(t, got.Group.WebSearchPricePerCall)
+	require.Nil(t, got.Group.SearchPricePer1k)
+	require.False(t, got.Group.PeakRateEnabled)
+	require.Equal(t, 3.0, apiKey.Group.RateMultiplier, "source API key must remain untouched")
+}
+
+func TestUpstreamPricingAPIKeyCreatesIsolatedPricingContextWithoutCallerGroup(t *testing.T) {
+	got := upstreamPricingAPIKey(&APIKey{ID: 10})
+	require.NotNil(t, got.Group)
+	require.Zero(t, got.Group.ID)
+	require.True(t, got.Group.LongContextPricingEnabled)
+}
+
+func TestUpstreamCurrencyRequiresExplicitCNYPriceCard(t *testing.T) {
+	require.True(t, upstreamCurrencyAllowsResolvedPricing(UpstreamPriceReferenceCurrencyUSD, nil))
+	require.False(t, upstreamCurrencyAllowsResolvedPricing(UpstreamPriceReferenceCurrencyCNY, nil))
+	require.False(t, upstreamCurrencyAllowsResolvedPricing(UpstreamPriceReferenceCurrencyCNY, &ResolvedPricing{Source: PricingSourceLiteLLM}))
+	require.True(t, upstreamCurrencyAllowsResolvedPricing(UpstreamPriceReferenceCurrencyCNY, &ResolvedPricing{Source: PricingSourceChannel}))
+}
+
+func TestUpstreamPricingResolverUsesExplicitCatalogNotCallerGroup(t *testing.T) {
+	officialInput := 2e-6
+	callerInput := 99e-6
+	officialChannel := &Channel{
+		ID:     91,
+		Status: StatusActive,
+		ModelPricing: []ChannelModelPricing{{
+			Platform: "openai", Models: []string{"gpt-5.6-sol"}, InputPrice: &officialInput,
+		}},
+	}
+	callerChannel := &Channel{
+		ID:     92,
+		Status: StatusActive,
+		ModelPricing: []ChannelModelPricing{{
+			Platform: "openai", Models: []string{"gpt-5.6-sol"}, InputPrice: &callerInput,
+		}},
+	}
+	cache := newEmptyChannelCache()
+	cache.loadedAt = time.Now()
+	cache.byID[91] = officialChannel
+	cache.channelByGroupID[77] = callerChannel
+	cache.groupPlatform[77] = "openai"
+	expandPricingToCache(cache, callerChannel, 77, "openai")
+	channelService := &ChannelService{}
+	channelService.cache.Store(cache)
+	resolver := NewModelPricingResolver(channelService, newTestBillingServiceWithPrices(nil))
+	groupID := int64(77)
+	groupPrice := 123e-6
+	group := &Group{ID: groupID, Platform: "openai", ModelPricing: []ChannelModelPricing{{Models: []string{"gpt-5.6-sol"}, InputPrice: &groupPrice}}}
+	officialChannelID := int64(91)
+	ctx := withUpstreamExpectedPricing(context.Background(), &Account{Platform: "openai", UpstreamOfficialPricingChannelID: &officialChannelID})
+
+	resolved := resolver.Resolve(ctx, PricingInput{Model: "gpt-5.6-sol", GroupID: &groupID, Group: group})
+	require.Equal(t, PricingSourceChannel, resolved.Source)
+	require.NotNil(t, resolved.channelPricing)
+	require.InDelta(t, officialInput, *resolved.channelPricing.InputPrice, 1e-12)
+}
+
+func TestUpstreamExpectedPricingContextIsScoped(t *testing.T) {
+	ctx := context.Background()
+	require.False(t, isUpstreamExpectedPricing(ctx))
+	require.True(t, isUpstreamExpectedPricing(withUpstreamExpectedPricing(ctx, nil)))
+}
+
+func TestCalculateUpstreamExpectedBaseCostRejectsUnknownMediaEvidence(t *testing.T) {
+	svc := newGatewayRecordUsageServiceForTest(nil, nil, nil)
+	apiKey := &APIKey{ID: 1}
+
+	unknownImage := svc.calculateUpstreamExpectedBaseCost(
+		context.Background(),
+		&ForwardResult{Model: "unknown-image-model", ImageCount: 1, ImageSize: "1K"},
+		apiKey,
+		nil,
+		"unknown-image-model",
+		UpstreamPriceReferenceCurrencyUSD,
+		time.Now(),
+		nil,
+	)
+	require.Nil(t, unknownImage)
+
+	unknownAudio := svc.calculateUpstreamExpectedBaseCost(
+		context.Background(),
+		&ForwardResult{Model: "audio-model", AudioUsage: &AudioUsage{Mode: "unknown", DurationOrUnits: 1}},
+		apiKey,
+		nil,
+		"audio-model",
+		UpstreamPriceReferenceCurrencyUSD,
+		time.Now(),
+		nil,
+	)
+	require.Nil(t, unknownAudio)
+}
+
+func TestResolveUpstreamModelMultiplierUsesLongestFamilyMatch(t *testing.T) {
+	defaultMultiplier := 0.8
+	account := &Account{
+		UpstreamGroupMultiplier: &defaultMultiplier,
+		UpstreamModelFamilyMultipliers: []UpstreamCostModelFamilyMultiplier{
+			{Family: "gpt", GroupMultiplier: 0.6},
+			{Family: "gpt-5", GroupMultiplier: 0.5},
+		},
+	}
+	require.InDelta(t, 0.5, resolveUpstreamModelMultiplier(account, "gpt-5.6-sol"), 1e-12)
+	require.InDelta(t, 0.8, resolveUpstreamModelMultiplier(account, "claude-sonnet-4"), 1e-12)
+}
+
+func TestApplyUpstreamExpectedCostSnapshotsResolvedFamilyMultiplier(t *testing.T) {
+	bindingID := int64(42)
+	defaultMultiplier := 0.8
+	account := &Account{
+		UpstreamCostBindingID:          &bindingID,
+		UpstreamGroupMultiplier:        &defaultMultiplier,
+		UpstreamPriceReferenceCurrency: UpstreamPriceReferenceCurrencyUSD,
+		UpstreamModelFamilyMultipliers: []UpstreamCostModelFamilyMultiplier{{Family: "gpt", GroupMultiplier: 0.5}},
+	}
+	log := &UsageLog{Model: "gpt-5.6-sol"}
+	applyUpstreamExpectedCost(log, account, &CostBreakdown{TotalCost: 10}, "gpt-5.6-sol")
+	require.NotNil(t, log.UpstreamExpectedCost)
+	require.InDelta(t, 5, *log.UpstreamExpectedCost, 1e-12)
+	require.InDelta(t, 0.5, *log.UpstreamGroupMultiplier, 1e-12)
+}
+
 // ---------------------------------------------------------------------------
 // helpers for resolveAccountStatsCost tests
 // ---------------------------------------------------------------------------

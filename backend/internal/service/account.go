@@ -38,15 +38,24 @@ type Account struct {
 	RateMultiplier *float64
 	// UpstreamEffectiveDiscount 是供应商成本池折算出的账号综合折扣；nil 表示未配置可用成本口径。
 	UpstreamEffectiveDiscount *float64
-	LoadFactor                *int // 调度负载因子；nil 表示使用 Concurrency
-	Status                    string
-	ErrorMessage              string
-	LastUsedAt                *time.Time
-	ExpiresAt                 *time.Time
-	AutoPauseOnExpired        bool
-	CreatedAt                 time.Time
-	UpdatedAt                 time.Time
-	DeletedAt                 *time.Time
+	// UpstreamCostBindingID and the fields below are immutable request-time
+	// evidence for calculating what the selected upstream account should bill.
+	// They are populated from the active supplier binding in scheduler snapshots.
+	UpstreamCostBindingID            *int64
+	UpstreamOfficialPricingChannelID *int64
+	UpstreamGroupMultiplier          *float64
+	UpstreamModelFamilyMultipliers   []UpstreamCostModelFamilyMultiplier
+	UpstreamPriceReferenceCurrency   string
+	UpstreamReferenceFXRate          *float64
+	LoadFactor                       *int // 调度负载因子；nil 表示使用 Concurrency
+	Status                           string
+	ErrorMessage                     string
+	LastUsedAt                       *time.Time
+	ExpiresAt                        *time.Time
+	AutoPauseOnExpired               bool
+	CreatedAt                        time.Time
+	UpdatedAt                        time.Time
+	DeletedAt                        *time.Time
 
 	Schedulable bool
 

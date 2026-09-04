@@ -913,7 +913,9 @@ let usageBatchRequestToken = 0
 const buildDefaultTodayStats = (): WindowStats => ({
   requests: 0,
   tokens: 0,
-  cost: 0,
+  cost: null,
+  upstream_expected_cost_count: 0,
+  missing_upstream_cost_count: 0,
   standard_cost: 0,
   user_cost: 0
 })

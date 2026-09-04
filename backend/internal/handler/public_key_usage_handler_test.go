@@ -15,6 +15,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func usageCostPtr(value float64) *float64 { return &value }
+
 func TestPublicKeyUsageBearerCredential(t *testing.T) {
 	tests := []struct {
 		value string
@@ -138,7 +140,7 @@ func TestPublicKeyUsageDTOsOmitSecretsAndAccountCost(t *testing.T) {
 		APIKey:  &service.APIKey{ID: 3, UserID: 2, Key: "raw-key-canary", Name: "key"},
 		Account: &service.Account{ID: 4, Name: "upstream-account-canary"},
 	}
-	models := mapPublicKeyUsageModels([]usagestats.ModelStat{{Model: "gpt-test", ActualCost: 1.25, AccountCost: 99}})
+	models := mapPublicKeyUsageModels([]usagestats.ModelStat{{Model: "gpt-test", ActualCost: 1.25, AccountCost: usageCostPtr(99)}})
 	errorRecord := mapPublicKeyUsageError(&service.UserErrorRequest{
 		ID: 9, RequestID: "safe-request-id", Message: "safe error", Model: "gpt-test", CreatedAt: time.Now(),
 	})

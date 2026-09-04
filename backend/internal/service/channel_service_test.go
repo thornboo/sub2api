@@ -710,6 +710,22 @@ func TestGetChannelModelPricing_ExactMatch(t *testing.T) {
 	require.InDelta(t, 15e-6, *result.InputPrice, 1e-12)
 }
 
+func TestGetOfficialModelPricingUsesExplicitChannelWithoutGroupMembership(t *testing.T) {
+	channel := Channel{
+		ID:     91,
+		Status: StatusActive,
+		ModelPricing: []ChannelModelPricing{
+			{ID: 501, Platform: "openai", Models: []string{"gpt-*"}, InputPrice: testPtrFloat64(2e-6)},
+		},
+	}
+	repo := makeStandardRepo(channel, nil)
+	svc := newTestChannelService(repo)
+	pricing := svc.GetOfficialModelPricing(context.Background(), 91, "openai", "gpt-5.6-sol")
+	require.NotNil(t, pricing)
+	require.Equal(t, int64(501), pricing.ID)
+	require.Nil(t, svc.GetOfficialModelPricing(context.Background(), 92, "openai", "gpt-5.6-sol"))
+}
+
 func TestGetChannelModelPricing_CaseInsensitive(t *testing.T) {
 	ch := Channel{
 		ID:       1,

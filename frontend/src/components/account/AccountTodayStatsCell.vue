@@ -36,7 +36,7 @@
       <div class="flex items-center gap-1">
         <span class="text-gray-500 dark:text-gray-400">{{ t('usage.accountBilled') }}:</span>
         <span class="font-medium text-emerald-600 dark:text-emerald-400">{{
-          formatCurrency(props.stats.cost)
+          props.stats.cost == null ? t('usage.noUpstreamCostEvidence') : formatCurrency(props.stats.cost)
         }}</span>
       </div>
       <!-- Cost (User/API Key) -->
