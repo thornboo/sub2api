@@ -802,6 +802,71 @@ func TestResponsesToChatCompletionsRequest_CustomGrammarParticipatesInDefinition
 	assert.Contains(t, err.Error(), "apply_patch")
 }
 
+func TestResponsesToChatCompletionsRequest_PromotesCompletedToolSearchDiscoveries(t *testing.T) {
+	var req ResponsesRequest
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"model":"gpt-5","tools":[
+			{"type":"tool_search","execution":"client"}
+		],"input":[
+			{"type":"tool_search_call","execution":"client","call_id":"search_1","arguments":{"query":"workspace"}},
+			{"type":"tool_search_output","call_id":"search_1","status":"completed","execution":"client","tools":[
+				{"type":"function","name":"inspect","parameters":{"type":"object"}},
+				{"type":"custom","name":"exec"},
+				{"type":"namespace","name":"collaboration","tools":[{"type":"function","name":"spawn_agent","parameters":{"type":"object"}}]}
+			]}
+		]}`), &req))
+
+	effective, err := ResponsesRequestTools(&req)
+	require.NoError(t, err)
+	require.Len(t, effective, 4, "completed discoveries must become callable alongside client tool search")
+	assert.True(t, CustomToolNames(effective)["exec"])
+	namespaces := NamespaceToolNames(effective)
+	assert.Equal(t, NamespacedToolName{Namespace: "collaboration", Name: "spawn_agent"}, namespaces["collaboration__spawn_agent"])
+
+	chatReq, err := ResponsesToChatCompletionsRequest(&req)
+	require.NoError(t, err)
+	require.Len(t, chatReq.Tools, 4)
+	assert.Equal(t, []string{"tool_search", "inspect", "exec", "collaboration__spawn_agent"}, []string{
+		chatReq.Tools[0].Function.Name, chatReq.Tools[1].Function.Name,
+		chatReq.Tools[2].Function.Name, chatReq.Tools[3].Function.Name,
+	})
+	require.Len(t, chatReq.Messages, 2)
+	assert.Equal(t, "tool", chatReq.Messages[1].Role)
+	var discoveryPayload []map[string]any
+	var serialized string
+	require.NoError(t, json.Unmarshal(chatReq.Messages[1].Content, &serialized))
+	require.NoError(t, json.Unmarshal([]byte(serialized), &discoveryPayload))
+	require.Len(t, discoveryPayload, 3)
+
+	responses := ChatCompletionsResponseToResponses(&ChatCompletionsResponse{Choices: []ChatChoice{{
+		Message: ChatMessage{Role: "assistant", ToolCalls: []ChatToolCall{
+			{ID: "call_1", Type: "function", Function: ChatFunctionCall{Name: "collaboration__spawn_agent", Arguments: `{}`}},
+			{ID: "call_2", Type: "function", Function: ChatFunctionCall{Name: "exec", Arguments: `{"input":"pwd"}`}},
+		}},
+	}}}, req.Model, CustomToolNames(effective), FunctionToolNames(effective), HasToolSearchTool(effective), namespaces)
+	require.Len(t, responses.Output, 2)
+	assert.Equal(t, "function_call", responses.Output[0].Type)
+	assert.Equal(t, "spawn_agent", responses.Output[0].Name)
+	assert.Equal(t, "collaboration", responses.Output[0].Namespace)
+	assert.Equal(t, "custom_tool_call", responses.Output[1].Type)
+	assert.Equal(t, "exec", responses.Output[1].Name)
+	assert.Equal(t, "pwd", responses.Output[1].Input)
+}
+
+func TestResponsesRequestTools_RejectsDiscoveredConflict(t *testing.T) {
+	for _, parameterType := range []string{"object", "string"} {
+		t.Run(parameterType, func(t *testing.T) {
+			var req ResponsesRequest
+			require.NoError(t, json.Unmarshal([]byte(`{"tools":[{"type":"tool_search","execution":"client"},{"type":"function","name":"inspect","parameters":{"type":"object"}}],"input":[{"type":"tool_search_output","status":"completed","execution":"client","tools":[{"type":"function","name":"inspect","parameters":{"type":"`+parameterType+`"}}]}]}`), &req))
+			_, err := ResponsesRequestTools(&req)
+			var capabilityErr *ChatCompletionsCapabilityError
+			require.ErrorAs(t, err, &capabilityErr)
+			assert.Equal(t, "chat_tool_identity", capabilityErr.Feature)
+			require.ErrorContains(t, err, "same Chat tool name")
+		})
+	}
+}
+
 func TestResponsesInputToChatMessages_NamespacedFunctionCallHistory(t *testing.T) {
 	input := json.RawMessage(`[
 		{"type":"function_call","call_id":"call_n","name":"send","namespace":"gmail","arguments":"{\"to\":\"a\"}"},

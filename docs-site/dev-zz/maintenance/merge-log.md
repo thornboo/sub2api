@@ -1,5 +1,89 @@
 # 上游合并记录
 
+## 2026-09-05 - 同步上游 main：模型能力、请求证据、推理计费与网关兼容
+
+分支：
+
+- 目标：`dev-zz`
+- 上游：本地 `main` / `origin/main`（fetch 后一致）
+- Base：`b1748c4ea99ce2120401a269142aa071e18a84da`
+- 合并前目标：`c0ce0028a298e2ddcf673b022bdf3a89d483d54d`
+- 上游 head：`578785ee7fb35030b094b69624efe25670a36f5f`
+- 恢复分支：`backup/dev-zz-pre-main-20260905-c0ce0028`
+- 结果：本次最终合并提交，fork `VERSION=1.7.44`
+
+上游要点：
+
+- 76 个提交（43 个非 merge 提交）、264 个上游增量文件；包括 GPT-6 Astra 能力同步、续聊和缓存、ultrafast、固定账号 Codex 模型目录、reasoning none 映射、GLM thinking 与 Anthropic max 推理倍率。
+- 账号列表紧凑 DTO、管理员上游请求 ID、定价文件内容哈希热重载、图片 URL 回填、Claude CLI 版本与 billing fingerprint、支付宝对账、零值系统指标及侧边栏交互修复。
+- 网关失败释放会话槽、映射模型调度、并发拒绝来源、WS immutable replay 内存共享、加密续聊与 cyber turn 记录修复。
+- 四份追加迁移按完整文件名并存，详情见 [配置与迁移索引](../reference/configuration-and-migrations.md#_2026-09-05-上游同步配置与追加迁移)。
+
+冲突取舍：
+
+- 合并前阅读当前分支政策、merge-main、补丁 / 历史、变更地图与验证矩阵；干净工作区执行 merge-tree 预演、创建恢复分支，再 `git merge --no-commit main`。预演与真实合并均有 35 个冲突路径，其中 4 个 modify/delete。
+- 保留最终 `ActiveGroup`、企业成员预算 / usage 原子归因、未知结果不重放、协议感知 selector、Ops attempt / 代理证据及 owner/admin 隔离；legacy selector 同步使用最终映射模型，WS cyber 继续传递 turn billing context。
+- 渠道 / 分组定价保持 dev-zz 单一 `TimePricing`、公开目录客户安全 DTO、自检和排序；吸收 max 推理倍率，不恢复已替代的旧定价测试和模型广场组件。
+- usage SQL 把上游请求标识与 dev-zz 企业成员、供应商应扣成本、币种 / 汇率证据并集合流，覆盖 insert、batch、query、scan 与参数顺序。
+- 账号页保留供应商资金池、成本上下文与模型 probe / sync / mapping；精简列表与编辑详情分开，公开模型目录继续使用当前替代实现。
+- 工具桥继续使用 `ResponsesToolRegistry`。新工具发现测试改接当前入口，显式 client 搜索才能降低为 Chat；静态与动态的不同 identity 即使定义相同，也不能静默合并到同一 Chat 名。
+- 认证快照推进到 23；额外补齐自动合并未覆盖的企业成员候选分组 manifest 双向投影，并以 JSON 往返回归确认账号顺序及 request-level Group 保留。
+- Ent 根据合并后 schema 重新生成，生成结果与自动合并结果一致；移除仅生成工具造成的 go.sum 校验和噪声。
+- 全量验证发现两处 usage 测试仍以 72 列 / 旧尾部偏移断言，已更新为 73 列并增加请求 ID 的位置和值断言；账号 Spark shadow 与协议弹窗测试也需覆盖 lite 列表后的详情加载。
+- 独立审查发现 Anthropic 会话槽登记晚于排队与准入早退，可能让未转发请求占用会话直到空闲过期；本轮提前登记释放责任并补充转发前失败回归，成功请求继续保留既有会话续用语义。
+
+冲突路径：
+
+- `backend/internal/handler/admin/account_handler.go`
+- `backend/internal/handler/admin/channel_handler.go`
+- `backend/internal/handler/available_channel_handler.go`
+- `backend/internal/handler/dto/mappers.go`
+- `backend/internal/handler/gemini_v1beta_handler_test.go`
+- `backend/internal/handler/openai_chat_completions.go`
+- `backend/internal/handler/openai_gateway_cyber_test.go`
+- `backend/internal/handler/openai_gateway_handler.go`
+- `backend/internal/pkg/apicompat/chatcompletions_responses_bridge.go`
+- `backend/internal/repository/channel_repo_pricing.go`
+- `backend/internal/repository/channel_repo_pricing_time_test.go`
+- `backend/internal/repository/usage_log_repo_insert.go`
+- `backend/internal/repository/usage_log_repo_query.go`
+- `backend/internal/repository/usage_log_repo_request_type_test.go`
+- `backend/internal/service/admin_group.go`
+- `backend/internal/service/api_key_auth_cache_impl.go`
+- `backend/internal/service/api_key_auth_cache_profit_test.go`
+- `backend/internal/service/billing_service.go`
+- `backend/internal/service/channel.go`
+- `backend/internal/service/channel_available.go`
+- `backend/internal/service/gateway_usage_billing.go`
+- `backend/internal/service/model_plaza_service_test.go`
+- `backend/internal/service/openai_fast_policy_test.go`
+- `backend/internal/service/upstream_models.go`
+- `frontend/src/components/account/CreateAccountModal.vue`
+- `frontend/src/components/account/EditAccountModal.vue`
+- `frontend/src/components/admin/channel/PricingEntryCard.vue`
+- `frontend/src/components/admin/usage/__tests__/UsageTable.spec.ts`
+- `frontend/src/components/common/HelpTooltip.vue`
+- `frontend/src/components/modelPlaza/PlazaModelPricingTable.vue`
+- `frontend/src/components/modelPlaza/__tests__/PlazaModelPricingTable.spec.ts`
+- `frontend/src/views/admin/AccountsView.vue`
+- `frontend/src/views/admin/ChannelsView.vue`
+- `frontend/src/views/admin/GroupsView.vue`
+- `frontend/src/views/admin/UsageView.vue`
+
+验证：
+
+- `mise x -C backend -- go test -tags=unit ./... -count=1` 全仓通过；首次全量发现的两处 usage 旧投影断言已修复，最终全量无失败。
+- `mise x -C backend -- go vet ./...` 通过；已有 Go 1.27.0 构建的 `golangci-lint 2.13.2 run --timeout=15m` 报告 `0 issues`；`go build -o <临时验证目录>/server ./cmd/server` 通过。
+- 会话槽四类早退、工具注册表、普通 Key / 企业成员 manifest JSON 往返、上游模型能力、Fast / 计费及完整 repository 回归通过；独立审查确认会话槽 HIGH 已关闭。
+- `pnpm --dir frontend test:run` 最终全量通过：308 个测试文件、2154 条用例；`pnpm --dir frontend typecheck`、`pnpm --dir frontend lint:check`、`pnpm --dir frontend build` 均通过。
+- max 推理倍率提示已迁入现行模型广场桌面 / 移动卡片与报价表，回归确认普通报价不被额外相乘；报价导出保持既有格式。
+- `pnpm --dir docs-site docs:build` 通过；前端 / 文档构建仅保留既有大 chunk 优化提示。
+- `git diff --check`、`git diff --cached --check`、完整冲突标记扫描与 unresolved index 检查通过；最终本地提交保留 main 与原 dev-zz 两条父链。
+
+未验证：
+
+- 真实 provider、PostgreSQL / Redis Testcontainers integration、浏览器 smoke、Docker 镜像与 Hosted CI；本次只做本地合并，未推送、打 tag、发布或部署。既有 stash 与恢复分支保留。
+
 ## 2026-09-04 - 继续同步上游 `main`：上游错误代理归因与队列边界
 
 分支：

@@ -263,17 +263,17 @@ func TestListModelPricingRoundTripsTimePricing(t *testing.T) {
 
 	now := time.Now()
 	timePricingJSON := []byte(`{"enabled":true,"timezone":"Asia/Shanghai","default_label":"regular","default_multiplier":0.8,"rules":[{"label":"peak","start_time":"09:00","end_time":"12:00","multiplier":2}]}`)
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, channel_id, sort_order, platform, models, billing_mode, input_price, output_price, cache_write_price, cache_write_1h_price, cache_read_price, fast_multiplier, flex_multiplier, image_input_price, image_output_price, per_request_price, time_pricing, created_at, updated_at
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, channel_id, sort_order, platform, models, billing_mode, input_price, output_price, cache_write_price, cache_write_1h_price, cache_read_price, fast_multiplier, flex_multiplier, max_reasoning_effort_multiplier, image_input_price, image_output_price, per_request_price, time_pricing, created_at, updated_at
 		 FROM channel_model_pricing WHERE channel_id = $1 ORDER BY platform, sort_order, id`)).
 		WithArgs(int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "channel_id", "sort_order", "platform", "models", "billing_mode",
 			"input_price", "output_price", "cache_write_price", "cache_write_1h_price", "cache_read_price",
-			"fast_multiplier", "flex_multiplier",
+			"fast_multiplier", "flex_multiplier", "max_reasoning_effort_multiplier",
 			"image_input_price", "image_output_price", "per_request_price", "time_pricing",
 			"created_at", "updated_at",
 		}).AddRow(int64(11), int64(7), 0, "anthropic", []byte(`["claude-sonnet-4"]`), service.BillingModeToken,
-			1e-6, 2e-6, nil, nil, nil, nil, nil, nil, nil, nil, timePricingJSON, now, now))
+			1e-6, 2e-6, nil, nil, nil, nil, nil, nil, nil, nil, nil, timePricingJSON, now, now))
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, pricing_id, min_tokens, max_tokens, tier_label,
 		        input_price, output_price, cache_write_price, cache_write_1h_price, cache_read_price,
 		        input_multiplier, output_multiplier, cache_write_multiplier, cache_read_multiplier,
@@ -324,7 +324,8 @@ func TestTimePricingJSONPreservesDisabledSchedule(t *testing.T) {
 
 	encoded := marshalTimePricing(original)
 	require.NotEqual(t, `{}`, string(encoded))
-	restored := unmarshalTimePricing(encoded)
+	restored, err := unmarshalTimePricing(encoded)
+	require.NoError(t, err)
 	require.NotNil(t, restored)
 	require.False(t, restored.Enabled)
 	require.Equal(t, "Asia/Shanghai", restored.Timezone)
@@ -334,4 +335,11 @@ func TestTimePricingJSONPreservesDisabledSchedule(t *testing.T) {
 	require.Len(t, restored.Rules, 1)
 	require.Equal(t, "高峰", restored.Rules[0].Label)
 	require.Equal(t, 2.0, restored.Rules[0].Multiplier)
+}
+
+func TestTimePricingJSONMalformedReturnsError(t *testing.T) {
+	restored, err := unmarshalTimePricing([]byte(`{"enabled":`))
+	require.Error(t, err)
+	require.Nil(t, restored)
+	require.Contains(t, err.Error(), "unmarshal time pricing")
 }

@@ -89,24 +89,25 @@ type AccountStatsPricingRule struct {
 
 // ChannelModelPricing 渠道模型定价条目
 type ChannelModelPricing struct {
-	ID                int64             `json:"id,omitempty"`
-	ChannelID         int64             `json:"channel_id,omitempty"`
-	SortOrder         int               // 管理端平台内展示顺序；不参与定价匹配优先级
-	Platform          string            `json:"platform"` // 所属平台（anthropic/openai/gemini/...）
-	Models            []string          `json:"models"`   // 绑定的模型列表
-	BillingMode       BillingMode       `json:"billing_mode"`
-	InputPrice        *float64          `json:"input_price"`
-	OutputPrice       *float64          `json:"output_price"`
-	CacheWritePrice   *float64          `json:"cache_write_price"`
-	CacheWrite1hPrice *float64          `json:"cache_write_1h_price"`
-	CacheReadPrice    *float64          `json:"cache_read_price"`
-	FastMultiplier    *float64          `json:"fast_multiplier"`
-	FlexMultiplier    *float64          `json:"flex_multiplier"`
-	ImageInputPrice   *float64          `json:"image_input_price"`
-	ImageOutputPrice  *float64          `json:"image_output_price"`
-	PerRequestPrice   *float64          `json:"per_request_price"`
-	Intervals         []PricingInterval `json:"intervals"`
-	TimePricing       *TimePricing      `json:"time_pricing,omitempty"`
+	ID                           int64             `json:"id,omitempty"`
+	ChannelID                    int64             `json:"channel_id,omitempty"`
+	SortOrder                    int               // 管理端平台内展示顺序；不参与定价匹配优先级
+	Platform                     string            `json:"platform"` // 所属平台（anthropic/openai/gemini/...）
+	Models                       []string          `json:"models"`   // 绑定的模型列表
+	BillingMode                  BillingMode       `json:"billing_mode"`
+	InputPrice                   *float64          `json:"input_price"`
+	OutputPrice                  *float64          `json:"output_price"`
+	CacheWritePrice              *float64          `json:"cache_write_price"`
+	CacheWrite1hPrice            *float64          `json:"cache_write_1h_price"`
+	CacheReadPrice               *float64          `json:"cache_read_price"`
+	FastMultiplier               *float64          `json:"fast_multiplier"`
+	FlexMultiplier               *float64          `json:"flex_multiplier"`
+	MaxReasoningEffortMultiplier *float64          `json:"max_reasoning_effort_multiplier"`
+	ImageInputPrice              *float64          `json:"image_input_price"`
+	ImageOutputPrice             *float64          `json:"image_output_price"`
+	PerRequestPrice              *float64          `json:"per_request_price"`
+	Intervals                    []PricingInterval `json:"intervals"`
+	TimePricing                  *TimePricing      `json:"time_pricing,omitempty"`
 	// SelfCheckEnabledModels 是渠道定价页的模型自检开关。
 	// 实际持久化按 (channel_id, model) 写入 model_self_check_config。
 	SelfCheckEnabledModels []string

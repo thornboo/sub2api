@@ -359,6 +359,18 @@ HAVING COUNT(*) FILTER (
 - 模拟旧实例在迁移后晚写普通 v1 错误、非 recovered HTTP 200 流式终态和严格 recovered 尝试：前两者进入客户可见与未分类，recovered 不进入；hourly/daily 桶保持 v1，强制 preagg 返回未就绪而不是伪装成完整 v2。
 - migration 192 对两种 cyber-policy、provider 403 余额、provider 4xx/5xx 的真实回填结果与 writer 分类一致；migration 193 的 customer-visible、SLA、v1 探针和 reason 查询在 PostgreSQL `EXPLAIN` 中命中目标索引。
 
+## 2026-09-05 上游合并交界回归
+
+| 交界 | 推荐命令 / 断言 |
+| --- | --- |
+| 工具发现与 dev-zz 工具注册表 | `mise x -C backend -- go test ./internal/pkg/apicompat -count=1`；显式 client 搜索发现工具可调用，静态 / 动态不同 identity 映射到相同 Chat 名时拒绝 |
+| 普通 Key 与企业成员固定账号目录快照 | `mise x -C backend -- go test -tags=unit ./internal/service -run 'APIKeyAuthSnapshot.*CodexModelsManifest' -count=1`；JSON 往返保留账号顺序与 fallback，成员 Key 仍无静态 Group |
+| 上游请求 ID 与完整 usage SQL 投影 | `mise x -C backend -- go test -tags=unit ./internal/repository -run 'UsageLog' -count=1`；单条、批量、查询、扫描与占位符数量一致，企业成员和上游应扣成本证据保留 |
+| max 推理倍率与分时价格 | 后端完整 unit 覆盖客户报价、实际 reasoning 档位与上游应扣成本；不可把客户 TimePricing 作为供应商成本倍率 |
+| 账号紧凑列表与编辑详情 | 前端完整 Vitest / typecheck；lite 列表保留供应商成本展示，编辑按 ID 加载详情后才允许保存 |
+
+本轮是跨 schema、SQL、网关与前端的合并，最终验证使用后端完整 unit / vet / build、前端完整 Vitest / typecheck / ESLint / build 及 docs build。真实 PostgreSQL / Redis integration、真实 provider、浏览器和 Hosted CI 需要各自独立证据；本地单测不替代这些检查。
+
 ## 分支级验证
 
 | 变更规模 | 推荐组合 |

@@ -69,10 +69,10 @@
 import { computed, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
-import type { Account } from '@/types'
+import type { AccountListItem } from '@/types'
 import { supportsModelProtocolCapabilities as accountSupportsModelProtocolCapabilities } from '@/utils/modelProtocolCapabilities'
 
-const props = defineProps<{ show: boolean; account: Account | null; position: { top: number; left: number } | null }>()
+const props = defineProps<{ show: boolean; account: AccountListItem | null; position: { top: number; left: number } | null }>()
 const emit = defineEmits(['close', 'test', 'stats', 'model-protocols', 'schedule', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow'])
 const { t } = useI18n()
 const canDuplicate = computed(() => {

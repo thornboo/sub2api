@@ -20,6 +20,8 @@ const columns = {
   imageOutputPrice: 'Image Output',
   perRequestPrice: 'Per Call',
   groups: 'Pricing Group',
+  maxReasoningMultiplierBadge: 'Max ×{multiplier}',
+  maxReasoningMultiplierHint: 'Max effort multiplier {multiplier}',
 }
 
 const tooltips = {
@@ -86,6 +88,7 @@ describe('AvailableChannelModelsTable', () => {
                   image_output_price: null,
                   per_request_price: null,
                   intervals: [],
+                  max_reasoning_effort_multiplier: 2,
                 },
               },
             ],
@@ -121,6 +124,9 @@ describe('AvailableChannelModelsTable', () => {
     expect(wrapper.text()).toContain('$2')
     expect(wrapper.text()).not.toContain('$0.8')
     expect(wrapper.text()).not.toContain('$4')
+    const maxReasoningBadge = wrapper.get('[data-testid="max-reasoning-multiplier"]')
+    expect(maxReasoningBadge.text()).toBe('Max ×2')
+    expect(maxReasoningBadge.attributes('title')).toBe('Max effort multiplier 2')
     expect(wrapper.text()).toContain('Public 8 Off')
     expect(wrapper.find('[data-testid="group-rate"]').exists()).toBe(false)
   })

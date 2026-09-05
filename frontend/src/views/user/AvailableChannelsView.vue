@@ -230,6 +230,8 @@ const modelColumnLabels = computed(() => ({
   imageOutputPrice: t('availableChannels.modelTable.columns.imageOutputPrice'),
   perRequestPrice: t('availableChannels.modelTable.columns.perRequestPrice'),
   groups: t('availableChannels.modelTable.columns.groups'),
+  maxReasoningMultiplierBadge: t('modelPlaza.table.maxReasoningMultiplierBadge'),
+  maxReasoningMultiplierHint: t('modelPlaza.table.maxReasoningMultiplierHint'),
 }))
 
 const modelColumnTooltips = computed(() => ({

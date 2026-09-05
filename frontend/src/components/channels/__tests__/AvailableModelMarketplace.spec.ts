@@ -267,6 +267,34 @@ describe('AvailableModelMarketplace', () => {
     expect(card.find('[data-testid="price-group-rate"]').exists()).toBe(false)
   })
 
+
+  it('shows token max reasoning multiplier without changing normal prices', () => {
+    const maxReasoningPricing = {
+      ...pricing,
+      max_reasoning_effort_multiplier: 2,
+    }
+    const maxReasoningCard: AvailableModelMarketplaceCard = {
+      ...cards[0],
+      pricingOptions: [maxReasoningPricing],
+      routes: cards[0].routes.map((route) => ({ ...route, pricing: maxReasoningPricing })),
+    }
+
+    const wrapper = mountMarketplace({ cards: [maxReasoningCard] })
+    const card = wrapper.get('[data-testid="available-model-card"]')
+    const badge = card.get('[data-testid="max-reasoning-multiplier"]')
+
+    expect(badge.text()).toBe('modelPlaza.table.maxReasoningMultiplierBadge:2')
+    expect(badge.attributes('title')).toBe('modelPlaza.table.maxReasoningMultiplierHint:2')
+    expect(card.get('[data-testid="effective-input-price"]').text()).toBe('$0.8')
+    expect(card.get('[data-testid="effective-output-price"]').text()).toBe('$4')
+  })
+
+  it('does not show max reasoning multiplier without a positive token multiplier', () => {
+    const wrapper = mountMarketplace()
+
+    expect(wrapper.find('[data-testid="max-reasoning-multiplier"]').exists()).toBe(false)
+  })
+
   it('uses image request tiers and the independent image multiplier', () => {
     const imagePricing = {
       billing_mode: BILLING_MODE_IMAGE,

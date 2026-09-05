@@ -406,7 +406,7 @@
             />
           </template>
           <template #cell-groups="{ row }">
-            <AccountGroupsCell :groups="row.groups" :max-display="4" />
+            <AccountGroupsCell :groups="accountGroupsForRow(row)" :max-display="4" />
           </template>
           <template #header-usage="{ column }">
             <div class="flex items-center">
@@ -689,8 +689,8 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
-import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
 import type { UpstreamAccountCostBinding, UpstreamCostPool, UpstreamSupplier, UpstreamSupplierRechargeOverview } from '@/api/admin/accounts'
+import type { Account, AccountListItem, AccountPlatform, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -698,6 +698,12 @@ const authStore = useAuthStore()
 
 const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
+const groupsByID = computed(() => new Map(groups.value.map(group => [group.id, group])))
+const accountGroupsForRow = (account: Pick<AccountListItem, 'group_ids'>): AdminGroup[] => {
+  const groupIDs = account.group_ids ?? []
+  if (groupIDs.length === 0) return []
+  return groupIDs.map(id => groupsByID.value.get(id)).filter((group): group is AdminGroup => Boolean(group))
+}
 const accountTableRef = ref<HTMLElement | null>(null)
 const dataTableRef = ref<InstanceType<typeof DataTable> | null>(null)
 type AccountBulkEditTarget =
@@ -776,7 +782,7 @@ const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
-const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null}>({ show: false, acc: null, pos: null })
+const menu = reactive<{show:boolean, acc:AccountListItem|null, pos:{top:number, left:number}|null}>({ show: false, acc: null, pos: null })
 const exportingData = ref(false)
 type AccountViewMode = 'list' | 'archived' | 'cost'
 const activeAccountView = ref<AccountViewMode>('list')
@@ -1265,7 +1271,7 @@ const {
   debouncedReload: baseDebouncedReload,
   handlePageChange: baseHandlePageChange,
   handlePageSizeChange: baseHandlePageSizeChange
-} = useTableLoader<Account, any>({
+} = useTableLoader<AccountListItem, any>({
   fetchFn: (page, pageSize, filters, options) => {
     if (activeAccountView.value === 'archived') {
       return adminAPI.accounts.listArchived(page, pageSize, filters, options)
@@ -1279,6 +1285,7 @@ const {
     privacy_mode: '',
     group: '',
     search: '',
+    lite: '1',
     include_scheduler_score: shouldIncludeSchedulerScore() ? '1' : '0',
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order
@@ -1299,7 +1306,7 @@ const {
   toggleVisible,
   selectVisible: selectCurrentPage,
   batchUpdate
-} = useTableSelection<Account>({
+} = useTableSelection<AccountListItem>({
   rows: accounts,
   getId: (account) => account.id
 })
@@ -1496,8 +1503,6 @@ const resetAutoRefreshCache = () => {
   upstreamBillingRateETag.value = null
 }
 
-const isFirstLoad = ref(true)
-
 type AccountLoadOptions = {
   refreshTodayStats?: boolean
 }
@@ -1512,14 +1517,8 @@ const load = async (options: AccountLoadOptions = {}) => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
-  if (isFirstLoad.value) {
-    requestParams.lite = '1'
-  }
+  requestParams.lite = '1'
   await baseLoad()
-  if (isFirstLoad.value) {
-    isFirstLoad.value = false
-    delete requestParams.lite
-  }
   if (options.refreshTodayStats !== false) await refreshTodayStatsBatch()
   await loadVisibleUpstreamCostContext()
 }
@@ -2214,33 +2213,33 @@ const cols = computed(() =>
   )
 )
 
-const accountUpstreamBinding = (account: Account): UpstreamAccountCostBinding | null => (
+const accountUpstreamBinding = (account: Pick<AccountListItem, 'id'>): UpstreamAccountCostBinding | null => (
   upstreamAccountBindings.value[account.id] || null
 )
 
-const accountUpstreamPool = (account: Account): UpstreamCostPool | null => {
+const accountUpstreamPool = (account: Pick<AccountListItem, 'id'>): UpstreamCostPool | null => {
   const binding = accountUpstreamBinding(account)
   if (!binding) return null
   return upstreamPoolByID.value.get(binding.cost_pool_id) || null
 }
 
-const accountUpstreamSupplierName = (account: Account): string => {
+const accountUpstreamSupplierName = (account: Pick<AccountListItem, 'id'>): string => {
   const binding = accountUpstreamBinding(account)
   const pool = accountUpstreamPool(account)
   return binding?.supplier_name || pool?.supplier_name || ''
 }
 
-const accountUpstreamPoolName = (account: Account): string => {
+const accountUpstreamPoolName = (account: Pick<AccountListItem, 'id'>): string => {
   const binding = accountUpstreamBinding(account)
   const pool = accountUpstreamPool(account)
   return binding?.cost_pool_name || pool?.name || ''
 }
 
-const accountUpstreamGroupName = (account: Account): string => (
+const accountUpstreamGroupName = (account: Pick<AccountListItem, 'id'>): string => (
   accountUpstreamBinding(account)?.upstream_group_name?.trim() || ''
 )
 
-const accountUpstreamGroupMultiplier = (account: Account): number | null => {
+const accountUpstreamGroupMultiplier = (account: Pick<AccountListItem, 'id'>): number | null => {
   const binding = accountUpstreamBinding(account)
   const multiplier = binding?.upstream_group_multiplier ?? binding?.default_multiplier
   if (!Number.isFinite(Number(multiplier)) || Number(multiplier) <= 0) {
@@ -2249,7 +2248,7 @@ const accountUpstreamGroupMultiplier = (account: Account): number | null => {
   return Number(multiplier)
 }
 
-const accountUpstreamRechargeFactor = (account: Account): number | null => {
+const accountUpstreamRechargeFactor = (account: Pick<AccountListItem, 'id'>): number | null => {
   const binding = accountUpstreamBinding(account)
   const pool = accountUpstreamPool(account)
   if (!pool?.current_snapshot_id) return null
@@ -2261,7 +2260,7 @@ const accountUpstreamRechargeFactor = (account: Account): number | null => {
   )
 }
 
-const accountUpstreamEffectiveFactor = (account: Account): number | null => {
+const accountUpstreamEffectiveFactor = (account: Pick<AccountListItem, 'id'>): number | null => {
   const rechargeFactor = accountUpstreamRechargeFactor(account)
   const multiplier = accountUpstreamGroupMultiplier(account)
   if (rechargeFactor === null || multiplier === null) {
@@ -2270,7 +2269,7 @@ const accountUpstreamEffectiveFactor = (account: Account): number | null => {
   return rechargeFactor * multiplier
 }
 
-const accountUpstreamEffectiveDiscountLabel = (account: Account): string => {
+const accountUpstreamEffectiveDiscountLabel = (account: Pick<AccountListItem, 'id'>): string => {
   const binding = accountUpstreamBinding(account)
   if (!binding) return '-'
   if (binding.price_reference_confirmed !== true) {
@@ -2285,7 +2284,7 @@ const accountUpstreamEffectiveDiscountLabel = (account: Account): string => {
   })
 }
 
-const accountUpstreamPriceReferenceLabel = (account: Account): string => {
+const accountUpstreamPriceReferenceLabel = (account: Pick<AccountListItem, 'id'>): string => {
   const binding = accountUpstreamBinding(account)
   if (binding?.price_reference_confirmed !== true) {
     return t('admin.accounts.upstreamCost.priceReferencePendingLegacy')
@@ -2296,7 +2295,7 @@ const accountUpstreamPriceReferenceLabel = (account: Account): string => {
     : t('admin.accounts.upstreamCost.priceReferenceShortUSD')
 }
 
-const accountUpstreamRechargeRatioLabel = (account: Account): string => {
+const accountUpstreamRechargeRatioLabel = (account: Pick<AccountListItem, 'id'>): string => {
   const pool = accountUpstreamPool(account)
   const cost = Number(pool?.current_effective_cny_per_usd)
   if (!Number.isFinite(cost) || cost <= 0) return '-'
@@ -2306,13 +2305,13 @@ const accountUpstreamRechargeRatioLabel = (account: Account): string => {
   return `1:${formatUpstreamRatio(1 / cost)}`
 }
 
-const accountUpstreamMultiplierLabel = (account: Account): string => {
+const accountUpstreamMultiplierLabel = (account: Pick<AccountListItem, 'id'>): string => {
   const multiplier = accountUpstreamGroupMultiplier(account)
   if (multiplier === null) return '-'
   return `${formatUpstreamRatio(multiplier)}x`
 }
 
-const accountUpstreamDiscountBadgeClass = (account: Account): string => {
+const accountUpstreamDiscountBadgeClass = (account: Pick<AccountListItem, 'id'>): string => {
   const base = 'rounded-md px-2 py-1 font-mono text-xs font-semibold'
   const binding = accountUpstreamBinding(account)
   if (binding && binding.price_reference_confirmed !== true) {
@@ -2331,8 +2330,28 @@ const accountUpstreamDiscountBadgeClass = (account: Account): string => {
   return `${base} bg-stone-100 text-stone-700 dark:bg-white/[0.07] dark:text-stone-300`
 }
 
-const handleEdit = (a: Account) => { edAcc.value = a; showEdit.value = true }
-const openMenu = (a: Account, e: MouseEvent) => {
+const accountDetailLoading = new Set<number>()
+const loadAccountDetails = async (account: Pick<AccountListItem, 'id'>): Promise<Account | null> => {
+  if (accountDetailLoading.has(account.id)) return null
+  accountDetailLoading.add(account.id)
+  try {
+    return await adminAPI.accounts.getById(account.id)
+  } catch (error) {
+    console.error('Failed to load account details:', error)
+    appStore.showError(extractApiErrorMessage(error, t('common.error')))
+    return null
+  } finally {
+    accountDetailLoading.delete(account.id)
+  }
+}
+
+const handleEdit = async (a: AccountListItem) => {
+  const account = await loadAccountDetails(a)
+  if (!account) return
+  edAcc.value = account
+  showEdit.value = true
+}
+const openMenu = (a: AccountListItem, e: MouseEvent) => {
   menu.acc = a
 
   const target = e.currentTarget as HTMLElement
@@ -2386,7 +2405,7 @@ const openMenu = (a: Account, e: MouseEvent) => {
 const toggleSelectAllVisible = () => {
   toggleVisible(!allVisibleSelected.value)
 }
-const canArchiveAccount = (account: Account) => account.status === 'disabled'
+const canArchiveAccount = (account: AccountListItem) => account.status === 'disabled'
 const handleBulkDelete = async () => {
   const ids = [...selIds.value]
   const selectedSet = new Set(ids)
@@ -2893,12 +2912,28 @@ const closeTestModal = () => { showTest.value = false; testingAcc.value = null }
 const closeStatsModal = () => { showStats.value = false; statsAcc.value = null }
 const closeModelProtocolsModal = () => { showModelProtocols.value = false; modelProtocolsAcc.value = null }
 const closeReAuthModal = () => { showReAuth.value = false; reAuthAcc.value = null }
-const handleTest = (a: Account) => { testingAcc.value = a; showTest.value = true }
-const handleViewStats = (a: Account) => { statsAcc.value = a; showStats.value = true }
-const handleModelProtocols = (a: Account) => { modelProtocolsAcc.value = a; showModelProtocols.value = true }
+const handleTest = async (a: AccountListItem) => {
+  const account = await loadAccountDetails(a)
+  if (!account) return
+  testingAcc.value = account
+  showTest.value = true
+}
+const handleViewStats = async (a: AccountListItem) => {
+  const account = await loadAccountDetails(a)
+  if (!account) return
+  statsAcc.value = account
+  showStats.value = true
+}
+const handleModelProtocols = async (a: AccountListItem) => {
+  const account = await loadAccountDetails(a)
+  if (!account) return
+  modelProtocolsAcc.value = account
+  showModelProtocols.value = true
+}
 const handleModelProtocolsFromEdit = (a: Account) => {
   showEdit.value = false
-  handleModelProtocols(a)
+  modelProtocolsAcc.value = a
+  showModelProtocols.value = true
 }
 const openSupplierRechargeRecords = (pool: UpstreamCostPool) => {
   rechargeRecordsAcc.value = null
@@ -2930,8 +2965,10 @@ const handleSupplierRechargeUpdated = () => {
     })
   }
 }
-const handleSchedule = async (a: Account) => {
-  scheduleAcc.value = a
+const handleSchedule = async (a: AccountListItem) => {
+  const account = await loadAccountDetails(a)
+  if (!account) return
+  scheduleAcc.value = account
   scheduleModelOptions.value = []
   showSchedulePanel.value = true
   try {
@@ -2942,9 +2979,14 @@ const handleSchedule = async (a: Account) => {
   }
 }
 const closeSchedulePanel = () => { showSchedulePanel.value = false; scheduleAcc.value = null; scheduleModelOptions.value = [] }
-const handleReAuth = (a: Account) => { reAuthAcc.value = a; showReAuth.value = true }
+const handleReAuth = async (a: AccountListItem) => {
+  const account = await loadAccountDetails(a)
+  if (!account) return
+  reAuthAcc.value = account
+  showReAuth.value = true
+}
 const duplicatingAccountIDs = new Set<number>()
-const handleDuplicateAccount = async (a: Account) => {
+const handleDuplicateAccount = async (a: AccountListItem) => {
   if (duplicatingAccountIDs.has(a.id)) return
   duplicatingAccountIDs.add(a.id)
   try {
@@ -2958,7 +3000,7 @@ const handleDuplicateAccount = async (a: Account) => {
     duplicatingAccountIDs.delete(a.id)
   }
 }
-const handleRefresh = async (a: Account) => {
+const handleRefresh = async (a: AccountListItem) => {
   try {
     const updated = await adminAPI.accounts.refreshCredentials(a.id)
     patchAccountInList(updated)
@@ -2967,7 +3009,7 @@ const handleRefresh = async (a: Account) => {
     console.error('Failed to refresh credentials:', error)
   }
 }
-const handleRecoverState = async (a: Account) => {
+const handleRecoverState = async (a: AccountListItem) => {
   try {
     const updated = await adminAPI.accounts.recoverState(a.id)
     patchAccountInList(updated)
@@ -2989,7 +3031,7 @@ const handleClearModelRateLimit = async ({ account, model }: { account: Account;
     appStore.showError(error?.message || t('admin.accounts.clearModelRateLimitFailed'))
   }
 }
-const handleResetQuota = async (a: Account) => {
+const handleResetQuota = async (a: AccountListItem) => {
   try {
     const updated = await adminAPI.accounts.resetAccountQuota(a.id)
     patchAccountInList(updated)
@@ -3021,7 +3063,7 @@ const privacyResultMessageKey = (account: Account): { type: 'success' | 'error';
   return { type: 'error', key: 'admin.accounts.privacyFailed' }
 }
 
-const handleSetPrivacy = async (a: Account) => {
+const handleSetPrivacy = async (a: AccountListItem) => {
   try {
     const updated = await adminAPI.accounts.setPrivacy(a.id)
     patchAccountInList(updated)
@@ -3047,12 +3089,14 @@ const onRevertFallback = async (a: Account) => {
     appStore.showError(error?.response?.data?.message || t('admin.accounts.revertProxyFailed'))
   }
 }
-const handleDelete = (a: Account) => {
+const handleDelete = async (a: AccountListItem) => {
   if (!canArchiveAccount(a)) {
     appStore.showWarning(t('admin.accounts.archiveRequiresDisabled'))
     return
   }
-  deletingAcc.value = a
+  const account = await loadAccountDetails(a)
+  if (!account) return
+  deletingAcc.value = account
   showDeleteDialog.value = true
 }
 const confirmDelete = async () => {
@@ -3068,7 +3112,7 @@ const confirmDelete = async () => {
     appStore.showError(error?.response?.data?.message || error?.message || t('admin.accounts.failedToArchive'))
   }
 }
-const handleRestore = async (a: Account) => {
+const handleRestore = async (a: AccountListItem) => {
   try {
     await adminAPI.accounts.restore(a.id)
     appStore.showSuccess(t('admin.accounts.accountRestored'))
@@ -3079,8 +3123,10 @@ const handleRestore = async (a: Account) => {
   }
 }
 
-const handleCreateSparkShadow = (a: Account) => {
-  creatingShadowAcc.value = a
+const handleCreateSparkShadow = async (a: AccountListItem) => {
+  const account = await loadAccountDetails(a)
+  if (!account) return
+  creatingShadowAcc.value = account
   showCreateShadowDialog.value = true
 }
 const confirmCreateSparkShadow = async () => {
@@ -3097,7 +3143,7 @@ const confirmCreateSparkShadow = async () => {
     appStore.showError(error?.response?.data?.message || t('admin.accounts.createSparkShadowFailed'))
   }
 }
-const handleToggleSchedulable = async (a: Account) => {
+const handleToggleSchedulable = async (a: AccountListItem) => {
   const nextSchedulable = !a.schedulable
   togglingSchedulable.value = a.id
   try {

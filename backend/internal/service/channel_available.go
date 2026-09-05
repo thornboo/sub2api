@@ -201,6 +201,7 @@ func (s *ChannelService) availableGroupModelPricing(group *Group, model string) 
 func (s *ChannelService) fillGlobalPricingFallback(models []SupportedModel) {
 	for i := range models {
 		if !pricingNeedsFallback(models[i].Pricing) {
+			models[i].Pricing = withDefaultMaxReasoningEffortMultiplier(models[i].Pricing, models[i].Name)
 			continue
 		}
 		existing := models[i].Pricing
@@ -208,10 +209,13 @@ func (s *ChannelService) fillGlobalPricingFallback(models []SupportedModel) {
 			existing = synthesizePricingFromLiteLLM(s.pricingService.GetModelPricing(models[i].Name), existing)
 		}
 		if !pricingNeedsFallback(existing) || (existing != nil && existing.BillingMode != "" && existing.BillingMode != BillingModeToken) {
-			models[i].Pricing = existing
+			models[i].Pricing = withDefaultMaxReasoningEffortMultiplier(existing, models[i].Name)
 			continue
 		}
-		models[i].Pricing = s.availableTokenBasePricing(models[i].Name, existing)
+		models[i].Pricing = withDefaultMaxReasoningEffortMultiplier(
+			s.availableTokenBasePricing(models[i].Name, existing),
+			models[i].Name,
+		)
 	}
 }
 
@@ -219,18 +223,13 @@ func (s *ChannelService) fillGlobalPricingFallback(models []SupportedModel) {
 // catalog pricing dependency. ChannelService uses the method above so it can
 // prefer the BillingService settlement basis when available.
 func fillGlobalPricingFallback(pricingService *PricingService, models []SupportedModel) {
-	if pricingService == nil {
-		return
-	}
 	for i := range models {
-		if !pricingNeedsFallback(models[i].Pricing) {
-			continue
+		if pricingService != nil && pricingNeedsFallback(models[i].Pricing) {
+			if lp := pricingService.GetModelPricing(models[i].Name); lp != nil {
+				models[i].Pricing = synthesizePricingFromLiteLLM(lp, models[i].Pricing)
+			}
 		}
-		existing := synthesizePricingFromLiteLLM(pricingService.GetModelPricing(models[i].Name), models[i].Pricing)
-		if pricingNeedsFallback(existing) {
-			continue
-		}
-		models[i].Pricing = existing
+		models[i].Pricing = withDefaultMaxReasoningEffortMultiplier(models[i].Pricing, models[i].Name)
 	}
 }
 
@@ -296,21 +295,23 @@ func synthesizePricingFromLiteLLM(lp *LiteLLMModelPricing, existing *ChannelMode
 
 	if mode == BillingModeImage || mode == BillingModePerRequest {
 		return &ChannelModelPricing{
-			BillingMode:      mode,
-			PerRequestPrice:  nonZeroPtr(lp.OutputCostPerImage),
-			ImageOutputPrice: nonZeroPtr(lp.OutputCostPerImageToken),
-			InputPrice:       nonZeroPtr(lp.InputCostPerToken),
-			OutputPrice:      nonZeroPtr(lp.OutputCostPerToken),
+			BillingMode:                  mode,
+			PerRequestPrice:              nonZeroPtr(lp.OutputCostPerImage),
+			ImageOutputPrice:             nonZeroPtr(lp.OutputCostPerImageToken),
+			InputPrice:                   nonZeroPtr(lp.InputCostPerToken),
+			OutputPrice:                  nonZeroPtr(lp.OutputCostPerToken),
+			MaxReasoningEffortMultiplier: maxReasoningEffortMultiplierFromPricing(existing),
 		}
 	}
 	return &ChannelModelPricing{
-		BillingMode:       mode,
-		InputPrice:        nonZeroPtr(lp.InputCostPerToken),
-		OutputPrice:       nonZeroPtr(lp.OutputCostPerToken),
-		CacheWritePrice:   nonZeroPtr(lp.CacheCreationInputTokenCost),
-		CacheWrite1hPrice: nonZeroPtr(lp.CacheCreationInputTokenCostAbove1hr),
-		CacheReadPrice:    nonZeroPtr(lp.CacheReadInputTokenCost),
-		ImageOutputPrice:  nonZeroPtr(lp.OutputCostPerImageToken),
+		BillingMode:                  mode,
+		InputPrice:                   nonZeroPtr(lp.InputCostPerToken),
+		OutputPrice:                  nonZeroPtr(lp.OutputCostPerToken),
+		CacheWritePrice:              nonZeroPtr(lp.CacheCreationInputTokenCost),
+		CacheWrite1hPrice:            nonZeroPtr(lp.CacheCreationInputTokenCostAbove1hr),
+		CacheReadPrice:               nonZeroPtr(lp.CacheReadInputTokenCost),
+		ImageOutputPrice:             nonZeroPtr(lp.OutputCostPerImageToken),
+		MaxReasoningEffortMultiplier: maxReasoningEffortMultiplierFromPricing(existing),
 	}
 }
 
@@ -332,7 +333,17 @@ func synthesizePricingFromModelPricing(pricing *ModelPricing, existing *ChannelM
 	result.CacheReadPrice = float64ValuePtr(pricing.CacheReadPricePerToken)
 	result.ImageInputPrice = float64ValuePtr(pricing.ImageInputPricePerToken)
 	result.ImageOutputPrice = float64ValuePtr(pricing.ImageOutputPricePerToken)
+	if pricing.MaxReasoningEffortMultiplier != nil {
+		result.MaxReasoningEffortMultiplier = pricing.MaxReasoningEffortMultiplier
+	}
 	return result
+}
+
+func maxReasoningEffortMultiplierFromPricing(pricing *ChannelModelPricing) *float64 {
+	if pricing == nil {
+		return nil
+	}
+	return pricing.MaxReasoningEffortMultiplier
 }
 
 func nonZeroPtr(v float64) *float64 {

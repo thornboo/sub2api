@@ -1,24 +1,24 @@
 # dev-zz 变更地图
 
-这页按 `origin/main...dev-zz` 的真实差异整理正式二开范围。最近一次盘点基于 2026-09-04 将 `main@b1748c4ea` 合入 `dev-zz` 后的工作树：
+这页按 `main...dev-zz` 的真实差异整理正式二开范围。最近一次盘点基于 2026-09-05 将 `main@578785ee7` 合入 `dev-zz` 后的暂存工作树：
 
 | 项 | 值 |
 | --- | --- |
-| dev-zz | 本次合并提交及验证修复（合并前 `dfc1265f9`） |
-| origin/dev-zz | `dfc1265f9` |
-| origin/main | `b1748c4ea` |
-| merge-base | `b1748c4ea`（本次合并完成后） |
-| 差异规模 | 1166 个文件，约 201266 行新增、15086 行删除 |
+| dev-zz | 本次合并提交及验证修复（合并前 `c0ce0028a`） |
+| origin/dev-zz | `c0ce0028a` |
+| main / origin/main | `578785ee7` |
+| merge-base | `578785ee7`（本次合并完成后） |
+| 差异规模 | 1189 个文件，约 204444 行新增、15424 行删除；不含本表最终统计文字更新 |
 
 ## 变更分布
 
 | 区域 | 文件数 | 说明 |
 | --- | ---: | --- |
-| `frontend/` | 360 | 用户/API Key、企业成员、owner 用量分析、管理员用量下钻、可用渠道模型、CN provider、V1/V2 模型状态、运维弹窗栈、主题与控制台 UI |
-| `backend/` | 722 | 企业成员、模型/网关路由、API Key、用量/计费、分组日 rollup、CN provider、监控、Grok、安全、配置、测试、生成物与迁移 |
-| `docs-site/` | 54 | dev-zz 文档中心、功能文档、部署/开发/维护记录 |
+| `frontend/` | 369 | 企业成员、供应商成本、公开模型目录、lite 账号操作详情、max 推理报价提示、控制台 UI 与回归 |
+| `backend/` | 736 | 企业成员、协议路由、usage / 成本证据、单一 TimePricing、会话释放、监控、安全、生成物与迁移 |
+| `docs-site/` | 54 | dev-zz 文档中心、功能文档、配置与接口、开发 / 维护记录 |
 | `docs/` | 2 | 上游通用协议与 Channel Monitor V2 安全默认值文档 |
-| `deploy/` | 14 | fork 镜像默认值、源码构建脚本、备份脚本、Compose/安装脚本与部署样例 |
+| `deploy/` | 14 | fork 镜像默认值、源码构建脚本、备份脚本、Compose / 安装脚本与部署样例 |
 | `.github/` | 5 | CI、release、security scan 和分支镜像的 Node 24 actions runtime 验证 |
 | 根目录 / README / Dockerfile | 9 | release 镜像、项目说明、分布式 Dockerfile 与设计索引 |
 

@@ -169,6 +169,19 @@
                       </span>
                     </div>
 
+                    <div
+                      v-if="maxReasoningMultiplier(card.pricingOptions[0])"
+                      class="mt-2 flex"
+                    >
+                      <span
+                        data-testid="max-reasoning-multiplier"
+                        class="inline-flex items-center rounded-full border border-stone-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-stone-600 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-stone-300"
+                        :title="t('modelPlaza.table.maxReasoningMultiplierHint', { multiplier: maxReasoningMultiplier(card.pricingOptions[0]) })"
+                      >
+                        {{ t('modelPlaza.table.maxReasoningMultiplierBadge', { multiplier: maxReasoningMultiplier(card.pricingOptions[0]) }) }}
+                      </span>
+                    </div>
+
                     <p
                       v-if="hasTieredPricing(card.pricingOptions[0])"
                       class="mt-1.5 truncate text-[9px] text-stone-500 dark:text-stone-400"
@@ -249,6 +262,18 @@
                         {{ formatBillingMode(card.pricingOptions[0], pricingLabels) }}
                       </span>
                       <span class="ml-1 text-[9px] text-stone-400 dark:text-stone-500">{{ pricingUnit(card.pricingOptions[0]) }}</span>
+                      <div
+                        v-if="maxReasoningMultiplier(card.pricingOptions[0])"
+                        class="mt-1 flex"
+                      >
+                        <span
+                          data-testid="max-reasoning-multiplier"
+                          class="inline-flex items-center rounded-full border border-stone-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-stone-600 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-stone-300"
+                          :title="t('modelPlaza.table.maxReasoningMultiplierHint', { multiplier: maxReasoningMultiplier(card.pricingOptions[0]) })"
+                        >
+                          {{ t('modelPlaza.table.maxReasoningMultiplierBadge', { multiplier: maxReasoningMultiplier(card.pricingOptions[0]) }) }}
+                        </span>
+                      </div>
                       <p v-if="hasTieredPricing(card.pricingOptions[0])" class="mt-0.5 truncate text-[9px] text-stone-500 dark:text-stone-400" :title="tieredPricing(card, card.pricingOptions[0])">
                         {{ t('availableChannels.modelMarketplace.tieredPricing') }} · {{ tieredPricing(card, card.pricingOptions[0]) }}
                       </p>
@@ -408,6 +433,14 @@ function requestPrice(card: AvailableModelMarketplaceCard, pricing: UserSupporte
 
 function hasTieredPricing(pricing: UserSupportedModelPricing): boolean {
   return pricing.intervals.length > 0
+}
+
+
+function maxReasoningMultiplier(pricing: UserSupportedModelPricing | null): string | null {
+  if (pricing?.billing_mode !== BILLING_MODE_TOKEN) return null
+  const multiplier = pricing.max_reasoning_effort_multiplier
+  if (typeof multiplier !== 'number' || !Number.isFinite(multiplier) || multiplier <= 0) return null
+  return Number(multiplier.toFixed(4)).toString()
 }
 
 function tieredPricing(

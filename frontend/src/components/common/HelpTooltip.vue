@@ -30,8 +30,20 @@ function onEnter() {
   openTooltip()
 }
 
-function onLeave() {
+function isInside(container: HTMLElement | null, target: EventTarget | null): boolean {
+  return target instanceof Node && !!container?.contains(target)
+}
+
+// 悬停模式下指针在触发图标与提示框之间往返时保持打开，便于选中提示里的文字。
+function onLeave(event: MouseEvent) {
   if (props.trigger !== 'hover') return
+  if (isInside(tooltipRef.value, event.relatedTarget)) return
+  closeTooltip()
+}
+
+function onTooltipLeave(event: MouseEvent) {
+  if (props.trigger !== 'hover') return
+  if (isInside(triggerRef.value, event.relatedTarget)) return
   closeTooltip()
 }
 
@@ -129,6 +141,7 @@ onBeforeUnmount(() => {
 
     <!-- Teleport to body to escape modal overflow clipping -->
     <Teleport to="body">
+      <!-- before: 伪元素向下延伸一段透明区域，盖住提示框与触发图标之间的空隙，让指针能连续移入提示框。 -->
       <div
         ref="tooltip"
         v-show="show"
@@ -136,9 +149,12 @@ onBeforeUnmount(() => {
         :class="[
           'fixed z-[99999] -translate-x-1/2 rounded-lg bg-gray-900 p-3 text-xs leading-relaxed text-white shadow-xl ring-1 ring-white/10 dark:bg-gray-800',
           placement === 'top' ? '-translate-y-full' : '',
+          placement === 'top' ? 'before:absolute before:inset-x-0 before:top-full before:h-3' : '',
+          'selection:bg-primary-200 selection:text-gray-900 dark:selection:bg-primary-200 dark:selection:text-gray-900',
           props.widthClass,
         ]"
         :style="{ top: tooltipStyle.top, left: tooltipStyle.left }"
+        @mouseleave="onTooltipLeave"
       >
         <button
           v-if="props.trigger === 'click'"

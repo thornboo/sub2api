@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 22 // v22: union pricing/enterprise/Live/profit/search/audio/video fields with group free_openai_fast field
+const apiKeyAuthSnapshotVersion = 23 // v23: retain fork pricing/enterprise/Live/profit/search/audio/video/Fast fields and add group codex_models_manifest_config
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -441,6 +441,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			DefaultMappedModel:              apiKey.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     apiKey.Group.MessagesDispatchModelConfig,
 			ModelsListConfig:                apiKey.Group.ModelsListConfig,
+			CodexModelsManifestConfig:       apiKey.Group.CodexModelsManifestConfig,
 			RPMLimit:                        apiKey.Group.RPMLimit,
 			MaxReasoningEffort:              apiKey.Group.MaxReasoningEffort,
 			MaxReasoningEffortOverLimit:     apiKey.Group.MaxReasoningEffortOverLimit,
@@ -564,6 +565,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			DefaultMappedModel:              snapshot.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     snapshot.Group.MessagesDispatchModelConfig,
 			ModelsListConfig:                snapshot.Group.ModelsListConfig,
+			CodexModelsManifestConfig:       snapshot.Group.CodexModelsManifestConfig,
 			RPMLimit:                        snapshot.Group.RPMLimit,
 			MaxReasoningEffort:              snapshot.Group.MaxReasoningEffort,
 			MaxReasoningEffortOverLimit:     snapshot.Group.MaxReasoningEffortOverLimit,
@@ -621,7 +623,8 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		ModelRouting:                    group.ModelRouting, ModelRoutingEnabled: group.ModelRoutingEnabled, MCPXMLInject: group.MCPXMLInject,
 		SupportedModelScopes: group.SupportedModelScopes, AllowMessagesDispatch: group.AllowMessagesDispatch,
 		DefaultMappedModel: group.DefaultMappedModel, MessagesDispatchModelConfig: group.MessagesDispatchModelConfig,
-		ModelsListConfig: group.ModelsListConfig, RPMLimit: group.RPMLimit, PeakRateEnabled: group.PeakRateEnabled,
+		CodexModelsManifestConfig: group.CodexModelsManifestConfig,
+		ModelsListConfig:          group.ModelsListConfig, RPMLimit: group.RPMLimit, PeakRateEnabled: group.PeakRateEnabled,
 		PeakStart: group.PeakStart, PeakEnd: group.PeakEnd, PeakRateMultiplier: group.PeakRateMultiplier,
 	}
 }
@@ -645,7 +648,8 @@ func apiKeyAuthGroupSnapshotToGroup(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		ModelRouting:                    snapshot.ModelRouting, ModelRoutingEnabled: snapshot.ModelRoutingEnabled, MCPXMLInject: snapshot.MCPXMLInject,
 		SupportedModelScopes: snapshot.SupportedModelScopes, AllowMessagesDispatch: snapshot.AllowMessagesDispatch,
 		DefaultMappedModel: snapshot.DefaultMappedModel, MessagesDispatchModelConfig: snapshot.MessagesDispatchModelConfig,
-		ModelsListConfig: snapshot.ModelsListConfig, RPMLimit: snapshot.RPMLimit, PeakRateEnabled: snapshot.PeakRateEnabled,
+		CodexModelsManifestConfig: snapshot.CodexModelsManifestConfig,
+		ModelsListConfig:          snapshot.ModelsListConfig, RPMLimit: snapshot.RPMLimit, PeakRateEnabled: snapshot.PeakRateEnabled,
 		PeakStart: snapshot.PeakStart, PeakEnd: snapshot.PeakEnd, PeakRateMultiplier: snapshot.PeakRateMultiplier,
 	}
 }

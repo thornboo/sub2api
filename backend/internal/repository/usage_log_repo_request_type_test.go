@@ -110,6 +110,7 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // upstream_price_reference_currency
 			sqlmock.AnyArg(), // upstream_reference_fx_rate
 			sqlmock.AnyArg(), // upstream_expected_cost
+			sqlmock.AnyArg(), // upstream_request_id
 			sqlmock.AnyArg(), // session_id
 			log.NativeCompactionV2,
 			createdAt,
@@ -232,6 +233,7 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(), // upstream_price_reference_currency
 			sqlmock.AnyArg(), // upstream_reference_fx_rate
 			sqlmock.AnyArg(), // upstream_expected_cost
+			sqlmock.AnyArg(), // upstream_request_id
 			sqlmock.AnyArg(), // session_id
 			log.NativeCompactionV2,
 			createdAt,
@@ -270,6 +272,7 @@ func TestPrepareUsageLogInsertKeepsUpstreamCostEvidenceTogether(t *testing.T) {
 	currency := service.UpstreamPriceReferenceCurrencyUSD
 	fx := 7.0
 	expected := 3.0
+	upstreamRequestID := "upstream-request-42"
 	prepared := prepareUsageLogInsert(&service.UsageLog{
 		UserID:                         1,
 		APIKeyID:                       2,
@@ -280,15 +283,18 @@ func TestPrepareUsageLogInsertKeepsUpstreamCostEvidenceTogether(t *testing.T) {
 		UpstreamPriceReferenceCurrency: &currency,
 		UpstreamReferenceFXRate:        &fx,
 		UpstreamExpectedCost:           &expected,
+		UpstreamRequestID:              &upstreamRequestID,
 	})
 
 	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
-	start := len(prepared.args) - 8
+	start := len(prepared.args) - 9
 	require.Equal(t, &bindingID, prepared.args[start])
 	require.Equal(t, &multiplier, prepared.args[start+1])
 	require.Equal(t, sql.NullString{String: currency, Valid: true}, prepared.args[start+2])
 	require.Equal(t, &fx, prepared.args[start+3])
 	require.Equal(t, &expected, prepared.args[start+4])
+	require.Equal(t, sql.NullString{String: upstreamRequestID, Valid: true}, prepared.args[start+5])
+	require.Equal(t, "text", usageLogInsertArgTypes[start+5])
 }
 
 func TestExecUsageLogInsertNoResult_PersistsRequestedModel(t *testing.T) {
@@ -1064,6 +1070,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullFloat64{},
 			sql.NullFloat64{},
+			sql.NullString{}, // upstream_request_id
 			sql.NullString{},
 			false, // native_compaction_v2
 			now,
@@ -1154,6 +1161,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // upstream_price_reference_currency
 			sql.NullFloat64{}, // upstream_reference_fx_rate
 			sql.NullFloat64{}, // upstream_expected_cost
+			sql.NullString{},  // upstream_request_id
 			sql.NullString{},  // session_id
 			false,             // native_compaction_v2
 			now,
@@ -1227,6 +1235,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // upstream_price_reference_currency
 			sql.NullFloat64{}, // upstream_reference_fx_rate
 			sql.NullFloat64{}, // upstream_expected_cost
+			sql.NullString{},  // upstream_request_id
 			sql.NullString{},  // session_id
 			true,              // native_compaction_v2
 			now,
@@ -1301,6 +1310,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // upstream_price_reference_currency
 			sql.NullFloat64{}, // upstream_reference_fx_rate
 			sql.NullFloat64{}, // upstream_expected_cost
+			sql.NullString{},  // upstream_request_id
 			sql.NullString{},  // session_id
 			false,             // native_compaction_v2
 			now,

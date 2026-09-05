@@ -2,6 +2,13 @@
 
 这页只记录 dev-zz 新增或语义有差异的接口。上游通用接口仍以项目源码和 `docs/` 兼容文档为准。
 
+## 2026-09-05 上游同步接口兼容
+
+- 管理员账号列表支持 `lite=1`，返回账号表格需要的紧凑 DTO，并递归脱敏敏感凭据。账号编辑使用按 ID 读取的完整管理端详情；供应商、资金池和上游成本上下文仍受管理员权限约束。
+- 管理员账号配置新增 `extra.upstream_request_id_header`，管理员 usage 的 `upstream_request_id` 用于关联直接上游的请求证据，普通用户 DTO 不暴露该字段。未配置头名、没有响应头或 WebSocket 轮次时为空；不替代本站 `request_id` 或企业预算幂等标识。
+- OpenAI 分组新增 `codex_models_manifest_config={enabled,account_ids,fallback_to_scheduler}`。只能在创建后编辑开启，最多选择 10 个仍属于该组的 active OpenAI 账号；固定账号模式改变 Codex 模型目录来源，实际请求仍遵守分组授权、调度、能力与预算约束。
+- 渠道模型价格新增可空的 `max_reasoning_effort_multiplier`，按实际转发的 `max` 推理档位应用。客户报价继续走 dev-zz 的公开目录和分时价格投影；供应商应扣成本、币种及参考汇率证据保持独立。
+
 ## OpenAI Live 与客户端会话证据
 
 OpenAI Live 默认关闭。只有分组显式设置 `allow_live=true`、当前服务端可生成 macOS DeviceCheck attestation，且请求命中符合条件的 OpenAI OAuth 账号时才可创建会话。sideband 会话受普通用户 / 账号并发租约、最长会话时长和原始调用身份约束；分组开关或租约失效后不能继续复用。

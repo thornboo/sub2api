@@ -21,6 +21,8 @@ const {
   getAllGroups,
   duplicateAccount,
   createSparkShadow,
+  getAccountById,
+  getUpstreamBillingProbeSettings,
   showSuccess,
   showError
 } = vi.hoisted(() => ({
@@ -35,6 +37,8 @@ const {
   getAllGroups: vi.fn(),
   duplicateAccount: vi.fn(),
   createSparkShadow: vi.fn(),
+  getAccountById: vi.fn(),
+  getUpstreamBillingProbeSettings: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn()
 }))
@@ -50,7 +54,8 @@ vi.mock('@/api/admin', () => ({
       getUpstreamSupplierRechargeOverview,
       listUpstreamCostPoolAccounts,
       duplicate: duplicateAccount,
-      getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 30 }),
+      getById: getAccountById,
+      getUpstreamBillingProbeSettings,
       createSparkShadow,
       delete: vi.fn(),
       batchClearError: vi.fn(),
@@ -125,7 +130,7 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     localStorage.clear()
     for (const fn of [
       listAccounts, listWithEtag, getBatchTodayStats, listUpstreamCostPools,
-      listUpstreamSuppliers, getUpstreamSupplierRechargeOverview, listUpstreamCostPoolAccounts, getAllProxies, getAllGroups, duplicateAccount, createSparkShadow,
+      listUpstreamSuppliers, getUpstreamSupplierRechargeOverview, listUpstreamCostPoolAccounts, getAllProxies, getAllGroups, duplicateAccount, createSparkShadow, getAccountById, getUpstreamBillingProbeSettings,
       showSuccess, showError
     ]) {
       fn.mockReset()
@@ -141,6 +146,13 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     getAllGroups.mockResolvedValue([])
     duplicateAccount.mockResolvedValue({ id: 998, name: 'parent-acc (Copy)' })
     createSparkShadow.mockResolvedValue({ id: 999, name: 'parent-acc (Spark)' })
+    getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30 })
+    getAccountById.mockImplementation((id: number) => Promise.resolve({
+      id,
+      name: id === 301 ? 'new-api-relay' : 'parent-acc',
+      platform: id === 302 ? 'anthropic' : 'openai',
+      type: 'apikey',
+    }))
   })
 
   afterEach(() => {
@@ -202,6 +214,8 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     menu.vm.$emit('create-spark-shadow', { id: 42, name: 'parent-acc' })
     await flushPromises()
 
+    expect(getAccountById).toHaveBeenCalledWith(42)
+
     // 不再用原生 confirm,改用应用内 ConfirmDialog:先弹出,点确认才调 API
     const dialog = wrapper.findAllComponents(ConfirmDialog).find(d => d.props('show'))
     expect(dialog).toBeTruthy()
@@ -220,6 +234,8 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
 
     wrapper.findComponent(AccountActionMenu).vm.$emit('create-spark-shadow', { id: 42, name: 'parent-acc' })
     await flushPromises()
+
+    expect(getAccountById).toHaveBeenCalledWith(42)
 
     // 弹出 ConfirmDialog 后点取消,不应调用 API
     const dialog = wrapper.findAllComponents(ConfirmDialog).find(d => d.props('show'))
@@ -291,7 +307,7 @@ describe('admin AccountsView — 账号行展示', () => {
     localStorage.clear()
     for (const fn of [
       listAccounts, listWithEtag, getBatchTodayStats, listUpstreamCostPools,
-      listUpstreamSuppliers, getUpstreamSupplierRechargeOverview, listUpstreamCostPoolAccounts, getAllProxies, getAllGroups, duplicateAccount, createSparkShadow,
+      listUpstreamSuppliers, getUpstreamSupplierRechargeOverview, listUpstreamCostPoolAccounts, getAllProxies, getAllGroups, duplicateAccount, createSparkShadow, getAccountById, getUpstreamBillingProbeSettings,
       showSuccess, showError
     ]) {
       fn.mockReset()
@@ -304,6 +320,13 @@ describe('admin AccountsView — 账号行展示', () => {
     listUpstreamCostPoolAccounts.mockResolvedValue([])
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
+    getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30 })
+    getAccountById.mockImplementation((id: number) => Promise.resolve({
+      id,
+      name: id === 301 ? 'new-api-relay' : 'parent-acc',
+      platform: id === 302 ? 'anthropic' : 'openai',
+      type: 'apikey',
+    }))
     vi.stubGlobal('confirm', vi.fn(() => true))
   })
 
@@ -411,6 +434,7 @@ describe('admin AccountsView — 账号行展示', () => {
     })
     await flushPromises()
 
+    expect(getAccountById).toHaveBeenCalledWith(301)
     expect(wrapper.get('[data-test="model-protocol-modal"]').text()).toBe('new-api-relay')
     wrapper.unmount()
   })

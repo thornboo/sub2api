@@ -14,6 +14,25 @@
 
 Node 24 runtime 变量只验证 GitHub action 执行环境，不等价于项目构建 Node 升级。升级前端构建 Node 前，需要单独验证依赖兼容。
 
+## 2026-09-05 上游同步配置与追加迁移
+
+`main@578785ee7` 新增四份迁移，继续按完整文件名分别执行，不重编号或改写既有同号迁移：
+
+| 迁移 | 作用 | 兼容边界 |
+| --- | --- | --- |
+| `232_add_usage_log_upstream_request_id.sql` | usage 增加可空的上游请求标识 | 不替代本站 request ID、Session ID、企业预算回执或上游成本证据 |
+| `233_add_usage_log_upstream_request_id_index_notx.sql` | 为非空上游请求标识创建部分索引 | 使用 `CREATE INDEX CONCURRENTLY`，由非事务迁移路径执行 |
+| `234_channel_max_reasoning_effort_multiplier.sql` | 渠道模型定价增加 max 推理倍率 | 允许空值，配置值必须大于零；保留单一分时定价合同 |
+| `234_group_codex_models_manifest_config.sql` | 分组保存固定账号 Codex 模型目录配置 | 默认关闭；仅 OpenAI 分组，创建后才可绑定并开启 |
+
+账号 `extra.upstream_request_id_header` 显式指定要记录的直接上游响应头，未配置时不自动猜测；头名须合法且不超过 64 字节。usage 值落库前限制为 128 字节并保留 UTF-8 完整性，WebSocket 轮次保持空值。
+
+`pricing.fallback_file` 与 `pricing.override_file` 现在随 `pricing.hash_check_interval_minutes` 按内容哈希热重载。删除文件会在下一轮移除对应条目；文件存在但内容无效时保留上一份有效数据并重试。override 仍按字段浅合并且优先级最高。
+
+`SUB2API_CLAUDE_CLI_VERSION` 可覆盖对外宣告的 Claude CLI 版本；上游请求的 billing fingerprint 与最终发送的 User-Agent 版本保持一致。该环境变量不会自动修改现有部署配置。
+
+认证快照版本推进到 `23`，普通 Key 与企业成员候选分组均保留固定账号 manifest 配置；企业成员继续使用请求级实际分组。
+
 ## 2026-09-02 追加迁移
 
 本轮上游同步新增五份追加迁移；同号文件按完整文件名并存，不能只按数字前缀去重，也不能改写已经应用的历史 SQL。

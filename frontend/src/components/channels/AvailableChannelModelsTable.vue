@@ -120,9 +120,19 @@
           <td class="whitespace-nowrap">
             <div class="flex min-w-0 items-center gap-2">
               <PlatformIcon :platform="row.platform as GroupPlatform" size="sm" class="shrink-0" />
-              <span class="truncate font-semibold text-stone-950 dark:text-white" :title="row.modelName">
-                {{ row.modelName }}
-              </span>
+              <div class="min-w-0">
+                <span class="block truncate font-semibold text-stone-950 dark:text-white" :title="row.modelName">
+                  {{ row.modelName }}
+                </span>
+                <span
+                  v-if="maxReasoningMultiplier(row.pricing)"
+                  data-testid="max-reasoning-multiplier"
+                  class="mt-1 inline-flex items-center rounded-full border border-stone-200 bg-stone-50 px-1.5 py-px text-[10px] font-semibold text-stone-600 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-stone-300"
+                  :title="formatMaxReasoningLabel(columns.maxReasoningMultiplierHint, row.pricing)"
+                >
+                  {{ formatMaxReasoningLabel(columns.maxReasoningMultiplierBadge, row.pricing) }}
+                </span>
+              </div>
             </div>
           </td>
 
@@ -193,6 +203,7 @@
 import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
+import { BILLING_MODE_TOKEN } from '@/constants/channel'
 import type { GroupPlatform, SubscriptionType } from '@/types'
 import { platformBadgeClass } from '@/utils/platformColors'
 import {
@@ -225,6 +236,8 @@ const props = defineProps<{
     imageOutputPrice: string
     perRequestPrice: string
     groups: string
+    maxReasoningMultiplierBadge: string
+    maxReasoningMultiplierHint: string
   }
   tooltips: {
     interval: string
@@ -255,6 +268,17 @@ function sortIcon(key: AvailableChannelSortKey): 'arrowUp' | 'arrowDown' | 'arro
 function sortAria(key: AvailableChannelSortKey): 'ascending' | 'descending' | 'none' {
   if (props.sortBy !== key) return 'none'
   return props.sortOrder === 'asc' ? 'ascending' : 'descending'
+}
+
+function maxReasoningMultiplier(pricing: AvailableChannelCatalogRow['pricing']): string | null {
+  if (pricing?.billing_mode !== BILLING_MODE_TOKEN) return null
+  const multiplier = pricing.max_reasoning_effort_multiplier
+  if (typeof multiplier !== 'number' || !Number.isFinite(multiplier) || multiplier <= 0) return null
+  return Number(multiplier.toFixed(4)).toString()
+}
+
+function formatMaxReasoningLabel(label: string, pricing: AvailableChannelCatalogRow['pricing']): string {
+  return label.replace('{multiplier}', maxReasoningMultiplier(pricing) ?? '')
 }
 </script>
 
