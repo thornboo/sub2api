@@ -113,6 +113,7 @@ func ProvideGatewayHandler(
 	coordinator *securityaudit.Coordinator,
 	memberBudgetService *service.EnterpriseMemberBudgetService,
 	opsService *service.OpsService,
+	announcementService *service.AnnouncementService,
 ) *GatewayHandler {
 	h := NewGatewayHandler(gatewayService, openAIGatewayService, geminiCompatService, antigravityGatewayService,
 		userService, concurrencyService, billingCacheService, usageService, apiKeyService, usageRecordWorkerPool,
@@ -120,6 +121,7 @@ func ProvideGatewayHandler(
 	h.securityAuditCoordinator = coordinator
 	h.memberBudgetService = memberBudgetService
 	h.opsService = opsService
+	h.announcementService = announcementService
 	return h
 }
 

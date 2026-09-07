@@ -112,6 +112,7 @@
   - Admin side: Dashboard, Usage, Users, Groups, Accounts, Ops.
 - Core routes/screens:
   - `/key-usage` is the account-free Key-holder self-service surface. It uses a short-lived server-side query session and never grants access to the owner console.
+  - After Key verification, a compact announcement entry exposes eligible notices. Popup notices enter a deduplicated queue; silent notices stay in the list. Key-scoped read receipts and popup state remain separate from the logged-in console, including when both identities exist in one browser. Reuse neutral dialogs and sanitized Markdown; announcement failures must not block usage queries.
   - `/model-plaza` is the account-free public catalog for active standard non-exclusive groups, their models, public default rates, customer prices, and callable API endpoints. Authentication never expands this route; personalized and exclusive access remains in `/available-channels`.
   - User API Keys remain the owner workspace for employee-seat Key management.
   - User Usage Records remain the owner request-log surface.

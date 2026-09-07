@@ -19,6 +19,24 @@
           <button
             v-if="hasSession"
             type="button"
+            class="relative inline-flex h-9 items-center gap-2 rounded-lg border border-stone-200 px-3 text-sm font-medium text-stone-700 transition hover:border-emerald-500/40 hover:text-emerald-600 dark:border-[#262626] dark:text-stone-300"
+            :disabled="announcementsLoading"
+            :aria-label="t('keyUsage.announcements')"
+            :title="t('keyUsage.announcements')"
+            @click="openAnnouncementList"
+          >
+            <Icon name="bell" size="sm" />
+            <span class="hidden sm:inline">{{ t('keyUsage.announcements') }}</span>
+            <span
+              v-if="unreadAnnouncementCount > 0"
+              class="ml-0.5 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-black"
+            >
+              {{ unreadAnnouncementCount > 99 ? '99+' : unreadAnnouncementCount }}
+            </span>
+          </button>
+          <button
+            v-if="hasSession"
+            type="button"
             class="inline-flex h-9 items-center rounded-lg border border-stone-200 px-3 text-sm font-medium text-stone-700 transition hover:border-rose-400 hover:text-rose-600 dark:border-[#262626] dark:text-stone-300"
             :disabled="sessionDeleting"
             @click="exitQuery"
@@ -322,33 +340,150 @@
         </div>
       </div>
     </div>
+
+    <BaseDialog
+      :show="hasSession && announcementListOpen"
+      :title="t('keyUsage.announcements')"
+      width="wide"
+      prevent-horizontal-scroll
+      @close="announcementListOpen = false"
+    >
+      <div class="space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <p class="text-sm text-stone-500 dark:text-stone-400">
+            {{ unreadAnnouncementCount > 0 ? t('keyUsage.unreadAnnouncements', { count: unreadAnnouncementCount }) : t('keyUsage.noUnreadAnnouncements') }}
+          </p>
+          <button
+            type="button"
+            class="inline-flex h-9 items-center gap-2 rounded-lg border border-stone-200 px-3 text-sm font-semibold text-stone-700 hover:border-emerald-500/50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-[#303030] dark:text-stone-300"
+            :disabled="announcementsLoading"
+            @click="refreshKeyAnnouncements({ force: true, silent: false })"
+          >
+            <Icon name="refresh" size="sm" :class="announcementsLoading && 'animate-spin'" />
+            {{ t('keyUsage.refreshAnnouncements') }}
+          </button>
+        </div>
+
+        <div v-if="announcementsLoading && announcements.length === 0" class="py-12 text-center text-sm text-stone-400">
+          {{ t('keyUsage.loadingAnnouncements') }}
+        </div>
+        <div v-else-if="announcements.length === 0" class="rounded-xl border border-dashed border-stone-200 px-4 py-10 text-center text-sm text-stone-400 dark:border-[#303030]">
+          {{ t('keyUsage.noAnnouncements') }}
+        </div>
+        <div v-else class="max-h-[54vh] divide-y divide-stone-200 overflow-y-auto rounded-xl border border-stone-200 dark:divide-[#242424] dark:border-[#303030]">
+          <button
+            v-for="announcement in announcements"
+            :key="announcement.id"
+            type="button"
+            class="flex w-full min-w-0 items-start gap-3 px-4 py-3 text-left transition hover:bg-stone-50 dark:hover:bg-white/[0.04]"
+            :class="!announcement.read_at && 'bg-emerald-50/40 dark:bg-emerald-500/[0.06]'"
+            @click="openAnnouncementDetail(announcement)"
+          >
+            <span class="mt-1 h-2 w-2 shrink-0 rounded-full" :class="announcement.read_at ? 'bg-stone-300 dark:bg-stone-600' : 'bg-emerald-500'"></span>
+            <span class="min-w-0 flex-1">
+              <span class="block truncate text-sm font-semibold text-stone-900 dark:text-stone-100">{{ announcement.title }}</span>
+              <span class="mt-1 block text-xs text-stone-400">{{ formatDateTime(announcement.created_at) }}</span>
+            </span>
+            <span class="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold" :class="announcement.read_at ? 'bg-stone-100 text-stone-500 dark:bg-white/5 dark:text-stone-400' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'">
+              {{ announcement.read_at ? t('announcements.read') : t('announcements.unread') }}
+            </span>
+          </button>
+        </div>
+      </div>
+    </BaseDialog>
+
+    <BaseDialog
+      :show="hasSession && !!selectedAnnouncement"
+      :title="selectedAnnouncement?.title || t('keyUsage.announcementDetail')"
+      width="wide"
+      prevent-horizontal-scroll
+      @close="selectedAnnouncement = null"
+    >
+      <div v-if="selectedAnnouncement" class="space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 pb-3 text-xs text-stone-400 dark:border-[#242424]">
+          <span>{{ formatDateTime(selectedAnnouncement.created_at) }}</span>
+          <span>{{ selectedAnnouncement.read_at ? t('announcements.read') : t('announcements.unread') }}</span>
+        </div>
+        <div class="markdown-body max-w-none" v-html="selectedAnnouncementHtml"></div>
+      </div>
+      <template v-if="selectedAnnouncement" #footer>
+        <button
+          v-if="!selectedAnnouncement.read_at"
+          type="button"
+          class="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+          :disabled="isAnnouncementReadPending(selectedAnnouncement.id)"
+          @click="markAnnouncementRead(selectedAnnouncement.id, { userVisible: true })"
+        >
+          {{ isAnnouncementReadPending(selectedAnnouncement.id) ? t('keyUsage.markingAnnouncementRead') : t('announcements.markRead') }}
+        </button>
+        <button type="button" class="rounded-lg border border-stone-200 px-4 py-2 text-sm font-semibold text-stone-700 hover:border-emerald-500/50 dark:border-[#303030] dark:text-stone-300" @click="selectedAnnouncement = null">
+          {{ t('common.close') }}
+        </button>
+      </template>
+    </BaseDialog>
+
+    <BaseDialog
+      :show="hasSession && !!currentAnnouncementPopup"
+      :title="currentAnnouncementPopup?.title || t('keyUsage.announcementDetail')"
+      width="wide"
+      prevent-horizontal-scroll
+      :close-on-click-outside="false"
+      @close="dismissAnnouncementPopup(false)"
+    >
+      <div v-if="currentAnnouncementPopup" class="space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 pb-3 text-xs text-stone-400 dark:border-[#242424]">
+          <span>{{ formatDateTime(currentAnnouncementPopup.created_at) }}</span>
+          <span class="rounded-md bg-emerald-500/10 px-2 py-1 font-semibold text-emerald-700 dark:text-emerald-300">{{ t('announcements.unread') }}</span>
+        </div>
+        <div class="markdown-body max-w-none" v-html="currentAnnouncementPopupHtml"></div>
+      </div>
+      <template v-if="currentAnnouncementPopup" #footer>
+        <button
+          type="button"
+          class="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+          :disabled="isAnnouncementReadPending(currentAnnouncementPopup.id)"
+          @click="dismissAnnouncementPopup(true)"
+        >
+          {{ isAnnouncementReadPending(currentAnnouncementPopup.id) ? t('keyUsage.markingAnnouncementRead') : t('announcements.markRead') }}
+        </button>
+      </template>
+    </BaseDialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { BarElement, CategoryScale, Chart as ChartJS, Legend, LinearScale, Tooltip } from 'chart.js'
 import type { ChartData, ChartOptions, TooltipItem } from 'chart.js'
 import { Bar } from 'vue-chartjs'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
+import BaseDialog from '@/components/common/BaseDialog.vue'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import {
   publicKeyUsageAPI,
+  type PublicKeyUsageSession,
   type PublicKeyUsageLimit,
   type PublicKeyUsageRecord,
   type PublicKeyUsageRecordKind,
   type PublicKeyUsageSummary,
 } from '@/api/publicKeyUsage'
 import { useAppStore } from '@/stores'
+import type { UserAnnouncement } from '@/types'
+import { clearKeyAnnouncementSession, restoreKeyAnnouncementIds, saveKeyAnnouncementIds } from '@/utils/keyAnnouncementSession'
+import '@/styles/announcement-markdown.css'
 
 ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend)
+marked.setOptions({ breaks: true, gfm: true })
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const ANNOUNCEMENT_REFRESH_MS = 20 * 60 * 1000
 
 const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'Sub2API')
 const isDark = ref(false)
@@ -373,12 +508,30 @@ const recordPageSize = 20
 const recordTotal = ref(0)
 const selectedRecord = ref<PublicKeyUsageRecord | null>(null)
 const exporting = ref(false)
+const announcements = ref<UserAnnouncement[]>([])
+const announcementsLoading = ref(false)
+const announcementListOpen = ref(false)
+const selectedAnnouncement = ref<UserAnnouncement | null>(null)
+const currentAnnouncementPopup = ref<UserAnnouncement | null>(null)
+const announcementPopupQueue = ref<UserAnnouncement[]>([])
+const announcementReadPendingIds = ref(new Set<number>())
+const unreadAnnouncementCount = computed(() => announcements.value.filter((announcement) => !announcement.read_at).length)
+const selectedAnnouncementHtml = computed(() => renderAnnouncementMarkdown(selectedAnnouncement.value?.content || ''))
+const currentAnnouncementPopupHtml = computed(() => renderAnnouncementMarkdown(currentAnnouncementPopup.value?.content || ''))
 
 let sessionEpoch = 0
 let summaryController: AbortController | null = null
 let recordsController: AbortController | null = null
 let detailController: AbortController | null = null
 let exportController: AbortController | null = null
+let announcementsController: AbortController | null = null
+let lastAnnouncementsFetch = 0
+let announcementIntervalId: number | null = null
+let announcementPopupTimer: number | null = null
+let shownAnnouncementPopupIds = new Set<number>()
+let announcementSessionId: string | null = null
+const acknowledgedAnnouncementReadAt = new Map<number, string>()
+const announcementReadControllers = new Map<number, AbortController>()
 
 const timezoneName = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 
@@ -549,6 +702,238 @@ const memberBudgetExhausted = computed(() => {
   return Boolean(monthly && monthly.limit > 0 && monthly.used >= monthly.limit)
 })
 
+function renderAnnouncementMarkdown(content: string) {
+  if (!content) return ''
+  const html = marked.parse(content) as string
+  return DOMPurify.sanitize(html)
+}
+
+function isAnnouncementReadPending(id: number) {
+  return announcementReadPendingIds.value.has(id)
+}
+
+function setAnnouncementReadPending(id: number, pending: boolean) {
+  const next = new Set(announcementReadPendingIds.value)
+  if (pending) next.add(id)
+  else next.delete(id)
+  announcementReadPendingIds.value = next
+}
+
+function isAnnouncementActive(announcement: UserAnnouncement, now = Date.now()) {
+  const startsAt = announcement.starts_at ? new Date(announcement.starts_at).getTime() : Number.NEGATIVE_INFINITY
+  const endsAt = announcement.ends_at ? new Date(announcement.ends_at).getTime() : Number.POSITIVE_INFINITY
+  return startsAt <= now && now < endsAt
+}
+
+function withAcknowledgedReads(nextAnnouncements: UserAnnouncement[]) {
+  return nextAnnouncements.map((announcement) => {
+    const readAt = acknowledgedAnnouncementReadAt.get(announcement.id)
+    return readAt && !announcement.read_at ? { ...announcement, read_at: readAt } : announcement
+  })
+}
+
+function isUnreadPopupAnnouncement(announcement: UserAnnouncement) {
+  return announcement.notify_mode === 'popup' && !announcement.read_at && isAnnouncementActive(announcement)
+}
+
+function syncAnnouncementPopups(nextAnnouncements: UserAnnouncement[]) {
+  const popupById = new Map(nextAnnouncements.filter(isUnreadPopupAnnouncement).map((announcement) => [announcement.id, announcement]))
+  if (selectedAnnouncement.value) {
+    selectedAnnouncement.value = nextAnnouncements.find((announcement) => announcement.id === selectedAnnouncement.value?.id) || null
+  }
+
+  announcementPopupQueue.value = announcementPopupQueue.value
+    .filter((queued) => popupById.has(queued.id) && !shownAnnouncementPopupIds.has(queued.id))
+    .map((queued) => popupById.get(queued.id) || queued)
+
+  if (currentAnnouncementPopup.value) {
+    const latestCurrent = popupById.get(currentAnnouncementPopup.value.id)
+    if (latestCurrent) {
+      currentAnnouncementPopup.value = latestCurrent
+    } else {
+      currentAnnouncementPopup.value = null
+    }
+  }
+
+  for (const announcement of nextAnnouncements) {
+    if (!isUnreadPopupAnnouncement(announcement)) continue
+    if (shownAnnouncementPopupIds.has(announcement.id)) continue
+    if (currentAnnouncementPopup.value?.id === announcement.id) continue
+    if (announcementPopupQueue.value.some((queued) => queued.id === announcement.id)) continue
+    announcementPopupQueue.value.push(announcement)
+  }
+
+  if (!currentAnnouncementPopup.value) showNextAnnouncementPopup()
+}
+
+function showNextAnnouncementPopup() {
+  if (announcementListOpen.value || selectedAnnouncement.value) return
+  let next = announcementPopupQueue.value.shift()
+  while (next && !isUnreadPopupAnnouncement(next)) {
+    next = announcementPopupQueue.value.shift()
+  }
+  if (!next) {
+    currentAnnouncementPopup.value = null
+    return
+  }
+  currentAnnouncementPopup.value = next
+  shownAnnouncementPopupIds.add(next.id)
+  if (announcementSessionId) saveKeyAnnouncementIds(announcementSessionId, shownAnnouncementPopupIds)
+}
+
+function restoreAnnouncementSession(session: PublicKeyUsageSession) {
+  announcementSessionId = session.session_id || null
+  shownAnnouncementPopupIds = announcementSessionId ? restoreKeyAnnouncementIds(announcementSessionId) : new Set()
+}
+
+function clearAnnouncementState() {
+  announcementsController?.abort()
+  announcementsController = null
+  if (announcementPopupTimer !== null) {
+    window.clearTimeout(announcementPopupTimer)
+    announcementPopupTimer = null
+  }
+  announcementReadControllers.forEach((controller) => controller.abort())
+  announcementReadControllers.clear()
+  acknowledgedAnnouncementReadAt.clear()
+  announcements.value = []
+  announcementListOpen.value = false
+  selectedAnnouncement.value = null
+  currentAnnouncementPopup.value = null
+  announcementPopupQueue.value = []
+  announcementReadPendingIds.value = new Set()
+  lastAnnouncementsFetch = 0
+  shownAnnouncementPopupIds = new Set()
+  announcementSessionId = null
+  announcementsLoading.value = false
+}
+
+async function refreshKeyAnnouncements(options: { force?: boolean; silent?: boolean } = {}) {
+  if (!hasSession.value) return
+  if (document.visibilityState === 'hidden' && !options.force) return
+  const now = Date.now()
+  if (!options.force && lastAnnouncementsFetch > 0 && now - lastAnnouncementsFetch < ANNOUNCEMENT_REFRESH_MS) return
+
+  announcementsController?.abort()
+  const controller = new AbortController()
+  announcementsController = controller
+  const epoch = sessionEpoch
+  lastAnnouncementsFetch = now
+  announcementsLoading.value = true
+
+  try {
+    const nextAnnouncements = withAcknowledgedReads(await publicKeyUsageAPI.listAnnouncements(controller.signal))
+    if (controller.signal.aborted || epoch !== sessionEpoch || !hasSession.value) return
+    announcements.value = nextAnnouncements
+    syncAnnouncementPopups(nextAnnouncements)
+  } catch (error) {
+    if (controller.signal.aborted || epoch !== sessionEpoch) return
+    lastAnnouncementsFetch = 0
+    if (isSessionExpired(error)) {
+      resetQueryState()
+      appStore.showInfo(t('keyUsage.sessionExpired'))
+    } else if (!options.silent) {
+      appStore.showError(localizedAPIErrorMessage(error, t('keyUsage.announcementsFailed')))
+    }
+  } finally {
+    if (announcementsController === controller) {
+      announcementsController = null
+      announcementsLoading.value = false
+    }
+  }
+}
+
+function openAnnouncementList() {
+  currentAnnouncementPopup.value = null
+  announcementListOpen.value = true
+  void refreshKeyAnnouncements({ force: true, silent: false })
+}
+
+function openAnnouncementDetail(announcement: UserAnnouncement) {
+  currentAnnouncementPopup.value = null
+  selectedAnnouncement.value = announcement
+}
+
+async function markAnnouncementRead(id: number, options: { userVisible?: boolean } = {}) {
+  if (!hasSession.value || isAnnouncementReadPending(id)) return false
+  const controller = new AbortController()
+  announcementReadControllers.set(id, controller)
+  const epoch = sessionEpoch
+  setAnnouncementReadPending(id, true)
+  try {
+    await publicKeyUsageAPI.markAnnouncementRead(id, controller.signal)
+    if (controller.signal.aborted || epoch !== sessionEpoch || !hasSession.value) return false
+    const readAt = new Date().toISOString()
+    acknowledgedAnnouncementReadAt.set(id, readAt)
+    announcements.value = announcements.value.map((announcement) => (
+      announcement.id === id ? { ...announcement, read_at: announcement.read_at || readAt } : announcement
+    ))
+    if (selectedAnnouncement.value?.id === id) {
+      selectedAnnouncement.value = { ...selectedAnnouncement.value, read_at: selectedAnnouncement.value.read_at || readAt }
+    }
+    currentAnnouncementPopup.value = currentAnnouncementPopup.value?.id === id ? null : currentAnnouncementPopup.value
+    announcementPopupQueue.value = announcementPopupQueue.value.filter((announcement) => announcement.id !== id)
+    return true
+  } catch (error) {
+    if (!controller.signal.aborted && epoch === sessionEpoch && options.userVisible) {
+      if (isSessionExpired(error)) {
+        resetQueryState()
+        appStore.showInfo(t('keyUsage.sessionExpired'))
+      } else {
+        appStore.showError(localizedAPIErrorMessage(error, t('keyUsage.announcementReadFailed')))
+      }
+    }
+    return false
+  } finally {
+    if (announcementReadControllers.get(id) === controller) {
+      announcementReadControllers.delete(id)
+      setAnnouncementReadPending(id, false)
+    }
+  }
+}
+
+async function dismissAnnouncementPopup(markRead: boolean) {
+  const dismissed = currentAnnouncementPopup.value
+  if (!dismissed) return
+  const epoch = sessionEpoch
+  currentAnnouncementPopup.value = null
+  if (markRead) {
+    await markAnnouncementRead(dismissed.id, { userVisible: true })
+  }
+  if (epoch !== sessionEpoch || !hasSession.value) return
+  if (announcementPopupTimer !== null) window.clearTimeout(announcementPopupTimer)
+  announcementPopupTimer = window.setTimeout(() => {
+    announcementPopupTimer = null
+    if (epoch === sessionEpoch && hasSession.value && !currentAnnouncementPopup.value && !announcementListOpen.value && !selectedAnnouncement.value) {
+      showNextAnnouncementPopup()
+    }
+  }, 250)
+}
+
+function onKeyUsageVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    void refreshKeyAnnouncements({ silent: true })
+  }
+}
+
+watch(
+  [announcementListOpen, selectedAnnouncement],
+  ([listOpen, detail]) => {
+    if (!listOpen && !detail && hasSession.value && !currentAnnouncementPopup.value) {
+      showNextAnnouncementPopup()
+    }
+  },
+)
+
+watch(
+  hasSession,
+  (active) => {
+    if (active) {
+      void refreshKeyAnnouncements({ force: true, silent: true })
+    }
+  },
+)
+
 function localDateString(date: Date) {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -578,9 +963,10 @@ async function createSession() {
   clearQueryData()
   sessionCreating.value = true
   try {
-    await publicKeyUsageAPI.createSession(submittedKey)
+    const session = await publicKeyUsageAPI.createSession(submittedKey)
     submittedKey = ''
     if (epoch !== sessionEpoch) return
+    restoreAnnouncementSession(session)
     hasSession.value = true
     appStore.showSuccess(t('keyUsage.querySuccess'))
     await refreshAll()
@@ -597,10 +983,12 @@ async function createSession() {
 
 async function restoreSession() {
   const epoch = invalidateSessionRequests()
-  clearQueryData()
+  clearQueryData({ preserveAnnouncementSession: true })
   try {
     const session = await publicKeyUsageAPI.getSession()
     if (epoch !== sessionEpoch) return
+    if (session.valid) restoreAnnouncementSession(session)
+    else clearKeyAnnouncementSession()
     hasSession.value = session.valid
     if (session.valid) await refreshAll()
   } catch {
@@ -630,13 +1018,15 @@ function resetQueryState() {
   sessionChecking.value = false
 }
 
-function clearQueryData() {
+function clearQueryData(options: { preserveAnnouncementSession?: boolean } = {}) {
+  if (!options.preserveAnnouncementSession) clearKeyAnnouncementSession()
   hasSession.value = false
   summary.value = null
   records.value = []
   recordTotal.value = 0
   selectedRecord.value = null
   apiKey.value = ''
+  clearAnnouncementState()
 }
 
 function invalidateSessionRequests() {
@@ -645,13 +1035,19 @@ function invalidateSessionRequests() {
   recordsController?.abort()
   detailController?.abort()
   exportController?.abort()
+  announcementsController?.abort()
+  announcementReadControllers.forEach((controller) => controller.abort())
+  announcementReadControllers.clear()
   summaryController = null
   recordsController = null
   detailController = null
   exportController = null
+  announcementsController = null
   summaryLoading.value = false
   recordsLoading.value = false
   exporting.value = false
+  announcementsLoading.value = false
+  announcementReadPendingIds.value = new Set()
   return sessionEpoch
 }
 
@@ -675,6 +1071,7 @@ async function refreshAll() {
     recordTotal.value = 0
     if (recordKind.value === 'error' && !summary.value.error_records_available) recordKind.value = 'success'
     recordPage.value = 1
+    void refreshKeyAnnouncements({ silent: true })
     await loadRecords({ epoch, startDate: start, endDate: end })
   } catch (error) {
     if (controller.signal.aborted || epoch !== sessionEpoch) return
@@ -884,10 +1281,20 @@ onMounted(() => {
   initTheme()
   setRangeDays(30)
   if (!appStore.publicSettingsLoaded) appStore.fetchPublicSettings()
+  document.addEventListener('visibilitychange', onKeyUsageVisibilityChange)
+  announcementIntervalId = window.setInterval(() => {
+    void refreshKeyAnnouncements({ silent: true })
+  }, ANNOUNCEMENT_REFRESH_MS)
   restoreSession()
 })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', onKeyUsageVisibilityChange)
+  if (announcementIntervalId !== null) {
+    window.clearInterval(announcementIntervalId)
+    announcementIntervalId = null
+  }
   invalidateSessionRequests()
+  clearAnnouncementState()
 })
 </script>

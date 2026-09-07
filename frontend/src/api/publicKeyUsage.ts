@@ -1,13 +1,14 @@
 import axios, { type AxiosInstance } from 'axios'
 
 import { getLocale } from '@/i18n'
-import type { ApiResponse, PaginatedResponse } from '@/types'
+import type { ApiResponse, PaginatedResponse, UserAnnouncement } from '@/types'
 import { getAPIBaseURL } from './url'
 
 export type PublicKeyUsageRecordKind = 'success' | 'error'
 
 export interface PublicKeyUsageSession {
   valid: boolean
+  session_id?: string
   expires_at?: string
   absolute_expires_at?: string
 }
@@ -224,5 +225,22 @@ export const publicKeyUsageAPI = {
       signal,
     })
     return response.data
+  },
+
+  async listAnnouncements(signal?: AbortSignal): Promise<UserAnnouncement[]> {
+    const response = await publicKeyUsageClient.get<ApiResponse<UserAnnouncement[]> | UserAnnouncement[]>(
+      '/key/announcements',
+      { signal },
+    )
+    return unwrap(response.data)
+  },
+
+  async markAnnouncementRead(id: number, signal?: AbortSignal): Promise<{ message: string }> {
+    const response = await publicKeyUsageClient.post<ApiResponse<{ message: string }> | { message: string }>(
+      `/key/announcements/${id}/read`,
+      undefined,
+      { signal },
+    )
+    return unwrap(response.data)
   },
 }

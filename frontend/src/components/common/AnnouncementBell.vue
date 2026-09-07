@@ -305,13 +305,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { useAppStore } from '@/stores/app'
 import { useAnnouncementStore } from '@/stores/announcements'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 import { formatRelativeTime, formatRelativeWithDateTime } from '@/utils/format'
 import type { UserAnnouncement } from '@/types'
 import Icon from '@/components/icons/Icon.vue'
@@ -403,15 +404,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleEscape)
-  document.body.style.overflow = ''
 })
 
-watch(
-  [isModalOpen, detailModalOpen, () => announcementStore.currentPopup],
-  ([modal, detail, popup]) => {
-    document.body.style.overflow = (modal || detail || popup) ? 'hidden' : ''
-  }
-)
+useBodyScrollLock(computed(() => isModalOpen.value || detailModalOpen.value))
 </script>
 
 <style scoped>

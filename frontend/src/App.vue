@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { RouterView, useRouter, useRoute } from 'vue-router'
-import { onMounted, onBeforeUnmount, watch } from 'vue'
+import { computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import Toast from '@/components/common/Toast.vue'
 import NavigationProgress from '@/components/common/NavigationProgress.vue'
 import AdminComplianceDialog from '@/components/admin/AdminComplianceDialog.vue'
@@ -18,6 +18,9 @@ const subscriptionStore = useSubscriptionStore()
 const announcementStore = useAnnouncementStore()
 const adminComplianceStore = useAdminComplianceStore()
 const adminSettingsStore = useAdminSettingsStore()
+const suppressUserAnnouncements = computed(() => (
+  route.name === 'KeyUsage' || route.matched.some((matched) => matched.name === 'KeyUsage')
+))
 
 function updateDocumentTitle() {
   const customMenuItems = [
@@ -54,7 +57,7 @@ watch(
 
 // Watch for authentication state and manage subscription data + announcements
 function onVisibilityChange() {
-  if (document.visibilityState === 'visible' && authStore.isAuthenticated) {
+  if (document.visibilityState === 'visible' && authStore.isAuthenticated && !suppressUserAnnouncements.value) {
     announcementStore.fetchAnnouncements()
   }
 }
@@ -81,10 +84,14 @@ watch(
       subscriptionStore.startPolling()
 
       // Announcements: new login vs page refresh restore
-      if (oldValue === false) {
+      if (!suppressUserAnnouncements.value && oldValue === false) {
         // New login: delay 3s then force fetch
-        setTimeout(() => announcementStore.fetchAnnouncements(true), 3000)
-      } else {
+        setTimeout(() => {
+          if (authStore.isAuthenticated && !suppressUserAnnouncements.value) {
+            announcementStore.fetchAnnouncements(true)
+          }
+        }, 3000)
+      } else if (!suppressUserAnnouncements.value) {
         // Page refresh restore (oldValue was undefined)
         announcementStore.fetchAnnouncements()
       }
@@ -104,7 +111,7 @@ watch(
 
 // Route change trigger (throttled by store)
 router.afterEach(() => {
-  if (authStore.isAuthenticated) {
+  if (authStore.isAuthenticated && !suppressUserAnnouncements.value) {
     announcementStore.fetchAnnouncements()
   }
 })
@@ -140,6 +147,6 @@ onMounted(async () => {
   <NavigationProgress />
   <RouterView />
   <Toast />
-  <AnnouncementPopup />
+  <AnnouncementPopup v-if="!suppressUserAnnouncements" />
   <AdminComplianceDialog />
 </template>

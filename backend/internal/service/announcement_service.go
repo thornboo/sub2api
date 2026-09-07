@@ -14,6 +14,7 @@ import (
 type AnnouncementService struct {
 	announcementRepo AnnouncementRepository
 	readRepo         AnnouncementReadRepository
+	keyReadRepo      AnnouncementKeyReadRepository
 	userRepo         UserRepository
 	userSubRepo      UserSubscriptionRepository
 }
@@ -21,12 +22,14 @@ type AnnouncementService struct {
 func NewAnnouncementService(
 	announcementRepo AnnouncementRepository,
 	readRepo AnnouncementReadRepository,
+	keyReadRepo AnnouncementKeyReadRepository,
 	userRepo UserRepository,
 	userSubRepo UserSubscriptionRepository,
 ) *AnnouncementService {
 	return &AnnouncementService{
 		announcementRepo: announcementRepo,
 		readRepo:         readRepo,
+		keyReadRepo:      keyReadRepo,
 		userRepo:         userRepo,
 		userSubRepo:      userSubRepo,
 	}
@@ -216,14 +219,51 @@ func (s *AnnouncementService) List(ctx context.Context, params pagination.Pagina
 }
 
 func (s *AnnouncementService) ListForUser(ctx context.Context, userID int64, unreadOnly bool) ([]UserAnnouncement, error) {
+	visible, ids, err := s.visibleAnnouncementsForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if len(visible) == 0 {
+		return []UserAnnouncement{}, nil
+	}
+
+	readMap, err := s.readRepo.GetReadMapByUser(ctx, userID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("get read map: %w", err)
+	}
+
+	return buildUserAnnouncementList(visible, readMap, unreadOnly), nil
+}
+
+func (s *AnnouncementService) ListForAPIKey(ctx context.Context, apiKey *APIKey, unreadOnly bool) ([]UserAnnouncement, error) {
+	if apiKey == nil || apiKey.ID <= 0 || apiKey.UserID <= 0 {
+		return nil, ErrAnnouncementNotFound
+	}
+	visible, ids, err := s.visibleAnnouncementsForUser(ctx, apiKey.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if len(visible) == 0 {
+		return []UserAnnouncement{}, nil
+	}
+
+	readMap, err := s.keyReadRepo.GetReadMapByAPIKey(ctx, apiKey.ID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("get key read map: %w", err)
+	}
+
+	return buildUserAnnouncementList(visible, readMap, unreadOnly), nil
+}
+
+func (s *AnnouncementService) visibleAnnouncementsForUser(ctx context.Context, userID int64) ([]Announcement, []int64, error) {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("get user: %w", err)
+		return nil, nil, fmt.Errorf("get user: %w", err)
 	}
 
 	activeSubs, err := s.userSubRepo.ListActiveByUserID(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("list active subscriptions: %w", err)
+		return nil, nil, fmt.Errorf("list active subscriptions: %w", err)
 	}
 	activeGroupIDs := make(map[int64]struct{}, len(activeSubs))
 	for i := range activeSubs {
@@ -233,7 +273,7 @@ func (s *AnnouncementService) ListForUser(ctx context.Context, userID int64, unr
 	now := time.Now()
 	anns, err := s.announcementRepo.ListActive(ctx, now)
 	if err != nil {
-		return nil, fmt.Errorf("list active announcements: %w", err)
+		return nil, nil, fmt.Errorf("list active announcements: %w", err)
 	}
 
 	visible := make([]Announcement, 0, len(anns))
@@ -250,15 +290,10 @@ func (s *AnnouncementService) ListForUser(ctx context.Context, userID int64, unr
 		ids = append(ids, a.ID)
 	}
 
-	if len(visible) == 0 {
-		return []UserAnnouncement{}, nil
-	}
+	return visible, ids, nil
+}
 
-	readMap, err := s.readRepo.GetReadMapByUser(ctx, userID, ids)
-	if err != nil {
-		return nil, fmt.Errorf("get read map: %w", err)
-	}
-
+func buildUserAnnouncementList(visible []Announcement, readMap map[int64]time.Time, unreadOnly bool) []UserAnnouncement {
 	out := make([]UserAnnouncement, 0, len(visible))
 	for i := range visible {
 		a := visible[i]
@@ -286,11 +321,34 @@ func (s *AnnouncementService) ListForUser(ctx context.Context, userID int64, unr
 		return ai.Announcement.ID > aj.Announcement.ID
 	})
 
-	return out, nil
+	return out
 }
 
 func (s *AnnouncementService) MarkRead(ctx context.Context, userID, announcementID int64) error {
 	// 安全：仅允许标记当前用户“可见”的公告
+	if err := s.ensureAnnouncementVisibleToUser(ctx, userID, announcementID); err != nil {
+		return err
+	}
+	if err := s.readRepo.MarkRead(ctx, announcementID, userID, time.Now()); err != nil {
+		return fmt.Errorf("mark read: %w", err)
+	}
+	return nil
+}
+
+func (s *AnnouncementService) MarkReadForAPIKey(ctx context.Context, apiKey *APIKey, announcementID int64) error {
+	if apiKey == nil || apiKey.ID <= 0 || apiKey.UserID <= 0 || announcementID <= 0 {
+		return ErrAnnouncementNotFound
+	}
+	if err := s.ensureAnnouncementVisibleToUser(ctx, apiKey.UserID, announcementID); err != nil {
+		return err
+	}
+	if err := s.keyReadRepo.MarkRead(ctx, announcementID, apiKey.ID, time.Now()); err != nil {
+		return fmt.Errorf("mark key read: %w", err)
+	}
+	return nil
+}
+
+func (s *AnnouncementService) ensureAnnouncementVisibleToUser(ctx context.Context, userID, announcementID int64) error {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("get user: %w", err)
@@ -317,10 +375,6 @@ func (s *AnnouncementService) MarkRead(ctx context.Context, userID, announcement
 
 	if !a.Targeting.Matches(user.Balance, activeGroupIDs) {
 		return ErrAnnouncementNotFound
-	}
-
-	if err := s.readRepo.MarkRead(ctx, announcementID, userID, now); err != nil {
-		return fmt.Errorf("mark read: %w", err)
 	}
 	return nil
 }

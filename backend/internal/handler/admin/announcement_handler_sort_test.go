@@ -71,6 +71,7 @@ func newAnnouncementSortTestRouter(announcementRepo *announcementRepoCapture, us
 	svc := service.NewAnnouncementService(
 		announcementRepo,
 		&announcementReadRepoCapture{},
+		nil,
 		userRepo,
 		&announcementUserSubRepoCapture{},
 	)

@@ -1,10 +1,17 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import KeyUsageView from '../KeyUsageView.vue'
+import { clearKeyAnnouncementSession } from '@/utils/keyAnnouncementSession'
+
+enableAutoUnmount(afterEach)
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
 
 const homeViewSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../HomeView.vue'), 'utf8')
 
@@ -14,7 +21,9 @@ const {
   getSession,
   getSummary,
   getRecordDetail,
+  listAnnouncements,
   listRecords,
+  markAnnouncementRead,
   showError,
   showInfo,
   showSuccess,
@@ -25,7 +34,9 @@ const {
   getSession: vi.fn(),
   getSummary: vi.fn(),
   getRecordDetail: vi.fn(),
+  listAnnouncements: vi.fn(),
   listRecords: vi.fn(),
+  markAnnouncementRead: vi.fn(),
   showError: vi.fn(),
   showInfo: vi.fn(),
   showSuccess: vi.fn(),
@@ -40,6 +51,8 @@ vi.mock('@/api/publicKeyUsage', () => ({
     listRecords,
     deleteSession,
     getRecordDetail,
+    listAnnouncements,
+    markAnnouncementRead,
     exportRecords: vi.fn(),
   },
 }))
@@ -148,6 +161,10 @@ function mountView() {
         Icon: true,
         Select: { template: '<div class="select-stub"></div>' },
         Pagination: true,
+        BaseDialog: {
+          props: ['show', 'title'],
+          template: '<section v-if="show" class="base-dialog-stub"><h2>{{ title }}</h2><slot /><footer><slot name="footer" /></footer></section>',
+        },
       },
     },
   })
@@ -167,6 +184,8 @@ describe('KeyUsageView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    sessionStorage.clear()
+    clearKeyAnnouncementSession()
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
       value: vi.fn().mockReturnValue({ matches: false }),
@@ -183,6 +202,12 @@ describe('KeyUsageView', () => {
       model: 'gpt-5.6-sol',
       status_code: 200,
       stream: false,
+    })
+    listAnnouncements.mockResolvedValue([])
+    markAnnouncementRead.mockResolvedValue({ message: 'ok' })
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
     })
   })
 
@@ -225,6 +250,7 @@ describe('KeyUsageView', () => {
     await flushPromises()
 
     expect(getSummary).toHaveBeenCalledTimes(1)
+    expect(listAnnouncements).toHaveBeenCalledTimes(1)
     expect(wrapper.text()).toContain('张三')
     expect(wrapper.text()).toContain('OpenAI')
     expect(wrapper.text()).toContain('gpt-5.6-sol')
@@ -436,5 +462,359 @@ describe('KeyUsageView', () => {
 
     expect((wrapper.vm as unknown as { selectedRecord: unknown }).selectedRecord).toBeNull()
     expect(wrapper.text()).not.toContain('keyUsage.recordDetail')
+  })
+
+  it('does not fetch key announcements before a validated or restored Key session exists', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(getSession).toHaveBeenCalledTimes(1)
+    expect(getSummary).not.toHaveBeenCalled()
+    expect(listAnnouncements).not.toHaveBeenCalled()
+    expect(wrapper.find('#key-usage-input').exists()).toBe(true)
+  })
+
+  it('loads key announcements after session restoration even when usage summary fails', async () => {
+    getSession.mockResolvedValue({ valid: true })
+    getSummary.mockRejectedValueOnce(new Error('summary unavailable'))
+    listAnnouncements.mockResolvedValueOnce([{
+      id: 10,
+      title: 'Session notice',
+      content: 'Notice body',
+      notify_mode: 'popup',
+      created_at: '2026-07-24T07:30:00Z',
+      updated_at: '2026-07-24T07:30:00Z',
+    }])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(listAnnouncements).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('Session notice')
+  })
+
+  it('keeps local read acknowledgements when a slower list response returns unread data', async () => {
+    getSession.mockResolvedValue({ valid: true })
+    listAnnouncements.mockResolvedValue([{
+      id: 18,
+      title: 'Race notice',
+      content: 'Race body',
+      notify_mode: 'popup',
+      created_at: '2026-07-24T07:30:00Z',
+      updated_at: '2026-07-24T07:30:00Z',
+    }])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const markButton = wrapper.findAll('button').find((button) => button.text() === 'announcements.markRead')
+    await markButton!.trigger('click')
+    await flushPromises()
+
+    await (wrapper.vm as unknown as { refreshKeyAnnouncements: (options: { force: boolean; silent: boolean }) => Promise<void> }).refreshKeyAnnouncements({ force: true, silent: true })
+
+    const vm = wrapper.vm as unknown as { announcements: Array<{ id: number; read_at?: string }>; unreadAnnouncementCount: number }
+    expect(vm.announcements.find((announcement) => announcement.id === 18)?.read_at).toBeTruthy()
+    expect(vm.unreadAnnouncementCount).toBe(0)
+  })
+
+  it('auto-opens unread popup-mode key announcements and keeps silent announcements in the list', async () => {
+    getSession.mockResolvedValue({ valid: true })
+    listAnnouncements.mockResolvedValue([
+      {
+        id: 11,
+        title: 'Popup notice',
+        content: '## Popup body\n\n<script>window.__keyAnnouncementXss = true</script>',
+        notify_mode: 'popup',
+        created_at: '2026-07-24T07:30:00Z',
+        updated_at: '2026-07-24T07:30:00Z',
+      },
+      {
+        id: 12,
+        title: 'Silent notice',
+        content: 'Silent body',
+        notify_mode: 'silent',
+        created_at: '2026-07-24T07:31:00Z',
+        updated_at: '2026-07-24T07:31:00Z',
+      },
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Popup notice')
+    expect(wrapper.text()).toContain('Popup body')
+    expect(wrapper.find('.markdown-body script').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Silent notice')
+
+    await wrapper.find('button[aria-label="keyUsage.announcements"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Silent notice')
+    expect(wrapper.text()).toContain('keyUsage.unreadAnnouncements')
+  })
+
+  it('marks key announcements as read through the key-scoped API and updates unread state', async () => {
+    getSession.mockResolvedValue({ valid: true })
+    listAnnouncements.mockResolvedValue([{
+      id: 21,
+      title: 'Read me',
+      content: 'Read body',
+      notify_mode: 'popup',
+      created_at: '2026-07-24T07:30:00Z',
+      updated_at: '2026-07-24T07:30:00Z',
+    }])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const markButton = wrapper.findAll('button').find((button) => button.text() === 'announcements.markRead')
+    expect(markButton).toBeDefined()
+    await markButton!.trigger('click')
+    await flushPromises()
+
+    expect(markAnnouncementRead).toHaveBeenCalledWith(21, expect.any(AbortSignal))
+    const vm = wrapper.vm as unknown as { announcements: Array<{ id: number; read_at?: string }>; unreadAnnouncementCount: number }
+    expect(vm.announcements.find((announcement) => announcement.id === 21)?.read_at).toBeTruthy()
+    expect(vm.unreadAnnouncementCount).toBe(0)
+  })
+
+  it('drops queued popup announcements when refresh shows they are no longer popup candidates', async () => {
+    getSession.mockResolvedValue({ valid: true })
+    listAnnouncements
+      .mockResolvedValueOnce([
+        {
+          id: 31,
+          title: 'First popup',
+          content: 'First body',
+          notify_mode: 'popup',
+          created_at: '2026-07-24T07:30:00Z',
+          updated_at: '2026-07-24T07:30:00Z',
+        },
+        {
+          id: 32,
+          title: 'Second popup',
+          content: 'Second body',
+          notify_mode: 'popup',
+          created_at: '2026-07-24T07:31:00Z',
+          updated_at: '2026-07-24T07:31:00Z',
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 31,
+          title: 'First popup',
+          content: 'First body',
+          notify_mode: 'popup',
+          created_at: '2026-07-24T07:30:00Z',
+          updated_at: '2026-07-24T07:30:00Z',
+        },
+        {
+          id: 32,
+          title: 'Second popup',
+          content: 'Second body',
+          notify_mode: 'silent',
+          created_at: '2026-07-24T07:31:00Z',
+          updated_at: '2026-07-24T07:31:00Z',
+        },
+      ])
+
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.text()).toContain('First popup')
+
+    await wrapper.find('button[aria-label="keyUsage.announcements"]').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === 'keyUsage.refreshAnnouncements')!.trigger('click')
+    await flushPromises()
+
+    ;(wrapper.vm as unknown as { announcementListOpen: boolean }).announcementListOpen = false
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).not.toContain('Second body')
+  })
+
+  it('ignores late announcement read responses after the key identity changes', async () => {
+    const pendingRead = deferred<{ message: string }>()
+    getSession.mockResolvedValue({ valid: true })
+    listAnnouncements.mockResolvedValue([{
+      id: 41,
+      title: 'Late read',
+      content: 'Late body',
+      notify_mode: 'popup',
+      created_at: '2026-07-24T07:30:00Z',
+      updated_at: '2026-07-24T07:30:00Z',
+    }])
+    markAnnouncementRead.mockReturnValueOnce(pendingRead.promise)
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const markButton = wrapper.findAll('button').find((button) => button.text() === 'announcements.markRead')
+    await markButton!.trigger('click')
+    const exit = wrapper.findAll('button').find((button) => button.text() === 'keyUsage.exit')
+    await exit!.trigger('click')
+    await flushPromises()
+
+    pendingRead.resolve({ message: 'ok' })
+    await flushPromises()
+
+    expect((wrapper.vm as unknown as { announcements: unknown[] }).announcements).toEqual([])
+    expect(wrapper.text()).not.toContain('Late read')
+  })
+
+  it('pauses hidden-tab automatic announcement refreshes and mutes background errors', async () => {
+    vi.useFakeTimers()
+    getSession.mockResolvedValue({ valid: true })
+    listAnnouncements.mockResolvedValue([])
+    const wrapper = mountView()
+    await flushPromises()
+    expect(listAnnouncements).toHaveBeenCalledTimes(1)
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    })
+    vi.advanceTimersByTime(20 * 60 * 1000)
+    await flushPromises()
+    expect(listAnnouncements).toHaveBeenCalledTimes(1)
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    })
+    listAnnouncements.mockRejectedValueOnce(new Error('temporary network issue'))
+    vi.advanceTimersByTime(20 * 60 * 1000)
+    await flushPromises()
+
+    expect(listAnnouncements).toHaveBeenCalledTimes(2)
+    expect(showError).not.toHaveBeenCalled()
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    expect(listAnnouncements).toHaveBeenCalledTimes(3)
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('keeps the global logged-in announcement popup isolated from the key-usage route', () => {
+    const appSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../App.vue'), 'utf8')
+
+    expect(appSource).toContain("route.name === 'KeyUsage'")
+    expect(appSource).toContain("matched.name === 'KeyUsage'")
+    expect(appSource).toContain('<AnnouncementPopup v-if="!suppressUserAnnouncements" />')
+    expect(appSource).toContain('authStore.isAuthenticated && !suppressUserAnnouncements.value')
+  })
+
+  it.each([false, true])('does not replay a dismissed unread popup after returning (storage denied: %s)', async (storageDenied) => {
+    if (storageDenied) {
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Storage denied') })
+    }
+    getSession.mockResolvedValue({ valid: true, session_id: 'session-one' })
+    listAnnouncements.mockResolvedValue([{
+      id: 71, title: 'Dismiss once', content: 'Notice body', notify_mode: 'popup',
+      created_at: '2026-07-24T07:30:00Z', updated_at: '2026-07-24T07:30:00Z',
+    }])
+    const first = mountView()
+    await flushPromises()
+    expect(first.text()).toContain('Dismiss once')
+    await (first.vm as unknown as { dismissAnnouncementPopup: (read: boolean) => Promise<void> }).dismissAnnouncementPopup(false)
+    first.unmount()
+
+    const returned = mountView()
+    await flushPromises()
+    expect(returned.text()).not.toContain('Notice body')
+    expect(markAnnouncementRead).not.toHaveBeenCalled()
+    await returned.get('button[aria-label="keyUsage.announcements"]').trigger('click')
+    await flushPromises()
+    expect(returned.text()).toContain('Dismiss once')
+    expect((returned.vm as unknown as { unreadAnnouncementCount: number }).unreadAnnouncementCount).toBe(1)
+  })
+
+  it('does not reuse popup suppression when the server restores a different query session', async () => {
+    getSession.mockResolvedValue({ valid: true, session_id: 'session-one' })
+    listAnnouncements.mockResolvedValue([{
+      id: 72, title: 'Session notice', content: 'New session body', notify_mode: 'popup',
+      created_at: '2026-07-24T07:30:00Z', updated_at: '2026-07-24T07:30:00Z',
+    }])
+    const first = mountView()
+    await flushPromises()
+    await (first.vm as unknown as { dismissAnnouncementPopup: (read: boolean) => Promise<void> }).dismissAnnouncementPopup(false)
+    first.unmount()
+
+    getSession.mockResolvedValue({ valid: true, session_id: 'session-two' })
+    const returned = mountView()
+    await flushPromises()
+    expect(returned.text()).toContain('New session body')
+  })
+
+  it('retains popup suppression when a newly created query session is later restored', async () => {
+    createSession.mockResolvedValue({ valid: true, session_id: 'created-session' })
+    listAnnouncements.mockResolvedValue([{
+      id: 74, title: 'Created session notice', content: 'Created body', notify_mode: 'popup',
+      created_at: '2026-07-24T07:30:00Z', updated_at: '2026-07-24T07:30:00Z',
+    }])
+    const first = mountView()
+    await flushPromises()
+    await first.get('#key-usage-input').setValue('sk-query-proof')
+    await first.get('form').trigger('submit')
+    await flushPromises()
+    expect(first.text()).toContain('Created body')
+    await (first.vm as unknown as { dismissAnnouncementPopup: (read: boolean) => Promise<void> }).dismissAnnouncementPopup(false)
+    first.unmount()
+    getSession.mockResolvedValue({ valid: true, session_id: 'created-session' })
+    const returned = mountView()
+    await flushPromises()
+    expect(returned.text()).not.toContain('Created body')
+    expect(sessionStorage.getItem('key-usage-announcement-session')).not.toContain('sk-query-proof')
+  })
+
+  it('retains the latest popup markers when storage becomes full after an earlier successful write', async () => {
+    vi.useFakeTimers()
+    getSession.mockResolvedValue({ valid: true, session_id: 'quota-session' })
+    listAnnouncements.mockResolvedValue([75, 76].map((id) => ({
+      id, title: `Notice ${id}`, content: `Body ${id}`, notify_mode: 'popup',
+      created_at: '2026-07-24T07:30:00Z', updated_at: '2026-07-24T07:30:00Z',
+    })))
+    const first = mountView()
+    await flushPromises()
+    expect(first.text()).toContain('Body 75')
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Quota exceeded') })
+    await (first.vm as unknown as { dismissAnnouncementPopup: (read: boolean) => Promise<void> }).dismissAnnouncementPopup(false)
+    vi.advanceTimersByTime(250)
+    await flushPromises()
+    expect(first.text()).toContain('Body 76')
+    first.unmount()
+    const returned = mountView()
+    await flushPromises()
+    expect(returned.text()).not.toContain('Body 75')
+    expect(returned.text()).not.toContain('Body 76')
+  })
+
+  it.each(['exit', 'expired'])('forgets displayed announcements when the query session is %s', async (reason) => {
+    getSession.mockResolvedValue({ valid: true, session_id: 'session-one' })
+    listAnnouncements.mockResolvedValue([{
+      id: 73, title: 'Clear on expiry', content: 'Body', notify_mode: 'popup',
+      created_at: '2026-07-24T07:30:00Z', updated_at: '2026-07-24T07:30:00Z',
+    }])
+    const first = mountView()
+    await flushPromises()
+    expect(sessionStorage.length).toBe(1)
+    if (reason === 'exit') {
+      await first.findAll('button').find((button) => button.text() === 'keyUsage.exit')!.trigger('click')
+      await flushPromises()
+      expect(sessionStorage.length).toBe(0)
+      first.unmount()
+    } else {
+      first.unmount()
+      getSession.mockResolvedValue({ valid: false })
+      const expired = mountView()
+      await flushPromises()
+      expect(sessionStorage.length).toBe(0)
+      expired.unmount()
+    }
+    getSession.mockResolvedValue({ valid: true, session_id: 'session-one' })
+    const returned = mountView()
+    await flushPromises()
+    expect(returned.text()).toContain('Clear on expiry')
   })
 })

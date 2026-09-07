@@ -83,3 +83,8 @@ type AnnouncementReadRepository interface {
 	GetReadMapByUsers(ctx context.Context, announcementID int64, userIDs []int64) (map[int64]time.Time, error)
 	CountByAnnouncementID(ctx context.Context, announcementID int64) (int64, error)
 }
+
+type AnnouncementKeyReadRepository interface {
+	MarkRead(ctx context.Context, announcementID, apiKeyID int64, readAt time.Time) error
+	GetReadMapByAPIKey(ctx context.Context, apiKeyID int64, announcementIDs []int64) (map[int64]time.Time, error)
+}

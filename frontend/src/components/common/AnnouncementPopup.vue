@@ -83,11 +83,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, watch } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { useAnnouncementStore } from '@/stores/announcements'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 import { formatRelativeWithDateTime } from '@/utils/format'
 import type { Announcement, UserAnnouncement } from '@/types'
 import '@/styles/announcement-markdown.css'
@@ -132,24 +133,7 @@ function handleDismiss() {
   announcementStore.dismissPopup()
 }
 
-// Manage body overflow — only set, never unset (bell component handles restore)
-watch(
-  displayedAnnouncement,
-  (popup) => {
-    if (popup) {
-      document.body.style.overflow = 'hidden'
-    } else if (props.preview) {
-      document.body.style.overflow = ''
-    }
-  },
-  { immediate: true },
-)
-
-onBeforeUnmount(() => {
-  if (props.preview) {
-    document.body.style.overflow = ''
-  }
-})
+useBodyScrollLock(computed(() => Boolean(displayedAnnouncement.value)))
 </script>
 
 <style scoped>

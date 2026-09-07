@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
+import { defineComponent, nextTick, ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import AnnouncementPopup from '../AnnouncementPopup.vue'
+import AnnouncementBell from '../AnnouncementBell.vue'
+import BaseDialog from '../BaseDialog.vue'
 import { useAnnouncementStore } from '@/stores/announcements'
 
 const announcementMarkdownStyles = readFileSync(
@@ -40,6 +43,7 @@ describe('AnnouncementPopup', () => {
 
   afterEach(() => {
     document.body.innerHTML = ''
+    document.body.className = ''
     document.body.style.overflow = ''
   })
 
@@ -124,6 +128,113 @@ describe('AnnouncementPopup', () => {
 
     expect(dismissPopup).toHaveBeenCalledTimes(1)
     expect(wrapper.emitted('close')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('releases its body scroll lock when a route-level v-if unmounts the user popup', async () => {
+    const store = useAnnouncementStore()
+    store.currentPopup = announcement
+
+    const Host = defineComponent({
+      components: { AnnouncementPopup },
+      setup() {
+        const showPopup = ref(true)
+        return { showPopup }
+      },
+      template: '<AnnouncementPopup v-if="showPopup" />',
+    })
+
+    const wrapper = mount(Host)
+    await nextTick()
+
+    expect(document.body.style.overflow).toBe('hidden')
+
+    ;(wrapper.vm as unknown as { showPopup: boolean }).showPopup = false
+    await nextTick()
+
+    expect(document.body.style.overflow).toBe('')
+    wrapper.unmount()
+  })
+
+  it('keeps body locked until every announcement overlay owner closes', async () => {
+    const store = useAnnouncementStore()
+    store.currentPopup = announcement
+    store.announcements = [{ ...announcement, read_at: null }]
+
+    const Host = defineComponent({
+      components: { AnnouncementPopup, AnnouncementBell },
+      template: `
+        <AnnouncementPopup />
+        <AnnouncementBell />
+      `,
+    })
+
+    const wrapper = mount(Host, {
+      global: {
+        stubs: {
+          Icon: { template: '<span />' },
+        },
+      },
+    })
+    await nextTick()
+
+    await wrapper.findComponent(AnnouncementBell).find('button').trigger('click')
+    await nextTick()
+
+    expect(document.body.style.overflow).toBe('hidden')
+
+    store.currentPopup = null
+    await nextTick()
+
+    expect(document.body.style.overflow).toBe('hidden')
+
+    document.body.querySelector<HTMLButtonElement>('button[aria-label="common.close"]')?.click()
+    await nextTick()
+    await flushPromises()
+
+    expect(document.body.style.overflow).toBe('')
+    wrapper.unmount()
+  })
+
+  it('does not remove the BaseDialog modal-open body lock when an announcement owner closes', async () => {
+    const store = useAnnouncementStore()
+    store.currentPopup = announcement
+
+    const Host = defineComponent({
+      components: { AnnouncementPopup, BaseDialog },
+      setup() {
+        const showPopup = ref(true)
+        const showDialog = ref(true)
+        return { showPopup, showDialog }
+      },
+      template: `
+        <AnnouncementPopup v-if="showPopup" />
+        <BaseDialog :show="showDialog" title="Dialog">
+          <button type="button">Dialog action</button>
+        </BaseDialog>
+      `,
+    })
+
+    const wrapper = mount(Host, {
+      attachTo: document.body,
+      global: {
+        stubs: {
+          Icon: { template: '<span />' },
+        },
+      },
+    })
+    await nextTick()
+    await flushPromises()
+
+    expect(document.body.style.overflow).toBe('hidden')
+    expect(document.body.classList.contains('modal-open')).toBe(true)
+
+    ;(wrapper.vm as unknown as { showPopup: boolean }).showPopup = false
+    await nextTick()
+
+    expect(document.body.style.overflow).toBe('')
+    expect(document.body.classList.contains('modal-open')).toBe(true)
+
     wrapper.unmount()
   })
 })

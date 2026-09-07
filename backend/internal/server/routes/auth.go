@@ -259,6 +259,14 @@ func RegisterAuthRoutes(
 			rateLimiter.LimitWithOptions("key-usage-session-delete", 20, time.Minute, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose}),
 			h.Gateway.DeletePublicKeyUsageSession,
 		)
+		key.GET("/announcements",
+			keyUsageReadLimit,
+			h.Gateway.ListPublicKeyAnnouncements,
+		)
+		key.POST("/announcements/:id/read",
+			rateLimiter.LimitWithOptions("key-announcement-read", 30, time.Minute, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose}),
+			h.Gateway.MarkPublicKeyAnnouncementRead,
+		)
 		key.GET("/usage/summary",
 			keyUsageReadLimit,
 			h.Gateway.GetPublicKeyUsageSummary,

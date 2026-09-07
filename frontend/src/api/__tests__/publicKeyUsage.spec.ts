@@ -37,4 +37,31 @@ describe('publicKeyUsageAPI', () => {
     )
     expect(JSON.stringify(post.mock.calls)).not.toContain('signed-in-user-jwt')
   })
+
+  it('fetches key announcements through the isolated public Key session client', async () => {
+    get.mockResolvedValue({ data: { code: 0, message: 'success', data: [{ id: 1, title: 'Notice' }] } })
+    const { publicKeyUsageAPI } = await import('../publicKeyUsage')
+    const signal = new AbortController().signal
+
+    const result = await publicKeyUsageAPI.listAnnouncements(signal)
+
+    expect(result).toEqual([{ id: 1, title: 'Notice' }])
+    expect(get).toHaveBeenCalledWith('/key/announcements', { signal })
+    expect(JSON.stringify(get.mock.calls)).not.toContain('signed-in-user-jwt')
+  })
+
+  it('marks key announcements read through the isolated public Key session client', async () => {
+    post.mockResolvedValue({ data: { code: 0, message: 'success', data: { message: 'ok' } } })
+    const { publicKeyUsageAPI } = await import('../publicKeyUsage')
+    const signal = new AbortController().signal
+
+    await publicKeyUsageAPI.markAnnouncementRead(7, signal)
+
+    expect(post).toHaveBeenCalledWith(
+      '/key/announcements/7/read',
+      undefined,
+      { signal },
+    )
+    expect(JSON.stringify(post.mock.calls)).not.toContain('signed-in-user-jwt')
+  })
 })

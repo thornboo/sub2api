@@ -59,6 +59,7 @@ type GatewayHandler struct {
 	settingService            *service.SettingService
 	memberBudgetService       *service.EnterpriseMemberBudgetService
 	opsService                *service.OpsService
+	announcementService       *service.AnnouncementService
 }
 
 // NewGatewayHandler creates a new GatewayHandler

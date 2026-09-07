@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/csv"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -29,8 +31,16 @@ const (
 
 type publicKeyUsageSessionResponse struct {
 	Valid             bool       `json:"valid"`
+	SessionID         string     `json:"session_id,omitempty"`
 	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
 	AbsoluteExpiresAt *time.Time `json:"absolute_expires_at,omitempty"`
+}
+
+// This domain-separated fingerprint identifies a query session to the UI. It
+// is not the cookie token or the cache lookup hash and cannot authorize requests.
+func publicKeyUsageSessionID(token string) string {
+	sum := sha256.Sum256([]byte("sub2api:key-usage:display-session:" + strings.TrimSpace(token)))
+	return fmt.Sprintf("%x", sum)
 }
 
 type publicKeyUsageIdentity struct {
@@ -188,6 +198,7 @@ func (h *GatewayHandler) CreatePublicKeyUsageSession(c *gin.Context) {
 	setPublicKeyUsageCookie(c, created.Token, int(service.PublicKeyUsageSessionAbsoluteTTL.Seconds()))
 	response.Created(c, publicKeyUsageSessionResponse{
 		Valid:             true,
+		SessionID:         publicKeyUsageSessionID(created.Token),
 		ExpiresAt:         &created.ExpiresAt,
 		AbsoluteExpiresAt: &created.Session.AbsoluteExpiresAt,
 	})
@@ -212,6 +223,7 @@ func (h *GatewayHandler) GetPublicKeyUsageSession(c *gin.Context) {
 	}
 	response.Success(c, publicKeyUsageSessionResponse{
 		Valid:             true,
+		SessionID:         publicKeyUsageSessionID(token),
 		ExpiresAt:         &expiresAt,
 		AbsoluteExpiresAt: &session.AbsoluteExpiresAt,
 	})
@@ -226,6 +238,54 @@ func (h *GatewayHandler) DeletePublicKeyUsageSession(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"deleted": true})
+}
+
+func (h *GatewayHandler) ListPublicKeyAnnouncements(c *gin.Context) {
+	setPublicKeyUsageNoStore(c)
+	_, apiKey, _, ok := h.resolvePublicKeyUsageSession(c)
+	if !ok {
+		return
+	}
+	if h.announcementService == nil {
+		response.ErrorFrom(c, infraerrors.ServiceUnavailable("PUBLIC_KEY_ANNOUNCEMENTS_UNAVAILABLE", "announcements are temporarily unavailable"))
+		return
+	}
+
+	items, err := h.announcementService.ListForAPIKey(c.Request.Context(), apiKey, parseBoolQuery(c.Query("unread_only")))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	out := make([]dto.UserAnnouncement, 0, len(items))
+	for i := range items {
+		out = append(out, *dto.UserAnnouncementFromService(&items[i]))
+	}
+	response.Success(c, out)
+}
+
+func (h *GatewayHandler) MarkPublicKeyAnnouncementRead(c *gin.Context) {
+	setPublicKeyUsageNoStore(c)
+	_, apiKey, _, ok := h.resolvePublicKeyUsageSession(c)
+	if !ok {
+		return
+	}
+	if h.announcementService == nil {
+		response.ErrorFrom(c, infraerrors.ServiceUnavailable("PUBLIC_KEY_ANNOUNCEMENTS_UNAVAILABLE", "announcements are temporarily unavailable"))
+		return
+	}
+
+	announcementID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || announcementID <= 0 {
+		response.BadRequest(c, "Invalid announcement ID")
+		return
+	}
+
+	if err := h.announcementService.MarkReadForAPIKey(c.Request.Context(), apiKey, announcementID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "ok"})
 }
 
 func (h *GatewayHandler) GetPublicKeyUsageSummary(c *gin.Context) {
