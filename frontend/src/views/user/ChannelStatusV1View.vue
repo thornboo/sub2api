@@ -214,78 +214,82 @@
         {{ t('channelStatus.detailLoadError') }}
       </div>
       <div v-else class="min-w-0 max-w-full space-y-5 [overflow-wrap:anywhere]">
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div class="min-w-0">
-            <div class="truncate font-mono text-lg font-semibold text-stone-950 dark:text-stone-50">
-              {{ detail.display_name || detail.model }}
-            </div>
-            <div class="mt-1 text-sm text-stone-500 dark:text-stone-400">
-              {{ detail.group_name }} ·
+        <div class="flex items-center justify-between gap-3" :class="statusTheme.container">
+          <div class="flex min-w-0 items-center gap-2.5">
+            <span class="h-2 w-2 flex-shrink-0 rounded-full" :class="statusTheme.dot"></span>
+            <span class="text-sm font-semibold" :class="statusTheme.text">{{ statusLabel(detail.status) }}</span>
+            <span class="truncate text-sm text-stone-500 dark:text-stone-400">
               {{ t(`channelStatus.message.${detail.message_code}`) }}
-            </div>
+            </span>
           </div>
-          <span
-            class="inline-flex w-fit items-center rounded-full px-2.5 py-1 text-xs font-semibold"
-            :class="statusBadgeClass(detail.status)"
-          >
-            {{ statusLabel(detail.status) }}
+          <span class="flex-shrink-0 text-xs tabular-nums text-stone-500 dark:text-stone-400">
+            {{ t('channelStatus.metrics.lastChecked') }} · {{ formatRelativeTime(detail.last_checked_at) }}
           </span>
         </div>
 
-        <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <div class="rounded-lg bg-stone-50 p-3 dark:bg-white/[0.06]">
-            <div class="text-[11px] font-medium text-stone-500 dark:text-stone-400">{{ t('channelStatus.windowTab.24h') }}</div>
-            <div class="mt-1 font-semibold text-stone-950 dark:text-stone-50">{{ formatPercent(detail.availability_24h) }}</div>
-          </div>
-          <div class="rounded-lg bg-stone-50 p-3 dark:bg-white/[0.06]">
-            <div class="text-[11px] font-medium text-stone-500 dark:text-stone-400">{{ t('channelStatus.windowTab.7d') }}</div>
-            <div class="mt-1 font-semibold text-stone-950 dark:text-stone-50">{{ formatPercent(detail.availability_7d) }}</div>
-          </div>
-          <div class="rounded-lg bg-stone-50 p-3 dark:bg-white/[0.06]">
-            <div class="text-[11px] font-medium text-stone-500 dark:text-stone-400">{{ t('channelStatus.windowTab.30d') }}</div>
-            <div class="mt-1 font-semibold text-stone-950 dark:text-stone-50">{{ formatPercent(detail.availability_30d) }}</div>
-          </div>
-          <div class="rounded-lg bg-stone-50 p-3 dark:bg-white/[0.06]">
-            <div class="text-[11px] font-medium text-stone-500 dark:text-stone-400">{{ t('channelStatus.metrics.avgLatency7d') }}</div>
-            <div class="mt-1 font-semibold text-stone-950 dark:text-stone-50">{{ formatLatencyWithUnit(detail.avg_latency_7d_ms) }}</div>
-          </div>
-        </div>
+        <MonitorTimeline
+          :buckets="detail.timeline ?? []"
+          :countdown-seconds="countdown"
+          :length="60"
+        />
 
-        <div
-          v-if="isAdmin"
-          class="flex flex-col gap-3 border-t border-stone-200 pt-4 dark:border-white/10 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
+        <dl
+          class="grid grid-cols-2 gap-x-4 gap-y-5 border-t border-stone-200/70 pt-4 dark:border-white/10 sm:grid-cols-3"
+          :class="isAdmin ? 'lg:grid-cols-5' : 'lg:grid-cols-4'"
         >
-          <div class="min-w-0">
-            <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <span class="text-xs font-medium text-stone-700 dark:text-stone-200">
-                {{ t('channelStatus.metrics.selfCheckTokens') }} · {{ currentTokenUsageWindowLabel }}
-              </span>
-              <span
-                class="text-lg font-semibold tabular-nums text-stone-950 dark:text-stone-50"
-                :title="formatFullTokenCount(detailTokenUsage.total_tokens)"
-              >
-                {{ tokenUsageLoading ? t('common.loading') : formatTokenCount(detailTokenUsage.total_tokens) }}
-              </span>
-            </div>
-            <p class="mt-1 text-xs text-stone-500 dark:text-stone-400">
-              {{ t('channelStatus.metrics.selfCheckTokensScope') }}
-            </p>
+          <div>
+            <dt class="text-[10px] font-semibold uppercase tracking-widest text-stone-400 dark:text-stone-500">
+              {{ t('channelStatus.metrics.availability24h') }}
+            </dt>
+            <dd class="mt-1.5 text-xl font-semibold tabular-nums text-stone-950 dark:text-stone-50">
+              {{ formatPercent(detail.availability_24h) }}
+            </dd>
           </div>
-          <dl class="flex min-w-0 flex-wrap gap-x-6 gap-y-2 text-xs">
-            <div class="flex items-baseline gap-2">
-              <dt class="text-stone-500 dark:text-stone-400">{{ t('channelStatus.metrics.inputTokens') }}</dt>
-              <dd class="font-medium tabular-nums text-stone-900 dark:text-stone-100" :title="formatFullTokenCount(detailTokenUsage.input_tokens)">
-                {{ formatTokenCount(detailTokenUsage.input_tokens) }}
-              </dd>
-            </div>
-            <div class="flex items-baseline gap-2">
-              <dt class="text-stone-500 dark:text-stone-400">{{ t('channelStatus.metrics.outputTokens') }}</dt>
-              <dd class="font-medium tabular-nums text-stone-900 dark:text-stone-100" :title="formatFullTokenCount(detailTokenUsage.output_tokens)">
-                {{ formatTokenCount(detailTokenUsage.output_tokens) }}
-              </dd>
-            </div>
-          </dl>
-        </div>
+          <div>
+            <dt class="text-[10px] font-semibold uppercase tracking-widest text-stone-400 dark:text-stone-500">
+              {{ t('channelStatus.metrics.availability7d') }}
+            </dt>
+            <dd class="mt-1.5 text-xl font-semibold tabular-nums text-stone-950 dark:text-stone-50">
+              {{ formatPercent(detail.availability_7d) }}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-[10px] font-semibold uppercase tracking-widest text-stone-400 dark:text-stone-500">
+              {{ t('channelStatus.metrics.availability30d') }}
+            </dt>
+            <dd class="mt-1.5 text-xl font-semibold tabular-nums text-stone-950 dark:text-stone-50">
+              {{ formatPercent(detail.availability_30d) }}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-[10px] font-semibold uppercase tracking-widest text-stone-400 dark:text-stone-500">
+              {{ t('channelStatus.metrics.avgLatency7d') }}
+            </dt>
+            <dd class="mt-1.5 text-xl font-semibold tabular-nums" :class="latencyStatClass(detail.avg_latency_7d_ms)">
+              {{ formatLatencyWithUnit(detail.avg_latency_7d_ms) }}
+            </dd>
+          </div>
+          <div v-if="isAdmin">
+            <dt
+              class="text-[10px] font-semibold uppercase tracking-widest text-stone-400 dark:text-stone-500"
+              :title="t('channelStatus.metrics.selfCheckTokensScope')"
+            >
+              {{ t('channelStatus.metrics.selfCheckTokensShort') }} · {{ currentTokenUsageWindowLabel }}
+            </dt>
+            <dd
+              class="mt-1.5 text-xl font-semibold tabular-nums text-stone-950 dark:text-stone-50"
+              :title="formatFullTokenCount(detailTokenUsage.total_tokens)"
+            >
+              {{ tokenUsageLoading ? t('common.loading') : formatTokenCount(detailTokenUsage.total_tokens) }}
+            </dd>
+            <dd class="mt-0.5 text-[11px] tabular-nums text-stone-500 dark:text-stone-400">
+              {{ t('channelStatus.metrics.inputTokens') }}
+              <span :title="formatFullTokenCount(detailTokenUsage.input_tokens)">{{ formatTokenCount(detailTokenUsage.input_tokens) }}</span> ·
+              {{ t('channelStatus.metrics.outputTokens') }}
+              <span :title="formatFullTokenCount(detailTokenUsage.output_tokens)">{{ formatTokenCount(detailTokenUsage.output_tokens) }}</span>
+            </dd>
+          </div>
+        </dl>
 
         <ModelSelfCheckChainPanel
           v-if="isAdmin"
@@ -293,12 +297,6 @@
           :loading="selfCheckChainLoading"
           :error="selfCheckChainError"
           @retry="retrySelfCheckChain"
-        />
-
-        <MonitorTimeline
-          :buckets="detail.timeline ?? []"
-          :countdown-seconds="countdown"
-          :length="60"
         />
       </div>
 
@@ -480,6 +478,48 @@ const overallDotClass = computed(() => {
 const currentAvailabilityLabel = computed(() =>
   `${t('monitorCommon.availabilityPrefix')} · ${t(`channelStatus.windowTab.${currentWindow.value}`)}`
 )
+
+// 正常/未知时不铺底色，仅降级/失败才渲染 tint 横幅，颜色只在需要注意时出现。
+const statusTheme = computed(() => {
+  const s = detail.value?.status
+  switch (s) {
+    case STATUS_DEGRADED:
+      return {
+        container: 'rounded-lg border border-amber-500/20 bg-amber-500/[0.06] px-3.5 py-2.5 dark:border-amber-400/20 dark:bg-amber-400/[0.08]',
+        dot: 'bg-amber-500',
+        text: 'text-amber-700 dark:text-amber-300',
+      }
+    case STATUS_FAILED:
+      return {
+        container: 'rounded-lg border border-red-500/20 bg-red-500/[0.06] px-3.5 py-2.5 dark:border-red-400/20 dark:bg-red-400/[0.08]',
+        dot: 'bg-red-500',
+        text: 'text-red-700 dark:text-red-300',
+      }
+    case STATUS_OPERATIONAL:
+      return {
+        container: '',
+        dot: 'bg-emerald-500',
+        text: 'text-emerald-700 dark:text-emerald-300',
+      }
+    default:
+      return {
+        container: '',
+        dot: 'bg-stone-400',
+        text: 'text-stone-700 dark:text-stone-300',
+      }
+  }
+})
+
+// 7 天平均延迟的语义色阈值：超过 WARN 标黄、超过 CRIT 标红。
+const LATENCY_STAT_WARN_MS = 3000
+const LATENCY_STAT_CRIT_MS = 10000
+
+function latencyStatClass(ms: number | null | undefined): string {
+  if (ms == null) return 'text-stone-950 dark:text-stone-50'
+  if (ms >= LATENCY_STAT_CRIT_MS) return 'text-red-600 dark:text-red-400'
+  if (ms >= LATENCY_STAT_WARN_MS) return 'text-amber-600 dark:text-amber-400'
+  return 'text-stone-950 dark:text-stone-50'
+}
 
 const detailTitle = computed(() =>
   detailTarget.value

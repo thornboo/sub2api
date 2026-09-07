@@ -1,7 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, mount } from '@vue/test-utils'
 import ModelSelfCheckChainPanel from '../ModelSelfCheckChainPanel.vue'
 import type { ModelSelfCheckChainView } from '@/api/modelStatus'
+
+enableAutoUnmount(afterEach)
+afterEach(() => vi.useRealTimers())
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -26,6 +29,8 @@ vi.mock('vue-i18n', () => ({
         'channelStatus.selfCheckChain.neverChecked': '未检测',
         'channelStatus.selfCheckChain.eligible': '可参与本轮探测',
         'channelStatus.selfCheckChain.priority': `优先级 ${String(params?.priority ?? '')}`,
+        'monitorCommon.relativeSecondsAgo': `${String(params?.n)} 秒前`,
+        'monitorCommon.relativeMinutesAgo': `${String(params?.n)} 分钟前`,
         'channelStatus.selfCheckChain.startedAt': `开始：${String(params?.time ?? '')}`,
         'channelStatus.selfCheckChain.finishedAt': `结束：${String(params?.time ?? '')}`,
         'channelStatus.selfCheckChain.duration': `耗时：${String(params?.ms ?? '')}ms`,
@@ -54,11 +59,15 @@ vi.mock('vue-i18n', () => ({
   }),
 }))
 
-vi.mock('@/composables/useChannelMonitorFormat', () => ({
-  useChannelMonitorFormat: () => ({
-    statusLabel: (status: string) => `status:${status}`,
-  }),
-}))
+vi.mock('@/composables/useChannelMonitorFormat', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/composables/useChannelMonitorFormat')>()
+  return {
+    useChannelMonitorFormat: () => ({
+      ...actual.useChannelMonitorFormat(),
+      statusLabel: (status: string) => `status:${status}`,
+    }),
+  }
+})
 
 function baseChain(overrides: Partial<ModelSelfCheckChainView> = {}): ModelSelfCheckChainView {
   return {
@@ -163,6 +172,24 @@ function baseChain(overrides: Partial<ModelSelfCheckChainView> = {}): ModelSelfC
 }
 
 describe('ModelSelfCheckChainPanel', () => {
+  it('updates relative probe age without new chain data and disposes its clock on unmount', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-07T10:08:05Z'))
+    const chain = baseChain()
+    const timerCount = vi.getTimerCount()
+    const wrapper = mount(ModelSelfCheckChainPanel, {
+      props: { chain, loading: false, error: '' },
+    })
+    expect(wrapper.text()).toContain('5 秒前')
+    const originalChain = wrapper.props('chain')
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(wrapper.props('chain')).toBe(originalChain)
+    expect(wrapper.text()).toContain('2 分钟前')
+    expect(wrapper.text()).not.toContain('5 秒前')
+    wrapper.unmount()
+    expect(vi.getTimerCount()).toBe(timerCount)
+  })
+
   it('separates current priority order from the immutable latest round order', () => {
     const wrapper = mount(ModelSelfCheckChainPanel, {
       props: { chain: baseChain(), loading: false, error: '' },

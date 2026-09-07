@@ -197,11 +197,11 @@ export function useChannelMonitorFormat() {
     return formatPercent(row.availability_7d)
   }
 
-  function formatRelativeTime(iso: string | null | undefined): string {
+  function formatRelativeTime(iso: string | null | undefined, now = Date.now()): string {
     if (!iso) return t('monitorCommon.latencyEmpty')
     const ts = Date.parse(iso)
     if (Number.isNaN(ts)) return t('monitorCommon.latencyEmpty')
-    const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000))
+    const diffSec = Math.max(0, Math.floor((now - ts) / 1000))
     if (diffSec < 60) return t('monitorCommon.relativeSecondsAgo', { n: diffSec })
     const diffMin = Math.floor(diffSec / 60)
     if (diffMin < 60) return t('monitorCommon.relativeMinutesAgo', { n: diffMin })

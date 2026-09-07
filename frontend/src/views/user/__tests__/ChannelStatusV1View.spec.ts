@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { defineComponent, h, nextTick } from 'vue'
 import { enableAutoUnmount, flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import ChannelStatusV1View from '../ChannelStatusV1View.vue'
+import { formatNumberLocaleString } from '@/utils/format'
 
 enableAutoUnmount(afterEach)
 
@@ -356,6 +357,19 @@ describe('ChannelStatusV1View admin self-check chain', () => {
     fetchModelStatusDetail.mockImplementation((model: string, groupId: number) => Promise.resolve(statusRow(model, groupId)))
     fetchSelfCheckTokenUsage.mockResolvedValue({ window: 'today', items: [] })
     fetchModelSelfCheckChain.mockResolvedValue(chainPayload())
+  })
+
+  it('preserves full input and output token counts in the compact detail summary', async () => {
+    fetchSelfCheckTokenUsage.mockResolvedValue({ window: 'today', items: [{
+      model: 'deepseek-pro', input_tokens: 181234, output_tokens: 123456, total_tokens: 304690,
+    }] })
+    const wrapper = mountView()
+    await flushPromises()
+    await clickModelCard(wrapper, 'deepseek-pro')
+    const titles = wrapper.get('[data-testid="dialog"]').findAll('[title]').map(node => node.attributes('title'))
+    expect(titles).toContain(formatNumberLocaleString(181234))
+    expect(titles).toContain(formatNumberLocaleString(123456))
+    expect(titles).toContain(formatNumberLocaleString(304690))
   })
 
   it('loads and renders the admin probe chain only inside the detail dialog', async () => {
