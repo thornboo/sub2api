@@ -18,7 +18,8 @@ type modelSelfCheckRunnerSvc interface {
 	ListProbeTasks(ctx context.Context) ([]ModelSelfCheckProbeTask, error)
 	RefreshStatusSnapshots(ctx context.Context) error
 	CleanupStatusSnapshotsWithRetention(ctx context.Context, retentionDays int) (int64, error)
-	RunProbe(ctx context.Context, task ModelSelfCheckProbeTask) error
+	CleanupProbeRoundsWithRetention(ctx context.Context, retentionDays int) (int64, error)
+	RunProbeRound(ctx context.Context, task ModelSelfCheckProbeTask) error
 }
 
 type ModelSelfCheckRunner struct {
@@ -217,6 +218,12 @@ func (r *ModelSelfCheckRunner) cleanupStatusSnapshotsIfDue(ctx context.Context, 
 		slog.Warn("model_self_check: cleanup status snapshots failed", "error", err)
 		return
 	}
+	roundDeleted, err := r.svc.CleanupProbeRoundsWithRetention(ctx, retentionDays)
+	if err != nil {
+		slog.Warn("model_self_check: cleanup probe rounds failed", "error", err)
+		return
+	}
+	deleted += roundDeleted
 	r.mu.Lock()
 	r.lastSnapshotCleanup = now
 	r.mu.Unlock()
@@ -317,7 +324,7 @@ func (r *ModelSelfCheckRunner) runOne(parent context.Context, task ModelSelfChec
 			slog.Error("model_self_check: runner panic", "task", task.Key, "panic", rec)
 		}
 	}()
-	if err := r.svc.RunProbe(ctx, task); err != nil {
+	if err := r.svc.RunProbeRound(ctx, task); err != nil {
 		slog.Warn("model_self_check: probe failed", "task", task.Key, "error", err)
 	}
 }

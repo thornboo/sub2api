@@ -860,6 +860,7 @@ func registerChannelMonitorRoutes(admin *gin.RouterGroup, h *handler.Handlers, s
 func registerModelSelfCheckRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	selfCheck := admin.Group("/model-self-check")
 	{
+		selfCheck.GET("/chain", h.Admin.ModelSelfCheck.GetProbeChain)
 		selfCheck.GET("/token-usage", h.Admin.ModelSelfCheck.GetTokenUsage)
 	}
 }

@@ -15,6 +15,7 @@ type modelSelfCheckRunnerSvcStub struct {
 	runCount             atomic.Int64
 	snapshotRefreshCount atomic.Int64
 	cleanupCount         atomic.Int64
+	roundCleanupCount    atomic.Int64
 	lastCleanupRetention atomic.Int64
 	cleanupErr           error
 	runCalled            chan ModelSelfCheckProbeTask
@@ -76,7 +77,15 @@ func (s *modelSelfCheckRunnerSvcStub) CleanupStatusSnapshotsWithRetention(ctx co
 	return 0, nil
 }
 
-func (s *modelSelfCheckRunnerSvcStub) RunProbe(ctx context.Context, task ModelSelfCheckProbeTask) error {
+func (s *modelSelfCheckRunnerSvcStub) CleanupProbeRoundsWithRetention(ctx context.Context, retentionDays int) (int64, error) {
+	s.roundCleanupCount.Add(1)
+	if s.cleanupErr != nil {
+		return 0, s.cleanupErr
+	}
+	return 0, nil
+}
+
+func (s *modelSelfCheckRunnerSvcStub) RunProbeRound(ctx context.Context, task ModelSelfCheckProbeTask) error {
 	s.runCount.Add(1)
 	if s.runCalled != nil {
 		select {
@@ -90,10 +99,9 @@ func (s *modelSelfCheckRunnerSvcStub) RunProbe(ctx context.Context, task ModelSe
 func TestModelSelfCheckRunnerStartLoadsTasksAndRunsProbe(t *testing.T) {
 	svc := &modelSelfCheckRunnerSvcStub{
 		tasks: []ModelSelfCheckProbeTask{{
-			Key:       modelSelfCheckTaskKey("gpt-4o", 7),
-			Model:     "gpt-4o",
-			AccountID: 7,
-			Platform:  PlatformOpenAI,
+			Key:     modelSelfCheckTaskKey(int64(10), "gpt-4o"),
+			GroupID: 10,
+			Model:   "gpt-4o",
 		}},
 		runCalled: make(chan ModelSelfCheckProbeTask, 1),
 	}
@@ -103,8 +111,8 @@ func TestModelSelfCheckRunnerStartLoadsTasksAndRunsProbe(t *testing.T) {
 
 	select {
 	case task := <-svc.runCalled:
-		if task.Model != "gpt-4o" || task.AccountID != 7 {
-			t.Fatalf("run task = %#v, want gpt-4o account 7", task)
+		if task.GroupID != 10 || task.Model != "gpt-4o" {
+			t.Fatalf("run task = %#v, want group 10 gpt-4o", task)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("model self-check runner did not trigger RunProbe")
@@ -137,9 +145,9 @@ func TestModelSelfCheckRunnerInFlightAcquireRelease(t *testing.T) {
 
 func TestLimitModelSelfCheckProbeTasks(t *testing.T) {
 	tasks := []ModelSelfCheckProbeTask{
-		{Key: "gpt-4o:1", Model: "gpt-4o", AccountID: 1},
-		{Key: "gpt-4o:2", Model: "gpt-4o", AccountID: 2},
-		{Key: "gpt-4o:3", Model: "gpt-4o", AccountID: 3},
+		{Key: "10:gpt-4o", GroupID: 10, Model: "gpt-4o"},
+		{Key: "11:gpt-4o", GroupID: 11, Model: "gpt-4o"},
+		{Key: "12:gpt-4o", GroupID: 12, Model: "gpt-4o"},
 	}
 
 	limited, truncated := limitModelSelfCheckProbeTasks(tasks, 2)
@@ -149,7 +157,7 @@ func TestLimitModelSelfCheckProbeTasks(t *testing.T) {
 	if len(limited) != 2 {
 		t.Fatalf("limited tasks = %d, want 2", len(limited))
 	}
-	if limited[0].AccountID != 1 || limited[1].AccountID != 2 {
+	if limited[0].GroupID != 10 || limited[1].GroupID != 11 {
 		t.Fatalf("limited tasks preserve order = %#v", limited)
 	}
 

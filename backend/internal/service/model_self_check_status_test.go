@@ -10,19 +10,23 @@ import (
 )
 
 type modelSelfCheckRepoStub struct {
-	targets          []ModelSelfCheckTarget
-	accounts         []ModelSelfCheckTargetAccount
-	latest           []ModelSelfCheckHistory
-	history          []ModelSelfCheckHistory
-	timeline         []ModelSelfCheckHistory
-	snapshots        []ModelSelfCheckStatusSnapshot
-	tokenUsage       []ModelSelfCheckTokenUsage
-	historyErr       error
-	timelineErr      error
-	snapshotErr      error
-	tokenUsageSince  time.Time
-	created          []ModelSelfCheckHistory
-	createdSnapshots []ModelSelfCheckStatusSnapshot
+	targets            []ModelSelfCheckTarget
+	accounts           []ModelSelfCheckTargetAccount
+	latest             []ModelSelfCheckHistory
+	history            []ModelSelfCheckHistory
+	timeline           []ModelSelfCheckHistory
+	snapshots          []ModelSelfCheckStatusSnapshot
+	tokenUsage         []ModelSelfCheckTokenUsage
+	historyErr         error
+	timelineErr        error
+	snapshotErr        error
+	snapshotMetricsErr error
+	historyCalls       int
+	historyModels      []string
+	metricCalls        int
+	tokenUsageSince    time.Time
+	created            []ModelSelfCheckHistory
+	createdSnapshots   []ModelSelfCheckStatusSnapshot
 }
 
 func (s *modelSelfCheckRepoStub) ListStatusTargets(ctx context.Context) ([]ModelSelfCheckTarget, error) {
@@ -58,6 +62,8 @@ func (s *modelSelfCheckRepoStub) ListLatestByModels(ctx context.Context, models 
 }
 
 func (s *modelSelfCheckRepoStub) ListHistoriesSince(ctx context.Context, models []string, since time.Time) ([]ModelSelfCheckHistory, error) {
+	s.historyCalls++
+	s.historyModels = append([]string(nil), models...)
 	if s.historyErr != nil {
 		return nil, s.historyErr
 	}
@@ -70,6 +76,34 @@ func (s *modelSelfCheckRepoStub) ListHistoriesSince(ctx context.Context, models 
 		if _, ok := allowed[row.Model]; ok && !row.CheckedAt.Before(since) {
 			out = append(out, row)
 		}
+	}
+	return out, nil
+}
+
+func (s *modelSelfCheckRepoStub) ListStatusSnapshotMetrics(ctx context.Context, targets []ModelSelfCheckTarget, now time.Time) ([]ModelSelfCheckStatusMetrics, error) {
+	s.metricCalls++
+	if s.snapshotMetricsErr != nil {
+		return nil, s.snapshotMetricsErr
+	}
+	if s.snapshotErr != nil {
+		return nil, s.snapshotErr
+	}
+	out := make([]ModelSelfCheckStatusMetrics, 0, len(targets))
+	for _, target := range targets {
+		var snapshots []ModelSelfCheckStatusSnapshot
+		for _, row := range s.snapshots {
+			if row.GroupID == target.GroupID && row.Model == target.Model && !row.CheckedAt.After(now) {
+				snapshots = append(snapshots, row)
+			}
+		}
+		daily := aggregateSnapshotAvailability(snapshots, now, 1)
+		weekly := aggregateSnapshotAvailability(snapshots, now, 7)
+		monthly := aggregateSnapshotAvailability(snapshots, now, 30)
+		out = append(out, ModelSelfCheckStatusMetrics{
+			GroupID: target.GroupID, Model: target.Model, HasSnapshots: len(snapshots) > 0,
+			Availability24h: daily.Availability, Availability7d: weekly.Availability, Availability30d: monthly.Availability,
+			AvgLatency24hMs: daily.AvgLatencyMs, AvgLatency7dMs: weekly.AvgLatencyMs, DegradedRatio24h: daily.DegradedRatio,
+		})
 	}
 	return out, nil
 }
@@ -194,12 +228,16 @@ func (s *modelSelfCheckRepoStub) DeleteStatusSnapshotsBefore(ctx context.Context
 
 type modelSelfCheckAccountRepoStub struct {
 	accounts map[int64]*Account
+	getByID  func(ctx context.Context, id int64, account *Account) (*Account, error)
 }
 
 func (s *modelSelfCheckAccountRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
 	account := s.accounts[id]
 	if account == nil {
 		return nil, errors.New("account not found")
+	}
+	if s.getByID != nil {
+		return s.getByID(ctx, id, account)
 	}
 	cp := *account
 	return &cp, nil
@@ -248,6 +286,17 @@ func (s *modelSelfCheckUserGroupProviderStub) GetAvailableGroups(_ context.Conte
 const modelSelfCheckTestUserID int64 = 42
 
 func setModelSelfCheckVisibleGroups(svc *ModelSelfCheckService, groupIDs ...int64) *modelSelfCheckUserGroupProviderStub {
+	// Status tests must provide the same full account records as production;
+	// missing hydration is no longer a permissive eligibility shortcut.
+	if svc.accountRepo == nil {
+		accounts := map[int64]*Account{}
+		if repo, ok := svc.repo.(*modelSelfCheckRepoStub); ok {
+			for _, account := range repo.accounts {
+				accounts[account.AccountID] = activeSelfCheckAccount(account.AccountID, account.Platform, nil)
+			}
+		}
+		svc.accountRepo = &modelSelfCheckAccountRepoStub{accounts: accounts}
+	}
 	groups := make([]Group, 0, len(groupIDs))
 	for _, groupID := range groupIDs {
 		groups = append(groups, Group{ID: groupID})
@@ -640,11 +689,11 @@ func TestGetUserModelStatusUsesSnapshotsForTimelineAndDetailMetrics(t *testing.T
 	if detail.AvgLatency24hMs == nil || *detail.AvgLatency24hMs != 600 {
 		t.Fatalf("24h avg latency = %v, want 600", detail.AvgLatency24hMs)
 	}
-	if detail.LatestLatencyMs == nil || *detail.LatestLatencyMs != 500 {
-		t.Fatalf("latest latency = %v, want latest snapshot latency 500", detail.LatestLatencyMs)
+	if detail.LatestLatencyMs != nil {
+		t.Fatalf("latest latency = %v, want nil without a currently eligible account", detail.LatestLatencyMs)
 	}
-	if detail.LastCheckedAt == nil || !detail.LastCheckedAt.Equal(now.Add(-1*time.Minute)) {
-		t.Fatalf("last checked = %v, want latest snapshot time", detail.LastCheckedAt)
+	if detail.LastCheckedAt != nil {
+		t.Fatalf("last checked = %v, want nil without a current eligible probe", detail.LastCheckedAt)
 	}
 }
 
@@ -694,8 +743,8 @@ func TestGetUserModelStatusSupplementsShortSnapshotTimelineFromLegacyHistory(t *
 	if detail.Timeline[1].CheckedAt.After(detail.Timeline[0].CheckedAt) {
 		t.Fatalf("legacy timeline includes overlapping newer history: %#v", detail.Timeline)
 	}
-	if detail.LastCheckedAt == nil || !detail.LastCheckedAt.Equal(now.Add(-1*time.Minute)) {
-		t.Fatalf("last checked = %v, want latest snapshot time", detail.LastCheckedAt)
+	if detail.LastCheckedAt == nil || !detail.LastCheckedAt.Equal(now.Add(-30*time.Second)) {
+		t.Fatalf("last checked = %v, want current eligible account probe time", detail.LastCheckedAt)
 	}
 }
 
@@ -744,7 +793,7 @@ func TestCleanupStatusSnapshotsWithRetentionDisabledSkipsDelete(t *testing.T) {
 	}
 }
 
-func TestListProbeTasksDedupesSharedAccountAndFiltersUnsupportedModels(t *testing.T) {
+func TestListProbeTasksSchedulesPerGroupModelAndFiltersUnsupportedModels(t *testing.T) {
 	repo := &modelSelfCheckRepoStub{
 		targets: []ModelSelfCheckTarget{
 			{GroupID: 10, GroupName: "Pro", GroupPlatform: PlatformOpenAI, Model: "gpt-4o"},
@@ -769,11 +818,14 @@ func TestListProbeTasksDedupesSharedAccountAndFiltersUnsupportedModels(t *testin
 	if err != nil {
 		t.Fatalf("ListProbeTasks() error = %v", err)
 	}
-	if len(tasks) != 1 {
-		t.Fatalf("tasks = %#v, want one deduped OpenAI account", tasks)
+	if len(tasks) != 2 {
+		t.Fatalf("tasks = %#v, want one task per eligible group/model", tasks)
 	}
-	if tasks[0].Model != "gpt-4o" || tasks[0].AccountID != 1 || tasks[0].Platform != PlatformOpenAI {
-		t.Fatalf("task = %#v, want gpt-4o account 1", tasks[0])
+	if tasks[0].GroupID != 10 || tasks[0].Model != "gpt-4o" || tasks[0].AccountID != 0 || tasks[0].Platform != "" {
+		t.Fatalf("task = %#v, want group 10 gpt-4o round task", tasks[0])
+	}
+	if tasks[1].GroupID != 20 || tasks[1].Model != "gpt-4o" || tasks[1].AccountID != 0 || tasks[1].Platform != "" {
+		t.Fatalf("task = %#v, want group 20 gpt-4o round task", tasks[1])
 	}
 }
 

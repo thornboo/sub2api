@@ -204,6 +204,7 @@
       :show="showDetail"
       :title="detailTitle"
       width="wide"
+      prevent-horizontal-scroll
       @close="closeDetail"
     >
       <div v-if="detailLoading" class="py-8 text-center text-sm text-stone-500">
@@ -212,7 +213,7 @@
       <div v-else-if="!detail" class="py-8 text-center text-sm text-stone-500">
         {{ t('channelStatus.detailLoadError') }}
       </div>
-      <div v-else class="space-y-5">
+      <div v-else class="min-w-0 max-w-full space-y-5 [overflow-wrap:anywhere]">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div class="min-w-0">
             <div class="truncate font-mono text-lg font-semibold text-stone-950 dark:text-stone-50">
@@ -252,49 +253,47 @@
 
         <div
           v-if="isAdmin"
-          class="rounded-lg border border-emerald-500/15 bg-emerald-50/60 p-4 dark:border-emerald-400/15 dark:bg-emerald-400/[0.06]"
+          class="flex flex-col gap-3 border-t border-stone-200 pt-4 dark:border-white/10 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
         >
-          <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div class="min-w-0">
-              <div class="text-xs font-semibold text-stone-700 dark:text-stone-200">
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span class="text-xs font-medium text-stone-700 dark:text-stone-200">
                 {{ t('channelStatus.metrics.selfCheckTokens') }} · {{ currentTokenUsageWindowLabel }}
-              </div>
-              <div class="mt-1 text-xs text-stone-500 dark:text-stone-400">
-                {{ t('channelStatus.metrics.selfCheckTokensScope') }}
-              </div>
-            </div>
-            <div
-              class="font-mono text-2xl font-semibold leading-none text-stone-950 dark:text-stone-50"
-              :title="formatFullTokenCount(detailTokenUsage.total_tokens)"
-            >
-              {{ tokenUsageLoading ? t('common.loading') : formatTokenCount(detailTokenUsage.total_tokens) }}
-            </div>
-          </div>
-          <div class="mt-4 grid grid-cols-2 gap-3">
-            <div class="rounded-lg bg-white/70 p-3 dark:bg-white/[0.06]">
-              <div class="text-[11px] font-medium text-stone-500 dark:text-stone-400">
-                {{ t('channelStatus.metrics.inputTokens') }}
-              </div>
-              <div
-                class="mt-1 font-mono text-base font-semibold text-stone-950 dark:text-stone-50"
-                :title="formatFullTokenCount(detailTokenUsage.input_tokens)"
+              </span>
+              <span
+                class="text-lg font-semibold tabular-nums text-stone-950 dark:text-stone-50"
+                :title="formatFullTokenCount(detailTokenUsage.total_tokens)"
               >
+                {{ tokenUsageLoading ? t('common.loading') : formatTokenCount(detailTokenUsage.total_tokens) }}
+              </span>
+            </div>
+            <p class="mt-1 text-xs text-stone-500 dark:text-stone-400">
+              {{ t('channelStatus.metrics.selfCheckTokensScope') }}
+            </p>
+          </div>
+          <dl class="flex min-w-0 flex-wrap gap-x-6 gap-y-2 text-xs">
+            <div class="flex items-baseline gap-2">
+              <dt class="text-stone-500 dark:text-stone-400">{{ t('channelStatus.metrics.inputTokens') }}</dt>
+              <dd class="font-medium tabular-nums text-stone-900 dark:text-stone-100" :title="formatFullTokenCount(detailTokenUsage.input_tokens)">
                 {{ formatTokenCount(detailTokenUsage.input_tokens) }}
-              </div>
+              </dd>
             </div>
-            <div class="rounded-lg bg-white/70 p-3 dark:bg-white/[0.06]">
-              <div class="text-[11px] font-medium text-stone-500 dark:text-stone-400">
-                {{ t('channelStatus.metrics.outputTokens') }}
-              </div>
-              <div
-                class="mt-1 font-mono text-base font-semibold text-stone-950 dark:text-stone-50"
-                :title="formatFullTokenCount(detailTokenUsage.output_tokens)"
-              >
+            <div class="flex items-baseline gap-2">
+              <dt class="text-stone-500 dark:text-stone-400">{{ t('channelStatus.metrics.outputTokens') }}</dt>
+              <dd class="font-medium tabular-nums text-stone-900 dark:text-stone-100" :title="formatFullTokenCount(detailTokenUsage.output_tokens)">
                 {{ formatTokenCount(detailTokenUsage.output_tokens) }}
-              </div>
+              </dd>
             </div>
-          </div>
+          </dl>
         </div>
+
+        <ModelSelfCheckChainPanel
+          v-if="isAdmin"
+          :chain="selfCheckChain"
+          :loading="selfCheckChainLoading"
+          :error="selfCheckChainError"
+          @retry="retrySelfCheckChain"
+        />
 
         <MonitorTimeline
           :buckets="detail.timeline ?? []"
@@ -324,8 +323,10 @@ import {
   list as listModelStatus,
   detail as fetchModelStatusDetail,
   fetchSelfCheckTokenUsage,
+  fetchModelSelfCheckChain,
   type UserModelStatus,
   type ModelStatus,
+  type ModelSelfCheckChainView,
   type SelfCheckTokenUsageItem,
   type SelfCheckTokenUsageWindow,
 } from '@/api/modelStatus'
@@ -336,6 +337,7 @@ import AutoRefreshButton from '@/components/common/AutoRefreshButton.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import MonitorTimeline from '@/components/user/monitor/MonitorTimeline.vue'
+import ModelSelfCheckChainPanel from '@/components/admin/model-self-check/ModelSelfCheckChainPanel.vue'
 import { DEFAULT_INTERVAL_SECONDS, STATUS_OPERATIONAL, STATUS_DEGRADED, STATUS_FAILED } from '@/constants/channelMonitor'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
@@ -365,16 +367,20 @@ const showDetail = ref(false)
 const detailLoading = ref(false)
 const detail = ref<UserModelStatus | null>(null)
 const detailTarget = ref<UserModelStatus | null>(null)
+const selfCheckChain = ref<ModelSelfCheckChainView | null>(null)
+const selfCheckChainLoading = ref(false)
+const selfCheckChainError = ref('')
 
 let abortController: AbortController | null = null
 let tokenUsageAbortController: AbortController | null = null
 let detailAbortController: AbortController | null = null
+let selfCheckChainAbortController: AbortController | null = null
 
 const autoRefresh = useAutoRefresh({
   storageKey: 'model-status-auto-refresh',
   intervals: [30, 60, 120] as const,
   defaultInterval: DEFAULT_INTERVAL_SECONDS,
-  onRefresh: () => reload(true),
+  onRefresh: () => refreshStatus(true),
   shouldPause: () => document.hidden || loading.value,
 })
 const countdown = autoRefresh.countdown
@@ -589,18 +595,26 @@ async function reload(silent = false) {
   }
 }
 
-async function manualReload() {
-  await reload(false)
+async function refreshStatus(silent = false) {
+  await reload(silent)
   if (detailTarget.value && showDetail.value) {
-    await loadDetail(detailTarget.value)
+    const target = detailTarget.value
+    await Promise.all([
+      loadDetail(target, silent),
+      loadSelfCheckChain(target, silent),
+    ])
   }
 }
 
-async function loadDetail(row: UserModelStatus) {
+async function manualReload() {
+  await refreshStatus(false)
+}
+
+async function loadDetail(row: UserModelStatus, silent = false) {
   if (detailAbortController) detailAbortController.abort()
   const ctrl = new AbortController()
   detailAbortController = ctrl
-  detailLoading.value = true
+  if (!silent) detailLoading.value = true
   try {
     const result = await fetchModelStatusDetail(row.model, row.group_id, { signal: ctrl.signal })
     if (ctrl.signal.aborted || detailAbortController !== ctrl) return
@@ -611,10 +625,50 @@ async function loadDetail(row: UserModelStatus) {
     appStore.showError(extractApiErrorMessage(err, t('channelStatus.detailLoadError')))
   } finally {
     if (detailAbortController === ctrl) {
-      detailLoading.value = false
+      if (!silent || detailLoading.value) detailLoading.value = false
       detailAbortController = null
     }
   }
+}
+
+function abortSelfCheckChainLoad() {
+  if (selfCheckChainAbortController) selfCheckChainAbortController.abort()
+  selfCheckChainAbortController = null
+  selfCheckChainLoading.value = false
+}
+
+async function loadSelfCheckChain(row: UserModelStatus, silent = false) {
+  abortSelfCheckChainLoad()
+  if (!silent) {
+    selfCheckChain.value = null
+    selfCheckChainError.value = ''
+  }
+  if (!isAdmin.value) return
+  const ctrl = new AbortController()
+  selfCheckChainAbortController = ctrl
+  if (!silent) selfCheckChainLoading.value = true
+  try {
+    const result = await fetchModelSelfCheckChain(row.group_id, row.model, { signal: ctrl.signal })
+    if (ctrl.signal.aborted || selfCheckChainAbortController !== ctrl) return
+    selfCheckChain.value = result
+    selfCheckChainError.value = ''
+  } catch (err: unknown) {
+    const e = err as { name?: string; code?: string }
+    if (e?.name === 'AbortError' || e?.code === 'ERR_CANCELED') return
+    if (selfCheckChainAbortController !== ctrl) return
+    if (!silent || !selfCheckChain.value) {
+      selfCheckChainError.value = extractApiErrorMessage(err, t('channelStatus.selfCheckChain.loadError'))
+    }
+  } finally {
+    if (selfCheckChainAbortController === ctrl) {
+      if (!silent) selfCheckChainLoading.value = false
+      selfCheckChainAbortController = null
+    }
+  }
+}
+
+function retrySelfCheckChain() {
+  if (detailTarget.value) void loadSelfCheckChain(detailTarget.value)
 }
 
 function openDetail(row: UserModelStatus) {
@@ -622,15 +676,19 @@ function openDetail(row: UserModelStatus) {
   detail.value = row
   showDetail.value = true
   void loadDetail(row)
+  void loadSelfCheckChain(row)
 }
 
 function closeDetail() {
   if (detailAbortController) detailAbortController.abort()
+  abortSelfCheckChainLoad()
   detailAbortController = null
   detailLoading.value = false
   showDetail.value = false
   detail.value = null
   detailTarget.value = null
+  selfCheckChain.value = null
+  selfCheckChainError.value = ''
 }
 
 watch(
@@ -646,8 +704,15 @@ watch(currentTokenUsageWindow, () => {
 })
 
 watch(isAdmin, (admin) => {
-  if (admin) void loadSelfCheckTokenUsage(false)
-  else tokenUsageItems.value = []
+  if (admin) {
+    void loadSelfCheckTokenUsage(false)
+    if (detailTarget.value && showDetail.value) void loadSelfCheckChain(detailTarget.value)
+  } else {
+    tokenUsageItems.value = []
+    abortSelfCheckChainLoad()
+    selfCheckChain.value = null
+    selfCheckChainError.value = ''
+  }
 })
 
 onMounted(() => {
@@ -660,6 +725,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (abortController) abortController.abort()
   if (tokenUsageAbortController) tokenUsageAbortController.abort()
-  if (detailAbortController) detailAbortController.abort()
+  closeDetail()
 })
 </script>

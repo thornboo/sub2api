@@ -1,5 +1,7 @@
 # 定价驱动的站点自检模型监控 — 设计文档
 
+> 2026-09-07 后续增强：当前执行和状态口径由[优先级探测链路](./model-status-priority-probe-chain.md)更新为分组模型轮次；本页的旧账号独立探测／聚合描述保留作历史设计依据。
+
 > 状态：已落地。设计 2026-06-27，实现 2026-06-28。
 >
 > 本文取代了早期「按上游渠道探针（`channel_monitor_histories`）聚合模型状态」的方案（其设计文档与 `channel_monitor_model_status.go` 实现均已删除）。用户侧页面/DTO/路由外壳沿用，但底层数据源改为站点自检结果，展示维度改为 (分组, 模型)。
@@ -193,7 +195,7 @@
 
 > **修正旧实现缺陷**：旧 Stage-1 只在「零数据」时返回 unknown，不处理「陈旧检测」。本设计聚合时加入 `checked_at` 新鲜度阈值：超阈值未更新 → unknown，避免展示陈旧成功。
 
-窗口可用率 24h/7d/30d 直接扫 `model_self_check_histories` 聚合；`degraded` 计入可用，详情单独给出降级比例。
+2026-09-07 更新：列表与详情的 24h/7d/30d 可用率、降级比例和平均延迟统一优先在 PostgreSQL 批量聚合 `(group, model)` 状态快照；仅确认没有快照时才回退 `model_self_check_histories`。`degraded` 计入可用，快照读取错误返回未知指标。当前状态使用当前合格账号的新鲜探测；任务与聚合复用账号／模型可调度规则并保留 Spark 母账号凭据及 Antigravity overages 边界，详见[问题 2 修复记录](./model-status-v1-bug-analysis-20260907.md)。
 
 ## 前端
 

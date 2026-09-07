@@ -39,6 +39,7 @@ type ModelSelfCheckRepository interface {
 	ListRecentHistoriesBefore(ctx context.Context, model string, accountIDs []int64, before time.Time, limit int) ([]ModelSelfCheckHistory, error)
 	ListRecentStatusSnapshots(ctx context.Context, groupID int64, model string, limit int) ([]ModelSelfCheckStatusSnapshot, error)
 	ListStatusSnapshotsSince(ctx context.Context, groupID int64, model string, since time.Time) ([]ModelSelfCheckStatusSnapshot, error)
+	ListStatusSnapshotMetrics(ctx context.Context, targets []ModelSelfCheckTarget, now time.Time) ([]ModelSelfCheckStatusMetrics, error)
 	ListTokenUsageSince(ctx context.Context, since time.Time) ([]ModelSelfCheckTokenUsage, error)
 	CreateHistory(ctx context.Context, history *ModelSelfCheckHistory) error
 	CreateStatusSnapshot(ctx context.Context, snapshot *ModelSelfCheckStatusSnapshot) error
@@ -105,6 +106,21 @@ type ModelSelfCheckStatusSnapshot struct {
 	LatencyMs               *int
 	CheckedAt               time.Time
 	CreatedAt               time.Time
+}
+
+// ModelSelfCheckStatusMetrics aggregates persisted group/model evidence without
+// loading every snapshot into memory. HasSnapshots distinguishes missing history
+// from existing evidence outside the requested windows.
+type ModelSelfCheckStatusMetrics struct {
+	GroupID          int64
+	Model            string
+	HasSnapshots     bool
+	Availability24h  *float64
+	Availability7d   *float64
+	Availability30d  *float64
+	AvgLatency24hMs  *int
+	AvgLatency7dMs   *int
+	DegradedRatio24h *float64
 }
 
 // UserModelStatusView is the user-facing model health row. It deliberately
@@ -252,7 +268,14 @@ type modelSelfCheckStatusData struct {
 	accountsByGroup map[int64][]ModelSelfCheckTargetAccount
 	accountsByID    map[int64]*Account
 	latestByModel   map[string]map[int64]*ModelSelfCheckHistory
+	latestRounds    map[modelSelfCheckTargetKey]ModelSelfCheckProbeRound
 	historyByModel  map[string]map[int64][]ModelSelfCheckHistory
+	snapshotMetrics map[modelSelfCheckTargetKey]ModelSelfCheckStatusMetrics
+}
+
+type modelSelfCheckTargetKey struct {
+	groupID int64
+	model   string
 }
 
 type modelSelfCheckAvailabilityAggregate struct {
@@ -308,29 +331,19 @@ func (s *ModelSelfCheckService) GetUserModelStatus(ctx context.Context, userID, 
 	if !ok {
 		return nil, ErrChannelMonitorNotFound
 	}
-	view := s.buildStatusView(ctx, target, data, nil)
-	snapshotApplied, err := s.applySnapshotDetail(ctx, view, target, data, data.now)
+	timeline, err := s.loadStatusTimeline(ctx, target, data)
 	if err != nil {
 		slog.Warn("model_status_optional_snapshot_detail_unavailable",
-			"group_id", target.GroupID,
-			"model", target.Model,
-			"error", err,
-		)
-		snapshotApplied = false
-	}
-	if !snapshotApplied {
+			"group_id", target.GroupID, "model", target.Model, "error", err)
 		accountIDs := s.accountIDsForTarget(ctx, target, data)
-		timeline, err := s.loadTimeline(ctx, target.Model, accountIDs)
+		timeline, err = s.loadTimeline(ctx, target.Model, accountIDs)
 		if err != nil {
 			slog.Warn("model_status_optional_legacy_timeline_unavailable",
-				"group_id", target.GroupID,
-				"model", target.Model,
-				"error", err,
-			)
-		} else {
-			view.Timeline = timeline
+				"group_id", target.GroupID, "model", target.Model, "error", err)
+			timeline = nil
 		}
 	}
+	view := s.buildStatusView(ctx, target, data, timeline)
 	return &UserModelStatusDetail{UserModelStatusView: *view}, nil
 }
 
@@ -376,6 +389,7 @@ func (s *ModelSelfCheckService) loadStatusDataWithHistory(
 		accountsByGroup: map[int64][]ModelSelfCheckTargetAccount{},
 		accountsByID:    map[int64]*Account{},
 		latestByModel:   map[string]map[int64]*ModelSelfCheckHistory{},
+		latestRounds:    map[modelSelfCheckTargetKey]ModelSelfCheckProbeRound{},
 		historyByModel:  map[string]map[int64][]ModelSelfCheckHistory{},
 	}
 	if len(targets) == 0 {
@@ -402,6 +416,35 @@ func (s *ModelSelfCheckService) loadStatusDataWithHistory(
 			cp := *account
 			data.accountsByID[account.ID] = &cp
 		}
+		// Shadow parents need not be schedulable themselves or belong to a
+		// visible target group. Load them only as credential dependencies.
+		parentIDs := make([]int64, 0)
+		seenParents := map[int64]struct{}{}
+		for _, account := range fullAccounts {
+			if account == nil || !account.IsShadow() {
+				continue
+			}
+			parentID := *account.ParentAccountID
+			if _, loaded := data.accountsByID[parentID]; loaded {
+				continue
+			}
+			if _, seen := seenParents[parentID]; seen {
+				continue
+			}
+			seenParents[parentID] = struct{}{}
+			parentIDs = append(parentIDs, parentID)
+		}
+		if len(parentIDs) > 0 {
+			parents, err := s.accountRepo.GetByIDs(ctx, parentIDs)
+			if err != nil {
+				return nil, fmt.Errorf("list model self check parent account details: %w", err)
+			}
+			for _, parent := range parents {
+				if parent != nil {
+					data.accountsByID[parent.ID] = parent
+				}
+			}
+		}
 	}
 
 	models := uniqueSelfCheckModels(targets)
@@ -416,11 +459,42 @@ func (s *ModelSelfCheckService) loadStatusDataWithHistory(
 		}
 		data.latestByModel[row.Model][row.AccountID] = &row
 	}
+	if roundRepo := s.roundRepo(); roundRepo != nil {
+		rounds, err := roundRepo.ListLatestProbeRounds(ctx, targets)
+		if err != nil {
+			return nil, fmt.Errorf("list model self check latest probe rounds: %w", err)
+		}
+		for _, round := range rounds {
+			data.latestRounds[modelSelfCheckTargetKey{round.GroupID, round.Model}] = round
+		}
+	}
 
 	if !includeHistory {
 		return data, nil
 	}
-	historyRows, err := s.repo.ListHistoriesSince(ctx, models, now.AddDate(0, 0, -monitorAvailability30Days))
+	metrics, err := s.repo.ListStatusSnapshotMetrics(ctx, targets, now)
+	if err != nil {
+		// Unknown storage state is not evidence that snapshots do not exist.
+		// Keep current status, but never replace missing outage evidence with
+		// potentially all-green account history.
+		slog.Warn("model_status_optional_snapshot_metrics_unavailable", "error", err)
+		return data, nil
+	}
+	data.snapshotMetrics = make(map[modelSelfCheckTargetKey]ModelSelfCheckStatusMetrics, len(metrics))
+	for _, metric := range metrics {
+		data.snapshotMetrics[modelSelfCheckTargetKey{metric.GroupID, metric.Model}] = metric
+	}
+	legacyTargets := make([]ModelSelfCheckTarget, 0)
+	for _, target := range targets {
+		metric, ok := data.snapshotMetrics[modelSelfCheckTargetKey{target.GroupID, target.Model}]
+		if ok && !metric.HasSnapshots {
+			legacyTargets = append(legacyTargets, target)
+		}
+	}
+	if len(legacyTargets) == 0 {
+		return data, nil
+	}
+	historyRows, err := s.repo.ListHistoriesSince(ctx, uniqueSelfCheckModels(legacyTargets), now.AddDate(0, 0, -monitorAvailability30Days))
 	if err != nil {
 		slog.Warn("model_status_optional_history_unavailable", "error", err)
 		return data, nil
@@ -454,30 +528,48 @@ func (s *ModelSelfCheckService) buildStatusView(
 	timeline []UserModelTimelinePoint,
 ) *UserModelStatusView {
 	accountIDs := s.accountIDsForTarget(ctx, target, data)
-	latestRows := collectSelfCheckLatest(target.Model, accountIDs, data.latestByModel)
-	freshLatest := filterFreshSelfCheckLatest(latestRows, data.now)
-	status := aggregateSelfCheckStatus(freshLatest, len(accountIDs))
+	status := UserModelStatusUnknown
+	var latestLatency *int
+	var lastCheckedAt *time.Time
+	if s.roundRepo() != nil {
+		status, latestLatency, lastCheckedAt = s.currentStatusFromLatestRound(target, data, accountIDs)
+	} else {
+		latestRows := collectSelfCheckLatest(target.Model, accountIDs, data.latestByModel)
+		freshLatest := filterFreshSelfCheckLatest(latestRows, data.now)
+		status = aggregateSelfCheckStatus(freshLatest, len(accountIDs))
+		latestLatency = bestSelfCheckLatency(freshLatest)
+		lastCheckedAt = latestSelfCheckCheckedAt(freshLatest)
+	}
 	availability24h := aggregateSelfCheckAvailability(target.Model, accountIDs, data.historyByModel, data.now, modelStatusWindow24h)
 	availability7d := aggregateSelfCheckAvailability(target.Model, accountIDs, data.historyByModel, data.now, monitorAvailability7Days)
 	availability30d := aggregateSelfCheckAvailability(target.Model, accountIDs, data.historyByModel, data.now, monitorAvailability30Days)
 
-	return &UserModelStatusView{
+	view := &UserModelStatusView{
 		GroupID:          target.GroupID,
 		GroupName:        target.GroupName,
 		Model:            target.Model,
 		DisplayName:      target.Model,
 		Status:           status,
 		MessageCode:      messageCodeForModelStatus(status),
-		LatestLatencyMs:  bestSelfCheckLatency(freshLatest),
+		LatestLatencyMs:  latestLatency,
 		AvgLatency24hMs:  availability24h.AvgLatencyMs,
 		AvgLatency7dMs:   availability7d.AvgLatencyMs,
 		Availability24h:  availability24h.Availability,
 		Availability7d:   availability7d.Availability,
 		Availability30d:  availability30d.Availability,
 		DegradedRatio24h: availability24h.DegradedRatio,
-		LastCheckedAt:    latestSelfCheckCheckedAt(freshLatest),
+		LastCheckedAt:    lastCheckedAt,
 		Timeline:         timeline,
 	}
+	if metrics, ok := data.snapshotMetrics[modelSelfCheckTargetKey{target.GroupID, target.Model}]; ok && metrics.HasSnapshots {
+		view.Availability24h = metrics.Availability24h
+		view.Availability7d = metrics.Availability7d
+		view.Availability30d = metrics.Availability30d
+		view.AvgLatency24hMs = metrics.AvgLatency24hMs
+		view.AvgLatency7dMs = metrics.AvgLatency7dMs
+		view.DegradedRatio24h = metrics.DegradedRatio24h
+	}
+	return view
 }
 
 func (s *ModelSelfCheckService) buildStatusSnapshot(
@@ -497,6 +589,17 @@ func (s *ModelSelfCheckService) buildStatusSnapshot(
 	if len(accountIDs) == 0 {
 		snapshot.Status = MonitorStatusFailed
 		snapshot.ReasonCode = modelSelfCheckSnapshotReasonNoAvailableAccount
+		return snapshot
+	}
+	if s.roundRepo() != nil {
+		round := latestRoundForTarget(target, data.latestRounds, data.now)
+		if round == nil || !roundWinnerCurrentlyEligible(round, accountIDs) {
+			return snapshot
+		}
+		if fromRound := snapshotFromLatestRound(target, round, len(accountIDs)); fromRound != nil {
+			fromRound.CheckedAt = data.now
+			return fromRound
+		}
 		return snapshot
 	}
 
@@ -545,58 +648,6 @@ func reasonCodeForModelStatusSnapshot(snapshot *ModelSelfCheckStatusSnapshot) st
 	}
 }
 
-func (s *ModelSelfCheckService) applySnapshotDetail(
-	ctx context.Context,
-	view *UserModelStatusView,
-	target ModelSelfCheckTarget,
-	data *modelSelfCheckStatusData,
-	now time.Time,
-) (bool, error) {
-	recent, err := s.repo.ListRecentStatusSnapshots(ctx, target.GroupID, target.Model, monitorTimelineMaxPoints)
-	if err != nil {
-		return false, fmt.Errorf("list model self check status snapshot timeline: %w", err)
-	}
-	if len(recent) == 0 {
-		return false, nil
-	}
-	sortStatusSnapshotsDesc(recent)
-	timeline := timelineFromStatusSnapshots(recent)
-	if len(timeline) < monitorTimelineMaxPoints {
-		accountIDs := s.accountIDsForTarget(ctx, target, data)
-		legacy, err := s.loadTimelineBefore(
-			ctx,
-			target.Model,
-			accountIDs,
-			timeline[len(timeline)-1].CheckedAt,
-			monitorTimelineMaxPoints-len(timeline),
-		)
-		if err != nil {
-			return false, err
-		}
-		timeline = append(timeline, legacy...)
-	}
-	view.Timeline = timeline
-	latest := recent[0]
-	view.LatestLatencyMs = latest.LatencyMs
-	checkedAt := latest.CheckedAt.UTC()
-	view.LastCheckedAt = &checkedAt
-
-	windowRows, err := s.repo.ListStatusSnapshotsSince(ctx, target.GroupID, target.Model, now.AddDate(0, 0, -monitorAvailability30Days))
-	if err != nil {
-		return false, fmt.Errorf("list model self check status snapshots: %w", err)
-	}
-	availability24h := aggregateSnapshotAvailability(windowRows, now, modelStatusWindow24h)
-	availability7d := aggregateSnapshotAvailability(windowRows, now, monitorAvailability7Days)
-	availability30d := aggregateSnapshotAvailability(windowRows, now, monitorAvailability30Days)
-	view.AvgLatency24hMs = availability24h.AvgLatencyMs
-	view.AvgLatency7dMs = availability7d.AvgLatencyMs
-	view.Availability24h = availability24h.Availability
-	view.Availability7d = availability7d.Availability
-	view.Availability30d = availability30d.Availability
-	view.DegradedRatio24h = availability24h.DegradedRatio
-	return true, nil
-}
-
 func (s *ModelSelfCheckService) loadStatusTimeline(
 	ctx context.Context,
 	target ModelSelfCheckTarget,
@@ -643,26 +694,11 @@ func findSelfCheckTarget(targets []ModelSelfCheckTarget, groupID int64, model st
 }
 
 func (s *ModelSelfCheckService) accountIDsForTarget(ctx context.Context, target ModelSelfCheckTarget, data *modelSelfCheckStatusData) []int64 {
-	if !s.targetAllowsSelfCheckModel(ctx, target) {
-		return []int64{}
+	candidates := eligibleModelSelfCheckCandidates(s.modelSelfCheckCandidates(ctx, target, data))
+	ids := make([]int64, 0, len(candidates))
+	for _, candidate := range candidates {
+		ids = append(ids, candidate.account.ID)
 	}
-	accounts := data.accountsByGroup[target.GroupID]
-	ids := make([]int64, 0, len(accounts))
-	seen := map[int64]struct{}{}
-	for _, account := range accounts {
-		if !samePlatform(target.GroupPlatform, account.Platform) {
-			continue
-		}
-		if !s.accountCanSelfCheckTarget(ctx, target, data, account.AccountID) {
-			continue
-		}
-		if _, ok := seen[account.AccountID]; ok {
-			continue
-		}
-		seen[account.AccountID] = struct{}{}
-		ids = append(ids, account.AccountID)
-	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	return ids
 }
 
@@ -676,14 +712,14 @@ func (s *ModelSelfCheckService) targetAllowsSelfCheckModel(ctx context.Context, 
 }
 
 func (s *ModelSelfCheckService) accountCanSelfCheckTarget(ctx context.Context, target ModelSelfCheckTarget, data *modelSelfCheckStatusData, accountID int64) bool {
-	if data == nil || len(data.accountsByID) == 0 {
-		return true
+	if data == nil {
+		return false
 	}
 	account := data.accountsByID[accountID]
 	if account == nil {
 		return false
 	}
-	if !isAccountEligibleForSelfCheck(account) || !s.isModelSupportedBySelfCheckAccount(ctx, account, target.Model) {
+	if !isAccountEligibleForSelfCheck(ctx, account, target.Model, func(id int64) *Account { return data.accountsByID[id] }) || !s.isModelSupportedBySelfCheckAccount(ctx, account, target.Model) {
 		return false
 	}
 	gateway := s.gatewayServiceForModelSupport()

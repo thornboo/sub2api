@@ -20,6 +20,7 @@ function flatten(messages: Messages, prefix = ''): Record<string, string> {
 const testDir = dirname(fileURLToPath(import.meta.url))
 const viewSource = [
   '../../views/user/ChannelStatusV1View.vue',
+  '../../components/admin/model-self-check/ModelSelfCheckChainPanel.vue',
   '../../components/user/MonitorDetailDialog.vue',
   '../../components/user/monitor/MonitorCardGrid.vue',
   '../../components/user/monitor/MonitorHero.vue',

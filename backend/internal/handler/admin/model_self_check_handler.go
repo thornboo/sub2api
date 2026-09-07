@@ -1,6 +1,9 @@
 package admin
 
 import (
+	"context"
+	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,11 +22,44 @@ const (
 
 // ModelSelfCheckHandler exposes admin-only model self-check diagnostics.
 type ModelSelfCheckHandler struct {
-	modelStatusService *service.ModelSelfCheckService
+	modelStatusService modelSelfCheckDiagnostics
+}
+
+type modelSelfCheckDiagnostics interface {
+	ListTokenUsageSince(context.Context, time.Time) ([]service.ModelSelfCheckTokenUsage, error)
+	GetAdminProbeChain(context.Context, int64, string) (*service.ModelSelfCheckChainView, error)
 }
 
 func NewModelSelfCheckHandler(modelStatusService *service.ModelSelfCheckService) *ModelSelfCheckHandler {
+	if modelStatusService == nil {
+		return &ModelSelfCheckHandler{}
+	}
 	return &ModelSelfCheckHandler{modelStatusService: modelStatusService}
+}
+
+// GetProbeChain GET /api/v1/admin/model-self-check/chain?group_id=...&model=...
+// Account identity is intentionally confined to this administrator route.
+func (h *ModelSelfCheckHandler) GetProbeChain(c *gin.Context) {
+	groupID, err := strconv.ParseInt(c.Query("group_id"), 10, 64)
+	model := strings.TrimSpace(c.Query("model"))
+	if err != nil || groupID <= 0 || model == "" || len(model) > 255 {
+		response.BadRequest(c, "group_id and model are required")
+		return
+	}
+	if h == nil || h.modelStatusService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Model self-check service is unavailable")
+		return
+	}
+	chain, err := h.modelStatusService.GetAdminProbeChain(c.Request.Context(), groupID, model)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if chain == nil {
+		response.NotFound(c, "Model self-check target not found")
+		return
+	}
+	response.Success(c, chain)
 }
 
 type modelSelfCheckTokenUsageItem struct {

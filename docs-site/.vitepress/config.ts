@@ -89,6 +89,8 @@ export default defineConfig({
           { text: '运维失败分类与 SLA 重构', link: '/dev-zz/features/ops-failure-classification-redesign' },
           { text: '上游成本感知调度', link: '/dev-zz/features/upstream-provider-cost-aware-scheduling' },
           { text: '模型自检 Token 消耗统计', link: '/dev-zz/features/self-check-token-usage-stats' },
+          { text: '模型状态 V1 问题与修复方案', link: '/dev-zz/features/model-status-v1-bug-analysis-20260907' },
+          { text: '模型状态优先级探测链路', link: '/dev-zz/features/model-status-priority-probe-chain' },
           { text: '改倍率停用受影响 Key', link: '/dev-zz/features/disable-keys-on-group-rate-change' }
         ]
       },

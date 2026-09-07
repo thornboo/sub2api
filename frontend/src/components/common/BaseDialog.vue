@@ -11,7 +11,7 @@
         @click.self="handleClose"
       >
         <!-- Modal panel -->
-        <div ref="dialogRef" :class="['modal-content', widthClasses]" @click.stop>
+        <div ref="dialogRef" :class="['modal-content', widthClasses, { 'modal-vertical-only': preventHorizontalScroll }]" @click.stop>
           <!-- Header -->
           <div class="modal-header">
             <h3 :id="dialogId" class="modal-title">
@@ -133,6 +133,7 @@ interface Props {
   show: boolean
   title: string
   width?: DialogWidth
+  preventHorizontalScroll?: boolean
   closeOnEscape?: boolean
   closeOnClickOutside?: boolean
   showCloseButton?: boolean
@@ -145,6 +146,7 @@ interface Emits {
 
 const props = withDefaults(defineProps<Props>(), {
   width: 'normal',
+  preventHorizontalScroll: false,
   closeOnEscape: true,
   closeOnClickOutside: false,
   showCloseButton: true
@@ -247,3 +249,24 @@ onUnmounted(() => {
   unregisterDialog(dialogInstanceId)
 })
 </script>
+
+<style scoped>
+.modal-vertical-only {
+  min-width: 0;
+}
+
+.modal-vertical-only .modal-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.modal-vertical-only .modal-header > button {
+  flex-shrink: 0;
+}
+
+.modal-vertical-only .modal-body {
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+}
+</style>

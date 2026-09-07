@@ -137,6 +137,7 @@
 - Principle 3: Prefer drilldown over overloaded lists.
   - Keep Key lists scan-friendly.
   - Put historical trends, model distributions, and request logs in panels or dedicated analytics views.
+  - V1 model status cards keep their public summary; the administrator detail adds current probe candidates and the latest persisted execution round. Current eligibility/priority and historical step outcomes are distinct sections. An unattempted backup retains its last actual check time and must not appear successful in the current round. Account identity and internal failure codes stay in the administrator API and panel. The detail uses neutral surfaces and compact aligned rows; status colors belong to result indicators, not section backgrounds. Token totals and timeout settings stay inline rather than becoming additional summary cards.
 - Principle 4: Product language must describe owner intent before routing mechanics.
   - Say "成员可访问的分组" for delegation; present ordering as the routing priority of the selected subset.
   - Say "成员编号" for the immutable import/audit identity; do not expose the internal adjective "stable" as the field name.

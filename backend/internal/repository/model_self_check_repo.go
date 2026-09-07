@@ -58,11 +58,8 @@ func (r *modelSelfCheckRepository) ListTargetAccounts(ctx context.Context, group
 		FROM account_groups ag
 		JOIN accounts a ON a.id = ag.account_id
 		WHERE ag.group_id = ANY($1)
-		  AND a.status = 'active'
-		  AND a.schedulable = TRUE
 		  AND a.deleted_at IS NULL
-		  AND (a.temp_unschedulable_until IS NULL OR a.temp_unschedulable_until <= NOW())
-		ORDER BY ag.group_id, ag.priority, ag.account_id`,
+		ORDER BY ag.group_id, a.priority, ag.account_id`,
 		pq.Array(groupIDs),
 	)
 	if err != nil {
@@ -243,6 +240,106 @@ func (r *modelSelfCheckRepository) ListStatusSnapshotsSince(
 	return scanModelSelfCheckStatusSnapshotRows(rows)
 }
 
+func (r *modelSelfCheckRepository) ListStatusSnapshotMetrics(
+	ctx context.Context,
+	targets []service.ModelSelfCheckTarget,
+	now time.Time,
+) ([]service.ModelSelfCheckStatusMetrics, error) {
+	if len(targets) == 0 {
+		return []service.ModelSelfCheckStatusMetrics{}, nil
+	}
+	groupIDs := make([]int64, 0, len(targets))
+	models := make([]string, 0, len(targets))
+	for _, target := range targets {
+		groupIDs = append(groupIDs, target.GroupID)
+		models = append(models, target.Model)
+	}
+	now = now.UTC()
+	since30d := now.AddDate(0, 0, -30)
+	since24h := now.AddDate(0, 0, -1)
+	since7d := now.AddDate(0, 0, -7)
+	rows, err := r.db.QueryContext(ctx, `
+		WITH target_input AS (
+			SELECT ord, group_id, model
+			FROM unnest($1::bigint[], $2::text[]) WITH ORDINALITY AS target(group_id, model, ord)
+		)
+		SELECT target_input.group_id,
+		       target_input.model,
+		       EXISTS (
+		           SELECT 1
+		           FROM model_self_check_status_snapshots snapshot
+		           WHERE snapshot.group_id = target_input.group_id
+		             AND snapshot.model = target_input.model
+		             AND snapshot.checked_at <= $4
+		       ) AS has_snapshots,
+		       CASE WHEN metrics.total_24h > 0
+		            THEN metrics.usable_24h::double precision * 100 / metrics.total_24h
+		       END AS availability_24h,
+		       CASE WHEN metrics.total_7d > 0
+		            THEN metrics.usable_7d::double precision * 100 / metrics.total_7d
+		       END AS availability_7d,
+		       CASE WHEN metrics.total_30d > 0
+		            THEN metrics.usable_30d::double precision * 100 / metrics.total_30d
+		       END AS availability_30d,
+		       CASE WHEN metrics.latency_count_24h > 0
+		            THEN metrics.latency_sum_24h / metrics.latency_count_24h
+		       END AS avg_latency_24h_ms,
+		       CASE WHEN metrics.latency_count_7d > 0
+		            THEN metrics.latency_sum_7d / metrics.latency_count_7d
+		       END AS avg_latency_7d_ms,
+		       CASE WHEN metrics.total_24h > 0
+		            THEN metrics.degraded_24h::double precision * 100 / metrics.total_24h
+		       END AS degraded_ratio_24h
+		FROM target_input
+		LEFT JOIN LATERAL (
+			SELECT COUNT(*) FILTER (WHERE snapshot.checked_at >= $5) AS total_24h,
+			       COUNT(*) FILTER (WHERE snapshot.checked_at >= $5 AND snapshot.status IN ($7, $8)) AS usable_24h,
+			       COUNT(*) FILTER (WHERE snapshot.checked_at >= $5 AND snapshot.status = $8) AS degraded_24h,
+			       COALESCE(SUM(snapshot.latency_ms) FILTER (
+			           WHERE snapshot.checked_at >= $5
+			             AND snapshot.status IN ($7, $8)
+			             AND snapshot.latency_ms IS NOT NULL
+			       ), 0)::bigint AS latency_sum_24h,
+			       COUNT(snapshot.latency_ms) FILTER (
+			           WHERE snapshot.checked_at >= $5
+			             AND snapshot.status IN ($7, $8)
+			       ) AS latency_count_24h,
+			       COUNT(*) FILTER (WHERE snapshot.checked_at >= $6) AS total_7d,
+			       COUNT(*) FILTER (WHERE snapshot.checked_at >= $6 AND snapshot.status IN ($7, $8)) AS usable_7d,
+			       COALESCE(SUM(snapshot.latency_ms) FILTER (
+			           WHERE snapshot.checked_at >= $6
+			             AND snapshot.status IN ($7, $8)
+			             AND snapshot.latency_ms IS NOT NULL
+			       ), 0)::bigint AS latency_sum_7d,
+			       COUNT(snapshot.latency_ms) FILTER (
+			           WHERE snapshot.checked_at >= $6
+			             AND snapshot.status IN ($7, $8)
+			       ) AS latency_count_7d,
+			       COUNT(*) AS total_30d,
+			       COUNT(*) FILTER (WHERE snapshot.status IN ($7, $8)) AS usable_30d
+			FROM model_self_check_status_snapshots snapshot
+			WHERE snapshot.group_id = target_input.group_id
+			  AND snapshot.model = target_input.model
+			  AND snapshot.checked_at >= $3
+			  AND snapshot.checked_at <= $4
+		) metrics ON TRUE
+		ORDER BY target_input.ord`,
+		pq.Array(groupIDs),
+		pq.Array(models),
+		since30d,
+		now,
+		since24h,
+		since7d,
+		service.MonitorStatusOperational,
+		service.MonitorStatusDegraded,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list model self check status snapshot metrics: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	return scanModelSelfCheckStatusMetricsRows(rows)
+}
+
 func (r *modelSelfCheckRepository) CreateHistory(ctx context.Context, history *service.ModelSelfCheckHistory) error {
 	if history == nil {
 		return fmt.Errorf("insert model self check history: nil history")
@@ -411,6 +508,61 @@ func scanModelSelfCheckStatusSnapshotRows(rows *sql.Rows) ([]service.ModelSelfCh
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate model self check status snapshots: %w", err)
+	}
+	return out, nil
+}
+
+func scanModelSelfCheckStatusMetricsRows(rows *sql.Rows) ([]service.ModelSelfCheckStatusMetrics, error) {
+	out := []service.ModelSelfCheckStatusMetrics{}
+	for rows.Next() {
+		var row service.ModelSelfCheckStatusMetrics
+		var availability24h sql.NullFloat64
+		var availability7d sql.NullFloat64
+		var availability30d sql.NullFloat64
+		var avgLatency24h sql.NullInt64
+		var avgLatency7d sql.NullInt64
+		var degradedRatio24h sql.NullFloat64
+		if err := rows.Scan(
+			&row.GroupID,
+			&row.Model,
+			&row.HasSnapshots,
+			&availability24h,
+			&availability7d,
+			&availability30d,
+			&avgLatency24h,
+			&avgLatency7d,
+			&degradedRatio24h,
+		); err != nil {
+			return nil, fmt.Errorf("scan model self check status snapshot metrics: %w", err)
+		}
+		if availability24h.Valid {
+			v := availability24h.Float64
+			row.Availability24h = &v
+		}
+		if availability7d.Valid {
+			v := availability7d.Float64
+			row.Availability7d = &v
+		}
+		if availability30d.Valid {
+			v := availability30d.Float64
+			row.Availability30d = &v
+		}
+		if avgLatency24h.Valid {
+			v := int(avgLatency24h.Int64)
+			row.AvgLatency24hMs = &v
+		}
+		if avgLatency7d.Valid {
+			v := int(avgLatency7d.Int64)
+			row.AvgLatency7dMs = &v
+		}
+		if degradedRatio24h.Valid {
+			v := degradedRatio24h.Float64
+			row.DegradedRatio24h = &v
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate model self check status snapshot metrics: %w", err)
 	}
 	return out, nil
 }

@@ -373,6 +373,8 @@ dev-zz 前端基于这些接口分别构建公开模型列表和登录后的模�
 | `GET` | `/api/v1/model-status` | 当前用户可用分组的模型状态列表，按分组分区，含当前状态、24h / 7d / 30d 可用率、降级比例、最近延迟和最后检测时间 |
 | `GET` | `/api/v1/model-status/detail?model=...` | 当前用户可用分组内的单个模型详情，含同口径指标和最近时间线；未授权分组按不存在处理 |
 
+2026-09-07：V1 列表与详情的当前状态、最近延迟和最后探测时间采用最近完整新鲜的分组模型轮次证据，并检查当前候选资格；首个成功结束，备用未探测不作为失败。到期暂停、限流、过载、额度耗尽及不满足 Spark 母凭据条件的账号不参与探测；成功账号失去资格后不能让旧结果维持绿色。历史可用率、降级比例和平均延迟统一优先按 `(group_id, model)` 快照批量聚合，只有确认无快照时回退账号级历史；指标存储不可用时返回空指标，保留可读取的当前状态和独立时间线。DTO 字段与鉴权范围不变，历史记录不回写。
+
 字段边界：
 
 - 允许返回当前用户可用分组的 `group_id`、`group_name`、`model`、`display_name`、`status`、公开 `message_code`、`availability_24h/7d/30d`、`degraded_ratio_24h`、平均延迟、最近延迟、`last_checked_at` 和脱敏 `timeline`。
@@ -384,6 +386,8 @@ dev-zz 前端基于这些接口分别构建公开模型列表和登录后的模�
 具体设计见 [定价驱动的站点自检模型监控](../features/pricing-driven-self-check-monitoring-design.md)。
 
 ## 管理端模型探测
+
+模型状态 V1 另提供 `GET /api/v1/admin/model-self-check/chain?group_id=...&model=...`，返回当前候选资格／顺序及最近一轮实际执行证据。仅管理员可读账号名称、ID、优先级、逐步结果和脱敏错误码；卡片打开及重试只读取记录，不发起探测。普通用户 `/api/v1/model-status` DTO 不增加这些字段。详见[优先级探测链路](../features/model-status-priority-probe-chain.md)。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |

@@ -47,7 +47,9 @@
 | 部分落地 | [运维监控客户可见错误排障](./features/ops-customer-visible-error-triage.md) | 第一版已拆分客户可见失败、SLA 错误、客户侧限制和上游 429/529 明细入口；流式 200 后失败仍是后续阶段。 |
 | 核心已落地 | [运维失败分类与 SLA 重构](./features/ops-failure-classification-redesign.md) | v2 分类双写、31 天回填、raw/preagg 统一统计、结构化钻取、15 分钟当前状态及健康/告警/报表口径已实现；主要故障事件聚合和 HTTP 200 后流式终态去重仍待后续阶段。 |
 | 已落地 | [定价驱动的站点自检模型监控](./features/pricing-driven-self-check-monitoring-design.md) | 用户侧 `/monitor` 按分组/模型展示健康状态，由渠道定价的「自检」开关驱动站点自检探针（走真实网关链路但不计费、不影响生产调度），并撤下旧用户侧探针接口；上游渠道监控保持现状、仅管理员排障。 |
-| 部分落地 | [模型状态时间线与无可用账号证据保留](./features/model-status-timeline-evidence-retention.md) | 阶段 1 已实现：为 (分组, 模型) 持久化脱敏状态快照，详情时间线和详情指标优先读快照；列表状态切快照和时间桶化仍是后续阶段。 |
+| 部分落地 | [模型状态时间线与无可用账号证据保留](./features/model-status-timeline-evidence-retention.md) | 持久化 (分组, 模型) 脱敏快照；列表与详情历史指标统一优先读快照，当前状态采用新鲜轮次并校验账号资格，时间桶化仍为后续阶段。 |
+| 问题 1、2 本地已实现 | [模型状态 V1 问题分析与调度资格修复方案](./features/model-status-v1-bug-analysis-20260907.md) | 记录四项问题；账号／模型资格、Spark 父凭据校验、执行前跳过和列表／详情历史指标对齐已实现，国产平台执行分支同期补齐；混合调度和新鲜期配置继续跟踪。 |
+| 本地已实现 / 待人工查看 | [模型状态优先级探测链路](./features/model-status-priority-probe-chain.md) | 按分组模型串行切换、首个成功停止；管理员区分当前候选顺序与最近实际轮次，保留当时账号名称和优先级。 |
 
 ## 设计取舍
 

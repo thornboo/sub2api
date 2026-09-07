@@ -377,6 +377,7 @@ runner 每分钟检查到期账号，单轮最多 20 个、并发 4、单请求�
 | `backend/migrations/234_usage_log_upstream_expected_cost.sql` | 给 usage log 增加实际账号的供应商绑定、上游倍率、计价基准、参考汇率和上游应扣成本快照；历史行保持为空，不按当前配置倒算；首次新增字段时清零旧预聚合表中的 legacy `account_cost`，避免把旧口径冒充成新证据 |
 | `backend/migrations/235_dashboard_upstream_cost_evidence_coverage.sql` | 给小时/日预聚合增加上游成本证据覆盖数和缺失数；历史桶全部标记为缺失证据，使 API 能把未知成本返回为 `null` 而不伪装成零 |
 | `backend/migrations/236_upstream_official_pricing_channel.sql` | 给账号成本绑定增加显式官方价目表渠道，并为 usage 生成统一用于跨币种聚合的参考 USD 成本列；人民币绑定必须选择价目表，避免通过下游用户分组猜价 |
+| `backend/migrations/237_model_self_check_probe_rounds.sql` | 增加管理员探测轮次表及分组模型／时间索引，保存账号名称、优先级和实际步骤快照；旧账号探测历史与用户脱敏快照保留 |
 
 `152` 使用 `CREATE INDEX CONCURRENTLY`，不能放进普通事务迁移。后续合并上游迁移时，需保留 `_notx` 约定，避免长事务锁表。
 

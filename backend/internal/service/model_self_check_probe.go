@@ -33,6 +33,7 @@ const (
 
 type ModelSelfCheckProbeTask struct {
 	Key       string
+	GroupID   int64
 	Model     string
 	AccountID int64
 	Platform  string
@@ -73,6 +74,28 @@ func NewGatewayModelSelfCheckProbeExecutor(
 }
 
 func (s *ModelSelfCheckService) ListProbeTasks(ctx context.Context) ([]ModelSelfCheckProbeTask, error) {
+	if s.roundRepo() != nil {
+		targets, err := s.repo.ListStatusTargets(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list model self check targets: %w", err)
+		}
+		sortSelfCheckTargets(targets)
+		tasks := make([]ModelSelfCheckProbeTask, 0, len(targets))
+		seen := map[string]struct{}{}
+		for _, target := range targets {
+			key := modelSelfCheckTaskKey(target.GroupID, target.Model)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			tasks = append(tasks, ModelSelfCheckProbeTask{
+				Key:     key,
+				GroupID: target.GroupID,
+				Model:   target.Model,
+			})
+		}
+		return tasks, nil
+	}
 	data, err := s.loadStatusSnapshotData(ctx)
 	if err != nil {
 		return nil, err
@@ -80,23 +103,17 @@ func (s *ModelSelfCheckService) ListProbeTasks(ctx context.Context) ([]ModelSelf
 	tasks := make([]ModelSelfCheckProbeTask, 0)
 	seen := map[string]struct{}{}
 	for _, target := range data.targets {
-		for _, accountID := range s.accountIDsForTarget(ctx, target, data) {
-			account := data.accountsByID[accountID]
-			if account == nil {
-				continue
-			}
-			key := modelSelfCheckTaskKey(target.Model, account.ID)
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			tasks = append(tasks, ModelSelfCheckProbeTask{
-				Key:       key,
-				Model:     target.Model,
-				AccountID: account.ID,
-				Platform:  account.Platform,
-			})
+		candidates := eligibleModelSelfCheckCandidates(s.modelSelfCheckCandidates(ctx, target, data))
+		key := modelSelfCheckTaskKey(target.GroupID, target.Model)
+		if _, ok := seen[key]; ok || len(candidates) == 0 {
+			continue
 		}
+		seen[key] = struct{}{}
+		tasks = append(tasks, ModelSelfCheckProbeTask{
+			Key:     key,
+			GroupID: target.GroupID,
+			Model:   target.Model,
+		})
 	}
 	return tasks, nil
 }
@@ -114,31 +131,20 @@ func (s *ModelSelfCheckService) RunProbe(ctx context.Context, task ModelSelfChec
 	}
 	account, err := s.accountRepo.GetByID(ctx, task.AccountID)
 	if err != nil {
-		return s.RecordHistory(ctx, &ModelSelfCheckHistory{
-			Model:     model,
-			AccountID: task.AccountID,
-			Platform:  strings.TrimSpace(task.Platform),
-			Status:    MonitorStatusFailed,
-			ErrorCode: modelSelfCheckErrorNoAccount,
-		})
+		if errors.Is(err, ErrAccountNotFound) {
+			return nil
+		}
+		return fmt.Errorf("run model self check probe: load account %d: %w", task.AccountID, err)
 	}
-	if account == nil || !isAccountEligibleForSelfCheck(account) {
-		return s.RecordHistory(ctx, &ModelSelfCheckHistory{
-			Model:     model,
-			AccountID: task.AccountID,
-			Platform:  strings.TrimSpace(task.Platform),
-			Status:    MonitorStatusFailed,
-			ErrorCode: modelSelfCheckErrorNoAccount,
-		})
+	parentLookup, err := s.selfCheckParentLookup(ctx, account)
+	if err != nil {
+		return err
+	}
+	if account == nil || !isAccountEligibleForSelfCheck(ctx, account, model, parentLookup) {
+		return nil
 	}
 	if !s.isModelSupportedBySelfCheckAccount(ctx, account, model) {
-		return s.RecordHistory(ctx, &ModelSelfCheckHistory{
-			Model:     model,
-			AccountID: account.ID,
-			Platform:  account.Platform,
-			Status:    MonitorStatusFailed,
-			ErrorCode: modelSelfCheckErrorMissing,
-		})
+		return nil
 	}
 	if s.probeExecutor == nil {
 		return fmt.Errorf("run model self check probe: probe executor is not configured")
@@ -155,6 +161,29 @@ func (s *ModelSelfCheckService) RunProbe(ctx context.Context, task ModelSelfChec
 		InputTokens:  result.InputTokens,
 		OutputTokens: result.OutputTokens,
 	})
+}
+
+func (s *ModelSelfCheckService) selfCheckParentLookup(ctx context.Context, account *Account) (func(int64) *Account, error) {
+	if account == nil || !account.IsShadow() {
+		return func(int64) *Account { return nil }, nil
+	}
+	if s == nil || s.accountRepo == nil {
+		return nil, fmt.Errorf("run model self check probe: account repository is not configured")
+	}
+	parentID := *account.ParentAccountID
+	parent, err := s.accountRepo.GetByID(ctx, parentID)
+	if err != nil {
+		if errors.Is(err, ErrAccountNotFound) {
+			return func(int64) *Account { return nil }, nil
+		}
+		return nil, fmt.Errorf("run model self check probe: load parent account %d: %w", parentID, err)
+	}
+	return func(id int64) *Account {
+		if id == parentID {
+			return parent
+		}
+		return nil
+	}, nil
 }
 
 func (s *ModelSelfCheckService) isModelSupportedBySelfCheckAccount(ctx context.Context, account *Account, model string) bool {
@@ -177,20 +206,17 @@ func (s *ModelSelfCheckService) gatewayServiceForModelSupport() *GatewayService 
 	return nil
 }
 
-func isAccountEligibleForSelfCheck(account *Account) bool {
+func isAccountEligibleForSelfCheck(ctx context.Context, account *Account, model string, lookup func(int64) *Account) bool {
 	if account == nil {
 		return false
 	}
-	if account.Status != "" && account.Status != StatusActive {
+	if !account.IsSchedulableForModelWithContext(ctx, model) {
 		return false
 	}
-	if !account.Schedulable {
-		return false
+	if lookup == nil {
+		lookup = func(int64) *Account { return nil }
 	}
-	if account.TempUnschedulableUntil != nil && account.TempUnschedulableUntil.After(time.Now().UTC()) {
-		return false
-	}
-	return true
+	return parentHealthyForShadow(account, lookup)
 }
 
 func uniqueSelfCheckAccountIDs(accounts []ModelSelfCheckTargetAccount) []int64 {
@@ -209,8 +235,16 @@ func uniqueSelfCheckAccountIDs(accounts []ModelSelfCheckTargetAccount) []int64 {
 	return ids
 }
 
-func modelSelfCheckTaskKey(model string, accountID int64) string {
-	return fmt.Sprintf("%s:%d", strings.ToLower(strings.TrimSpace(model)), accountID)
+func modelSelfCheckTaskKey(parts ...any) string {
+	switch len(parts) {
+	case 2:
+		if groupID, ok := parts[0].(int64); ok {
+			return fmt.Sprintf("%d:%s", groupID, strings.ToLower(strings.TrimSpace(fmt.Sprint(parts[1]))))
+		}
+		return fmt.Sprintf("%s:%d", strings.ToLower(strings.TrimSpace(fmt.Sprint(parts[0]))), parts[1])
+	default:
+		return strings.ToLower(strings.TrimSpace(fmt.Sprint(parts...)))
+	}
 }
 
 func (e *gatewayModelSelfCheckProbeExecutor) Probe(ctx context.Context, account *Account, model string) ModelSelfCheckProbeResult {
@@ -225,7 +259,7 @@ func (e *gatewayModelSelfCheckProbeExecutor) Probe(ctx context.Context, account 
 	var usage modelSelfCheckTokenUsage
 
 	switch strings.ToLower(strings.TrimSpace(account.Platform)) {
-	case PlatformOpenAI, PlatformGrok:
+	case PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek:
 		status, duration, usage, err = e.probeOpenAI(ctx, account, model)
 	case PlatformGemini:
 		status, duration, usage, err = e.probeGemini(ctx, account, model)
