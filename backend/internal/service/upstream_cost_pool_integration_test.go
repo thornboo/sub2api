@@ -864,6 +864,7 @@ func newUpstreamRechargeAdminWithCache(t *testing.T, cache svc.SchedulerCache) u
 	adminService := svc.NewAdminService(
 		nil,
 		nil,
+		nil,
 		accountRepo,
 		nil,
 		nil,
@@ -911,6 +912,7 @@ func newUpstreamSupplierBindingAdmin(t *testing.T) upstreamSupplierBindingAdmin 
 	adminService := svc.NewAdminService(
 		nil,
 		nil,
+		nil,
 		accountRepo,
 		nil,
 		nil,
@@ -941,7 +943,7 @@ func newUpstreamSupplierAdmin(t *testing.T) upstreamSupplierAdmin {
 	t.Helper()
 	accountRepo := repository.NewAdminAccountRepository(serviceIntegrationEntClient, serviceIntegrationDB, nil)
 	adminService := svc.NewAdminService(
-		nil, nil, accountRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, accountRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		serviceIntegrationEntClient,
 		nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)

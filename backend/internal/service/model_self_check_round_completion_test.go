@@ -160,7 +160,9 @@ func TestProbeRoundAttemptBudgetStartsAfterProgressWrite(t *testing.T) {
 
 func TestProbeRoundSkipsBackupRemovedFromGroupDuringFirstAttempt(t *testing.T) {
 	svc, repo := completionRoundFixture()
-	accounts := svc.accountRepo.(*modelSelfCheckAccountRepoStub).accounts
+	accountRepo, ok := svc.accountRepo.(*modelSelfCheckAccountRepoStub)
+	require.True(t, ok)
+	accounts := accountRepo.accounts
 	var calls []int64
 	svc.probeExecutor = roundProbeFunction(func(_ context.Context, a *Account, _ string) ModelSelfCheckProbeResult {
 		calls = append(calls, a.ID)

@@ -528,7 +528,7 @@ func (s *ModelSelfCheckService) buildStatusView(
 	timeline []UserModelTimelinePoint,
 ) *UserModelStatusView {
 	accountIDs := s.accountIDsForTarget(ctx, target, data)
-	status := UserModelStatusUnknown
+	var status string
 	var latestLatency *int
 	var lastCheckedAt *time.Time
 	if s.roundRepo() != nil {
@@ -709,26 +709,6 @@ func (s *ModelSelfCheckService) targetAllowsSelfCheckModel(ctx context.Context, 
 	}
 	groupID := target.GroupID
 	return !gateway.checkChannelPricingRestriction(ctx, &groupID, target.Model)
-}
-
-func (s *ModelSelfCheckService) accountCanSelfCheckTarget(ctx context.Context, target ModelSelfCheckTarget, data *modelSelfCheckStatusData, accountID int64) bool {
-	if data == nil {
-		return false
-	}
-	account := data.accountsByID[accountID]
-	if account == nil {
-		return false
-	}
-	if !isAccountEligibleForSelfCheck(ctx, account, target.Model, func(id int64) *Account { return data.accountsByID[id] }) || !s.isModelSupportedBySelfCheckAccount(ctx, account, target.Model) {
-		return false
-	}
-	gateway := s.gatewayServiceForModelSupport()
-	if gateway == nil {
-		return true
-	}
-	groupID := target.GroupID
-	return !gateway.needsUpstreamChannelRestrictionCheck(ctx, &groupID) ||
-		!gateway.isUpstreamModelRestrictedByChannel(ctx, target.GroupID, account, target.Model)
 }
 
 func samePlatform(groupPlatform, accountPlatform string) bool {

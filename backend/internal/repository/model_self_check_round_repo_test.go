@@ -34,8 +34,9 @@ func (a probeStepsArgument) Match(v driver.Value) bool {
 func TestModelSelfCheckProbeRoundWritesSnapshotAndFinalizesOnlyOnce(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
-	repo := NewModelSelfCheckRepository(db).(service.ModelSelfCheckRoundRepository)
+	defer func() { _ = db.Close() }()
+	repo, ok := NewModelSelfCheckRepository(db).(service.ModelSelfCheckRoundRepository)
+	require.True(t, ok)
 	now := time.Date(2026, 9, 7, 8, 0, 0, 0, time.UTC)
 	round := &service.ModelSelfCheckProbeRound{
 		GroupID: 2, Model: "deepseek-pro", Status: "checking", StartedAt: now,
@@ -72,8 +73,9 @@ func TestModelSelfCheckProbeRoundWritesSnapshotAndFinalizesOnlyOnce(t *testing.T
 func TestModelSelfCheckLatestProbeRoundsKeepExactTargetPairsAndNulls(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
-	repo := NewModelSelfCheckRepository(db).(service.ModelSelfCheckRoundRepository)
+	defer func() { _ = db.Close() }()
+	repo, ok := NewModelSelfCheckRepository(db).(service.ModelSelfCheckRoundRepository)
+	require.True(t, ok)
 	now := time.Date(2026, 9, 7, 8, 0, 0, 0, time.UTC)
 	columns := []string{"id", "group_id", "model", "status", "reason_code", "winner_account_id", "started_at", "finished_at", "duration_ms", "steps"}
 	mock.ExpectQuery("FROM UNNEST[\\s\\S]*WHERE group_id=t.group_id AND model=t.model[\\s\\S]*ORDER BY started_at DESC, id DESC LIMIT 1").
@@ -110,8 +112,9 @@ func TestModelSelfCheckProbeRoundStorageErrorsAreNotEmptyEvidence(t *testing.T) 
 		t.Run(tc.name, func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer db.Close()
-			repo := NewModelSelfCheckRepository(db).(service.ModelSelfCheckRoundRepository)
+			defer func() { _ = db.Close() }()
+			repo, ok := NewModelSelfCheckRepository(db).(service.ModelSelfCheckRoundRepository)
+			require.True(t, ok)
 			query := mock.ExpectQuery("FROM UNNEST")
 			if tc.queryErr {
 				query.WillReturnError(errors.New("database unavailable"))
@@ -130,8 +133,9 @@ func TestModelSelfCheckProbeRoundStorageErrorsAreNotEmptyEvidence(t *testing.T) 
 func TestModelSelfCheckProbeRoundRetentionUsesExplicitCutoff(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
-	repo := NewModelSelfCheckRepository(db).(service.ModelSelfCheckRoundRepository)
+	defer func() { _ = db.Close() }()
+	repo, ok := NewModelSelfCheckRepository(db).(service.ModelSelfCheckRoundRepository)
+	require.True(t, ok)
 	before := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	mock.ExpectExec("DELETE FROM model_self_check_probe_rounds WHERE started_at < \\$1").WithArgs(before).WillReturnResult(sqlmock.NewResult(0, 5))
 	n, err := repo.DeleteProbeRoundsBefore(context.Background(), before)
