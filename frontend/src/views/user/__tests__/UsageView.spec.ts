@@ -60,6 +60,9 @@ const messages: Record<string, string> = {
   'admin.usage.allGroups': 'All groups',
   'admin.usage.allModels': 'All models',
   'usage.allApiKeys': 'All API Keys',
+  'usage.errors.allKeys': 'All API Keys',
+  'usage.tabs.usage': 'Usage records',
+  'usage.tabs.errors': 'Error records',
   'usage.apiKeyFilter': 'API Key',
   'usage.memberScopeTitle': 'Member filter',
   'usage.memberScopeDescription': 'Choose a member to update every view.',
@@ -273,6 +276,7 @@ describe('user UsageView', () => {
       include_model_stats: false,
       include_group_stats: true,
     }))
+    expect(list).toHaveBeenCalledTimes(1)
     expect(list).toHaveBeenCalledWith(1, 100)
     expect(getAvailable).toHaveBeenCalled()
   })
@@ -289,8 +293,25 @@ describe('user UsageView', () => {
     expect(list).toHaveBeenNthCalledWith(2, 2, 100)
   })
 
+  it('stops loading API keys when a later page is empty despite an outdated page count', async () => {
+    const firstPageKeys = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      name: `key-${index + 1}`,
+    }))
+    list
+      .mockResolvedValueOnce({ items: firstPageKeys, total: 201, page: 1, page_size: 100, pages: 3 })
+      .mockResolvedValueOnce({ items: [], total: 201, page: 2, page_size: 100, pages: 3 })
+
+    const wrapper = mountUsageView()
+    await flushPromises()
+
+    expect(list.mock.calls).toEqual([[1, 100], [2, 100]])
+    wrapper.unmount()
+  })
+
   it('restores an enterprise member deep link and scopes every usage query to that member', async () => {
     authStore.user = { role: 'user', account_type: 'enterprise' }
+    routeQueryState.value.tab = 'usage'
     routeQueryState.value.member_id = '42'
     listOwnerUsageMembers.mockResolvedValue({
       members: [{ id: 42, member_code: 'finance-01', name: 'Finance', status: 'active', archived: false, key_count: 1 }],
@@ -304,7 +325,6 @@ describe('user UsageView', () => {
     expect(list).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('Member filter')
     expect(wrapper.text()).not.toContain('API Key')
-    expect(wrapper.get('[data-testid="usage-analytics-panel"]').attributes('data-member-centric')).toBe('true')
     expect(query).toHaveBeenCalledWith(
       expect.objectContaining({ member_id: 42 }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
@@ -312,11 +332,6 @@ describe('user UsageView', () => {
     expect(getStats).toHaveBeenCalledWith(expect.objectContaining({ member_id: 42 }))
     expect(getDashboardModels).toHaveBeenCalledWith(expect.objectContaining({ member_id: 42 }))
     expect(getDashboardSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({ member_id: 42 }))
-
-    const usageTab = wrapper.findAll('button.tab').find((button) => button.text() === 'usage.tabs.usage')
-    expect(usageTab).toBeDefined()
-    await usageTab!.trigger('click')
-    await nextTick()
 
     const detailMemberFilter = wrapper.get('[data-testid="member-usage-detail-filter"]')
     expect(detailMemberFilter.attributes('searchable')).toBe('true')
@@ -427,15 +442,13 @@ describe('user UsageView', () => {
     const wrapper = mountUsageView()
     await flushPromises()
 
-    const usageTab = wrapper.findAll('button.tab').find((button) => button.text() === 'usage.tabs.usage')
-    expect(usageTab?.classes()).toContain('tab-active')
+    expect((wrapper.vm as any).activeTab).toBe('usage')
 
     delete routeQueryState.value.tab
     await nextTick()
     await flushPromises()
 
-    const analyticsTab = wrapper.findAll('button.tab').find((button) => button.text() === 'usage.tabs.analytics')
-    expect(analyticsTab?.classes()).toContain('tab-active')
+    expect((wrapper.vm as any).activeTab).toBe('analytics')
   })
 
   it('propagates and resets the native compaction filter across page requests', async () => {

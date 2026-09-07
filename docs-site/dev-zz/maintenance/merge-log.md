@@ -1,5 +1,80 @@
 # 上游合并记录
 
+## 2026-09-08 - 同步上游 main：模型白名单、Codex 与网关正确性
+
+- 目标：`dev-zz`；上游本地 `main` 与 fetch 后 `origin/main` 一致。
+- Base：`578785ee7fb35030b094b69624efe25670a36f5f`
+- 合并前目标：`9d1c591d78d3cba17964a873b1832dc813f3c944`
+- 上游 head：`b7dba62678a834080564966c002fd0ca2b328b7a`
+- 恢复分支：`backup/dev-zz-pre-main-20260908-9d1c591d`
+- 范围：103 个提交（58 个非 merge 提交）、261 个上游增量文件；fork `VERSION=1.7.44`。
+
+上游要点：
+
+- 分组模型展示配置升级为同时约束目录与请求准入的白名单，追加 `235_group_model_allowlist.sql`；旧 JSON 数据保留，已开启旧列表的分组需在发布前核对允许调用范围。
+- Codex 固定账号目录与调度、混合账号默认模型、Astra Pro / Ultra 元数据与 instructions、工具 allowed_tools / arguments.done、WebSocket pending turn / 并发重取 / 后续限流与 bridge 隔离、模型不存在 failover 和流式失败诊断。
+- DeepSeek 高峰账号成本、Gemini Flash thinking 阶梯、GLM 5.3 fallback、Claude CLI / thinking beta、Antigravity toolConfig、Grok 媒体资格；备份迁移锁、兑换固定失败窗口与支付履约隔离。
+- 简易模式基本分组能力、账号到期月 / 年预设、推理映射拒绝、订阅跳转用量、完整 Key 筛选、Turnstile 加载提示与 i18n 构建门。
+
+冲突处理：
+
+- 阅读当前 docs-site 政策、补丁、变更地图、历史与验证矩阵后执行 merge-tree 预演，再以 `git merge --no-commit main` 合并；29 个冲突路径（含 2 个 modify/delete）。
+- 合并前已有 `.gitignore` 的 `.commandcode` 忽略项临时单独保存，合并完成后恢复，不纳入提交；恢复分支保留。
+- 保留二开企业成员最终 `ActiveGroup`、预算 / usage 原子归因、未知结果不重放、供应商成本证据、现行模型广场和单一 `TimePricing`；不恢复已替代旧报价表组件。
+- Ent 根据合并后 schema 重新生成，结果与自动合并一致；生成工具造成的 go.sum 噪声移除。
+- 企业成员认证缓存的候选组同步新白名单字段，快照版本推进至 24；候选组准入在 Composite 模型改写之前按原始请求检查，Antigravity 和 Grok 路由覆盖相同约束。
+- 上游 WebSocket 白名单测试按二开连接内模型锁定合同调整；关闭白名单不解除连接模型锁，切换模型仍需重连。
+- 前端保留 Messages dispatch 候选 API、企业成员用量 scope 与迟到响应隔离；新增 i18n 构建门补齐二开已有页面的中英文键。
+- 独立审查补齐 Antigravity / Grok 路由白名单遗漏；WebSocket 后续轮次 BeforeRequest、BeforeTurn、模型映射及 Fast 策略本地拒绝统一执行一次 AfterTurn，回归证明未向上游转发且不重放。审查复核确认上述问题关闭。
+- 分时计费回归改用明确 PricingAt 与现行分组价格 resolver；保留生产单一 TimePricing 路径，DeepSeek 账号成本按请求时间与实际上游模型解析。
+
+冲突路径：
+
+- `backend/cmd/server/VERSION`
+- `backend/cmd/server/wire_gen.go`
+- `backend/internal/handler/admin/admin_basic_handlers_test.go`
+- `backend/internal/handler/admin/grok_import_probe.go`
+- `backend/internal/handler/available_channel_handler_test.go`
+- `backend/internal/handler/gateway_handler.go`
+- `backend/internal/handler/gemini_v1beta_handler_test.go`
+- `backend/internal/handler/openai_gateway_handler.go`
+- `backend/internal/server/middleware/middleware.go`
+- `backend/internal/server/routes/admin.go`
+- `backend/internal/server/routes/composite_platform_test.go`
+- `backend/internal/server/routes/gateway.go`
+- `backend/internal/service/admin_group.go`
+- `backend/internal/service/api_key_auth_cache_impl.go`
+- `backend/internal/service/gateway_service.go`
+- `backend/internal/service/openai_gateway_record_usage_test.go`
+- `backend/internal/service/openai_gateway_usage.go`
+- `backend/internal/service/ratelimit_service.go`
+- `frontend/src/api/admin/groups.ts`
+- `frontend/src/api/modelPlaza.ts`
+- `frontend/src/components/channels/__tests__/SupportedModelChip.spec.ts`
+- `frontend/src/components/common/GroupSelector.vue`
+- `frontend/src/components/modelPlaza/PlazaModelPricingTable.vue`
+- `frontend/src/components/modelPlaza/__tests__/PlazaModelPricingTable.spec.ts`
+- `frontend/src/views/admin/GroupsView.vue`
+- `frontend/src/views/admin/__tests__/GroupsView.columnSettings.spec.ts`
+- `frontend/src/views/admin/__tests__/GroupsView.duplicate.spec.ts`
+- `frontend/src/views/user/UsageView.vue`
+- `frontend/src/views/user/__tests__/UsageView.spec.ts`
+
+验证结果：
+
+- `mise x -C backend -- go test -tags=unit ./... -count=1` 最终全仓通过；修复此前发现的缓存版本、计费时间夹具、WebSocket 终态文本与本地结束回调、上游测试和二开模型锁定合同的差异。
+- `mise x -C backend -- go vet ./...`、`go build -o /tmp/sub2api-merge-20260908-server ./cmd/server` 通过；Ent 和 Wire 重新生成与最终代码一致。
+- 使用本机 Colima socket 单次环境变量运行 `go test -tags=integration ./internal/repository -run 'TestGetByKeyForAuthCarriesGroupModelAllowlist|TestGroupRepoSuite|TestBindAccountsToGroupWaitingBehindGuardedDeleteCannotCommit' -count=1 -v` 通过：包含子测试 36 条 PASS，完整迁移、分组 CRUD、认证白名单投影及删除 / 绑定并发均有真实 PostgreSQL / Redis 证据。首次未指定 socket 的 Testcontainers 启动失败，按 local-development 文档显式指定后通过，未修改全局 Docker 配置。
+- `pnpm --dir frontend test:run` 通过：317 个文件、2230 条用例；`typecheck`、`lint:check`、`build`（含新增 i18n gate）均通过，另有 50 条针对性回归。
+- `pnpm --dir docs-site docs:build` 通过；前端 / 文档构建仅非阻断的依赖注释与 chunk 大小提示。
+- `git diff --check`、`git diff --cached --check`、冲突标记及 unresolved index 检查通过；本地合并保留 main 和原 dev-zz 父链。
+
+未验证 / 操作边界：
+
+- 未运行全量 Testcontainers integration、真实 provider、浏览器 E2E、Docker 镜像构建与 Hosted CI；未推送、打 tag、发布或部署。
+- 原有 `.gitignore` 修改逐字恢复，未进入提交；原有 stash 和恢复分支保留。
+
+
 ## 2026-09-05 - 同步上游 main：模型能力、请求证据、推理计费与网关兼容
 
 分支：

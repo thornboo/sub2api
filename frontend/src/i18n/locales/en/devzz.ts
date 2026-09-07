@@ -653,7 +653,9 @@ export default {
     admin: {
         // Dashboard
         dashboard: {
-            month: 'Month'
+            month: 'Month',
+            upstreamCostCoverage: 'evidence {covered}/{total}',
+            noUpstreamCostEvidence: 'no cost evidence'
         },
         // Users
         users: {

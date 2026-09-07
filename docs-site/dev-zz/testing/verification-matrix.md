@@ -1,5 +1,12 @@
 # 验证矩阵
 
+## 2026-09-08 上游同步验证范围
+
+- 后端完整单元回归：`mise x -C backend -- go test -tags=unit ./... -count=1`；另执行 `go vet ./...` 和服务端构建。
+- 分组白名单数据库与并发删除：`go test -tags=integration ./internal/repository -run 'TestGetByKeyForAuthCarriesGroupModelAllowlist|TestGroupRepoSuite|TestBindAccountsToGroupWaitingBehindGuardedDeleteCannotCommit' -count=1 -v`。本机 Colima 的单次测试环境使用 `DOCKER_HOST=unix:///Users/thornboo/.colima/default/docker.sock`、`TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock`，不修改全局配置。
+- 前端完整 `test:run`、`typecheck`、`lint:check`、`build`，覆盖分组白名单 / duplicate / Codex 配置、当前模型报价和完整 Key 筛选；`docs:build` 校验文档。
+- 最终结果与未验证边界记录在 [本轮合并日志](../maintenance/merge-log.md)，此处列出验证范围。
+
 这页给 dev-zz 后续修改提供最小验证清单。每次变更按影响范围选择，不要求无差别跑全量，但不能在没有证据时声明完成。
 
 ## 文档

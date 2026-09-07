@@ -466,22 +466,22 @@ func TestEnterpriseMemberGroupEligibleIgnoresDisplayOnlyModelsList(t *testing.T)
 		Status:                service.StatusActive,
 		Hydrated:              true,
 		AllowMessagesDispatch: true,
-		ModelsListConfig: service.GroupModelsListConfig{
+		ModelAllowlist: service.GroupModelAllowlist{
 			Enabled: true,
 			Models:  []string{"gpt-4o"},
 		},
 	}
 
 	require.True(t, enterpriseMemberGroupEligible(c, user, group),
-		"the custom /v1/models response list must not become a runtime scheduling authority")
+		"the display allowlist must not become the coarse enterprise candidate authority")
 }
 
 func TestActivateEnterpriseMemberGroupForModelUsesFirstModelEligibleCandidate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	memberID := int64(8)
 	key := &service.APIKey{ID: 17, UserID: 3, MemberID: &memberID, Member: &service.EnterpriseMember{ID: memberID, Version: 2}}
-	first := service.Group{ID: 11, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true, ModelsListConfig: service.GroupModelsListConfig{Enabled: true, Models: []string{"gpt-4o"}}}
-	second := service.Group{ID: 12, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true, ModelsListConfig: service.GroupModelsListConfig{Enabled: true, Models: []string{"gpt-5"}}}
+	first := service.Group{ID: 11, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true, ModelAllowlist: service.GroupModelAllowlist{Enabled: true, Models: []string{"gpt-4o"}}}
+	second := service.Group{ID: 12, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true, ModelAllowlist: service.GroupModelAllowlist{Enabled: true, Models: []string{"gpt-5"}}}
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
 	legacyCandidates := []enterpriseMemberGroupCandidate{{group: first, memberIndex: 0}, {group: second, memberIndex: 1}}

@@ -60,50 +60,38 @@ func startPassthroughHookRecordingServer(
 	return server, serverErr
 }
 
-// TestPassthroughIngressReportsTurnStartedBeforeAfterTurnWithoutBeforeTurn 钉死
-// ws_v2 透传 ingress 与 handler 侧 turn 定价的耦合：透传 relay 不触发
-// BeforeTurn，但会在每个 AfterTurn 前通过 TurnStarted 报告同一 turn 的开始时刻。
-//
-// handler 的 recordTurnStart 保存该时刻，AfterTurn 再用 currentOr(turnStart)
-// 作为计费 PricingAt；不触发 BeforeTurn 也意味着透传仍没有 turn 级利润复核。
-func TestPassthroughIngressReportsTurnStartedBeforeAfterTurnWithoutBeforeTurn(t *testing.T) {
+func TestPassthroughIngressFollowUpCallsBeforeTurnAfterBeforeRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	controlCtx, cancelControl := context.WithCancelCause(context.Background())
 	defer cancelControl(context.Canceled)
 
 	upstream := newStagedPassthroughConn()
-	upstream.Send(`{"type":"response.completed","response":{"id":"resp_pricing","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`)
+	upstream.Send(`{"type":"response.completed","response":{"id":"resp_pricing_1","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`)
 
 	var hooksMu sync.Mutex
-	beforeTurnCalls := 0
-	expectedTurnStartedAt := time.Date(2026, time.August, 17, 9, 59, 59, 0, time.UTC)
-	type hookEvent struct {
-		name      string
-		turn      int
-		startedAt time.Time
-	}
-	var hookEvents []hookEvent
+	var callbacks []string
+	afterTurnCalls := 0
 	hooks := &OpenAIWSIngressHooks{
-		InitialTurnStartedAt: expectedTurnStartedAt,
-		TurnStarted: func(turn int, startedAt time.Time) {
+		BeforeRequest: func(int, []byte, string) error {
 			hooksMu.Lock()
-			hookEvents = append(hookEvents, hookEvent{name: "TurnStarted", turn: turn, startedAt: startedAt})
-			hooksMu.Unlock()
-		},
-		BeforeTurn: func(int) error {
-			hooksMu.Lock()
-			beforeTurnCalls++
+			callbacks = append(callbacks, "before_request")
 			hooksMu.Unlock()
 			return nil
 		},
-		AfterTurn: func(turn int, _ *OpenAIForwardResult, _ error) {
+		BeforeTurn: func(int) error {
 			hooksMu.Lock()
-			hookEvents = append(hookEvents, hookEvent{name: "AfterTurn", turn: turn})
+			callbacks = append(callbacks, "before_turn")
+			hooksMu.Unlock()
+			return nil
+		},
+		AfterTurn: func(int, *OpenAIForwardResult, error) {
+			hooksMu.Lock()
+			afterTurnCalls++
 			hooksMu.Unlock()
 		},
 	}
 
-	server, serverErr := startPassthroughHookRecordingServer(
+	server, _ := startPassthroughHookRecordingServer(
 		t,
 		controlCtx,
 		newPassthroughLifecycleService(passthroughLifecycleConfig(), upstream),
@@ -113,30 +101,183 @@ func TestPassthroughIngressReportsTurnStartedBeforeAfterTurnWithoutBeforeTurn(t 
 	defer server.Close()
 	clientConn := dialPassthroughLifecycleClient(t, server)
 	defer func() { _ = clientConn.CloseNow() }()
+	require.Equal(t, "response.create", gjson.GetBytes(requirePassthroughUpstreamWrite(t, upstream, time.Second), "type").String())
 
 	event, err := readPassthroughLifecycleFrame(t, clientConn, 3*time.Second)
 	require.NoError(t, err)
 	require.Equal(t, "response.completed", gjson.GetBytes(event, "type").String())
 
-	// 等待连接自然结束（inter-turn idle 超时），确保 AfterTurn 已提交。
-	_, _ = readPassthroughLifecycleFrame(t, clientConn, 3*time.Second)
+	writeCtx, cancelWrite := context.WithTimeout(context.Background(), time.Second)
+	err = clientConn.Write(writeCtx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5.1"}`))
+	cancelWrite()
+	require.NoError(t, err)
+	require.Equal(t, "response.create", gjson.GetBytes(requirePassthroughUpstreamWrite(t, upstream, time.Second), "type").String())
+	upstream.Send(`{"type":"response.completed","response":{"id":"resp_pricing_2","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`)
+	event, err = readPassthroughLifecycleFrame(t, clientConn, 3*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, "response.completed", gjson.GetBytes(event, "type").String())
+
+	hooksMu.Lock()
+	gotCallbacks := append([]string(nil), callbacks...)
+	gotAfter := afterTurnCalls
+	hooksMu.Unlock()
+
+	require.Equal(t, []string{"before_request", "before_turn"}, gotCallbacks)
+	require.Equal(t, 2, gotAfter)
+}
+
+func TestPassthroughIngressLocalRejectionDoesNotForwardFollowUp(t *testing.T) {
+	t.Run("before_request", func(t *testing.T) {
+		rejection := errors.New("request rejected")
+		runPassthroughIngressLocalRejectionDoesNotForwardFollowUp(t, rejection, func(afterTurn func(int, *OpenAIForwardResult, error)) *OpenAIWSIngressHooks {
+			return &OpenAIWSIngressHooks{
+				BeforeRequest: func(int, []byte, string) error { return rejection },
+				AfterTurn:     afterTurn,
+			}
+		})
+	})
+	t.Run("before_turn", func(t *testing.T) {
+		rejection := errors.New("turn rejected")
+		beforeTurnTurn := 0
+		runPassthroughIngressLocalRejectionDoesNotForwardFollowUp(t, rejection, func(afterTurn func(int, *OpenAIForwardResult, error)) *OpenAIWSIngressHooks {
+			return &OpenAIWSIngressHooks{
+				BeforeTurn: func(turn int) error {
+					beforeTurnTurn = turn
+					return rejection
+				},
+				AfterTurn: afterTurn,
+			}
+		})
+		require.Equal(t, 2, beforeTurnTurn)
+	})
+	t.Run("map_request_model", func(t *testing.T) {
+		rejection := errors.New("map rejected")
+		runPassthroughIngressLocalRejectionDoesNotForwardFollowUp(t, rejection, func(afterTurn func(int, *OpenAIForwardResult, error)) *OpenAIWSIngressHooks {
+			return &OpenAIWSIngressHooks{
+				MapRequestModel: func(turn int, _ string) (string, error) {
+					if turn == 2 {
+						return "", rejection
+					}
+					return "", nil
+				},
+				AfterTurn: afterTurn,
+			}
+		})
+	})
+}
+
+func runPassthroughIngressLocalRejectionDoesNotForwardFollowUp(t *testing.T, rejection error, hooksFor func(func(int, *OpenAIForwardResult, error)) *OpenAIWSIngressHooks) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	controlCtx, cancelControl := context.WithCancelCause(context.Background())
+	defer cancelControl(context.Canceled)
+
+	upstream := newStagedPassthroughConn()
+	upstream.Send(`{"type":"response.completed","response":{"id":"resp_reject_1","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`)
+	var hooksMu sync.Mutex
+	afterTurnCalls := 0
+	var finalErr error
+	hooks := hooksFor(func(_ int, _ *OpenAIForwardResult, turnErr error) {
+		hooksMu.Lock()
+		afterTurnCalls++
+		if turnErr != nil {
+			finalErr = turnErr
+		}
+		hooksMu.Unlock()
+	})
+
+	server, serverErr := startPassthroughHookRecordingServer(t, controlCtx, newPassthroughLifecycleService(passthroughLifecycleConfig(), upstream), passthroughLifecycleAccount(), hooks)
+	defer server.Close()
+	clientConn := dialPassthroughLifecycleClient(t, server)
+	defer func() { _ = clientConn.CloseNow() }()
+	requirePassthroughUpstreamWrite(t, upstream, time.Second)
+	_, err := readPassthroughLifecycleFrame(t, clientConn, 3*time.Second)
+	require.NoError(t, err)
+
+	writeCtx, cancelWrite := context.WithTimeout(context.Background(), time.Second)
+	err = clientConn.Write(writeCtx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5.1"}`))
+	cancelWrite()
+	require.NoError(t, err)
 	select {
-	case <-serverErr:
+	case payload := <-upstream.writes:
+		t.Fatalf("rejected response.create was forwarded upstream: %s", payload)
+	case <-time.After(100 * time.Millisecond):
+	}
+	select {
+	case err = <-serverErr:
+		require.ErrorIs(t, err, rejection)
 	case <-time.After(3 * time.Second):
-		t.Fatal("passthrough ingress did not exit")
+		t.Fatal("passthrough ingress did not exit after local rejection")
 	}
 
 	hooksMu.Lock()
-	gotBefore := beforeTurnCalls
-	gotEvents := append([]hookEvent(nil), hookEvents...)
+	gotAfter, gotFinalErr := afterTurnCalls, finalErr
 	hooksMu.Unlock()
+	require.Equal(t, 2, gotAfter, "each started turn must be finalized exactly once")
+	require.ErrorIs(t, gotFinalErr, rejection)
+}
 
-	require.Zero(t, gotBefore, "透传 ingress 不应调用 BeforeTurn")
-	require.GreaterOrEqual(t, len(gotEvents), 2, "透传 ingress 应报告 TurnStarted 和 AfterTurn")
-	require.Equal(t, "TurnStarted", gotEvents[0].name)
-	require.Equal(t, expectedTurnStartedAt, gotEvents[0].startedAt, "TurnStarted 必须携带入口冻结的首轮开始时刻")
-	require.Equal(t, "AfterTurn", gotEvents[1].name)
-	require.Equal(t, gotEvents[0].turn, gotEvents[1].turn, "TurnStarted 后应提交同一 turn 的 AfterTurn")
+func TestPassthroughIngressPolicyBlockFinalizesTurnDoesNotForwardFollowUp(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	controlCtx, cancelControl := context.WithCancelCause(context.Background())
+	defer cancelControl(context.Canceled)
+
+	upstream := newStagedPassthroughConn()
+	upstream.Send(`{"type":"response.completed","response":{"id":"resp_policy_1","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`)
+	settings := &OpenAIFastPolicySettings{Rules: []OpenAIFastPolicyRule{{
+		ServiceTier:    OpenAIFastTierPriority,
+		Action:         BetaPolicyActionBlock,
+		Scope:          BetaPolicyScopeAll,
+		ErrorMessage:   "ws fast blocked",
+		ModelWhitelist: []string{"gpt-5.1"},
+		FallbackAction: BetaPolicyActionPass,
+	}}}
+	svc := newPassthroughLifecycleService(passthroughLifecycleConfig(), upstream)
+	svc.settingService = newOpenAIGatewayServiceWithSettings(t, settings).settingService
+
+	var hooksMu sync.Mutex
+	afterTurnCalls := 0
+	var finalErr error
+	hooks := &OpenAIWSIngressHooks{AfterTurn: func(_ int, _ *OpenAIForwardResult, turnErr error) {
+		hooksMu.Lock()
+		afterTurnCalls++
+		if turnErr != nil {
+			finalErr = turnErr
+		}
+		hooksMu.Unlock()
+	}}
+
+	server, serverErr := startPassthroughHookRecordingServer(t, controlCtx, svc, passthroughLifecycleAccount(), hooks)
+	defer server.Close()
+	clientConn := dialPassthroughLifecycleClient(t, server)
+	defer func() { _ = clientConn.CloseNow() }()
+	requirePassthroughUpstreamWrite(t, upstream, time.Second)
+	_, err := readPassthroughLifecycleFrame(t, clientConn, 3*time.Second)
+	require.NoError(t, err)
+
+	writeCtx, cancelWrite := context.WithTimeout(context.Background(), time.Second)
+	err = clientConn.Write(writeCtx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5.1","service_tier":"priority"}`))
+	cancelWrite()
+	require.NoError(t, err)
+	select {
+	case payload := <-upstream.writes:
+		t.Fatalf("policy-blocked response.create was forwarded upstream: %s", payload)
+	case <-time.After(100 * time.Millisecond):
+	}
+	select {
+	case err = <-serverErr:
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "ws fast blocked")
+	case <-time.After(5 * time.Second):
+		t.Fatal("passthrough ingress did not exit after policy block")
+	}
+
+	hooksMu.Lock()
+	gotAfter, gotFinalErr := afterTurnCalls, finalErr
+	hooksMu.Unlock()
+	require.Equal(t, 2, gotAfter, "policy-blocked turn must be finalized exactly once")
+	require.Error(t, gotFinalErr)
+	require.Contains(t, gotFinalErr.Error(), "ws fast blocked")
 }
 
 func TestPassthroughIngressFreezesSubsequentTurnBeforeRequestPolicy(t *testing.T) {

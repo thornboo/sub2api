@@ -35,12 +35,8 @@ func (h *GatewayHandler) configuredModelsForGroupWithCacheMode(
 		if len(available) == 0 {
 			return []string{}
 		}
-		if group.CustomModelsListEnabled() {
-			available = filterModelsByCustomList(
-				available,
-				defaultModelIDsForPlatform(service.PlatformComposite),
-				group.ModelsListConfig.Models,
-			)
+		if group.ModelAllowlistEnabled() {
+			available = group.ModelAllowlist.FilterForListing(available)
 		}
 		return normalizeConfiguredModels(available)
 	}
@@ -66,12 +62,8 @@ func (h *GatewayHandler) configuredModelsForGroupWithCacheMode(
 	}
 
 	fallback := defaultModelIDsForPlatform(group.Platform)
-	if group.CustomModelsListEnabled() {
-		available = filterModelsByCustomList(
-			customModelsListSource(group.Platform, available, fallback),
-			fallback,
-			group.ModelsListConfig.Models,
-		)
+	if group.ModelAllowlistEnabled() {
+		available = group.ModelAllowlist.FilterForListing(modelListingSource(group.Platform, available, fallback))
 	} else if len(available) == 0 {
 		available = fallback
 	}

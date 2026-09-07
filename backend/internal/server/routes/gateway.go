@@ -7,12 +7,12 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -50,10 +50,20 @@ func RegisterGatewayRoutes(
 	enforceMemberBudgetGoogle := middleware.EnforceEnterpriseMemberBudget(memberBudgetService, cfg, middleware.GoogleErrorWriter)
 	orchestrateMemberGroups := middleware.OrchestrateEnterpriseMemberGroups
 	withCompositeMemberGroups := func(next gin.HandlerFunc) gin.HandlerFunc {
-		return orchestrateMemberGroups(compositeTargetPlatformHandler(compositeResolver, next))
+		return orchestrateMemberGroups(func(c *gin.Context) {
+			if !middleware.CheckGroupModelAllowlist(c) {
+				return
+			}
+			compositeTargetPlatformHandler(compositeResolver, next)(c)
+		})
 	}
 	withCompositeGeminiMemberGroups := func(next gin.HandlerFunc) gin.HandlerFunc {
-		return orchestrateMemberGroups(compositeGeminiTargetPlatformHandler(compositeResolver, next))
+		return orchestrateMemberGroups(func(c *gin.Context) {
+			if !middleware.CheckGroupModelAllowlist(c) {
+				return
+			}
+			compositeGeminiTargetPlatformHandler(compositeResolver, next)(c)
+		})
 	}
 	withCompositeResolver := func(next gin.HandlerFunc) gin.HandlerFunc {
 		return func(c *gin.Context) {
@@ -118,7 +128,30 @@ func RegisterGatewayRoutes(
 		h.OpenAIGateway.Live(c)
 	}
 	withCompositeLiveMemberGroups := func(next gin.HandlerFunc) gin.HandlerFunc {
-		return orchestrateMemberGroups(compositeLiveTargetPlatformHandler(compositeResolver, next))
+		return orchestrateMemberGroups(func(c *gin.Context) {
+			if !middleware.CheckGroupModelAllowlist(c) {
+				return
+			}
+			compositeLiveTargetPlatformHandler(compositeResolver, next)(c)
+		})
+	}
+	withActiveGroupAllowlist := func(next gin.HandlerFunc) gin.HandlerFunc {
+		return orchestrateMemberGroups(func(c *gin.Context) {
+			if !middleware.CheckGroupModelAllowlist(c) {
+				return
+			}
+			next(c)
+		})
+	}
+	grokUnsupported := func(c *gin.Context, message string) {
+		markEnterpriseMemberRouteRetry(c, service.OpsGroupRetryReasonCapabilityMismatch)
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": gin.H{
+				"type":    "not_found_error",
+				"message": message,
+			},
+		})
 	}
 	isOpenAIOnlyEndpointGatewayPlatform := func(c *gin.Context) bool {
 		return getGroupPlatform(c) == service.PlatformOpenAI
@@ -346,53 +379,48 @@ func RegisterGatewayRoutes(
 		voiceHandler := func(endpoint string) gin.HandlerFunc {
 			return func(c *gin.Context) {
 				if getGroupPlatform(c) != service.PlatformGrok {
-					service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-					c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Voice API is not supported for this platform"}})
+					grokUnsupported(c, "Voice API is not supported for this platform")
 					return
 				}
 				h.OpenAIGateway.GrokVoice(c, endpoint)
 			}
 		}
-		gateway.POST("/tts", voiceHandler("tts"))
-		gateway.POST("/stt", voiceHandler("stt"))
-		gateway.POST("/custom-voices", voiceHandler("custom-voices"))
+		gateway.POST("/tts", withCompositeMemberGroups(voiceHandler("tts")))
+		gateway.POST("/stt", withCompositeMemberGroups(voiceHandler("stt")))
+		gateway.POST("/custom-voices", withCompositeMemberGroups(voiceHandler("custom-voices")))
 		customVoicePathHandler := func(c *gin.Context) {
 			if getGroupPlatform(c) != service.PlatformGrok {
-				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-				c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Voice API is not supported for this platform"}})
+				grokUnsupported(c, "Voice API is not supported for this platform")
 				return
 			}
 			h.OpenAIGateway.GrokVoice(c, grokCustomVoiceEndpoint(c))
 		}
-		gateway.GET("/custom-voices", voiceHandler("custom-voices"))
-		gateway.GET("/custom-voices/:voice_id/audio", customVoicePathHandler)
-		gateway.GET("/custom-voices/:voice_id", customVoicePathHandler)
-		gateway.PATCH("/custom-voices/:voice_id", customVoicePathHandler)
-		gateway.DELETE("/custom-voices/:voice_id", customVoicePathHandler)
-		gateway.GET("/realtime", func(c *gin.Context) {
+		gateway.GET("/custom-voices", withCompositeMemberGroups(voiceHandler("custom-voices")))
+		gateway.GET("/custom-voices/:voice_id/audio", withCompositeMemberGroups(customVoicePathHandler))
+		gateway.GET("/custom-voices/:voice_id", withCompositeMemberGroups(customVoicePathHandler))
+		gateway.PATCH("/custom-voices/:voice_id", withCompositeMemberGroups(customVoicePathHandler))
+		gateway.DELETE("/custom-voices/:voice_id", withCompositeMemberGroups(customVoicePathHandler))
+		gateway.GET("/realtime", withCompositeMemberGroups(func(c *gin.Context) {
 			if getGroupPlatform(c) != service.PlatformGrok {
-				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-				c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Realtime API is not supported for this platform"}})
+				grokUnsupported(c, "Realtime API is not supported for this platform")
 				return
 			}
 			h.OpenAIGateway.GrokRealtime(c)
-		})
-		gateway.POST("/web_search", func(c *gin.Context) {
+		}))
+		gateway.POST("/web_search", withCompositeMemberGroups(func(c *gin.Context) {
 			if getGroupPlatform(c) != service.PlatformGrok {
-				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-				c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Web Search API is not supported for this platform"}})
+				grokUnsupported(c, "Web Search API is not supported for this platform")
 				return
 			}
 			h.Gateway.WebSearch(c)
-		})
-		gateway.POST("/x_search", func(c *gin.Context) {
+		}))
+		gateway.POST("/x_search", withCompositeMemberGroups(func(c *gin.Context) {
 			if getGroupPlatform(c) != service.PlatformGrok {
-				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-				c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "X Search API is not supported for this platform"}})
+				grokUnsupported(c, "X Search API is not supported for this platform")
 				return
 			}
 			h.Gateway.XSearch(c)
-		})
+		}))
 	}
 
 	// Gemini 原生 API 兼容层（Gemini SDK/CLI 直连）
@@ -406,7 +434,7 @@ func RegisterGatewayRoutes(
 	gemini.Use(enforceMemberBudgetGoogle)
 	gemini.Use(requireGroupGoogle)
 	{
-		gemini.GET("/models", orchestrateMemberGroups(h.Gateway.GeminiV1BetaListModels))
+		gemini.GET("/models", withActiveGroupAllowlist(h.Gateway.GeminiV1BetaListModels))
 		gemini.GET("/models/:model", withCompositeGeminiMemberGroups(h.Gateway.GeminiV1BetaGetModel))
 		// Gin treats ":" as a param marker, but Gemini uses "{model}:{action}" in the same segment.
 		gemini.POST("/models/*modelAction", withCompositeGeminiMemberGroups(h.Gateway.GeminiV1BetaModels))
@@ -495,8 +523,7 @@ func RegisterGatewayRoutes(
 	rootVoiceHandler := func(endpoint string) gin.HandlerFunc {
 		return func(c *gin.Context) {
 			if getGroupPlatform(c) != service.PlatformGrok {
-				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-				c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Voice API is not supported for this platform"}})
+				grokUnsupported(c, "Voice API is not supported for this platform")
 				return
 			}
 			h.OpenAIGateway.GrokVoice(c, endpoint)
@@ -558,8 +585,8 @@ func RegisterGatewayRoutes(
 	antigravityV1.Use(enforceMemberBudgetAnthropic)
 	antigravityV1.Use(requireGroupAnthropic)
 	{
-		antigravityV1.POST("/messages", orchestrateMemberGroups(h.Gateway.Messages))
-		antigravityV1.POST("/messages/count_tokens", orchestrateMemberGroups(h.Gateway.CountTokens))
+		antigravityV1.POST("/messages", withActiveGroupAllowlist(h.Gateway.Messages))
+		antigravityV1.POST("/messages/count_tokens", withActiveGroupAllowlist(h.Gateway.CountTokens))
 		antigravityV1.GET("/models", h.Gateway.AntigravityModels)
 		antigravityV1.GET("/usage", h.Gateway.Usage)
 	}
@@ -575,9 +602,9 @@ func RegisterGatewayRoutes(
 	antigravityV1Beta.Use(enforceMemberBudgetGoogle)
 	antigravityV1Beta.Use(requireGroupGoogle)
 	{
-		antigravityV1Beta.GET("/models", orchestrateMemberGroups(h.Gateway.GeminiV1BetaListModels))
-		antigravityV1Beta.GET("/models/:model", orchestrateMemberGroups(h.Gateway.GeminiV1BetaGetModel))
-		antigravityV1Beta.POST("/models/*modelAction", orchestrateMemberGroups(h.Gateway.GeminiV1BetaModels))
+		antigravityV1Beta.GET("/models", withActiveGroupAllowlist(h.Gateway.GeminiV1BetaListModels))
+		antigravityV1Beta.GET("/models/:model", withActiveGroupAllowlist(h.Gateway.GeminiV1BetaGetModel))
+		antigravityV1Beta.POST("/models/*modelAction", withActiveGroupAllowlist(h.Gateway.GeminiV1BetaModels))
 	}
 
 }
@@ -685,7 +712,7 @@ func resolveCompositeLiveTargetPlatform(c *gin.Context, resolver *service.Compos
 			}
 		}
 	}
-	resetRequestBody(c, body)
+	requestmodel.ResetRequestBody(c.Request, body)
 	return true
 }
 
@@ -715,7 +742,7 @@ func resolveCompositeTargetPlatform(c *gin.Context, resolver *service.CompositeR
 		return false
 	}
 
-	model := compositeRequestModelFromBody(c.GetHeader("Content-Type"), body)
+	model := requestmodel.FromBodyForRoute(c.Request.URL.Path, c.GetHeader("Content-Type"), body)
 	if model != "" {
 		decision, resolveErr := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, compositeRouteEndpointForPath(c.Request.URL.Path))
 		if resolveErr != nil {
@@ -730,14 +757,14 @@ func resolveCompositeTargetPlatform(c *gin.Context, resolver *service.CompositeR
 		}
 		c.Request = c.Request.WithContext(service.WithCompositeRouteDecision(c.Request.Context(), decision))
 		if upstreamModel := strings.TrimSpace(decision.UpstreamModel); upstreamModel != "" && upstreamModel != model && gjson.ValidBytes(body) {
-			if _, modelPath := compositeJSONRequestModel(body); modelPath != "" {
+			if _, modelPath := requestmodel.JSONModelPathForRoute(c.Request.URL.Path, body); modelPath != "" {
 				if rewritten, rewriteErr := sjson.SetBytes(body, modelPath, upstreamModel); rewriteErr == nil {
 					body = rewritten
 				}
 			}
 		}
 	}
-	resetRequestBody(c, body)
+	requestmodel.ResetRequestBody(c.Request, body)
 	return true
 }
 
@@ -946,12 +973,6 @@ func compositeGeminiModelFromParams(c *gin.Context) string {
 		return strings.TrimSpace(modelAction[:idx])
 	}
 	return modelAction
-}
-
-func resetRequestBody(c *gin.Context, body []byte) {
-	c.Request.Body = io.NopCloser(bytes.NewReader(body))
-	c.Request.ContentLength = int64(len(body))
-	c.Request.Header.Set("Content-Length", strconv.Itoa(len(body)))
 }
 
 func compositeRouteEndpointForPath(path string) string {

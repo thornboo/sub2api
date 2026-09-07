@@ -265,7 +265,7 @@ func TestPublicKeyUsageModelsForGroupCustomListReturnsEmptyWhenGroupHasNoPersist
 		ID:       groupID,
 		Platform: service.PlatformOpenAI,
 		Status:   service.StatusActive,
-		ModelsListConfig: service.GroupModelsListConfig{
+		ModelAllowlist: service.GroupModelAllowlist{
 			Enabled: true,
 			Models:  []string{"gpt-5.6-sol"},
 		},
@@ -343,7 +343,7 @@ func TestPublicKeyUsageModelsForCompositeGroupDoesNotFallbackWhenNoAccountsOrRou
 		ID:       47,
 		Platform: service.PlatformComposite,
 		Status:   service.StatusActive,
-		ModelsListConfig: service.GroupModelsListConfig{
+		ModelAllowlist: service.GroupModelAllowlist{
 			Enabled: true,
 			Models:  []string{"gpt-5.6-sol"},
 		},

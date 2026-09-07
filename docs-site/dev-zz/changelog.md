@@ -1,5 +1,11 @@
 # 变更记录
 
+## 2026-09-08
+
+- 同步 `main@b7dba6267` 到 `dev-zz`：分组原模型展示配置升级为模型白名单，同时约束目录和请求准入；新增迁移 `235_group_model_allowlist.sql`，原配置数据保留。已启用旧展示列表的分组升级后会限制实际调用，部署前应核对配置。
+- 吸收 Codex 固定账号目录与调度、Astra instructions / Pro / Ultra 元数据、工具参数与 allowed_tools、WebSocket turn 生命周期和 HTTP bridge 隔离、流式失败诊断修复；保留二开企业成员实际分组、预算原子归因与未知结果不重放。
+- 修复 DeepSeek 高峰账号成本、Gemini Flash thinking 阶梯与 GLM 5.3 兜底价格、备份与迁移锁协调、兑换失败固定窗口和支付履约隔离；管理端增加推理映射拒绝、账号到期预设、订阅跳转用量、完整 Key 筛选及 i18n 构建检查。fork 版本保持 `1.7.44`。
+
 ## 2026-09-07
 
 - Key 查询页接入公告：有效查询会话可查看公告，并遵循弹窗／静默设置；可见条件沿用所属用户规则，已读记录按 Key 隔离，查询页与登录控制台的公告队列互不混用。详见 [Key 持有者自助查询](./features/public-key-usage-portal.md)。

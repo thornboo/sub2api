@@ -653,7 +653,9 @@ export default {
     admin: {
         // Dashboard
         dashboard: {
-            month: '按月'
+            month: '按月',
+            upstreamCostCoverage: '证据 {covered}/{total}',
+            noUpstreamCostEvidence: '暂无成本证据'
         },
         // Users Management
         users: {

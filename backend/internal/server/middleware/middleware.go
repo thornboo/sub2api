@@ -110,9 +110,17 @@ var gatewayBudgetMetadataHeaders = map[string]string{
 	"requested_task_hold_usd": "X-Sub2API-Budget-Requested-Hold-USD",
 }
 
-// AnthropicErrorWriter 按 Anthropic API 规范输出错误
+// AnthropicErrorWriter 按 Anthropic API 规范输出错误；error.type 随状态码映射
+// （404 -> not_found_error，403 -> permission_error，其余 api_error）。
 func AnthropicErrorWriter(c *gin.Context, status int, message string) {
-	errorBody := gin.H{"type": "permission_error", "message": message}
+	errorType := "api_error"
+	switch status {
+	case http.StatusNotFound:
+		errorType = "not_found_error"
+	case http.StatusForbidden:
+		errorType = "permission_error"
+	}
+	errorBody := gin.H{"type": errorType, "message": message}
 	if code, metadata := gatewayErrorStructuredDetails(c); code != "" {
 		errorBody["code"] = code
 		if len(metadata) > 0 {
@@ -155,6 +163,17 @@ func gatewayErrorStructuredDetails(c *gin.Context) (string, map[string]string) {
 		}
 	}
 	return code, metadata
+}
+
+// OpenAIErrorWriter 按 OpenAI API 规范输出模型级错误（model_not_found）。
+func OpenAIErrorWriter(c *gin.Context, status int, message string) {
+	c.JSON(status, gin.H{
+		"error": gin.H{
+			"message": message,
+			"type":    "invalid_request_error",
+			"code":    "model_not_found",
+		},
+	})
 }
 
 // RequireGroupAssignment 检查 API Key 是否已分配到分组，

@@ -1045,6 +1045,7 @@ const listAllUsageAPIKeys = async (): Promise<ApiKey[]> => {
   let totalPages = 1
   do {
     const response = await keysAPI.list(page, pageSize)
+    if (response.items.length === 0) break
     allKeys.push(...response.items)
     totalPages = Math.max(1, Number(response.pages) || 1)
     page += 1
