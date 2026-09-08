@@ -27,11 +27,11 @@ const intervals = computed(() => props.pricing.intervals.filter(interval => rowH
 type TokenPriceKey = keyof Pick<UserPricingInterval, 'input_price' | 'output_price' | 'cache_write_price' | 'cache_write_1h_price' | 'cache_read_price'>
 const tokenColumns = computed(() => {
   const columns: { key: TokenPriceKey; label: string }[] = [
-    { key: 'input_price', label: t('availableChannels.modelTable.columns.inputPrice') },
-    { key: 'output_price', label: t('availableChannels.modelTable.columns.outputPrice') },
-    { key: 'cache_write_price', label: t('availableChannels.modelTable.columns.cacheWritePrice') },
+    { key: 'input_price', label: t('availableChannels.pricing.inputPrice') },
+    { key: 'output_price', label: t('availableChannels.pricing.outputPrice') },
+    { key: 'cache_write_price', label: t('availableChannels.pricing.cacheWritePrice') },
     { key: 'cache_write_1h_price', label: t('availableChannels.modelMarketplace.timePricing.cacheWrite1h') },
-    { key: 'cache_read_price', label: t('availableChannels.modelTable.columns.cacheReadPrice') },
+    { key: 'cache_read_price', label: t('availableChannels.pricing.cacheReadPrice') },
   ]
   return columns.filter((column, index) => index < 2 || intervals.value.some(interval => interval[column.key] != null))
 })

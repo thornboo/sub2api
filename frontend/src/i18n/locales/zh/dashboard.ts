@@ -590,10 +590,10 @@ export default {
 
   // Available Channels (user-facing)
   availableChannels: {
-    title: '可用渠道',
-    description: '查看您可访问的渠道与其支持的模型、定价',
+    title: '模型列表',
+    description: '查看各分组提供的模型、价格与运行表现',
     searchPlaceholder: '搜索渠道或模型...',
-    empty: '暂无可用渠道',
+    empty: '暂无模型',
     noModels: '未配置模型',
     noPricing: '未配置定价',
     exclusive: '专属',

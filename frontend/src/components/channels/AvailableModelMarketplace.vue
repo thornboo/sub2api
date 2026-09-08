@@ -117,9 +117,6 @@
                     <PlatformIcon :platform="platform as GroupPlatform" size="xs" />
                     {{ platformLabel(platform) }}
                   </span>
-                  <span class="truncate text-[10px] text-stone-400 dark:text-stone-500">
-                    {{ t('availableChannels.modelMarketplace.channelCount', { count: card.channelNames.length }) }}
-                  </span>
                 </div>
               </div>
             </header>
@@ -358,23 +355,7 @@
               </div>
             </div>
 
-            <div class="mt-2.5 flex-1">
-              <section class="flex min-w-0 items-center gap-2">
-                <span class="w-10 shrink-0 whitespace-nowrap text-[10px] text-stone-400 dark:text-stone-500">{{ t('availableChannels.modelMarketplace.availableChannels') }}</span>
-                <div class="flex min-w-0 flex-1 items-center gap-1 overflow-hidden" :title="card.channelNames.join(', ')">
-                  <span
-                    v-for="channel in visibleChannels(card)"
-                    :key="channel"
-                    class="inline-flex min-w-0 max-w-[8rem] items-center gap-1 rounded bg-stone-100 px-1.5 py-0.5 text-[10px] font-medium text-stone-600 dark:bg-white/[0.06] dark:text-stone-300"
-                  >
-                    <Icon name="server" size="xs" class="shrink-0" />
-                    <span class="truncate">{{ channel }}</span>
-                  </span>
-                  <span v-if="hiddenChannelCount(card) > 0" class="shrink-0 rounded bg-stone-100 px-1.5 py-0.5 text-[10px] text-stone-500 dark:bg-white/[0.06] dark:text-stone-400">
-                    +{{ hiddenChannelCount(card) }}
-                  </span>
-                </div>
-              </section>
+            <div class="flex-1">
               <p
                 v-if="card.hasSchedulableAccount === false || runtimeMetrics?.[card.id]?.hasSchedulableAccount === false"
                 data-testid="model-availability-notice"
@@ -474,7 +455,6 @@ const props = defineProps<{
 const { t } = useI18n()
 const { copyToClipboard } = useClipboard()
 
-const MAX_VISIBLE_CHANNELS = 2
 const RATE_COMPARISON_EPSILON = 1e-9
 
 function cachePriceRows(card: AvailableModelMarketplaceCard) {
@@ -542,14 +522,6 @@ function groupRateBadges(section: AvailableModelGroupSection): GroupRateBadge[] 
     rates.push({ kind: 'image', value: resolveAvailableGroupPriceMultiplier(group, props.userGroupRates, BILLING_MODE_IMAGE) })
   }
   return rates
-}
-
-function visibleChannels(card: AvailableModelMarketplaceCard): string[] {
-  return card.channelNames.slice(0, MAX_VISIBLE_CHANNELS)
-}
-
-function hiddenChannelCount(card: AvailableModelMarketplaceCard): number {
-  return Math.max(card.channelNames.length - MAX_VISIBLE_CHANNELS, 0)
 }
 
 function pricingUnit(pricing: UserSupportedModelPricing): string {

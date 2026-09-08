@@ -1,6 +1,6 @@
 export default {
     availableChannels: {
-      title: 'Available Channels',
+      title: 'Model Catalog',
       description: 'Aggregated view: each channel with its linked groups and supported models (wildcards expanded)',
       searchPlaceholder: 'Search channels or models...',
       columns: {

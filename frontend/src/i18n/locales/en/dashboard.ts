@@ -585,10 +585,10 @@ export default {
 
   // Available Channels (user-facing)
   availableChannels: {
-    title: 'Available Channels',
-    description: 'Channels you can access, along with their supported models and pricing',
+    title: 'Model Catalog',
+    description: 'Browse models, pricing, and service performance by group',
     searchPlaceholder: 'Search channels or models...',
-    empty: 'No available channels',
+    empty: 'No models to display',
     noModels: 'No models configured',
     noPricing: 'Pricing not configured',
     exclusive: 'Exclusive',

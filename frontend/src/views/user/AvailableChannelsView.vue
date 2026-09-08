@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <TablePageLayout :table-mode="viewMode === 'cards' ? 'auto' : 'scroll'">
+    <TablePageLayout table-mode="auto">
       <template #filters>
         <div class="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
           <div class="flex flex-1 flex-wrap items-center gap-3">
@@ -40,27 +40,6 @@
           </div>
 
           <div class="flex w-full flex-shrink-0 flex-wrap items-center justify-end gap-3 lg:w-auto">
-            <div class="segmented-control">
-              <button
-                type="button"
-                class="segmented-option inline-flex items-center gap-1.5"
-                :class="viewMode === 'cards' ? 'segmented-option-active' : 'segmented-option-muted'"
-                @click="viewMode = 'cards'"
-              >
-                <Icon name="grid" size="sm" />
-                {{ t('availableChannels.viewMode.marketplace') }}
-              </button>
-              <button
-                type="button"
-                class="segmented-option inline-flex items-center gap-1.5"
-                :class="viewMode === 'table' ? 'segmented-option-active' : 'segmented-option-muted'"
-                @click="viewMode = 'table'"
-              >
-                <Icon name="menu" size="sm" />
-                {{ t('availableChannels.viewMode.table') }}
-              </button>
-            </div>
-
             <button
               type="button"
               @click="openExportDialog"
@@ -88,7 +67,6 @@
 
       <template #table>
         <AvailableModelMarketplace
-          v-if="viewMode === 'cards'"
           :cards="marketplaceCards"
           :runtime-metrics="runtimeMetrics"
           :loading="loading"
@@ -97,18 +75,6 @@
           :empty-label="t('availableChannels.empty')"
           apply-rate-multiplier
           show-group-rates
-        />
-        <AvailableChannelModelsTable
-          v-else
-          :columns="modelColumnLabels"
-          :rows="modelRows"
-          :loading="loading"
-          :pricing-labels="pricingLabels"
-          :tooltips="modelColumnTooltips"
-          :sort-by="sortBy"
-          :sort-order="sortOrder"
-          :empty-label="t('availableChannels.empty')"
-          @sort="handleModelSort"
         />
       </template>
     </TablePageLayout>
@@ -168,7 +134,6 @@ import Icon from '@/components/icons/Icon.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import AvailableModelMarketplace from '@/components/channels/AvailableModelMarketplace.vue'
-import AvailableChannelModelsTable from '@/components/channels/AvailableChannelModelsTable.vue'
 import adminChannelsAPI, { type AdminAvailableChannel } from '@/api/admin/channels'
 import userChannelsAPI, { type UserAvailableChannel } from '@/api/channels'
 import userGroupsAPI from '@/api/groups'
@@ -188,8 +153,6 @@ import {
   type AvailableChannelExportLabels,
   type AvailableChannelPricingLabels,
   type AvailableChannelPriceStatus,
-  type AvailableChannelSortKey,
-  type AvailableChannelSortOrder,
   type AvailableChannelStatusScope,
 } from '@/utils/availableChannelsCatalog'
 import { buildAvailableModelMarketplaceCards } from '@/utils/availableModelMarketplace'
@@ -216,36 +179,6 @@ type ExportSource = 'admin_catalog' | 'visible_channels'
 const exportSource = ref<ExportSource>('admin_catalog')
 const exportGroupScope = ref<AvailableChannelGroupScope>('public_exclusive')
 const exportStatusScope = ref<AvailableChannelStatusScope>('all')
-const sortBy = ref<AvailableChannelSortKey>('model')
-const sortOrder = ref<AvailableChannelSortOrder>('asc')
-const viewMode = ref<'cards' | 'table'>('cards')
-
-const modelColumnLabels = computed(() => ({
-  model: t('availableChannels.modelTable.columns.model'),
-  platform: t('availableChannels.modelTable.columns.platform'),
-  channel: t('availableChannels.modelTable.columns.channel'),
-  billingMode: t('availableChannels.modelTable.columns.billingMode'),
-  interval: t('availableChannels.modelTable.columns.interval'),
-  inputPrice: t('availableChannels.modelTable.columns.inputPrice'),
-  outputPrice: t('availableChannels.modelTable.columns.outputPrice'),
-  cacheWritePrice: t('availableChannels.modelTable.columns.cacheWritePrice'),
-  cacheReadPrice: t('availableChannels.modelTable.columns.cacheReadPrice'),
-  imageOutputPrice: t('availableChannels.modelTable.columns.imageOutputPrice'),
-  perRequestPrice: t('availableChannels.modelTable.columns.perRequestPrice'),
-  groups: t('availableChannels.modelTable.columns.groups'),
-  maxReasoningMultiplierBadge: t('modelPlaza.table.maxReasoningMultiplierBadge'),
-  maxReasoningMultiplierHint: t('modelPlaza.table.maxReasoningMultiplierHint'),
-}))
-
-const modelColumnTooltips = computed(() => ({
-  interval: t('availableChannels.modelTable.tooltips.interval'),
-  inputPrice: t('availableChannels.modelTable.tooltips.inputPrice'),
-  outputPrice: t('availableChannels.modelTable.tooltips.outputPrice'),
-  cacheWritePrice: t('availableChannels.modelTable.tooltips.cacheWritePrice'),
-  cacheReadPrice: t('availableChannels.modelTable.tooltips.cacheReadPrice'),
-  imageOutputPrice: t('availableChannels.modelTable.tooltips.imageOutputPrice'),
-  perRequestPrice: t('availableChannels.modelTable.tooltips.perRequestPrice'),
-}))
 
 const pricingLabels = computed<AvailableChannelPricingLabels>(() => ({
   billingModeToken: t('availableChannels.pricing.billingModeToken'),
@@ -365,19 +298,6 @@ const marketplaceCards = computed(() =>
 
 const runtimeMetrics = computed(() => buildModelRuntimeMetricsMap(marketplaceCards.value))
 
-const modelRows = computed(() =>
-  buildAvailableChannelCatalogRows(filteredChannels.value, {
-    billingMode: billingModeFilter.value,
-    groupScope: groupScopeFilter.value,
-    priceStatus: priceStatusFilter.value,
-    expandIntervals: true,
-    sortBy: sortBy.value,
-    sortOrder: sortOrder.value,
-    activeOnly: true,
-    userGroupRates: userGroupRates.value,
-  }),
-)
-
 const exportGroupRates = computed<Record<number, number>>(() => {
   if (authStore.isAdmin && exportSource.value === 'admin_catalog') return {}
   return userGroupRates.value
@@ -391,8 +311,8 @@ const exportRows = computed(() =>
     priceStatus: priceStatusFilter.value,
     statusScope: authStore.isAdmin && exportSource.value === 'admin_catalog' ? exportStatusScope.value : 'active',
     expandIntervals: true,
-    sortBy: sortBy.value,
-    sortOrder: sortOrder.value,
+    sortBy: 'model',
+    sortOrder: 'asc',
     userGroupRates: exportGroupRates.value,
   }),
 )
@@ -514,15 +434,6 @@ async function exportModelCatalog() {
   } finally {
     exporting.value = false
   }
-}
-
-function handleModelSort(key: AvailableChannelSortKey) {
-  if (sortBy.value === key) {
-    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
-    return
-  }
-  sortBy.value = key
-  sortOrder.value = 'asc'
 }
 
 onMounted(loadChannels)

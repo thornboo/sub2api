@@ -1533,7 +1533,7 @@ export default {
         title: '上游模型协议能力',
         description: '这里记录账号最终上游模型可原生接收的协议；用户可调用的 API 端点由渠道模型的实际交付路由聚合得出。',
         globalRoutingEnabled: '全局多端点路由已启用',
-        globalRoutingEnabledHint: '保存的支持状态会参与用户模型广场端点展示和新请求的原生协议路由。',
+        globalRoutingEnabledHint: '保存的支持状态会参与用户模型列表端点展示和新请求的原生协议路由。',
         globalRoutingDisabled: '全局多端点路由未启用',
         globalRoutingDisabledHint: '这里的配置会正常保存，但暂时不会新增用户可见的 API 端点，也不会改变实际请求路由。',
         globalRoutingUnknown: '暂时无法确认全局路由状态',

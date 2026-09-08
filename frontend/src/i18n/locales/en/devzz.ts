@@ -542,7 +542,7 @@ export default {
     // Available Channels (user-facing)
     availableChannels: {
         searchPlaceholder: 'Search models, channels, or API endpoints...',
-        empty: 'No available models',
+        empty: 'No models to display',
         endpoints: {
             title: 'Confirmed native endpoints',
             copyHint: 'Copy {path}',
@@ -551,10 +551,6 @@ export default {
         },
         exportExcel: 'Export Excel',
         exporting: 'Exporting...',
-        viewMode: {
-            marketplace: 'Model Marketplace',
-            table: 'Pricing Table'
-        },
         modelMarketplace: {
             reference: {
                 cacheRead: 'Cache read', cacheWrite: 'Cache write',
@@ -589,13 +585,11 @@ export default {
                 imageHint: 'Image billing uses this independent rate without adding the group or user-specific rate.',
                 priceHint: 'Prices below already include the applicable rates. Do not multiply them again. Models with time-based pricing follow the prices shown on their cards.'
             },
-            channelCount: '{count} channels',
-            availableChannels: 'Available channels',
             apiEndpoints: 'Native endpoints',
             copyEndpointHint: 'Click to copy endpoint',
             endpointUnavailable: 'No native endpoint information is published yet.',
             priceVariants: '{count} price variants',
-            priceVariantsHint: 'Channel prices differ. Switch to the pricing table for an exact comparison.',
+            priceVariantsHint: 'Pricing varies by channel.',
             originalPrice: 'Original',
             savings: 'Save {percent}%',
             tieredPricing: 'Tiered pricing',
@@ -654,39 +648,12 @@ export default {
         exportSource: {
             label: 'Export Source',
             adminCatalog: 'Full Admin Catalog',
-            visibleChannels: 'Current Available Channels'
-        },
-        modelTable: {
-            columns: {
-                model: 'Model',
-                platform: 'Platform',
-                channel: 'Channel',
-                billingMode: 'Billing Mode',
-                interval: 'Range',
-                inputPrice: 'Input',
-                outputPrice: 'Output',
-                cacheWritePrice: 'Cache Write',
-                cacheReadPrice: 'Cache Read',
-                imageOutputPrice: 'Image Output',
-                perRequestPrice: 'Per Call',
-                groups: 'Pricing Group',
-                intervals: 'Tiered Pricing'
-            },
-            tooltips: {
-                interval: 'Tiered pricing range; default pricing shows -.',
-                inputPrice: 'Calculated with your effective rate for the pricing group, in $/1M tokens. Cell values omit the unit.',
-                outputPrice: 'Calculated with your effective rate for the pricing group, in $/1M tokens. Cell values omit the unit.',
-                cacheWritePrice: 'Calculated with your effective rate for the pricing group, in $/1M tokens. Cell values omit the unit.',
-                cacheReadPrice: 'Calculated with your effective rate for the pricing group, in $/1M tokens. Cell values omit the unit.',
-                imageOutputPrice: 'Per-image output price calculated with the effective pricing-group rate.',
-                perRequestPrice: 'Per-call price calculated with the effective pricing-group rate; token-billed models show -.',
-                intervals: 'Tiered pricing by range; token prices still use $/1M tokens.'
-            }
+            visibleChannels: 'Visible Model Catalog'
         },
         export: {
             dialogTitle: 'Export Model Pricing',
             rowCount: 'Rows',
-            fullCatalogUnavailableHint: 'The full admin catalog is unavailable. You can export the current available channels instead.',
+            fullCatalogUnavailableHint: 'The full admin catalog is unavailable. You can export pricing for the models visible to you.',
             sheetName: 'Model Pricing',
             noData: 'No model pricing to export',
             success: 'Model pricing exported successfully',

@@ -542,7 +542,7 @@ export default {
     // Available Channels (user-facing)
     availableChannels: {
         searchPlaceholder: '搜索模型、渠道或 API 端点...',
-        empty: '暂无可用模型',
+        empty: '暂无模型',
         endpoints: {
             title: '已确认原生端点',
             copyHint: '复制 {path}',
@@ -551,10 +551,6 @@ export default {
         },
         exportExcel: '导出 Excel',
         exporting: '导出中...',
-        viewMode: {
-            marketplace: '模型广场',
-            table: '价格表格'
-        },
         modelMarketplace: {
             reference: {
                 cacheRead: '缓存读取', cacheWrite: '缓存写入',
@@ -589,13 +585,11 @@ export default {
                 imageHint: '按图片计费使用此独立倍率，不叠加普通分组或用户专属倍率。',
                 priceHint: '下方价格已按适用规则计算，无需再次乘以倍率。设有独立分时定价的模型，以卡片展示为准。'
             },
-            channelCount: '{count} 个渠道',
-            availableChannels: '可用渠道',
             apiEndpoints: '原生端点',
             copyEndpointHint: '点击复制端点',
             endpointUnavailable: '暂未发布原生端点信息',
             priceVariants: '{count} 种报价',
-            priceVariantsHint: '不同渠道的价格配置不同，请切换价格表格精确比较。',
+            priceVariantsHint: '不同渠道的价格配置不同。',
             originalPrice: '原价',
             savings: '节省 {percent}%',
             tieredPricing: '阶梯计费',
@@ -654,39 +648,12 @@ export default {
         exportSource: {
             label: '导出数据源',
             adminCatalog: '管理员全量目录',
-            visibleChannels: '当前可见可用渠道'
-        },
-        modelTable: {
-            columns: {
-                model: '模型',
-                platform: '平台',
-                channel: '渠道',
-                billingMode: '计费模式',
-                interval: '区间',
-                inputPrice: '输入',
-                outputPrice: '输出',
-                cacheWritePrice: '缓存写入',
-                cacheReadPrice: '缓存读取',
-                imageOutputPrice: '图片输出',
-                perRequestPrice: '按次',
-                groups: '计价分组',
-                intervals: '阶梯定价'
-            },
-            tooltips: {
-                interval: '阶梯定价区间；无阶梯时显示默认。',
-                inputPrice: '按当前用户在计价分组中的生效倍率计算，单位：$/1M token。表格数值省略单位。',
-                outputPrice: '按当前用户在计价分组中的生效倍率计算，单位：$/1M token。表格数值省略单位。',
-                cacheWritePrice: '按当前用户在计价分组中的生效倍率计算，单位：$/1M token。表格数值省略单位。',
-                cacheReadPrice: '按当前用户在计价分组中的生效倍率计算，单位：$/1M token。表格数值省略单位。',
-                imageOutputPrice: '按计价分组生效倍率计算的图片输出单次价格。',
-                perRequestPrice: '按计价分组生效倍率计算的单次请求价格；按 Token 计费模型显示为 -。',
-                intervals: '阶梯定价按区间展示；Token 价格单位仍为 $/1M token。'
-            }
+            visibleChannels: '当前可见模型目录'
         },
         export: {
             dialogTitle: '导出模型价格',
             rowCount: '导出行数',
-            fullCatalogUnavailableHint: '管理员全量目录暂不可用，当前可导出页面可见的可用渠道。',
+            fullCatalogUnavailableHint: '管理员全量目录暂不可用，当前可导出您可见的模型价格。',
             sheetName: '模型价格',
             noData: '没有可导出的模型价格',
             success: '模型价格导出成功',

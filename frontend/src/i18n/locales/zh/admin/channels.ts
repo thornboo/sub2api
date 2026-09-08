@@ -1,6 +1,6 @@
 export default {
     availableChannels: {
-      title: '可用渠道',
+      title: '模型列表',
       description: '按渠道聚合查看关联分组与支持模型（已展开通配符）',
       searchPlaceholder: '搜索渠道或模型...',
       columns: {
