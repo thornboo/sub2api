@@ -560,6 +560,14 @@ export default {
             copyModel: 'Copy model name {name}',
             modelCopied: 'Model name copied',
             groupModelCount: '{count} models',
+            groupRate: {
+                group: 'Group rate',
+                user: 'Your rate',
+                image: 'Image rate',
+                defaultRate: 'Default group rate: {rate}',
+                imageHint: 'Image billing uses this independent rate without adding the group or user-specific rate.',
+                priceHint: 'Prices below already include the applicable rates. Do not multiply them again. Models with time-based pricing follow the prices shown on their cards.'
+            },
             channelCount: '{count} channels',
             availableChannels: 'Available channels',
             apiEndpoints: 'Native endpoints',
@@ -570,11 +578,19 @@ export default {
             originalPrice: 'Original',
             savings: 'Save {percent}%',
             tieredPricing: 'Tiered pricing',
+            tierPricing: {
+                count: '{count} tiers',
+                range: 'Token range',
+                tier: 'Tier',
+                price: 'Price',
+                currentTimePrices: 'Prices for the current time window'
+            },
             timePricing: {
                 title: 'Time pricing',
                 window: 'Window',
                 type: 'Type',
                 cacheWrite: 'Cache Write',
+                cacheWrite1h: 'Cache Write 1h',
                 cacheRead: 'Cache Read',
                 active: 'Current',
                 otherTimes: 'Other times',

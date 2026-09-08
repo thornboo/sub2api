@@ -95,6 +95,7 @@
           :user-group-rates="userGroupRates"
           :empty-label="t('availableChannels.empty')"
           apply-rate-multiplier
+          show-group-rates
         />
         <AvailableChannelModelsTable
           v-else

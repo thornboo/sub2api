@@ -560,6 +560,14 @@ export default {
             copyModel: '复制模型名 {name}',
             modelCopied: '模型名已复制',
             groupModelCount: '{count} 个模型',
+            groupRate: {
+                group: '分组倍率',
+                user: '专属倍率',
+                image: '生图倍率',
+                defaultRate: '默认分组倍率：{rate}',
+                imageHint: '按图片计费使用此独立倍率，不叠加普通分组或用户专属倍率。',
+                priceHint: '下方价格已按适用规则计算，无需再次乘以倍率。设有独立分时定价的模型，以卡片展示为准。'
+            },
             channelCount: '{count} 个渠道',
             availableChannels: '可用渠道',
             apiEndpoints: '原生端点',
@@ -570,11 +578,19 @@ export default {
             originalPrice: '原价',
             savings: '节省 {percent}%',
             tieredPricing: '阶梯计费',
+            tierPricing: {
+                count: '{count} 个档位',
+                range: 'Token 区间',
+                tier: '档位',
+                price: '价格',
+                currentTimePrices: '当前时段报价'
+            },
             timePricing: {
                 title: '分时定价',
                 window: '时段',
                 type: '类型',
                 cacheWrite: '缓存写入',
+                cacheWrite1h: '缓存写入 1h',
                 cacheRead: '缓存读取',
                 active: '当前',
                 otherTimes: '其余时段',

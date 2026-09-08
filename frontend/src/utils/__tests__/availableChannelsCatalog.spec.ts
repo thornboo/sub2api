@@ -84,6 +84,7 @@ describe('availableChannelsCatalog', () => {
     expect(rows[1].inputPrice).toBeCloseTo(0.0000072)
     expect(rows[1].outputPrice).toBeCloseTo(0.0000216)
     expect(rows[1].cacheWritePrice).toBe(0)
+    expect(rows[1].cacheWrite1hPrice).toBeNull()
     expect(rows[1].cacheReadPrice).toBeNull()
     expect(rows[0].multiplier).toBe(0.8)
     expect(rows[0].inputPrice).toBeCloseTo(0.00000288)
@@ -125,6 +126,115 @@ describe('availableChannelsCatalog', () => {
       active: true,
       inputPrice: 0.0000011,
     }])
+  })
+
+  it('treats 1h cache-write-only flat token pricing as configured and scales time rows', () => {
+    const pricing = {
+      billing_mode: BILLING_MODE_TOKEN,
+      input_price: null,
+      output_price: null,
+      cache_write_price: null,
+      cache_write_1h_price: 0.000012,
+      cache_read_price: null,
+      image_output_price: null,
+      per_request_price: null,
+      intervals: [],
+      time_pricing: {
+        enabled: true,
+        timezone: 'Asia/Shanghai',
+        default_label: 'regular',
+        default_multiplier: 0,
+        rules: [{ label: 'peak', start_time: '09:00', end_time: '12:00', multiplier: 1.5 }],
+      },
+    }
+    const rows = buildAvailableChannelCatalogRows([{
+      name: 'Flat 1h Channel',
+      description: '',
+      platforms: [{
+        platform: 'openai',
+        groups: [],
+        supported_models: [{ name: 'gpt-cache', platform: 'openai', pricing }],
+      }],
+    }])
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0].priceStatus).toBe('priced')
+
+    const displayRows = buildTimePricingDisplayRows(
+      pricing,
+      { otherTimes: 'Other times', unnamedType: 'Unnamed period' },
+      new Date('2026-08-17T01:00:00.000Z'),
+    )
+
+    expect(displayRows[0].cacheWrite1hPrice).toBe(0)
+    expect(displayRows[1].cacheWrite1hPrice).toBeCloseTo(0.000018)
+    expect(displayRows[1].cacheWritePrice).toBeNull()
+  })
+
+  it('expands 1h cache-write-only intervals while preserving zero and absent values', () => {
+    const rows = buildAvailableChannelCatalogRows(
+      [{
+        name: 'Interval 1h Channel',
+        description: '',
+        platforms: [{
+          platform: 'openai',
+          groups: [],
+          supported_models: [{
+            name: 'gpt-cache-tiered',
+            platform: 'openai',
+            pricing: {
+              billing_mode: BILLING_MODE_TOKEN,
+              input_price: null,
+              output_price: null,
+              cache_write_price: null,
+              cache_write_1h_price: null,
+              cache_read_price: null,
+              image_output_price: null,
+              per_request_price: null,
+              intervals: [
+                {
+                  min_tokens: 0,
+                  max_tokens: 128000,
+                  tier_label: 'free-1h',
+                  input_price: null,
+                  output_price: null,
+                  cache_write_price: null,
+                  cache_write_1h_price: 0,
+                  cache_read_price: null,
+                  per_request_price: null,
+                },
+                {
+                  min_tokens: 128000,
+                  max_tokens: null,
+                  tier_label: 'paid-1h',
+                  input_price: null,
+                  output_price: null,
+                  cache_write_price: null,
+                  cache_write_1h_price: 0.000009,
+                  cache_read_price: null,
+                  per_request_price: null,
+                },
+                {
+                  min_tokens: 256000,
+                  max_tokens: null,
+                  tier_label: 'absent',
+                  input_price: null,
+                  output_price: null,
+                  cache_write_price: null,
+                  cache_read_price: null,
+                  per_request_price: null,
+                },
+              ],
+            },
+          }],
+        }],
+      }],
+      { expandIntervals: true },
+    )
+
+    expect(rows.map((row) => row.intervalLabel)).toEqual(['free-1h', 'paid-1h'])
+    expect(rows[0].interval?.cache_write_1h_price).toBe(0)
+    expect(rows[1].interval?.cache_write_1h_price).toBe(0.000009)
   })
 
   it('uses the winning group model price and schedule instead of the channel schedule', () => {

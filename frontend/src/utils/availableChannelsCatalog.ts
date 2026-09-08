@@ -82,6 +82,7 @@ export interface TimePricingDisplayRow {
   inputPrice: number | null
   outputPrice: number | null
   cacheWritePrice: number | null
+  cacheWrite1hPrice: number | null
   cacheReadPrice: number | null
 }
 
@@ -462,6 +463,7 @@ export function rowHasPricing(row: Pick<AvailableChannelCatalogRow, 'pricing' | 
     pricing.input_price != null ||
     pricing.output_price != null ||
     pricing.cache_write_price != null ||
+    pricing.cache_write_1h_price != null ||
     pricing.cache_read_price != null ||
     pricing.image_output_price != null ||
     pricing.per_request_price != null
@@ -635,6 +637,7 @@ function isPricingIntervalValued(interval: UserPricingInterval): boolean {
     interval.input_price != null ||
     interval.output_price != null ||
     interval.cache_write_price != null ||
+    interval.cache_write_1h_price != null ||
     interval.cache_read_price != null ||
     interval.per_request_price != null
   )
@@ -727,6 +730,7 @@ function buildTimePricingRow(options: {
     inputPrice: scale(options.pricing.input_price),
     outputPrice: scale(options.pricing.output_price),
     cacheWritePrice: scale(options.pricing.cache_write_price),
+    cacheWrite1hPrice: scale(options.pricing.cache_write_1h_price ?? null),
     cacheReadPrice: scale(options.pricing.cache_read_price),
   }
 }

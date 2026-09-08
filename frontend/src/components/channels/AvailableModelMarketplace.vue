@@ -28,20 +28,52 @@
         :data-group-id="section.group.id"
         :aria-labelledby="`available-model-group-${section.group.id}`"
       >
-        <div class="mb-2.5 flex min-w-0 items-center gap-2.5 px-0.5">
-          <span class="h-5 w-1 shrink-0 rounded-full bg-emerald-500/80 dark:bg-emerald-400/70" />
-          <h2 :id="`available-model-group-${section.group.id}`" class="min-w-0 shrink-0">
-            <GroupBadge
-              :name="section.group.name"
-              :platform="section.group.platform as GroupPlatform"
-              :subscription-type="(section.group.subscription_type || 'standard') as SubscriptionType"
-              :show-rate="false"
-            />
-          </h2>
-          <span class="shrink-0 text-[10px] font-medium text-stone-400 dark:text-stone-500">
-            {{ t('availableChannels.modelMarketplace.groupModelCount', { count: section.cards.length }) }}
-          </span>
-          <span class="h-px min-w-4 flex-1 bg-stone-200/80 dark:bg-white/[0.08]" />
+        <div class="mb-2.5 flex min-w-0 items-start gap-2.5 px-0.5">
+          <span class="mt-0.5 h-5 w-1 shrink-0 rounded-full bg-emerald-500/80 dark:bg-emerald-400/70" />
+          <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1.5">
+            <h2 :id="`available-model-group-${section.group.id}`" class="min-w-0 max-w-full" :title="section.group.name">
+              <GroupBadge
+                class="max-w-full"
+                :name="section.group.name"
+                :platform="section.group.platform as GroupPlatform"
+                :subscription-type="(section.group.subscription_type || 'standard') as SubscriptionType"
+                :show-rate="false"
+              />
+            </h2>
+            <Popover v-for="rate in section.rates" :key="rate.kind">
+              <PopoverTrigger as-child>
+                <button
+                  type="button"
+                  data-testid="group-rate-badge"
+                  :data-rate-kind="rate.kind"
+                  class="inline-flex shrink-0 items-center gap-1 rounded-md border border-stone-200/80 bg-stone-100/70 px-1.5 py-1 text-[10px] leading-none text-stone-500 transition hover:border-stone-300 hover:text-stone-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:border-white/10 dark:bg-white/[0.04] dark:text-stone-400 dark:hover:border-white/20 dark:hover:text-stone-200"
+                >
+                  {{ t(`availableChannels.modelMarketplace.groupRate.${rate.kind}`) }}
+                  <span class="font-mono font-semibold text-stone-700 dark:text-stone-200">{{ formatRateMultiplier(rate.value) }}</span>
+                  <Icon name="infoCircle" size="xs" aria-hidden="true" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="bottom"
+                align="start"
+                class="w-72 max-w-[calc(100vw-2rem)] rounded-lg p-3 text-xs leading-relaxed"
+                :aria-label="t(`availableChannels.modelMarketplace.groupRate.${rate.kind}`)"
+              >
+                <p class="font-medium">{{ t(`availableChannels.modelMarketplace.groupRate.${rate.kind}`) }} {{ formatRateMultiplier(rate.value) }}</p>
+                <p v-if="rate.kind === 'user'" class="mt-1 text-stone-500 dark:text-stone-400">
+                  {{ t('availableChannels.modelMarketplace.groupRate.defaultRate', { rate: formatRateMultiplier(section.group.rate_multiplier ?? 1) }) }}
+                </p>
+                <p v-if="rate.kind === 'image'" class="mt-1 text-stone-500 dark:text-stone-400">
+                  {{ t('availableChannels.modelMarketplace.groupRate.imageHint') }}
+                </p>
+                <p class="mt-2 text-stone-600 dark:text-stone-300">{{ t('availableChannels.modelMarketplace.groupRate.priceHint') }}</p>
+              </PopoverContent>
+            </Popover>
+            <span class="shrink-0 text-[10px] font-medium text-stone-400 dark:text-stone-500">
+              {{ t('availableChannels.modelMarketplace.groupModelCount', { count: section.cards.length }) }}
+            </span>
+            <span class="h-px min-w-4 flex-1 bg-stone-200/80 dark:bg-white/[0.08]" />
+          </div>
         </div>
         <p
           v-if="section.group.description"
@@ -182,78 +214,99 @@
                       </span>
                     </div>
 
-                    <p
-                      v-if="hasTieredPricing(card.pricingOptions[0])"
-                      class="mt-1.5 truncate text-[9px] text-stone-500 dark:text-stone-400"
-                      :title="tieredPricing(card, card.pricingOptions[0])"
-                    >
-                      {{ t('availableChannels.modelMarketplace.tieredPricing') }} · {{ tieredPricing(card, card.pricingOptions[0]) }}
-                    </p>
-
-                    <details
-                      v-if="hasTimePricing(card.pricingOptions[0])"
-                      class="mt-2.5 rounded-lg border border-stone-200/80 bg-white/70 dark:border-white/[0.08] dark:bg-white/[0.03]"
-                    >
-                      <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-2 py-1.5 text-[10px] font-semibold text-stone-600 marker:hidden dark:text-stone-300">
-                        <span class="inline-flex min-w-0 items-center gap-1.5">
-                          <Icon name="clock" size="xs" class="shrink-0 text-emerald-600 dark:text-emerald-300" />
-                          <span class="truncate">{{ t('availableChannels.modelMarketplace.timePricing.title') }}</span>
-                          <span class="truncate font-mono text-stone-400 dark:text-stone-500">
-                            {{ card.pricingOptions[0].time_pricing?.timezone }}
+                    <Popover v-if="hasTimePricing(card.pricingOptions[0])">
+                      <PopoverTrigger as-child>
+                        <button
+                          type="button"
+                          data-testid="time-pricing-trigger"
+                          class="group/time-pricing mt-2.5 flex w-full items-center justify-between gap-2 rounded-lg border border-stone-200/80 bg-white/70 px-2 py-1.5 text-[10px] font-semibold text-stone-600 transition hover:border-stone-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-stone-300 dark:hover:border-white/20"
+                        >
+                          <span class="inline-flex min-w-0 items-center gap-1.5">
+                            <Icon name="clock" size="xs" class="shrink-0 text-emerald-600 dark:text-emerald-300" />
+                            <span class="truncate">{{ t('availableChannels.modelMarketplace.timePricing.title') }}</span>
+                            <span class="truncate font-mono text-stone-400 dark:text-stone-500">
+                              {{ card.pricingOptions[0].time_pricing?.timezone }}
+                            </span>
                           </span>
-                        </span>
-                        <Icon name="chevronDown" size="xs" class="shrink-0 text-stone-400" />
-                      </summary>
+                          <Icon name="chevronDown" size="xs" class="shrink-0 text-stone-400 transition-transform group-data-[state=open]/time-pricing:rotate-180" />
+                        </button>
+                      </PopoverTrigger>
 
-                      <div class="overflow-x-auto border-t border-stone-200/80 dark:border-white/[0.08]">
-                        <table class="min-w-full text-left text-[10px]">
-                          <thead class="bg-stone-50/80 text-[9px] uppercase tracking-wide text-stone-400 dark:bg-black/10 dark:text-stone-500">
-                            <tr>
-                              <th class="whitespace-nowrap px-2 py-1 font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.window') }}</th>
-                              <th class="whitespace-nowrap px-2 py-1 font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.type') }}</th>
-                              <th class="whitespace-nowrap px-2 py-1 text-right font-semibold">{{ t('availableChannels.pricing.inputPrice') }}</th>
-                              <th class="whitespace-nowrap px-2 py-1 text-right font-semibold">{{ t('availableChannels.pricing.outputPrice') }}</th>
-                              <th class="whitespace-nowrap px-2 py-1 text-right font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.cacheWrite') }}</th>
-                              <th class="whitespace-nowrap px-2 py-1 text-right font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.cacheRead') }}</th>
-                            </tr>
-                          </thead>
-                          <tbody class="divide-y divide-stone-200/70 dark:divide-white/[0.07]">
-                            <tr
-                              v-for="row in timePricingRows(card, card.pricingOptions[0])"
-                              :key="row.id"
-                              :class="[
-                                row.active ? 'bg-emerald-50/80 dark:bg-emerald-500/10' : '',
-                              ]"
-                              data-testid="time-pricing-row"
-                            >
-                              <td class="whitespace-nowrap px-2 py-1.5 font-mono text-stone-700 dark:text-stone-200">
-                                <span class="inline-flex items-center gap-1">
-                                  <Icon
-                                    v-if="row.active"
-                                    name="checkCircle"
-                                    size="xs"
-                                    class="shrink-0 text-emerald-600 dark:text-emerald-300"
-                                  />
-                                  <span>{{ row.windowLabel }}</span>
-                                  <span v-if="row.active" class="font-sans text-[9px] font-semibold text-emerald-700 dark:text-emerald-300">
-                                    {{ t('availableChannels.modelMarketplace.timePricing.active') }}
+                      <PopoverContent
+                        data-testid="time-pricing-popover"
+                        side="bottom"
+                        align="start"
+                        :collision-padding="16"
+                        :aria-label="`${card.name} · ${t('availableChannels.modelMarketplace.timePricing.title')}`"
+                        class="flex max-h-[min(80dvh,var(--reka-popover-content-available-height))] w-[42rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl"
+                      >
+                        <div class="flex shrink-0 items-start justify-between gap-3 border-b border-stone-200/80 px-3 py-2.5 dark:border-white/[0.08]">
+                          <div class="min-w-0">
+                            <p class="text-xs font-semibold">
+                              {{ t('availableChannels.modelMarketplace.timePricing.title') }}
+                              <span class="ml-1 font-normal text-stone-500 dark:text-stone-400">{{ pricingUnit(card.pricingOptions[0]) }}</span>
+                            </p>
+                            <p class="mt-0.5 break-words font-mono text-[10px] text-stone-500 dark:text-stone-400">{{ card.name }} · {{ card.pricingOptions[0].time_pricing?.timezone }}</p>
+                          </div>
+                          <PopoverClose
+                            :aria-label="t('common.close')"
+                            class="shrink-0 rounded p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:hover:bg-white/10 dark:hover:text-stone-200"
+                          >
+                            <Icon name="x" size="sm" aria-hidden="true" />
+                          </PopoverClose>
+                        </div>
+                        <div class="min-h-0 overflow-auto overscroll-contain">
+                          <table class="w-full min-w-[36rem] text-left text-[11px]">
+                            <thead class="bg-stone-50/80 text-[9px] uppercase tracking-wide text-stone-400 dark:bg-black/10 dark:text-stone-500">
+                              <tr>
+                                <th class="whitespace-nowrap px-2 py-1 font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.window') }}</th>
+                                <th class="whitespace-nowrap px-2 py-1 font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.type') }}</th>
+                                <th class="whitespace-nowrap px-2 py-1 text-right font-semibold">{{ t('availableChannels.pricing.inputPrice') }}</th>
+                                <th class="whitespace-nowrap px-2 py-1 text-right font-semibold">{{ t('availableChannels.pricing.outputPrice') }}</th>
+                                <th class="whitespace-nowrap px-2 py-1 text-right font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.cacheWrite') }}</th>
+                                <th v-if="card.pricingOptions[0].cache_write_1h_price != null" class="whitespace-nowrap px-2 py-1 text-right font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.cacheWrite1h') }}</th>
+                                <th class="whitespace-nowrap px-2 py-1 text-right font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.cacheRead') }}</th>
+                              </tr>
+                            </thead>
+                            <tbody class="divide-y divide-stone-200/70 dark:divide-white/[0.07]">
+                              <tr
+                                v-for="row in timePricingRows(card, card.pricingOptions[0])"
+                                :key="row.id"
+                                :class="[
+                                  row.active ? 'bg-emerald-50/80 dark:bg-emerald-500/10' : '',
+                                ]"
+                                data-testid="time-pricing-row"
+                              >
+                                <td class="whitespace-nowrap px-2 py-1.5 font-mono text-stone-700 dark:text-stone-200">
+                                  <span class="inline-flex items-center gap-1">
+                                    <Icon
+                                      v-if="row.active"
+                                      name="checkCircle"
+                                      size="xs"
+                                      class="shrink-0 text-emerald-600 dark:text-emerald-300"
+                                    />
+                                    <span>{{ row.windowLabel }}</span>
+                                    <span v-if="row.active" class="font-sans text-[9px] font-semibold text-emerald-700 dark:text-emerald-300">
+                                      {{ t('availableChannels.modelMarketplace.timePricing.active') }}
+                                    </span>
                                   </span>
-                                </span>
-                              </td>
-                              <td class="whitespace-nowrap px-2 py-1.5">
-                                <span class="inline-flex items-center rounded-full bg-stone-100 px-1.5 py-0.5 text-[9px] font-semibold text-stone-600 dark:bg-white/[0.07] dark:text-stone-300">
-                                  {{ row.label }} · {{ formatRateMultiplier(row.multiplier) }}
-                                </span>
-                              </td>
-                              <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-stone-800 dark:text-stone-100">{{ formatTimePricingTokenPrice(row.inputPrice) }}</td>
-                              <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-stone-800 dark:text-stone-100">{{ formatTimePricingTokenPrice(row.outputPrice) }}</td>
-                              <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-stone-800 dark:text-stone-100">{{ formatTimePricingTokenPrice(row.cacheWritePrice) }}</td>
-                              <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-stone-800 dark:text-stone-100">{{ formatTimePricingTokenPrice(row.cacheReadPrice) }}</td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    </details>
+                                </td>
+                                <td class="whitespace-nowrap px-2 py-1.5">
+                                  <span class="inline-flex items-center rounded-full bg-stone-100 px-1.5 py-0.5 text-[9px] font-semibold text-stone-600 dark:bg-white/[0.07] dark:text-stone-300">
+                                    {{ row.label }} · {{ formatRateMultiplier(row.multiplier) }}
+                                  </span>
+                                </td>
+                                <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-stone-800 dark:text-stone-100">{{ formatTimePricingTokenPrice(row.inputPrice) }}</td>
+                                <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-stone-800 dark:text-stone-100">{{ formatTimePricingTokenPrice(row.outputPrice) }}</td>
+                                <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-stone-800 dark:text-stone-100">{{ formatTimePricingTokenPrice(row.cacheWritePrice) }}</td>
+                                <td v-if="card.pricingOptions[0].cache_write_1h_price != null" class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-stone-800 dark:text-stone-100">{{ formatTimePricingTokenPrice(row.cacheWrite1hPrice) }}</td>
+                                <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-stone-800 dark:text-stone-100">{{ formatTimePricingTokenPrice(row.cacheReadPrice) }}</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                   </template>
 
                   <div v-else class="flex min-h-7 items-center justify-between gap-2">
@@ -274,14 +327,17 @@
                           {{ t('modelPlaza.table.maxReasoningMultiplierBadge', { multiplier: maxReasoningMultiplier(card.pricingOptions[0]) }) }}
                         </span>
                       </div>
-                      <p v-if="hasTieredPricing(card.pricingOptions[0])" class="mt-0.5 truncate text-[9px] text-stone-500 dark:text-stone-400" :title="tieredPricing(card, card.pricingOptions[0])">
-                        {{ t('availableChannels.modelMarketplace.tieredPricing') }} · {{ tieredPricing(card, card.pricingOptions[0]) }}
-                      </p>
                     </div>
                     <div class="shrink-0 font-mono text-[13px] font-semibold text-stone-950 dark:text-stone-100">
                       {{ requestPrice(card, card.pricingOptions[0]) }}
                     </div>
                   </div>
+                  <AvailableModelTierPricing
+                    v-if="card.pricingOptions[0].intervals.length"
+                    :model-name="card.name"
+                    :pricing="scalePricing(card.pricingOptions[0], effectiveDisplayMultiplier(card, card.pricingOptions[0]))"
+                    :unit="pricingUnit(card.pricingOptions[0])"
+                  />
                 </div>
                 <div v-else class="flex min-h-7 items-center text-xs text-stone-500 dark:text-stone-400">
                   {{ pricingLabels.noPricing }}
@@ -352,22 +408,26 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
+import { useDocumentVisibility, useNow } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
+import { PopoverClose } from 'reka-ui'
 
 import type { UserAvailableGroup, UserSupportedEndpoint, UserSupportedModelPricing } from '@/api/channels'
+import AvailableModelTierPricing from './AvailableModelTierPricing.vue'
 import ModelIcon from '@/components/common/ModelIcon.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
+  BILLING_MODE_IMAGE,
   BILLING_MODE_TOKEN,
 } from '@/constants/channel'
 import type { GroupPlatform, SubscriptionType } from '@/types'
 import { useClipboard } from '@/composables/useClipboard'
 import {
   buildTimePricingDisplayRows,
-  formatAvailableChannelIntervals,
   formatBillingMode,
   formatCompactRequestPrice,
   formatCompactTokenPrice,
@@ -389,6 +449,7 @@ const props = defineProps<{
   emptyLabel: string
   userGroupRates: Record<number, number>
   applyRateMultiplier?: boolean
+  showGroupRates?: boolean
 }>()
 
 const { t } = useI18n()
@@ -397,20 +458,64 @@ const { copyToClipboard } = useClipboard()
 const MAX_VISIBLE_CHANNELS = 2
 const RATE_COMPARISON_EPSILON = 1e-9
 
+// One clock per marketplace; only minute changes invalidate price calculations.
+const { now, pause, resume } = useNow({ interval: 1000, controls: true })
+const visibility = useDocumentVisibility()
+const hasScheduledPrices = computed(() => props.cards.some(card => card.pricingOptions.some(hasEnabledTimePricing)))
+const pricingMinute = computed(() => Math.floor(now.value.getTime() / 60_000))
+const pricingTime = computed(() => new Date(pricingMinute.value * 60_000))
+
+watch([hasScheduledPrices, visibility], ([enabled, state]) => {
+  if (enabled && state === 'visible') {
+    // Background tabs may have missed ticks; refresh before resuming the timer.
+    now.value = new Date()
+    resume()
+  } else {
+    pause()
+  }
+}, { immediate: true })
+
 interface AvailableModelGroupSection {
   group: UserAvailableGroup
   cards: AvailableModelMarketplaceCard[]
 }
 
-const groupSections = computed<AvailableModelGroupSection[]>(() => {
+interface GroupRateBadge {
+  kind: 'group' | 'user' | 'image'
+  value: number
+}
+
+const groupSections = computed(() => {
   const sections = new Map<number, AvailableModelGroupSection>()
   props.cards.forEach((card) => {
     const section = sections.get(card.group.id) ?? { group: card.group, cards: [] }
     section.cards.push(card)
     sections.set(card.group.id, section)
   })
-  return Array.from(sections.values())
+  return Array.from(sections.values(), section => ({
+    ...section,
+    rates: props.showGroupRates && props.applyRateMultiplier ? groupRateBadges(section) : [],
+  }))
 })
+
+function groupRateBadges(section: AvailableModelGroupSection): GroupRateBadge[] {
+  const { group } = section
+  const prices = section.cards.flatMap(card => card.pricingOptions)
+  const hasIndependentImages = group.image_rate_independent && prices.some(price => price?.billing_mode === BILLING_MODE_IMAGE)
+  const rates: GroupRateBadge[] = []
+  // A mixed group can publish both ordinary and independently billed image models.
+  if (!hasIndependentImages || prices.some(price => price?.billing_mode !== BILLING_MODE_IMAGE)) {
+    const userRate = props.userGroupRates[group.id]
+    rates.push({
+      kind: userRate != null && userRate !== (group.rate_multiplier ?? 1) ? 'user' : 'group',
+      value: resolveAvailableGroupPriceMultiplier(group, props.userGroupRates),
+    })
+  }
+  if (hasIndependentImages) {
+    rates.push({ kind: 'image', value: resolveAvailableGroupPriceMultiplier(group, props.userGroupRates, BILLING_MODE_IMAGE) })
+  }
+  return rates
+}
 
 function visibleChannels(card: AvailableModelMarketplaceCard): string[] {
   return card.channelNames.slice(0, MAX_VISIBLE_CHANNELS)
@@ -431,27 +536,11 @@ function requestPrice(card: AvailableModelMarketplaceCard, pricing: UserSupporte
   return `${formatCompactRequestPrice(displayPrice(card, value, pricing))} ${props.pricingLabels.unitPerRequest}`
 }
 
-function hasTieredPricing(pricing: UserSupportedModelPricing): boolean {
-  return pricing.intervals.length > 0
-}
-
-
 function maxReasoningMultiplier(pricing: UserSupportedModelPricing | null): string | null {
   if (pricing?.billing_mode !== BILLING_MODE_TOKEN) return null
   const multiplier = pricing.max_reasoning_effort_multiplier
   if (typeof multiplier !== 'number' || !Number.isFinite(multiplier) || multiplier <= 0) return null
   return Number(multiplier.toFixed(4)).toString()
-}
-
-function tieredPricing(
-  card: AvailableModelMarketplaceCard,
-  pricing: UserSupportedModelPricing,
-): string {
-  return formatAvailableChannelIntervals(
-    scalePricing(pricing, effectiveDisplayMultiplier(card, pricing)),
-    props.pricingLabels,
-    { compact: true },
-  )
 }
 
 function displayPrice(
@@ -519,7 +608,7 @@ function hasTimePricing(pricing: UserSupportedModelPricing | null): boolean {
 }
 
 function activeTimePricingMultiplier(pricing: UserSupportedModelPricing | null): number {
-  return getActiveTimePricingMultiplier(pricing)
+  return getActiveTimePricingMultiplier(pricing, pricingTime.value)
 }
 
 function timePricingRows(
@@ -532,6 +621,7 @@ function timePricingRows(
       otherTimes: t('availableChannels.modelMarketplace.timePricing.otherTimes'),
       unnamedType: t('availableChannels.modelMarketplace.timePricing.unnamedType'),
     },
+    pricingTime.value,
   )
 }
 
@@ -545,6 +635,7 @@ function scalePricing(
     input_price: scale(pricing.input_price),
     output_price: scale(pricing.output_price),
     cache_write_price: scale(pricing.cache_write_price),
+    cache_write_1h_price: scale(pricing.cache_write_1h_price ?? null),
     cache_read_price: scale(pricing.cache_read_price),
     image_input_price: scale(pricing.image_input_price),
     image_output_price: scale(pricing.image_output_price),
@@ -554,6 +645,7 @@ function scalePricing(
       input_price: scale(interval.input_price),
       output_price: scale(interval.output_price),
       cache_write_price: scale(interval.cache_write_price),
+      cache_write_1h_price: scale(interval.cache_write_1h_price ?? null),
       cache_read_price: scale(interval.cache_read_price),
       per_request_price: scale(interval.per_request_price),
     })),
