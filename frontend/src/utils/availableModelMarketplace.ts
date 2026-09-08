@@ -2,9 +2,11 @@ import type {
   UserAvailableChannel,
   UserAvailableGroup,
   UserSupportedEndpoint,
+  UserSupportedModel,
   UserSupportedModelPricing,
 } from '@/api/channels'
 import type { BillingMode } from '@/constants/channel'
+import type { ModelRuntimeMetrics } from '@/components/channels/modelRuntimeMetrics'
 import { resolveAvailableModelGroupContexts } from '@/utils/availableChannelCallability'
 import {
   resolveAvailableModelGroupPricing,
@@ -31,6 +33,8 @@ export interface AvailableModelMarketplaceCard {
   endpoints: UserSupportedEndpoint[]
   pricingOptions: Array<UserSupportedModelPricing | null>
   routes: AvailableModelRoute[]
+  hasSchedulableAccount?: boolean
+  runtimeMetrics?: ModelRuntimeMetrics
 }
 
 export interface AvailableModelMarketplaceOptions {
@@ -47,6 +51,8 @@ interface MutableModelCard {
   endpoints: Map<string, UserSupportedEndpoint>
   pricingOptions: Map<string, UserSupportedModelPricing | null>
   routes: AvailableModelRoute[]
+  hasSchedulableAccount?: boolean
+  runtimeMetrics?: ModelRuntimeMetrics
 }
 
 export function buildAvailableModelMarketplaceCards(
@@ -72,6 +78,13 @@ export function buildAvailableModelMarketplaceCards(
 
           const id = `${group.id}::${model.name}`
           const card = cards.get(id) ?? createMutableCard(model.name, group)
+          const hasSchedulableAccount = modelHasSchedulableAccount(model, group.id)
+          if (hasSchedulableAccount != null) {
+            card.hasSchedulableAccount = card.hasSchedulableAccount === true ? true : hasSchedulableAccount
+          }
+          if (!card.runtimeMetrics) {
+            card.runtimeMetrics = modelRuntimeMetricsForGroup(model, group.id)
+          }
           card.platforms.set(section.platform, section.platform)
           card.channelNames.set(channel.name, channel.name)
           endpoints.forEach(endpoint => {
@@ -103,8 +116,36 @@ export function buildAvailableModelMarketplaceCards(
       endpoints: Array.from(card.endpoints.values()).sort(compareEndpoints),
       pricingOptions: Array.from(card.pricingOptions.values()),
       routes: [...card.routes].sort(compareRoutes),
+      hasSchedulableAccount: card.hasSchedulableAccount,
+      runtimeMetrics: card.runtimeMetrics,
     }))
     .sort((a, b) => compareGroups(a.group, b.group) || localeCompare(a.name, b.name))
+}
+
+function modelHasSchedulableAccount(model: UserSupportedModel, groupID: number): boolean | undefined {
+  if (!Array.isArray(model.schedulable_group_ids)) return undefined
+  return model.schedulable_group_ids.includes(groupID)
+}
+
+function modelRuntimeMetricsForGroup(model: UserSupportedModel, groupID: number): ModelRuntimeMetrics | undefined {
+  if (!Array.isArray(model.runtime_metrics)) return undefined
+  const entry = model.runtime_metrics.find((item) => item.group_id === groupID)
+  if (!entry?.metrics) return undefined
+  return {
+    windowHours: entry.metrics.window_hours,
+    updatedAt: entry.metrics.updated_at,
+    successRate: entry.metrics.success_rate,
+    averageLatencyMs: entry.metrics.average_latency_ms,
+    latencyKind: entry.metrics.latency_kind,
+    sampleState: entry.metrics.sample_state,
+    throughputTokensPerSecond: entry.metrics.throughput_tokens_per_second,
+    hours: entry.metrics.hours.map((hour) => ({
+      startedAt: hour.started_at,
+      successRate: hour.success_rate,
+      averageLatencyMs: hour.average_latency_ms,
+      requestVolume: hour.request_volume,
+    })),
+  }
 }
 
 export function modelHasPricing(pricing: UserSupportedModelPricing | null): boolean {
@@ -175,8 +216,14 @@ function compareGroups(a: UserAvailableGroup, b: UserAvailableGroup): number {
   return localeCompare(a.name, b.name)
 }
 
+const endpointProtocolOrder: Record<UserSupportedEndpoint['protocol'], number> = {
+  openai_chat_completions: 0,
+  anthropic_messages: 1,
+  openai_responses: 2,
+}
+
 function compareEndpoints(a: UserSupportedEndpoint, b: UserSupportedEndpoint): number {
-  const protocolOrder = localeCompare(a.protocol, b.protocol)
+  const protocolOrder = endpointProtocolOrder[a.protocol] - endpointProtocolOrder[b.protocol]
   return protocolOrder !== 0 ? protocolOrder : localeCompare(a.path, b.path)
 }
 

@@ -556,6 +556,27 @@ export default {
             table: 'Pricing Table'
         },
         modelMarketplace: {
+            reference: {
+                cacheRead: 'Cache read', cacheWrite: 'Cache write',
+                previewNotice: 'Design preview · Availability and 24-hour metrics are simulated; prices use your current configuration'
+            },
+            availability: {
+                noAccounts: 'No available accounts'
+            },
+            runtime: {
+                throughput: 'Throughput', volumeHint: 'Each bar is one hour; height shows request volume and color shows success rate.',
+                title: 'Service performance',
+                window: '24h',
+                successRate: 'Success rate',
+                firstToken: 'Avg. first token',
+                generation: 'Avg. generation',
+                response: 'Avg. response',
+                seconds: '{value}s',
+                hourHint: 'Each bar is one hour; height and color show success rate. Gray means no requests.',
+                noRequests: 'No requests',
+                lowSamples: 'Few samples',
+                preview: 'Sample data',
+            },
             groupCardLabel: 'Model {name} in group {group}',
             copyModel: 'Copy model name {name}',
             modelCopied: 'Model name copied',

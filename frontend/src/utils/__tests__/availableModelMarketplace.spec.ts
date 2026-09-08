@@ -129,6 +129,19 @@ const channels: UserAvailableChannel[] = [
 ]
 
 describe('buildAvailableModelMarketplaceCards', () => {
+  it('orders published endpoints as chat completions, messages, then responses across routes', () => {
+    const input = structuredClone(channels)
+    input[0].platforms[0].supported_models[0].supported_endpoints = [
+      { protocol: 'openai_responses', path: '/v1/responses', group_ids: [1] },
+      { protocol: 'anthropic_messages', path: '/v1/messages', group_ids: [1] },
+      { protocol: 'openai_chat_completions', path: '/v1/chat/completions', group_ids: [1] },
+    ]
+    const card = buildAvailableModelMarketplaceCards(input).find(item => item.group.id === 1)
+    expect(card?.endpoints.map(endpoint => endpoint.path)).toEqual([
+      '/v1/chat/completions', '/v1/messages', '/v1/responses',
+    ])
+  })
+
 	it('aggregates group-specific image tiers using settlement fallback precedence', () => {
 		const imageChannels: UserAvailableChannel[] = [{
 			name: 'images',
@@ -203,8 +216,8 @@ describe('buildAvailableModelMarketplaceCards', () => {
     ])
     expect(exclusiveMinimax?.channelNames).toEqual(['channel-a'])
     expect(exclusiveMinimax?.endpoints.map(endpoint => endpoint.protocol)).toEqual([
-      'anthropic_messages',
       'openai_chat_completions',
+      'anthropic_messages',
     ])
     expect(anthropicMinimax?.channelNames).toEqual(['channel-b'])
     expect(anthropicMinimax?.endpoints.map(endpoint => endpoint.protocol)).toEqual([
@@ -224,8 +237,8 @@ describe('buildAvailableModelMarketplaceCards', () => {
     expect(exclusiveCards[0].channelNames).toEqual(['channel-a'])
     expect(exclusiveCards[0].group.name).toBe('专属组')
     expect(exclusiveCards[0].endpoints.map(endpoint => endpoint.protocol)).toEqual([
-      'anthropic_messages',
       'openai_chat_completions',
+      'anthropic_messages',
     ])
 
     const unpricedCards = buildAvailableModelMarketplaceCards(channels, { priceStatus: 'unpriced' })
@@ -333,5 +346,74 @@ describe('buildAvailableModelMarketplaceCards', () => {
     expect(cards[0].name).toBe('configured-but-not-routable')
     expect(cards[0].group.id).toBe(publicGroup.id)
     expect(cards[0].endpoints).toEqual([])
+  })
+
+  it('keeps schedulable account state and runtime metrics isolated per group/model card', () => {
+    const metricHours = [{
+      started_at: '2026-09-08T23:00:00Z',
+      success_rate: 1,
+      average_latency_ms: 1200,
+      request_volume: 7,
+    }]
+    const runtimeMetric = {
+      group_id: publicGroup.id,
+      metrics: {
+        window_hours: 24 as const,
+        updated_at: '2026-09-09T00:00:00Z',
+        success_rate: 1,
+        average_latency_ms: 1200,
+        latency_kind: 'firstToken' as const,
+        sample_state: 'ready' as const,
+        throughput_tokens_per_second: 51,
+        hours: metricHours,
+      },
+    }
+    const mixedChannels: UserAvailableChannel[] = [{
+      name: 'runtime-channel',
+      description: '',
+      platforms: [{
+        platform: 'openai',
+        groups: [publicGroup, exclusiveGroup],
+        supported_models: [{
+          name: 'MiniMax-M3',
+          platform: 'openai',
+          pricing,
+          catalog_group_ids: [publicGroup.id, exclusiveGroup.id],
+          schedulable_group_ids: [publicGroup.id],
+          runtime_metrics: [runtimeMetric],
+          supported_endpoints: [],
+        }],
+      }],
+    }]
+
+    const cards = buildAvailableModelMarketplaceCards(mixedChannels)
+    const publicCard = cards.find(card => card.id === `${publicGroup.id}::MiniMax-M3`)
+    const exclusiveCard = cards.find(card => card.id === `${exclusiveGroup.id}::MiniMax-M3`)
+
+    expect(publicCard?.hasSchedulableAccount).toBe(true)
+    expect(publicCard?.runtimeMetrics).toEqual({
+      windowHours: 24,
+      updatedAt: '2026-09-09T00:00:00Z',
+      successRate: 1,
+      averageLatencyMs: 1200,
+      latencyKind: 'firstToken',
+      sampleState: 'ready',
+      throughputTokensPerSecond: 51,
+      hours: [{
+        startedAt: '2026-09-08T23:00:00Z',
+        successRate: 1,
+        averageLatencyMs: 1200,
+        requestVolume: 7,
+      }],
+    })
+    expect(exclusiveCard?.hasSchedulableAccount).toBe(false)
+    expect(exclusiveCard?.runtimeMetrics).toBeUndefined()
+  })
+
+  it('leaves account availability unknown when the backend omits schedulable metadata', () => {
+    const cards = buildAvailableModelMarketplaceCards(channels)
+
+    expect(cards.every(card => card.hasSchedulableAccount === undefined)).toBe(true)
+    expect(cards.every(card => card.runtimeMetrics === undefined)).toBe(true)
   })
 })

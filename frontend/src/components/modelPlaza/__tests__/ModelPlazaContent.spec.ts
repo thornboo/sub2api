@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent } from 'vue'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ModelPlazaResponse } from '@/api/modelPlaza'
 import ModelPlazaContent from '../ModelPlazaContent.vue'
@@ -82,6 +82,8 @@ const MarketplaceStub = defineComponent({
     userGroupRates: { type: Object, required: true },
     emptyLabel: { type: String, required: true },
     applyRateMultiplier: Boolean,
+    showGroupRates: Boolean,
+    runtimeMetrics: Object,
   },
   template: '<div data-testid="marketplace-stub"></div>',
 })
@@ -101,6 +103,8 @@ function mountContent() {
     },
   })
 }
+
+afterEach(() => vi.unstubAllEnvs())
 
 describe('ModelPlazaContent', () => {
   it('renders only public standard group cards through the shared marketplace contract', () => {
@@ -122,11 +126,77 @@ describe('ModelPlazaContent', () => {
       '/v1/chat/completions',
     ])
     expect(marketplace.props('applyRateMultiplier')).toBe(true)
+    expect(marketplace.props('showGroupRates')).toBe(true)
     expect(marketplace.props('userGroupRates')).toEqual({})
+    expect(marketplace.props('runtimeMetrics')).toBeUndefined()
     expect(wrapper.text()).not.toContain('modelPlaza.publicHint')
     expect(wrapper.text()).not.toContain('modelPlaza.filters.rateLabel')
     expect(wrapper.html()).not.toContain('exclusive')
     expect(wrapper.html()).not.toContain('subscription')
+  })
+
+  it('does not supply simulated metrics or account states in development', () => {
+    const wrapper = mountContent()
+    expect(wrapper.findComponent(MarketplaceStub).props('runtimeMetrics')).toBeUndefined()
+    expect(wrapper.text()).not.toContain('availableChannels.modelMarketplace.reference.previewNotice')
+    wrapper.unmount()
+  })
+
+  it('passes runtime metrics supplied by the catalog response only for visible cards', async () => {
+    const wrapper = mount(ModelPlazaContent, {
+      props: {
+        response: {
+          ...response,
+          channels: [{
+            ...response.channels[0],
+            platforms: [{
+              ...response.channels[0].platforms[0],
+              supported_models: response.channels[0].platforms[0].supported_models.map((model) => model.name === 'deepseek-v4-flash'
+                ? {
+                    ...model,
+                    runtime_metrics: [{
+                      group_id: publicGroup.id,
+                      metrics: {
+                        window_hours: 24 as const,
+                        updated_at: '2026-09-09T00:00:00Z',
+                        success_rate: 0.999,
+                        average_latency_ms: 1360,
+                        latency_kind: 'firstToken' as const,
+                        sample_state: 'ready' as const,
+                        throughput_tokens_per_second: 51,
+                        hours: [{
+                          started_at: '2026-09-08T23:00:00Z',
+                          success_rate: 1,
+                          average_latency_ms: 1200,
+                          request_volume: 12,
+                        }],
+                      },
+                    }],
+                  }
+                : model),
+            }],
+          }],
+        },
+        loading: false,
+      },
+      global: {
+        stubs: {
+          AvailableModelMarketplace: MarketplaceStub,
+          Icon: true,
+          PlatformIcon: true,
+        },
+      },
+    })
+
+    expect(Object.keys(wrapper.findComponent(MarketplaceStub).props('runtimeMetrics'))).toEqual([
+      '1::deepseek-v4-flash',
+    ])
+
+    await wrapper.get('input[type="text"]').setValue('pro')
+    await flushPromises()
+
+    expect(wrapper.findComponent(MarketplaceStub).props('runtimeMetrics')).toBeUndefined()
+    wrapper.unmount()
   })
 
   it('filters the public cards by model name without changing the source response', async () => {

@@ -90,6 +90,7 @@
         <AvailableModelMarketplace
           v-if="viewMode === 'cards'"
           :cards="marketplaceCards"
+          :runtime-metrics="runtimeMetrics"
           :loading="loading"
           :pricing-labels="pricingLabels"
           :user-group-rates="userGroupRates"
@@ -192,6 +193,7 @@ import {
   type AvailableChannelStatusScope,
 } from '@/utils/availableChannelsCatalog'
 import { buildAvailableModelMarketplaceCards } from '@/utils/availableModelMarketplace'
+import { buildModelRuntimeMetricsMap } from '@/components/channels/modelRuntimeMetrics'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -360,6 +362,8 @@ const marketplaceCards = computed(() =>
     priceStatus: priceStatusFilter.value,
   }),
 )
+
+const runtimeMetrics = computed(() => buildModelRuntimeMetricsMap(marketplaceCards.value))
 
 const modelRows = computed(() =>
   buildAvailableChannelCatalogRows(filteredChannels.value, {

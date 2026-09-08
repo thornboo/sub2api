@@ -4,6 +4,7 @@ import { defineComponent } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import AvailableModelMarketplace from '../AvailableModelMarketplace.vue'
+import { createModelRuntimeMetricsPreview } from '../modelRuntimeMetrics'
 import type { AvailableModelMarketplaceCard } from '@/utils/availableModelMarketplace'
 import { BILLING_MODE_IMAGE, BILLING_MODE_TOKEN } from '@/constants/channel'
 
@@ -12,6 +13,7 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
+      locale: { value: 'zh' },
       t: (key: string, params?: Record<string, string | number>) => {
         if (!params) return key
         return `${key}:${Object.values(params).join(':')}`
@@ -785,5 +787,39 @@ describe('AvailableModelMarketplace', () => {
     } finally {
       wrapper.unmount()
     }
+  })
+})
+
+describe('marketplace layout preview', () => {
+  it('retains configured prices and uses hourly graphics only when preview data is supplied', () => {
+    const source = [cards[0]]
+    const original = mountMarketplace({ cards: source })
+    const inputPrice = original.get('[data-testid="effective-input-price"]').text()
+    const outputPrice = original.get('[data-testid="effective-output-price"]').text()
+    expect(original.find('[data-testid="model-runtime-metrics"]').exists()).toBe(false)
+    original.unmount()
+
+    const preview = mountMarketplace({ cards: source, runtimeMetrics: createModelRuntimeMetricsPreview(source) })
+    expect(preview.get('[data-testid="effective-input-price"]').text()).toBe(inputPrice)
+    expect(preview.get('[data-testid="effective-output-price"]').text()).toBe(outputPrice)
+    expect(preview.findAll('[data-testid="runtime-hour-bar"]')).toHaveLength(24)
+    expect(preview.text()).not.toContain('Credits')
+    preview.unmount()
+  })
+
+  it('shows the single no-account notice from card schedulable state without runtime metrics', () => {
+    const unavailableCard: AvailableModelMarketplaceCard = {
+      ...cards[0],
+      hasSchedulableAccount: false,
+    }
+
+    const wrapper = mountMarketplace({ cards: [unavailableCard] })
+
+    expect(wrapper.find('[data-testid="model-runtime-metrics"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-testid="model-availability-notice"]')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="model-availability-notice"]').text()).toContain(
+      'availableChannels.modelMarketplace.availability.noAccounts',
+    )
+    wrapper.unmount()
   })
 })

@@ -47,11 +47,13 @@
       >
         <AvailableModelMarketplace
           :cards="filteredCards"
+          :runtime-metrics="runtimeMetrics"
           :loading="loading"
           :pricing-labels="pricingLabels"
           :user-group-rates="emptyGroupRates"
           :empty-label="searchActive ? t('modelPlaza.noSearchResult') : t('modelPlaza.empty')"
           apply-rate-multiplier
+          show-group-rates
         />
       </div>
     </template>
@@ -67,6 +69,7 @@ import DOMPurify from 'dompurify'
 import type { UserAvailableGroup } from '@/api/channels'
 import type { ModelPlazaResponse } from '@/api/modelPlaza'
 import AvailableModelMarketplace from '@/components/channels/AvailableModelMarketplace.vue'
+import { buildModelRuntimeMetricsMap } from '@/components/channels/modelRuntimeMetrics'
 import type { AvailableChannelPricingLabels } from '@/utils/availableChannelsCatalog'
 import {
   buildAvailableModelMarketplaceCards,
@@ -150,6 +153,8 @@ const filteredCards = computed<AvailableModelMarketplaceCard[]>(() => {
   }
   return cards
 })
+
+const runtimeMetrics = computed(() => buildModelRuntimeMetricsMap(filteredCards.value))
 
 const pricingLabels = computed<AvailableChannelPricingLabels>(() => ({
   billingModeToken: t('availableChannels.pricing.billingModeToken'),

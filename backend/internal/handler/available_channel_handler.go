@@ -26,6 +26,7 @@ type AvailableChannelHandler struct {
 	apiKeyService  *service.APIKeyService
 	settingService *service.SettingService
 	modelDelivery  *service.ModelDeliveryService
+	modelRuntime   *service.ModelRuntimeService
 }
 
 // NewAvailableChannelHandler 创建用户侧可用渠道 handler。
@@ -34,12 +35,14 @@ func NewAvailableChannelHandler(
 	apiKeyService *service.APIKeyService,
 	settingService *service.SettingService,
 	modelDelivery *service.ModelDeliveryService,
+	modelRuntime *service.ModelRuntimeService,
 ) *AvailableChannelHandler {
 	return &AvailableChannelHandler{
 		channelService: channelService,
 		apiKeyService:  apiKeyService,
 		settingService: settingService,
 		modelDelivery:  modelDelivery,
+		modelRuntime:   modelRuntime,
 	}
 }
 
@@ -137,8 +140,15 @@ type userSupportedModel struct {
 	GroupPricing  []userGroupModelPricing    `json:"group_pricing,omitempty"`
 	RouteGroupIDs []int64                    `json:"route_group_ids,omitempty"`
 	// CatalogGroupIDs describes publication independently of runtime callability.
-	CatalogGroupIDs    []int64                 `json:"catalog_group_ids,omitempty"`
-	SupportedEndpoints []userSupportedEndpoint `json:"supported_endpoints,omitempty"`
+	CatalogGroupIDs     []int64                 `json:"catalog_group_ids,omitempty"`
+	SupportedEndpoints  []userSupportedEndpoint `json:"supported_endpoints,omitempty"`
+	SchedulableGroupIDs *[]int64                `json:"schedulable_group_ids,omitempty"`
+	RuntimeMetrics      []userGroupModelRuntime `json:"runtime_metrics,omitempty"`
+}
+
+type userGroupModelRuntime struct {
+	GroupID int64                       `json:"group_id"`
+	Metrics service.ModelRuntimeMetrics `json:"metrics"`
 }
 
 type userGroupModelPricing struct {
@@ -226,6 +236,7 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 		return
 	}
 
+	attachModelRuntimeMetrics(c.Request.Context(), h.modelRuntime, out)
 	response.Success(c, out)
 }
 
@@ -334,6 +345,11 @@ func attachSupportedEndpoints(
 			for k := range section.SupportedModels {
 				model := &section.SupportedModels[k]
 				model.RouteGroupIDs = intersectVisibleGroupIDs(delivery.CallableGroupIDs(model.Name), visible)
+				scheduled := intersectVisibleGroupIDs(delivery.StableRouteGroupIDs(model.Name), visible)
+				if scheduled == nil {
+					scheduled = []int64{}
+				}
+				model.SchedulableGroupIDs = &scheduled
 				for _, protocol := range protocolOrder {
 					ids := intersectVisibleGroupIDs(delivery.NativeEndpointGroupIDs(model.Name, protocol), visible)
 					if len(ids) == 0 {

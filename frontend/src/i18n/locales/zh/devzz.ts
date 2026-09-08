@@ -556,6 +556,27 @@ export default {
             table: '价格表格'
         },
         modelMarketplace: {
+            reference: {
+                cacheRead: '缓存读取', cacheWrite: '缓存写入',
+                previewNotice: '样式预览 · 可用状态和近 24 小时运行指标为模拟数据，价格沿用当前配置'
+            },
+            availability: {
+                noAccounts: '暂无可用账号'
+            },
+            runtime: {
+                throughput: '吞吐', volumeHint: '每格代表 1 小时；柱高表示调用量，颜色表示成功率。',
+                title: '运行表现',
+                window: '近 24h',
+                successRate: '成功率',
+                firstToken: '平均首字延迟',
+                generation: '平均生成耗时',
+                response: '平均响应耗时',
+                seconds: '{value} 秒',
+                hourHint: '每格代表 1 小时，柱高和颜色表示成功率，灰色表示暂无调用。',
+                noRequests: '暂无调用',
+                lowSamples: '样本较少',
+                preview: '示例数据',
+            },
             groupCardLabel: '{group}中的模型 {name}',
             copyModel: '复制模型名 {name}',
             modelCopied: '模型名已复制',

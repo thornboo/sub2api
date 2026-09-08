@@ -9,9 +9,9 @@
     fill="currentColor"
     fill-rule="evenodd"
   >
-    <path v-for="(p, idx) in iconInfo.paths" :key="idx" :d="p" :fill="iconInfo.color" />
+    <path v-for="(p, idx) in iconInfo.paths" :key="idx" :d="p" :fill="monochrome ? 'currentColor' : iconInfo.color" />
   </svg>
-  <span v-else class="model-icon-fallback" :style="{ width: size, height: size, fontSize: `calc(${size} * 0.5)` }">
+  <span v-else class="model-icon-fallback" :class="{ 'model-icon-fallback-monochrome': monochrome }" :style="{ width: size, height: size, fontSize: `calc(${size} * 0.5)` }">
     {{ fallbackText }}
   </span>
 </template>
@@ -22,8 +22,10 @@ import { computed } from 'vue'
 const props = withDefaults(defineProps<{
   model: string
   size?: string
+  monochrome?: boolean
 }>(), {
-  size: '18px'
+  size: '18px',
+  monochrome: false
 })
 
 interface IconData {
@@ -261,7 +263,7 @@ const iconKey = computed(() => {
 const iconInfo = computed(() => iconKey.value ? iconData[iconKey.value] : null)
 const isDarkMonochrome = computed(() => {
   const color = iconInfo.value?.color.toUpperCase()
-  return color === '#000000' || color === '#16191E'
+  return !props.monochrome && (color === '#000000' || color === '#16191E')
 })
 </script>
 
@@ -278,5 +280,9 @@ const isDarkMonochrome = computed(() => {
   color: white;
   font-weight: 600;
   flex-shrink: 0;
+}
+.model-icon-fallback-monochrome {
+  background: none;
+  color: inherit;
 }
 </style>

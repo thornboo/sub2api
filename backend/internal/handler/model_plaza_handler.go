@@ -17,6 +17,7 @@ type ModelPlazaHandler struct {
 	channelService *service.ChannelService
 	settingService *service.SettingService
 	modelDelivery  *service.ModelDeliveryService
+	modelRuntime   *service.ModelRuntimeService
 }
 
 // NewModelPlazaHandler 创建模型广场 handler。
@@ -24,11 +25,13 @@ func NewModelPlazaHandler(
 	channelService *service.ChannelService,
 	settingService *service.SettingService,
 	modelDelivery *service.ModelDeliveryService,
+	modelRuntime *service.ModelRuntimeService,
 ) *ModelPlazaHandler {
 	return &ModelPlazaHandler{
 		channelService: channelService,
 		settingService: settingService,
 		modelDelivery:  modelDelivery,
+		modelRuntime:   modelRuntime,
 	}
 }
 
@@ -75,6 +78,7 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 		return
 	}
 
+	attachModelRuntimeMetrics(c.Request.Context(), h.modelRuntime, out)
 	response.Success(c, modelPlazaResponse{
 		Description: rt.Description,
 		Channels:    out,

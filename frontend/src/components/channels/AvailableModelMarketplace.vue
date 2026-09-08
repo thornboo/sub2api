@@ -32,13 +32,10 @@
           <span class="mt-0.5 h-5 w-1 shrink-0 rounded-full bg-emerald-500/80 dark:bg-emerald-400/70" />
           <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1.5">
             <h2 :id="`available-model-group-${section.group.id}`" class="min-w-0 max-w-full" :title="section.group.name">
-              <GroupBadge
-                class="max-w-full"
-                :name="section.group.name"
-                :platform="section.group.platform as GroupPlatform"
-                :subscription-type="(section.group.subscription_type || 'standard') as SubscriptionType"
-                :show-rate="false"
-              />
+              <span class="inline-flex max-w-full items-center gap-1.5 rounded-md bg-stone-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-white/[0.08] dark:text-emerald-300">
+                <PlatformIcon :platform="section.group.platform as GroupPlatform" size="sm" />
+                <span class="truncate">{{ section.group.name }}</span>
+              </span>
             </h2>
             <Popover v-for="rate in section.rates" :key="rate.kind">
               <PopoverTrigger as-child>
@@ -82,7 +79,7 @@
           {{ section.group.description }}
         </p>
 
-        <div class="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           <article
             v-for="card in section.cards"
             :key="card.id"
@@ -91,8 +88,8 @@
             :aria-label="t('availableChannels.modelMarketplace.groupCardLabel', { name: card.name, group: card.group.name })"
           >
             <header class="flex min-w-0 items-start gap-2.5">
-              <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-stone-200 bg-stone-50 dark:border-white/10 dark:bg-white/[0.06]">
-                <ModelIcon :model="card.name" size="20px" />
+              <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-stone-200/80 bg-stone-100/80 text-stone-600 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-stone-300">
+                <ModelIcon :model="card.name" size="20px" monochrome />
               </div>
 
               <div class="min-w-0 flex-1">
@@ -115,10 +112,7 @@
                   <span
                     v-for="platform in card.platforms"
                     :key="platform"
-                    :class="[
-                      'inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide',
-                      platformBadgeClass(platform),
-                    ]"
+                    class="inline-flex shrink-0 items-center gap-1 rounded bg-stone-100 px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-stone-500 dark:bg-white/[0.05] dark:text-stone-400"
                   >
                     <PlatformIcon :platform="platform as GroupPlatform" size="xs" />
                     {{ platformLabel(platform) }}
@@ -130,24 +124,24 @@
               </div>
             </header>
 
-            <section class="mt-2.5 rounded-lg bg-stone-50 px-2.5 py-2.5 dark:bg-black/15">
+            <section :class="card.pricingOptions.length === 1 && card.pricingOptions[0]?.billing_mode === BILLING_MODE_TOKEN ? 'mt-4' : 'mt-2.5 rounded-lg bg-stone-50 px-2.5 py-2.5 dark:bg-black/15'">
               <template v-if="card.pricingOptions.length === 1">
                 <div v-if="card.pricingOptions[0]">
                   <template v-if="card.pricingOptions[0]?.billing_mode === BILLING_MODE_TOKEN">
-                    <div class="grid grid-cols-2 divide-x divide-stone-200/80 dark:divide-white/[0.08]">
-                      <div class="min-w-0 pr-2.5">
+                    <div class="grid grid-cols-2 gap-2">
+                      <div class="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-2 rounded-lg bg-stone-50 p-3 dark:bg-white/[0.04]">
                         <div class="text-[10px] font-medium text-stone-500 dark:text-stone-400">
                           {{ t('availableChannels.pricing.inputPrice') }}
                         </div>
                         <strong
                           data-testid="effective-input-price"
-                          class="mt-0.5 block truncate font-mono text-lg font-bold leading-6 tracking-tight text-stone-950 dark:text-stone-100"
+                          class="mt-0.5 block truncate text-right font-mono text-lg font-bold leading-6 tracking-tight text-emerald-700 dark:text-emerald-300"
                         >
                           {{ formatCompactTokenPrice(displayPrice(card, card.pricingOptions[0]?.input_price ?? null, card.pricingOptions[0])) }}
                         </strong>
                         <div
                           v-if="showOriginalPrice(card, card.pricingOptions[0]?.input_price ?? null, card.pricingOptions[0])"
-                          class="mt-0.5 flex min-w-0 items-baseline gap-1 text-[10px] text-stone-400 dark:text-stone-500"
+                          class="col-span-2 mt-0.5 flex min-w-0 items-baseline justify-end gap-1 text-[10px] text-stone-400 dark:text-stone-500"
                         >
                           <span>{{ t('availableChannels.modelMarketplace.originalPrice') }}</span>
                           <del
@@ -159,19 +153,19 @@
                         </div>
                       </div>
 
-                      <div class="min-w-0 pl-2.5">
+                      <div class="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-2 rounded-lg bg-stone-50 p-3 dark:bg-white/[0.04]">
                         <div class="text-[10px] font-medium text-stone-500 dark:text-stone-400">
                           {{ t('availableChannels.pricing.outputPrice') }}
                         </div>
                         <strong
                           data-testid="effective-output-price"
-                          class="mt-0.5 block truncate font-mono text-lg font-bold leading-6 tracking-tight text-stone-950 dark:text-stone-100"
+                          class="mt-0.5 block truncate text-right font-mono text-lg font-bold leading-6 tracking-tight text-emerald-700 dark:text-emerald-300"
                         >
                           {{ formatCompactTokenPrice(displayPrice(card, card.pricingOptions[0]?.output_price ?? null, card.pricingOptions[0])) }}
                         </strong>
                         <div
                           v-if="showOriginalPrice(card, card.pricingOptions[0]?.output_price ?? null, card.pricingOptions[0])"
-                          class="mt-0.5 flex min-w-0 items-baseline gap-1 text-[10px] text-stone-400 dark:text-stone-500"
+                          class="col-span-2 mt-0.5 flex min-w-0 items-baseline justify-end gap-1 text-[10px] text-stone-400 dark:text-stone-500"
                         >
                           <span>{{ t('availableChannels.modelMarketplace.originalPrice') }}</span>
                           <del
@@ -193,7 +187,7 @@
                       </div>
 
                       <span
-                        v-if="isDiscountedPrice(card, card.pricingOptions[0])"
+                        v-if="!runtimeMetrics?.[card.id] && isDiscountedPrice(card, card.pricingOptions[0])"
                         data-testid="price-discount"
                         class="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
                       >
@@ -238,7 +232,7 @@
                         align="start"
                         :collision-padding="16"
                         :aria-label="`${card.name} · ${t('availableChannels.modelMarketplace.timePricing.title')}`"
-                        class="flex max-h-[min(80dvh,var(--reka-popover-content-available-height))] w-[42rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl"
+                        class="flex max-h-[min(80dvh,var(--reka-popover-content-available-height))] w-max max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl"
                       >
                         <div class="flex shrink-0 items-start justify-between gap-3 border-b border-stone-200/80 px-3 py-2.5 dark:border-white/[0.08]">
                           <div class="min-w-0">
@@ -256,7 +250,7 @@
                           </PopoverClose>
                         </div>
                         <div class="min-h-0 overflow-auto overscroll-contain">
-                          <table class="w-full min-w-[36rem] text-left text-[11px]">
+                          <table class="w-full text-left text-[11px]">
                             <thead class="bg-stone-50/80 text-[9px] uppercase tracking-wide text-stone-400 dark:bg-black/10 dark:text-stone-500">
                               <tr>
                                 <th class="whitespace-nowrap px-2 py-1 font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.window') }}</th>
@@ -328,7 +322,7 @@
                         </span>
                       </div>
                     </div>
-                    <div class="shrink-0 font-mono text-[13px] font-semibold text-stone-950 dark:text-stone-100">
+                    <div class="shrink-0 font-mono text-[13px] font-semibold text-emerald-700 dark:text-emerald-300">
                       {{ requestPrice(card, card.pricingOptions[0]) }}
                     </div>
                   </div>
@@ -357,6 +351,13 @@
               </div>
             </section>
 
+            <div v-if="card.pricingOptions.length === 1 && card.pricingOptions[0]?.billing_mode === BILLING_MODE_TOKEN" class="mt-3 space-y-1.5 text-[11px]">
+              <div v-for="cache in cachePriceRows(card)" :key="cache.key" class="flex items-center justify-between gap-2">
+                <span class="text-stone-500 dark:text-stone-400">{{ t(`availableChannels.modelMarketplace.reference.${cache.key}`) }}</span>
+                <span class="font-mono text-stone-700 dark:text-stone-300">{{ formatCompactTokenPrice(cache.value) }} <span class="text-[10px] text-stone-400">{{ pricingLabels.unitPerMillion }}</span></span>
+              </div>
+            </div>
+
             <div class="mt-2.5 flex-1">
               <section class="flex min-w-0 items-center gap-2">
                 <span class="w-10 shrink-0 whitespace-nowrap text-[10px] text-stone-400 dark:text-stone-500">{{ t('availableChannels.modelMarketplace.availableChannels') }}</span>
@@ -374,6 +375,19 @@
                   </span>
                 </div>
               </section>
+              <p
+                v-if="card.hasSchedulableAccount === false || runtimeMetrics?.[card.id]?.hasSchedulableAccount === false"
+                data-testid="model-availability-notice"
+                class="mt-2.5 flex items-start gap-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2.5 text-xs font-semibold leading-5 text-amber-800 dark:border-amber-400/25 dark:bg-amber-400/10 dark:text-amber-300"
+              >
+                <Icon
+                  name="exclamationTriangle"
+                  size="sm"
+                  class="mt-0.5 shrink-0"
+                  aria-hidden="true"
+                />
+                <span>{{ t('availableChannels.modelMarketplace.availability.noAccounts') }}</span>
+              </p>
             </div>
 
             <footer class="mt-2.5 flex min-w-0 items-start gap-2 border-t border-stone-200/80 pt-2 dark:border-white/[0.08]">
@@ -383,10 +397,7 @@
                   v-for="endpoint in card.endpoints"
                   :key="`${endpoint.protocol}:${endpoint.path}`"
                   type="button"
-                  :class="[
-                    'inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[9px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-stone-950',
-                    endpointClass(endpoint.protocol),
-                  ]"
+                  class="inline-flex shrink-0 items-center gap-1 rounded bg-stone-100 px-1.5 py-0.5 font-mono text-[9px] font-medium text-stone-600 transition hover:bg-stone-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 focus-visible:ring-offset-1 dark:bg-white/[0.06] dark:text-stone-300 dark:hover:bg-white/10 dark:focus-visible:ring-offset-stone-950"
                   :aria-label="t('availableChannels.endpoints.copyHint', { path: endpoint.path })"
                   :title="`${endpointLabel(endpoint.protocol)} · ${endpoint.path}`"
                   @click="copyEndpoint(endpoint.path)"
@@ -400,6 +411,12 @@
                 {{ t('availableChannels.modelMarketplace.endpointUnavailable') }}
               </div>
             </footer>
+            <AvailableModelRuntimeMetrics
+              v-if="runtimeMetrics?.[card.id]"
+              :metrics="runtimeMetrics[card.id]!"
+              :throughput="runtimeMetrics[card.id]?.throughputTokensPerSecond ?? undefined"
+              :savings="isDiscountedPrice(card) ? Number(discountPercent(card)) : undefined"
+            />
           </article>
         </div>
       </section>
@@ -415,8 +432,9 @@ import { PopoverClose } from 'reka-ui'
 
 import type { UserAvailableGroup, UserSupportedEndpoint, UserSupportedModelPricing } from '@/api/channels'
 import AvailableModelTierPricing from './AvailableModelTierPricing.vue'
+import AvailableModelRuntimeMetrics from './AvailableModelRuntimeMetrics.vue'
+import type { ModelRuntimeMetrics } from './modelRuntimeMetrics'
 import ModelIcon from '@/components/common/ModelIcon.vue'
-import GroupBadge from '@/components/common/GroupBadge.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -424,7 +442,7 @@ import {
   BILLING_MODE_IMAGE,
   BILLING_MODE_TOKEN,
 } from '@/constants/channel'
-import type { GroupPlatform, SubscriptionType } from '@/types'
+import type { GroupPlatform } from '@/types'
 import { useClipboard } from '@/composables/useClipboard'
 import {
   buildTimePricingDisplayRows,
@@ -440,7 +458,7 @@ import {
   type AvailableChannelPricingLabels,
 } from '@/utils/availableChannelsCatalog'
 import type { AvailableModelMarketplaceCard } from '@/utils/availableModelMarketplace'
-import { platformBadgeClass, platformLabel } from '@/utils/platformColors'
+import { platformLabel } from '@/utils/platformColors'
 
 const props = defineProps<{
   cards: AvailableModelMarketplaceCard[]
@@ -450,6 +468,7 @@ const props = defineProps<{
   userGroupRates: Record<number, number>
   applyRateMultiplier?: boolean
   showGroupRates?: boolean
+  runtimeMetrics?: Record<string, ModelRuntimeMetrics>
 }>()
 
 const { t } = useI18n()
@@ -457,6 +476,14 @@ const { copyToClipboard } = useClipboard()
 
 const MAX_VISIBLE_CHANNELS = 2
 const RATE_COMPARISON_EPSILON = 1e-9
+
+function cachePriceRows(card: AvailableModelMarketplaceCard) {
+  const pricing = card.pricingOptions[0]
+  return [
+    { key: 'cacheRead', value: displayPrice(card, pricing?.cache_read_price ?? null, pricing) },
+    { key: 'cacheWrite', value: displayPrice(card, pricing?.cache_write_price ?? null, pricing) },
+  ]
+}
 
 // One clock per marketplace; only minute changes invalidate price calculations.
 const { now, pause, resume } = useNow({ interval: 1000, controls: true })
@@ -660,17 +687,6 @@ function endpointLabel(protocol: UserSupportedEndpoint['protocol']): string {
       return 'Chat'
     case 'openai_responses':
       return 'Responses'
-  }
-}
-
-function endpointClass(protocol: UserSupportedEndpoint['protocol']): string {
-  switch (protocol) {
-    case 'anthropic_messages':
-      return 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 focus-visible:ring-amber-500/40 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/15'
-    case 'openai_chat_completions':
-      return 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 focus-visible:ring-emerald-500/40 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/15'
-    case 'openai_responses':
-      return 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 focus-visible:ring-sky-500/40 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-300 dark:hover:bg-sky-500/15'
   }
 }
 

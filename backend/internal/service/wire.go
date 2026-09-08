@@ -970,6 +970,7 @@ var ProviderSet = wire.NewSet(
 	NewAccountService,
 	ProvideModelProtocolCapabilityService,
 	ProvideModelDeliveryService,
+	ProvideModelRuntimeService,
 	ProvideRoutingEligibilityRuntime,
 	ProvideEnterpriseMemberRoutePlanner,
 	ProvideEnterpriseMemberAliasReviewService,
@@ -1192,6 +1193,14 @@ func ProvideModelSelfCheckRunner(svc *ModelSelfCheckService, settingService *Set
 	r := NewModelSelfCheckRunner(svc, settingService)
 	r.Start()
 	return r
+}
+
+// ProvideModelRuntimeService uses the existing error recorder, not monitor probes
+// or monitor-v2 rollups. Never publish a success rate when failure logging is off.
+func ProvideModelRuntimeService(repo ModelRuntimeRepository, ops *OpsService) *ModelRuntimeService {
+	svc := NewModelRuntimeService(repo)
+	svc.failureLogsEnabled = ops.IsMonitoringEnabled
+	return svc
 }
 
 // ProvideChannelMonitorV2Service wires settings for user-facing privacy flags

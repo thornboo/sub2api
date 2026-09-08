@@ -254,7 +254,7 @@ func TestModelPlazaHandler_AnonymousAndAuthenticatedResponsesAreIdentical(t *tes
 		service.SettingKeyModelPlazaRequireAuth: "false",
 		service.SettingKeyModelPlazaDescription: "public catalog",
 	}}, cfg)
-	h := NewModelPlazaHandler(channelService, settingService, delivery)
+	h := NewModelPlazaHandler(channelService, settingService, delivery, nil)
 
 	invoke := func(subject *middleware.AuthSubject) []byte {
 		t.Helper()

@@ -87,13 +87,36 @@ export interface UserSupportedModel {
   }>
   catalog_group_ids?: number[]
   route_group_ids?: number[]
+  schedulable_group_ids?: number[]
   supported_endpoints?: UserSupportedEndpoint[]
+  runtime_metrics?: UserSupportedModelRuntimeMetric[]
 }
 
 export interface UserSupportedEndpoint {
   protocol: 'anthropic_messages' | 'openai_chat_completions' | 'openai_responses'
   path: string
   group_ids: number[]
+}
+
+export interface UserSupportedModelRuntimeHour {
+  started_at: string
+  success_rate: number | null
+  average_latency_ms: number | null
+  request_volume: number
+}
+
+export interface UserSupportedModelRuntimeMetric {
+  group_id: number
+  metrics: {
+    window_hours: 24
+    updated_at: string
+    success_rate: number | null
+    average_latency_ms: number | null
+    latency_kind: 'firstToken' | 'generation' | 'response'
+    sample_state: 'ready' | 'low' | 'empty'
+    throughput_tokens_per_second: number | null
+    hours: UserSupportedModelRuntimeHour[]
+  }
 }
 
 /**
@@ -148,8 +171,25 @@ export function normalizeAvailableChannels<T extends UserAvailableChannel>(
         if (Array.isArray(model.route_group_ids)) {
           normalized.route_group_ids = arrayOrEmpty(model.route_group_ids)
         }
+        if (Array.isArray(model.schedulable_group_ids)) {
+          normalized.schedulable_group_ids = arrayOrEmpty(model.schedulable_group_ids)
+        }
         if (Array.isArray(model.catalog_group_ids)) {
           normalized.catalog_group_ids = arrayOrEmpty(model.catalog_group_ids)
+        }
+        if (Array.isArray(model.runtime_metrics)) {
+          normalized.runtime_metrics = model.runtime_metrics
+            .filter((entry) => typeof entry?.group_id === 'number' && entry.metrics)
+            .map((entry) => ({
+              ...entry,
+              metrics: {
+                ...entry.metrics,
+                hours: arrayOrEmpty(entry.metrics.hours).map((hour) => ({
+                  ...hour,
+                  request_volume: hour.request_volume ?? 0,
+                })),
+              },
+            }))
         }
         if (Array.isArray(model.group_pricing)) {
           normalized.group_pricing = model.group_pricing.map((entry) => ({

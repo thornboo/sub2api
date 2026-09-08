@@ -60,10 +60,7 @@ const tokenColumns = computed(() => {
       align="start"
       :collision-padding="16"
       :aria-label="`${modelName} · ${t('availableChannels.modelMarketplace.tieredPricing')}`"
-      :class="[
-        'flex max-h-[min(80dvh,var(--reka-popover-content-available-height))] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl',
-        isToken && tokenColumns.length > 2 ? 'w-[42rem]' : 'w-[32rem]',
-      ]"
+      class="flex max-h-[min(80dvh,var(--reka-popover-content-available-height))] w-max max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl"
     >
       <div class="flex shrink-0 items-start justify-between gap-3 border-b border-stone-200/80 px-3 py-2.5 dark:border-white/[0.08]">
         <div class="min-w-0">
@@ -84,7 +81,7 @@ const tokenColumns = computed(() => {
         </PopoverClose>
       </div>
       <div class="min-h-0 overflow-auto overscroll-contain">
-        <table :class="['w-full text-left text-xs', isToken && tokenColumns.length > 2 ? 'min-w-[32rem]' : 'min-w-[18rem]']">
+        <table class="w-full text-left text-xs">
           <thead class="bg-stone-50/80 text-[10px] text-stone-500 dark:bg-black/10 dark:text-stone-400">
             <tr>
               <th scope="col" class="whitespace-nowrap px-3 py-2 font-medium">{{ t(`availableChannels.modelMarketplace.tierPricing.${isToken ? 'range' : 'tier'}`) }}</th>
@@ -96,7 +93,7 @@ const tokenColumns = computed(() => {
           </thead>
           <tbody class="divide-y divide-stone-200/70 dark:divide-white/[0.07]">
             <tr v-for="(interval, index) in intervals" :key="index" data-testid="tier-pricing-row">
-              <th scope="row" class="px-3 py-2.5 text-left font-mono font-medium tabular-nums text-stone-700 dark:text-stone-200">
+              <th scope="row" class="whitespace-nowrap px-3 py-2.5 text-left font-mono font-medium tabular-nums text-stone-700 dark:text-stone-200">
                 {{ formatAvailableChannelIntervalLabel(interval) }}
               </th>
               <template v-if="isToken">
