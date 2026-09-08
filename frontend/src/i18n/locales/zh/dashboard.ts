@@ -524,7 +524,24 @@ export default {
     relativeSecondsAgo: '{n} 秒前',
     relativeMinutesAgo: '{n} 分钟前',
     relativeHoursAgo: '{n} 小时前',
-    relativeDaysAgo: '{n} 天前'
+    relativeDaysAgo: '{n} 天前',
+    timelineReason: {
+      no_available_account: '暂无可用服务',
+      no_eligible_account: '暂无可用服务',
+      no_fresh_probe: '暂无新鲜探测',
+      partial_degraded: '服务存在波动',
+      all_degraded: '整体降级',
+      all_probe_failed: '探测失败',
+      checking: '检测中',
+      fallback_succeeded: '服务已恢复',
+      retry_succeeded: '重试后恢复',
+      stale_probe: '探测证据已过期',
+      transient_probe_failed: '探测异常',
+      probe_paused: '检测已暂停',
+      rate_limited: '短期限流',
+      round_deadline: '探测超时',
+      round_incomplete: '探测未完成'
+    }
   },
 
   // Channel Status (user-facing read-only view)
@@ -536,6 +553,7 @@ export default {
     loadError: '加载渠道状态失败',
     detailLoadError: '加载渠道详情失败',
     detailTitle: '渠道详情',
+    recentServiceStatus: '近期服务状态',
     closeDetail: '关闭',
     windowTab: {
       '7d': '7 天',

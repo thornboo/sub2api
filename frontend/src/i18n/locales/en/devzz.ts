@@ -379,7 +379,24 @@ export default {
         status: {
             unknown: 'Unknown'
         },
-        history60pts: 'LAST {n} CHECKS'
+        history60pts: 'LAST {n} CHECKS',
+        timelineReason: {
+            no_available_account: 'Service unavailable',
+            no_eligible_account: 'Service unavailable',
+            no_fresh_probe: 'No fresh probe',
+            partial_degraded: 'Service fluctuation',
+            all_degraded: 'All degraded',
+            all_probe_failed: 'Probe failed',
+            checking: 'Checking',
+            fallback_succeeded: 'Service recovered',
+            retry_succeeded: 'Recovered after retry',
+            stale_probe: 'Probe evidence is stale',
+            transient_probe_failed: 'Probe anomaly',
+            probe_paused: 'Checks paused',
+            rate_limited: 'Short rate limit',
+            round_deadline: 'Probe timeout',
+            round_incomplete: 'Probe incomplete'
+        }
     },
     // Model Status (user-facing read-only view)
     channelStatus: {
@@ -390,6 +407,7 @@ export default {
         tokenUsageLoadError: 'Failed to load self-check token usage',
         detailLoadError: 'Failed to load model detail',
         detailTitle: 'Model Detail',
+        recentServiceStatus: 'Recent Service Status',
         unknownGroup: 'Unnamed group',
         groupPrefix: 'Group: ',
         windowTab: {
@@ -426,6 +444,18 @@ export default {
             partial: 'Some requests may be affected',
             unavailable: 'This model may be unavailable',
             no_data: 'No check data yet'
+        },
+        reasonMessage: {
+            no_available_account: 'Service is currently unavailable',
+            probe_paused: 'Checks are paused; history is for reference',
+            no_fresh_probe: 'No fresh probe evidence yet',
+            stale_probe: 'Latest probe evidence is stale',
+            checking: 'Checking; waiting for this round',
+            round_incomplete: 'Previous probe round did not finish',
+            transient_probe_failed: 'A transient probe failure is under observation',
+            transient_probe_failed_unavailable: 'Probes failed consecutively; service may be affected',
+            retry_succeeded: 'Probe recovered after retry',
+            rate_limited: 'Requests are temporarily limited; please try again later'
         },
         empty: {
             title: 'No model status available',
@@ -502,6 +532,8 @@ export default {
                 cancelled: 'Task was cancelled',
                 probe_failed: 'Probe failed',
                 fallback_succeeded: 'Fallback account succeeded',
+                retry_succeeded: 'Recovered after same-account retry',
+                transient_probe_failed: 'Transient probe failure',
                 round_incomplete: 'Round incomplete',
                 config_error: 'Configuration error'
             }

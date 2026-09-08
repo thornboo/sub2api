@@ -404,6 +404,10 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 			return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 		}
 		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
+			var retryErr *UpstreamFailoverError
+			if isModelSelfCheckProbeContext(ctx) && errors.As(foErr, &retryErr) && retryErr.RetryableOnSameAccount && retryErr.RequestScopedTransient {
+				return nil, &modelSelfCheckRetryableHTTPError{retryErr}
+			}
 			return nil, foErr
 		}
 		return s.handleChatCompletionsErrorResponse(resp, c, account, billingModel)
@@ -575,6 +579,9 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 		}
 		writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", message)
 		return nil, fmt.Errorf("upstream response failed: %s", message)
+	}
+	if c != nil && c.Request != nil && isModelSelfCheckProbeContext(c.Request.Context()) && strings.TrimSpace(finalResponse.Status) != "completed" {
+		return nil, errModelSelfCheckIncomplete
 	}
 	if strings.TrimSpace(finalResponse.Status) == "completed" {
 		logOpenAISuccessMissingUsage(c.Request.Context(), c, account, resp, &usage, "response.completed", false)

@@ -19,18 +19,20 @@ type ModelSelfCheckRoundRepository interface {
 
 // These DTOs contain account identity and are exclusively for the admin API.
 type ModelSelfCheckProbeStep struct {
-	AccountID   int64      `json:"account_id"`
-	AccountName string     `json:"account_name"`
-	Priority    int        `json:"priority"`
-	Platform    string     `json:"platform"`
-	Order       int        `json:"order"`
-	Outcome     string     `json:"outcome"` // pending, skipped, succeeded, failed, not_attempted, incomplete
-	ReasonCode  string     `json:"reason_code"`
-	StartedAt   *time.Time `json:"started_at"`
-	FinishedAt  *time.Time `json:"finished_at"`
-	LatencyMs   *int       `json:"latency_ms"`
-	HTTPStatus  *int       `json:"http_status"`
-	ErrorCode   string     `json:"error_code"`
+	AccountID         int64      `json:"account_id"`
+	AccountName       string     `json:"account_name"`
+	Priority          int        `json:"priority"`
+	Platform          string     `json:"platform"`
+	Order             int        `json:"order"`
+	Outcome           string     `json:"outcome"` // pending, skipped, succeeded, failed, not_attempted, incomplete
+	ReasonCode        string     `json:"reason_code"`
+	StartedAt         *time.Time `json:"started_at"`
+	FinishedAt        *time.Time `json:"finished_at"`
+	LatencyMs         *int       `json:"latency_ms"`
+	HTTPStatus        *int       `json:"http_status"`
+	ErrorCode         string     `json:"error_code"`
+	RetryCount        int        `json:"retry_count,omitempty"`
+	InitialHTTPStatus *int       `json:"initial_http_status,omitempty"`
 }
 
 type ModelSelfCheckProbeRound struct {

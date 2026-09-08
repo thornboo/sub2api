@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 )
 
@@ -40,13 +41,27 @@ type ModelSelfCheckProbeTask struct {
 }
 
 type ModelSelfCheckProbeResult struct {
-	Status       string
-	LatencyMs    *int
-	HTTPStatus   *int
-	ErrorCode    string
-	InputTokens  int
-	OutputTokens int
+	Status            string
+	LatencyMs         *int
+	HTTPStatus        *int
+	ErrorCode         string
+	InputTokens       int
+	OutputTokens      int
+	Recovered         bool
+	Transient         bool
+	RetryCount        int
+	InitialHTTPStatus *int
 }
+
+type modelSelfCheckSessionKey struct{}
+
+var errModelSelfCheckIncomplete = errors.New("model self check response did not complete")
+
+// Only an explicit HTTP rejection before any response stream is safe to retry.
+// Stream failures and unknown transport outcomes must not be replayed here.
+type modelSelfCheckRetryableHTTPError struct{ *UpstreamFailoverError }
+
+func (e *modelSelfCheckRetryableHTTPError) Unwrap() error { return e.UpstreamFailoverError }
 
 type ModelSelfCheckProbeExecutor interface {
 	Probe(ctx context.Context, account *Account, model string) ModelSelfCheckProbeResult
@@ -252,15 +267,53 @@ func (e *gatewayModelSelfCheckProbeExecutor) Probe(ctx context.Context, account 
 		return failedSelfCheckProbeResult(0, modelSelfCheckErrorNoAccount)
 	}
 	ctx = withModelSelfCheckProbeContext(ctx)
+	ctx, cancel := context.WithTimeout(ctx, modelSelfCheckProbeAttemptTimeout)
+	defer cancel()
+	if _, ok := ctx.Value(modelSelfCheckSessionKey{}).(string); !ok {
+		ctx = context.WithValue(ctx, modelSelfCheckSessionKey{}, "self-check-"+uuid.NewString())
+	}
 	start := time.Now()
 	var status int
 	var err error
 	var duration time.Duration
 	var usage modelSelfCheckTokenUsage
+	var initialHTTPStatus *int
+	retryCount := 0
 
 	switch strings.ToLower(strings.TrimSpace(account.Platform)) {
 	case PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek:
 		status, duration, usage, err = e.probeOpenAI(ctx, account, model)
+		var retryErr *modelSelfCheckRetryableHTTPError
+		// Diagnostics get at most one recovery attempt within the original
+		// deadline. The account may disable retries, but cannot expand this cap.
+		if errors.As(err, &retryErr) && account.GetPoolModeRetryCount() > 0 {
+			delay := retryErr.SameAccountRetryDelay
+			if delay < 250*time.Millisecond {
+				delay = 250 * time.Millisecond
+			}
+			deadline, bounded := ctx.Deadline()
+			if (!bounded || time.Until(deadline) > delay) && (retryErr.SameAccountRetryDeadline.IsZero() || time.Until(retryErr.SameAccountRetryDeadline) > delay) {
+				timer := time.NewTimer(delay)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+				case <-timer.C:
+					initialHTTPStatus = optionalHTTPStatus(status)
+					retryCount++
+					status, _, usage, err = e.probeOpenAI(ctx, account, model)
+					duration = time.Since(start)
+					if err == nil && status < 400 {
+						latency := int(duration.Milliseconds())
+						return ModelSelfCheckProbeResult{
+							Status: MonitorStatusDegraded, HTTPStatus: optionalHTTPStatus(status), LatencyMs: &latency,
+							ErrorCode: "retry_succeeded", Recovered: true,
+							RetryCount: retryCount, InitialHTTPStatus: initialHTTPStatus,
+							InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens,
+						}
+					}
+				}
+			}
+		}
 	case PlatformGemini:
 		status, duration, usage, err = e.probeGemini(ctx, account, model)
 	case PlatformAntigravity:
@@ -282,8 +335,12 @@ func (e *gatewayModelSelfCheckProbeExecutor) Probe(ctx context.Context, account 
 		latency = 0
 	}
 	result := normalizeSelfCheckProbeResult(status, err, latency)
+	var failoverErr *UpstreamFailoverError
+	result.Transient = errors.As(err, &failoverErr) && failoverErr.RequestScopedTransient
 	result.InputTokens = usage.InputTokens
 	result.OutputTokens = usage.OutputTokens
+	result.RetryCount = retryCount
+	result.InitialHTTPStatus = initialHTTPStatus
 	return result
 }
 
@@ -335,12 +392,13 @@ func (e *gatewayModelSelfCheckProbeExecutor) probeOpenAI(ctx context.Context, ac
 		return 0, 0, modelSelfCheckTokenUsage{}, err
 	}
 	c, recorder := newModelSelfCheckGinContext(ctx, "/v1/chat/completions", body)
+	session, _ := ctx.Value(modelSelfCheckSessionKey{}).(string)
 	result, err := e.openAIGatewayService.ForwardAsChatCompletionsWithSelectedProtocol(
 		ctx,
 		c,
 		account,
 		body,
-		"",
+		session,
 		"",
 		selectedProtocol,
 	)
@@ -636,6 +694,9 @@ func latestModelSelfCheckOpsError(c *gin.Context) *OpsUpstreamErrorEvent {
 
 func normalizeSelfCheckProbeResult(httpStatus int, err error, latencyMs int) ModelSelfCheckProbeResult {
 	statusPtr := optionalHTTPStatus(httpStatus)
+	if errors.Is(err, errModelSelfCheckIncomplete) {
+		return ModelSelfCheckProbeResult{Status: UserModelStatusUnknown, LatencyMs: &latencyMs, HTTPStatus: statusPtr, ErrorCode: modelSelfCheckProbeReasonIncomplete}
+	}
 	if err == nil && (httpStatus == 0 || httpStatus < 400) {
 		return ModelSelfCheckProbeResult{
 			Status:     MonitorStatusOperational,

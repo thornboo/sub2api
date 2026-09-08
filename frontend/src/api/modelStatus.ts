@@ -14,6 +14,7 @@ export type ModelStatusMessageCode = 'normal' | 'partial' | 'unavailable' | 'no_
 
 export interface ModelStatusTimelinePoint {
   status: ModelStatus
+  reason_code: string
   latency_ms: number | null
   ping_latency_ms: number | null
   checked_at: string
@@ -25,6 +26,7 @@ export interface UserModelStatus {
   model: string
   display_name: string
   status: ModelStatus
+  reason_code: string
   message_code: ModelStatusMessageCode
   latest_latency_ms: number | null
   avg_latency_24h_ms: number | null
@@ -76,6 +78,7 @@ function normalizeTimelinePoint(value: unknown): ModelStatusTimelinePoint | null
   }
   return {
     status: normalizeStatus(value.status),
+    reason_code: typeof value.reason_code === 'string' ? value.reason_code : '',
     latency_ms: nullableFiniteNumber(value.latency_ms),
     ping_latency_ms: nullableFiniteNumber(value.ping_latency_ms),
     checked_at: value.checked_at,
@@ -97,6 +100,7 @@ function normalizeModelStatus(item: unknown): UserModelStatus | null {
     model,
     display_name: typeof item.display_name === 'string' ? item.display_name : model,
     status: normalizeStatus(item.status),
+    reason_code: typeof item.reason_code === 'string' ? item.reason_code : '',
     message_code: normalizeMessageCode(item.message_code),
     latest_latency_ms: nullableFiniteNumber(item.latest_latency_ms),
     avg_latency_24h_ms: nullableFiniteNumber(item.avg_latency_24h_ms),

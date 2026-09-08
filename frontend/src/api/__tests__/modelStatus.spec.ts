@@ -26,13 +26,14 @@ describe('model status API normalization', () => {
             model: ' gpt-4o ',
             display_name: null,
             status: 'future-status',
+            reason_code: 'no_available_account',
             message_code: 'future-message',
             latest_latency_ms: Number.POSITIVE_INFINITY,
             avg_latency_24h_ms: 480,
             availability_24h: 99.5,
             last_checked_at: null,
             timeline: [
-              { status: 'operational', latency_ms: 420, checked_at: '2026-08-12T10:00:00Z' },
+              { status: 'operational', reason_code: 'ok', latency_ms: 420, checked_at: '2026-08-12T10:00:00Z' },
               { status: 'failed', checked_at: null },
               null,
             ],
@@ -56,6 +57,7 @@ describe('model status API normalization', () => {
       model: 'gpt-4o',
       display_name: 'gpt-4o',
       status: 'unknown',
+      reason_code: 'no_available_account',
       message_code: 'no_data',
       latest_latency_ms: null,
       avg_latency_24h_ms: 480,
@@ -65,6 +67,7 @@ describe('model status API normalization', () => {
     expect(result.items[0].timeline).toEqual([
       {
         status: 'operational',
+        reason_code: 'ok',
         latency_ms: 420,
         ping_latency_ms: null,
         checked_at: '2026-08-12T10:00:00Z',

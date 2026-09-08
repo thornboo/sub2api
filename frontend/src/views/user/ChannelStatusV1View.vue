@@ -154,7 +154,7 @@
                     {{ item.display_name || item.model }}
                   </div>
                   <div class="mt-1 truncate text-xs text-stone-500 dark:text-stone-400">
-                    {{ t(`channelStatus.message.${item.message_code}`) }}
+                    {{ modelStatusMessage(item) }}
                   </div>
                 </div>
                 <span
@@ -188,6 +188,7 @@
                 :buckets="item.timeline ?? []"
                 :countdown-seconds="countdown"
                 :length="60"
+                title-key="channelStatus.recentServiceStatus"
               />
 
               <div class="mt-auto pt-5 text-xs text-stone-500 dark:text-stone-400">
@@ -219,7 +220,7 @@
             <span class="h-2 w-2 flex-shrink-0 rounded-full" :class="statusTheme.dot"></span>
             <span class="text-sm font-semibold" :class="statusTheme.text">{{ statusLabel(detail.status) }}</span>
             <span class="truncate text-sm text-stone-500 dark:text-stone-400">
-              {{ t(`channelStatus.message.${detail.message_code}`) }}
+              {{ modelStatusMessage(detail) }}
             </span>
           </div>
           <span class="flex-shrink-0 text-xs tabular-nums text-stone-500 dark:text-stone-400">
@@ -231,6 +232,7 @@
           :buckets="detail.timeline ?? []"
           :countdown-seconds="countdown"
           :length="60"
+          title-key="channelStatus.recentServiceStatus"
         />
 
         <dl
@@ -567,6 +569,40 @@ function resolveLatency(item: UserModelStatus): number | null {
 function formatLatencyWithUnit(ms: number | null | undefined): string {
   if (ms == null) return formatLatency(ms)
   return `${formatLatency(ms)}ms`
+}
+
+function modelStatusMessage(item: UserModelStatus): string {
+  const reasonKey = modelStatusReasonMessageKey(item.reason_code, item.status)
+  if (reasonKey) return t(reasonKey)
+  return t(`channelStatus.message.${item.message_code}`)
+}
+
+function modelStatusReasonMessageKey(reasonCode: string | undefined, status?: ModelStatus): string {
+  switch ((reasonCode || '').trim()) {
+    case 'probe_paused':
+      return 'channelStatus.reasonMessage.probe_paused'
+    case 'no_available_account':
+    case 'no_eligible_account':
+      return 'channelStatus.reasonMessage.no_available_account'
+    case 'no_fresh_probe':
+      return 'channelStatus.reasonMessage.no_fresh_probe'
+    case 'stale_probe':
+      return 'channelStatus.reasonMessage.stale_probe'
+    case 'checking':
+      return 'channelStatus.reasonMessage.checking'
+    case 'round_deadline':
+    case 'round_incomplete':
+      return 'channelStatus.reasonMessage.round_incomplete'
+    case 'transient_probe_failed':
+      if (status === STATUS_FAILED) return 'channelStatus.reasonMessage.transient_probe_failed_unavailable'
+      return 'channelStatus.reasonMessage.transient_probe_failed'
+    case 'retry_succeeded':
+      return 'channelStatus.reasonMessage.retry_succeeded'
+    case 'rate_limited':
+      return 'channelStatus.reasonMessage.rate_limited'
+    default:
+      return ''
+  }
 }
 
 function tokenUsageForModel(model: string): SelfCheckTokenUsageItem {

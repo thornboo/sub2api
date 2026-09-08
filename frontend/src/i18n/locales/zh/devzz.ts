@@ -379,7 +379,24 @@ export default {
         status: {
             unknown: '未知'
         },
-        history60pts: '近 {n} 次检测'
+        history60pts: '近 {n} 次检测',
+        timelineReason: {
+            no_available_account: '暂无可用服务',
+            no_eligible_account: '暂无可用服务',
+            no_fresh_probe: '暂无新鲜探测',
+            partial_degraded: '服务存在波动',
+            all_degraded: '整体降级',
+            all_probe_failed: '探测失败',
+            checking: '检测中',
+            fallback_succeeded: '服务已恢复',
+            retry_succeeded: '重试后恢复',
+            stale_probe: '探测证据已过期',
+            transient_probe_failed: '探测异常',
+            probe_paused: '检测已暂停',
+            rate_limited: '短期限流',
+            round_deadline: '探测超时',
+            round_incomplete: '探测未完成'
+        }
     },
     // Model Status (user-facing read-only view)
     channelStatus: {
@@ -390,6 +407,7 @@ export default {
         tokenUsageLoadError: '加载自检 Token 统计失败',
         detailLoadError: '加载模型详情失败',
         detailTitle: '模型详情',
+        recentServiceStatus: '近期服务状态',
         unknownGroup: '未命名分组',
         groupPrefix: '分组：',
         windowTab: {
@@ -426,6 +444,18 @@ export default {
             partial: '部分请求可能受影响',
             unavailable: '当前模型可能不可用',
             no_data: '暂无检测数据'
+        },
+        reasonMessage: {
+            no_available_account: '暂无可用服务',
+            probe_paused: '检测已暂停，历史状态供参考',
+            no_fresh_probe: '暂无新鲜探测证据',
+            stale_probe: '最近探测证据已过期',
+            checking: '正在检测，等待本轮结果',
+            round_incomplete: '上一轮探测未完成',
+            transient_probe_failed: '检测到短时波动，正在观察',
+            transient_probe_failed_unavailable: '探测连续失败，服务可能受影响',
+            retry_succeeded: '探测重试后已恢复',
+            rate_limited: '请求暂时受限，请稍后重试'
         },
         empty: {
             title: '暂无模型状态',
@@ -502,6 +532,8 @@ export default {
                 cancelled: '任务已取消',
                 probe_failed: '探测失败',
                 fallback_succeeded: '备用账号探测成功',
+                retry_succeeded: '同账号重试后恢复',
+                transient_probe_failed: '短时探测波动',
                 round_incomplete: '轮次未完成',
                 config_error: '配置错误'
             }

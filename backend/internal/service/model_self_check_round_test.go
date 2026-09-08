@@ -108,15 +108,18 @@ func (s *modelSelfCheckRoundRepoStub) DeleteProbeRoundsBefore(ctx context.Contex
 }
 
 type sequencedSelfCheckProbeExecutor struct {
-	mu      sync.Mutex
-	results map[int64]ModelSelfCheckProbeResult
-	calls   []int64
+	mu       sync.Mutex
+	results  map[int64]ModelSelfCheckProbeResult
+	calls    []int64
+	sessions []string
 }
 
 func (e *sequencedSelfCheckProbeExecutor) Probe(ctx context.Context, account *Account, model string) ModelSelfCheckProbeResult {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.calls = append(e.calls, account.ID)
+	session, _ := ctx.Value(modelSelfCheckSessionKey{}).(string)
+	e.sessions = append(e.sessions, session)
 	if result, ok := e.results[account.ID]; ok {
 		return result
 	}
@@ -149,6 +152,8 @@ func TestRunProbeRoundOrdersByPriorityAndStopsOnFallbackSuccess(t *testing.T) {
 	err := svc.RunProbeRound(context.Background(), ModelSelfCheckProbeTask{GroupID: 10, Model: "deepseek-pro"})
 	require.NoError(t, err)
 	require.Equal(t, []int64{3, 2}, executor.calls)
+	require.NotEmpty(t, executor.sessions[0])
+	require.Equal(t, executor.sessions[0], executor.sessions[1])
 	require.GreaterOrEqual(t, len(repo.updatedRounds), 5)
 	require.Equal(t, modelSelfCheckProbeStepOutcomePending, repo.updatedRounds[0].Steps[1].Outcome)
 	final := repo.updatedRounds[len(repo.updatedRounds)-1]
@@ -390,11 +395,41 @@ func TestModelStatusIgnoresUnfinishedRoundEvenIfMarkedOperational(t *testing.T) 
 	require.NoError(t, err)
 	row := findModelStatusRow(t, rows, 10, "gpt-4o")
 	require.Equal(t, UserModelStatusUnknown, row.Status)
+	require.Equal(t, "checking", row.ReasonCode)
 	require.Nil(t, row.LatestLatencyMs)
 	require.NoError(t, svc.RefreshStatusSnapshots(context.Background()))
 	require.Len(t, repo.createdSnapshots, 1)
 	require.Equal(t, UserModelStatusUnknown, repo.createdSnapshots[0].Status)
 	require.Nil(t, repo.createdSnapshots[0].LatencyMs)
+}
+
+func TestModelStatusReportsStaleReasonForExpiredRound(t *testing.T) {
+	now := time.Date(2026, 9, 7, 10, 0, 0, 0, time.UTC)
+	finished := now.Add(-modelSelfCheckFreshWindow).Add(-time.Second)
+	winnerID := int64(1)
+	repo := newModelSelfCheckRoundRepoStub(&modelSelfCheckRepoStub{
+		targets:  []ModelSelfCheckTarget{{GroupID: 10, GroupName: "Pro", GroupPlatform: PlatformOpenAI, Model: "gpt-4o"}},
+		accounts: []ModelSelfCheckTargetAccount{{GroupID: 10, AccountID: 1, Platform: PlatformOpenAI}},
+	})
+	repo.rounds = []ModelSelfCheckProbeRound{{
+		ID: 1, GroupID: 10, Model: "gpt-4o", Status: MonitorStatusOperational,
+		ReasonCode: modelSelfCheckProbeReasonOK, WinnerAccountID: &winnerID,
+		StartedAt: now.Add(-20 * time.Minute), FinishedAt: &finished,
+	}}
+	svc := NewModelSelfCheckService(repo)
+	svc.now = func() time.Time { return now }
+	setModelSelfCheckVisibleGroups(svc, 10)
+	svc.SetProbeDependencies(&modelSelfCheckAccountRepoStub{accounts: map[int64]*Account{
+		1: namedSelfCheckAccount(1, "primary", PlatformOpenAI, 1, nil),
+	}}, &sequencedSelfCheckProbeExecutor{})
+
+	rows, err := svc.ListUserModelStatus(context.Background(), modelSelfCheckTestUserID)
+	require.NoError(t, err)
+	row := findModelStatusRow(t, rows, 10, "gpt-4o")
+	require.Equal(t, UserModelStatusUnknown, row.Status)
+	require.Equal(t, "stale_probe", row.ReasonCode)
+	require.NotNil(t, row.LastCheckedAt)
+	require.Equal(t, finished, *row.LastCheckedAt)
 }
 
 func TestAdminProbeChainIncludesCandidateReasonsAndLatestRound(t *testing.T) {

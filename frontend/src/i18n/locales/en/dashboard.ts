@@ -519,7 +519,24 @@ export default {
     relativeSecondsAgo: '{n}s ago',
     relativeMinutesAgo: '{n}m ago',
     relativeHoursAgo: '{n}h ago',
-    relativeDaysAgo: '{n}d ago'
+    relativeDaysAgo: '{n}d ago',
+    timelineReason: {
+      no_available_account: 'Service unavailable',
+      no_eligible_account: 'Service unavailable',
+      no_fresh_probe: 'No fresh probe',
+      partial_degraded: 'Service fluctuation',
+      all_degraded: 'All degraded',
+      all_probe_failed: 'Probe failed',
+      checking: 'Checking',
+      fallback_succeeded: 'Service recovered',
+      retry_succeeded: 'Recovered after retry',
+      stale_probe: 'Probe evidence is stale',
+      transient_probe_failed: 'Probe anomaly',
+      probe_paused: 'Checks paused',
+      rate_limited: 'Short rate limit',
+      round_deadline: 'Probe timeout',
+      round_incomplete: 'Probe incomplete'
+    }
   },
 
   // Channel Status (user-facing read-only view)
@@ -531,6 +548,7 @@ export default {
     loadError: 'Failed to load channel status',
     detailLoadError: 'Failed to load channel detail',
     detailTitle: 'Channel Detail',
+    recentServiceStatus: 'Recent Service Status',
     closeDetail: 'Close',
     windowTab: {
       '7d': '7 days',

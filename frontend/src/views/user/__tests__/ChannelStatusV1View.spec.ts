@@ -38,6 +38,16 @@ const {
       'channelStatus.overall.operational': '全部正常',
       'channelStatus.groupPrefix': '分组：',
       'channelStatus.message.normal': '服务正常',
+      'channelStatus.reasonMessage.no_available_account': '暂无可用服务',
+      'channelStatus.reasonMessage.probe_paused': '检测已暂停，历史状态供参考',
+      'channelStatus.reasonMessage.no_fresh_probe': '暂无新鲜探测证据',
+      'channelStatus.reasonMessage.stale_probe': '最近探测证据已过期',
+      'channelStatus.reasonMessage.checking': '正在检测，等待本轮结果',
+      'channelStatus.reasonMessage.round_incomplete': '上一轮探测未完成',
+      'channelStatus.reasonMessage.transient_probe_failed': '检测到短时波动，正在观察',
+      'channelStatus.reasonMessage.transient_probe_failed_unavailable': '探测连续失败，服务可能受影响',
+      'channelStatus.reasonMessage.retry_succeeded': '探测重试后已恢复',
+      'channelStatus.reasonMessage.rate_limited': '短期限流，模型仍可调度观察',
       'channelStatus.metrics.latency': '平均延迟',
       'channelStatus.metrics.avgLatency7d': '7 天平均延迟',
       'channelStatus.metrics.selfCheckTokens': '全局自检 Token',
@@ -177,6 +187,7 @@ function statusRow(model: string, groupId = 10) {
     model,
     display_name: model,
     status: 'operational',
+    reason_code: '',
     message_code: 'normal',
     latest_latency_ms: 300,
     avg_latency_24h_ms: 310,
@@ -387,6 +398,78 @@ describe('ChannelStatusV1View admin self-check chain', () => {
     expect(wrapper.text()).toContain('flash-only')
     expect(wrapper.text()).toContain('前序账号已成功')
     expect(wrapper.text()).toContain('可能不同于实时请求路由')
+  })
+
+  it('uses safe model status reasons for user-facing card messages', async () => {
+    listModelStatus.mockResolvedValue({
+      items: [{
+        ...statusRow('gpt-5.6-sol', 10),
+        status: 'failed',
+        reason_code: 'no_available_account',
+        message_code: 'unavailable',
+        latest_latency_ms: null,
+        avg_latency_24h_ms: null,
+        last_checked_at: null,
+      }],
+      updated_at: '2026-09-07T10:02:00Z',
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('暂无可用服务')
+  })
+
+  it('keeps running and stale probe reasons distinct in card messages', async () => {
+    listModelStatus.mockResolvedValue({
+      items: [
+        {
+          ...statusRow('gpt-5.6-sol', 10),
+          status: 'unknown',
+          reason_code: 'checking',
+          message_code: 'no_data',
+        },
+        {
+          ...statusRow('gpt-5.6-luna', 10),
+          status: 'unknown',
+          reason_code: 'stale_probe',
+          message_code: 'no_data',
+        },
+      ],
+      updated_at: '2026-09-07T10:02:00Z',
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('正在检测，等待本轮结果')
+    expect(wrapper.text()).toContain('最近探测证据已过期')
+  })
+
+  it('shows paused self-check history and sustained transient failures as distinct messages', async () => {
+    listModelStatus.mockResolvedValue({
+      items: [
+        {
+          ...statusRow('gpt-5.6-sol', 10),
+          status: 'unknown',
+          reason_code: 'probe_paused',
+          message_code: 'no_data',
+        },
+        {
+          ...statusRow('gpt-5.6-luna', 10),
+          status: 'failed',
+          reason_code: 'transient_probe_failed',
+          message_code: 'unavailable',
+        },
+      ],
+      updated_at: '2026-09-07T10:02:00Z',
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('检测已暂停，历史状态供参考')
+    expect(wrapper.text()).toContain('探测连续失败，服务可能受影响')
   })
 
   it('does not request admin chain data for ordinary users', async () => {

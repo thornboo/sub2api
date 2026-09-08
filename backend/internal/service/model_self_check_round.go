@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -156,9 +158,12 @@ func (s *ModelSelfCheckService) RunProbeRound(ctx context.Context, task ModelSel
 
 	roundCtx, cancel := context.WithTimeout(ctx, modelSelfCheckProbeRoundTimeout)
 	defer cancel()
+	roundCtx = context.WithValue(roundCtx, modelSelfCheckSessionKey{}, "self-check-"+uuid.NewString())
 	var lastResult *ModelSelfCheckProbeResult
 	actualFailures := 0
 	actualAttempts := 0
+	transientFailures := 0
+	incompleteAttempts := 0
 	for _, candidate := range eligible {
 		if roundCtx.Err() != nil {
 			markRemainingStepsNotAttempted(round.Steps, candidate.order, modelSelfCheckProbeReasonRoundDeadline)
@@ -199,17 +204,23 @@ func (s *ModelSelfCheckService) RunProbeRound(ctx context.Context, task ModelSel
 		step.LatencyMs = result.LatencyMs
 		step.HTTPStatus = result.HTTPStatus
 		step.ErrorCode = strings.TrimSpace(result.ErrorCode)
+		step.RetryCount = result.RetryCount
+		step.InitialHTTPStatus = result.InitialHTTPStatus
 		if step.ErrorCode == "" && result.Status != MonitorStatusOperational {
 			step.ErrorCode = strings.TrimSpace(result.Status)
 		}
 		actualAttempts++
 		lastResult = &result
-		if result.Status == MonitorStatusOperational {
+		if result.Status == MonitorStatusOperational || result.Recovered {
 			step.Outcome = modelSelfCheckProbeStepOutcomeSucceeded
 			step.ReasonCode = modelSelfCheckProbeReasonOK
 			winnerID := fresh.ID
 			round.WinnerAccountID = &winnerID
-			if actualFailures == 0 {
+			if result.Recovered {
+				round.Status = MonitorStatusDegraded
+				round.ReasonCode = "retry_succeeded"
+				step.ReasonCode = "retry_succeeded"
+			} else if actualFailures == 0 {
 				round.Status = MonitorStatusOperational
 				round.ReasonCode = modelSelfCheckProbeReasonOK
 			} else {
@@ -219,7 +230,16 @@ func (s *ModelSelfCheckService) RunProbeRound(ctx context.Context, task ModelSel
 			markRemainingStepsNotAttempted(round.Steps, candidate.order+1, modelSelfCheckProbeReasonPriorSuccess)
 		} else {
 			actualFailures++
+			if result.Status == UserModelStatusUnknown {
+				incompleteAttempts++
+			}
+			if result.Transient || result.ErrorCode == modelSelfCheckErrorRateLimit {
+				transientFailures++
+			}
 			step.Outcome = modelSelfCheckProbeStepOutcomeFailed
+			if result.Status == UserModelStatusUnknown {
+				step.Outcome = modelSelfCheckProbeStepOutcomeIncomplete
+			}
 			step.ReasonCode = resultReasonCode(result)
 		}
 		history := &ModelSelfCheckHistory{
@@ -240,7 +260,7 @@ func (s *ModelSelfCheckService) RunProbeRound(ctx context.Context, task ModelSel
 		if recordErr != nil {
 			return recordErr
 		}
-		if result.Status == MonitorStatusOperational {
+		if result.Status == MonitorStatusOperational || result.Recovered {
 			_ = s.updateProbeRoundProgress(roundCtx, roundRepo, round)
 			break
 		}
@@ -262,8 +282,18 @@ func (s *ModelSelfCheckService) RunProbeRound(ctx context.Context, task ModelSel
 			round.ReasonCode = modelSelfCheckProbeReasonAllFailed
 			if actualAttempts == 0 {
 				round.ReasonCode = modelSelfCheckProbeReasonNoEligible
+			} else if incompleteAttempts > 0 {
+				round.Status = UserModelStatusUnknown
+				round.ReasonCode = modelSelfCheckProbeReasonIncomplete
 			} else if lastResult != nil && lastResult.Status == MonitorStatusDegraded {
+				round.Status = MonitorStatusDegraded
 				round.ReasonCode = modelSelfCheckErrorRateLimit
+			} else if transientFailures == actualAttempts {
+				round.ReasonCode = "transient_probe_failed"
+				previous := latestRoundForTarget(target, data.latestRounds, startedAt)
+				if previous == nil || previous.FinishedAt == nil || previous.ReasonCode != "transient_probe_failed" {
+					round.Status = MonitorStatusDegraded
+				}
 			}
 		}
 	}
@@ -658,23 +688,42 @@ func cloneModelSelfCheckProbeRound(round *ModelSelfCheckProbeRound) ModelSelfChe
 	return cp
 }
 
-func (s *ModelSelfCheckService) currentStatusFromLatestRound(target ModelSelfCheckTarget, data *modelSelfCheckStatusData, accountIDs []int64) (string, *int, *time.Time) {
+func (s *ModelSelfCheckService) currentStatusFromLatestRound(target ModelSelfCheckTarget, data *modelSelfCheckStatusData, accountIDs []int64) (string, string, *int, *time.Time) {
 	if len(accountIDs) == 0 {
-		return MonitorStatusFailed, nil, nil
+		return MonitorStatusFailed, modelSelfCheckSnapshotReasonNoAvailableAccount, nil, nil
+	}
+	rawRound, hasRawRound := data.latestRounds[modelSelfCheckTargetKey{target.GroupID, target.Model}]
+	if hasRawRound {
+		if rawRound.FinishedAt == nil {
+			checkedAt := rawRound.StartedAt.UTC()
+			if rawRound.StartedAt.After(data.now) || data.now.Sub(rawRound.StartedAt) > modelSelfCheckProbeRoundTimeout {
+				return UserModelStatusUnknown, modelSelfCheckProbeReasonIncomplete, nil, &checkedAt
+			}
+			return UserModelStatusUnknown, "checking", nil, &checkedAt
+		}
+		if rawRound.FinishedAt.After(data.now) {
+			return UserModelStatusUnknown, modelSelfCheckSnapshotReasonNoFreshProbe, nil, nil
+		}
+		if data.now.Sub(*rawRound.FinishedAt) > modelSelfCheckFreshWindow {
+			checkedAt := rawRound.FinishedAt.UTC()
+			return UserModelStatusUnknown, "stale_probe", nil, &checkedAt
+		}
 	}
 	round := latestRoundForTarget(target, data.latestRounds, data.now)
 	if round == nil || !roundWinnerCurrentlyEligible(round, accountIDs) {
-		return UserModelStatusUnknown, nil, nil
+		return UserModelStatusUnknown, modelSelfCheckSnapshotReasonNoFreshProbe, nil, nil
 	}
 	checkedAt := round.StartedAt.UTC()
 	if round.FinishedAt != nil {
 		checkedAt = round.FinishedAt.UTC()
 	}
 	status := round.Status
+	reasonCode := round.ReasonCode
 	if status == modelSelfCheckProbeRoundStatusChecking {
 		status = UserModelStatusUnknown
+		reasonCode = modelSelfCheckProbeReasonIncomplete
 	}
-	return status, winningRoundLatency(round), &checkedAt
+	return status, userSafeModelStatusReasonCode(status, reasonCode), winningRoundLatency(round), &checkedAt
 }
 
 func roundWinnerCurrentlyEligible(round *ModelSelfCheckProbeRound, accountIDs []int64) bool {

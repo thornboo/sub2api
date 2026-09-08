@@ -348,6 +348,9 @@ func TestListUserModelStatusAggregatesSelfCheckByGroupModel(t *testing.T) {
 	if row.MessageCode != userModelMessagePartial {
 		t.Fatalf("message = %q, want %q", row.MessageCode, userModelMessagePartial)
 	}
+	if row.ReasonCode != modelSelfCheckSnapshotReasonPartialDegraded {
+		t.Fatalf("reason = %q, want %q", row.ReasonCode, modelSelfCheckSnapshotReasonPartialDegraded)
+	}
 	if row.LatestLatencyMs == nil || *row.LatestLatencyMs != 800 {
 		t.Fatalf("latest latency = %v, want 800", row.LatestLatencyMs)
 	}
@@ -553,6 +556,9 @@ func TestListUserModelStatusMarksUnknownWhenLatestIsStale(t *testing.T) {
 	if row.MessageCode != userModelMessageNoData {
 		t.Fatalf("message = %q, want %q", row.MessageCode, userModelMessageNoData)
 	}
+	if row.ReasonCode != modelSelfCheckSnapshotReasonNoFreshProbe {
+		t.Fatalf("reason = %q, want %q", row.ReasonCode, modelSelfCheckSnapshotReasonNoFreshProbe)
+	}
 	if row.LastCheckedAt != nil {
 		t.Fatalf("last checked = %v, want nil for stale latest", row.LastCheckedAt)
 	}
@@ -577,6 +583,9 @@ func TestListUserModelStatusMarksFailedWhenNoAccountCanServeGroup(t *testing.T) 
 	}
 	if row.MessageCode != userModelMessageUnavailable {
 		t.Fatalf("message = %q, want %q", row.MessageCode, userModelMessageUnavailable)
+	}
+	if row.ReasonCode != modelSelfCheckSnapshotReasonNoAvailableAccount {
+		t.Fatalf("reason = %q, want %q", row.ReasonCode, modelSelfCheckSnapshotReasonNoAvailableAccount)
 	}
 }
 
@@ -684,6 +693,9 @@ func TestGetUserModelStatusUsesSnapshotsForTimelineAndDetailMetrics(t *testing.T
 	}
 	if detail.Timeline[0].Status != MonitorStatusOperational || detail.Timeline[1].Status != MonitorStatusFailed {
 		t.Fatalf("timeline statuses = %#v, want newest snapshot order", detail.Timeline)
+	}
+	if detail.Timeline[1].ReasonCode != modelSelfCheckSnapshotReasonNoAvailableAccount {
+		t.Fatalf("timeline reason = %q, want no_available_account", detail.Timeline[1].ReasonCode)
 	}
 	assertFloatNear(t, detail.Availability24h, 66.6666667)
 	if detail.AvgLatency24hMs == nil || *detail.AvgLatency24hMs != 600 {

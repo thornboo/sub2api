@@ -11,6 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const userModelStatusReasonProbePaused = "probe_paused"
+
 // ChannelMonitorUserHandler 模型服务状态用户只读 handler。
 type ChannelMonitorUserHandler struct {
 	modelStatusService *service.ModelSelfCheckService
@@ -29,15 +31,19 @@ func NewChannelMonitorUserHandler(
 	}
 }
 
-// featureEnabled 返回当前模型自检功能是否开启。
+// featureEnabled 返回当前模型状态页面是否开启。
 // settingService 为 nil（测试场景）视为启用。
 func (h *ChannelMonitorUserHandler) featureEnabled(c *gin.Context) bool {
 	if h.settingService == nil {
 		return true
 	}
 	runtime := h.settingService.GetChannelMonitorRuntime(c.Request.Context())
-	if runtime.Enabled {
-		return runtime.Mode == service.ChannelMonitorModeV1
+	return runtime.Enabled && runtime.Mode == service.ChannelMonitorModeV1
+}
+
+func (h *ChannelMonitorUserHandler) modelSelfCheckEnabled(c *gin.Context) bool {
+	if h.settingService == nil {
+		return true
 	}
 	return h.settingService.GetModelSelfCheckRuntime(c.Request.Context()).Enabled
 }
@@ -50,6 +56,7 @@ type userModelStatusListItem struct {
 	Model            string                         `json:"model"`
 	DisplayName      string                         `json:"display_name"`
 	Status           string                         `json:"status"`
+	ReasonCode       string                         `json:"reason_code"`
 	MessageCode      string                         `json:"message_code"`
 	LatestLatencyMs  *int                           `json:"latest_latency_ms"`
 	AvgLatency24hMs  *int                           `json:"avg_latency_24h_ms"`
@@ -63,20 +70,36 @@ type userModelStatusListItem struct {
 }
 
 type userModelStatusTimelinePoint struct {
-	Status    string `json:"status"`
-	LatencyMs *int   `json:"latency_ms"`
-	CheckedAt string `json:"checked_at"`
+	Status     string `json:"status"`
+	ReasonCode string `json:"reason_code"`
+	LatencyMs  *int   `json:"latency_ms"`
+	CheckedAt  string `json:"checked_at"`
 }
 
 func userModelStatusViewToItem(v *service.UserModelStatusView) userModelStatusListItem {
+	return userModelStatusViewToItemWithRuntime(v, true)
+}
+
+func userModelStatusViewToItemWithRuntime(v *service.UserModelStatusView, selfCheckEnabled bool) userModelStatusListItem {
+	status := v.Status
+	reasonCode := v.ReasonCode
+	messageCode := v.MessageCode
+	latestLatency := v.LatestLatencyMs
+	if !selfCheckEnabled {
+		status = service.UserModelStatusUnknown
+		reasonCode = userModelStatusReasonProbePaused
+		messageCode = "no_data"
+		latestLatency = nil
+	}
 	return userModelStatusListItem{
 		GroupID:          v.GroupID,
 		GroupName:        v.GroupName,
 		Model:            v.Model,
 		DisplayName:      v.DisplayName,
-		Status:           v.Status,
-		MessageCode:      v.MessageCode,
-		LatestLatencyMs:  v.LatestLatencyMs,
+		Status:           status,
+		ReasonCode:       reasonCode,
+		MessageCode:      messageCode,
+		LatestLatencyMs:  latestLatency,
 		AvgLatency24hMs:  v.AvgLatency24hMs,
 		AvgLatency7dMs:   v.AvgLatency7dMs,
 		Availability24h:  v.Availability24h,
@@ -92,9 +115,10 @@ func userModelTimelineToResponse(points []service.UserModelTimelinePoint) []user
 	out := make([]userModelStatusTimelinePoint, 0, len(points))
 	for _, p := range points {
 		out = append(out, userModelStatusTimelinePoint{
-			Status:    p.Status,
-			LatencyMs: p.LatencyMs,
-			CheckedAt: p.CheckedAt.UTC().Format(time.RFC3339),
+			Status:     p.Status,
+			ReasonCode: p.ReasonCode,
+			LatencyMs:  p.LatencyMs,
+			CheckedAt:  p.CheckedAt.UTC().Format(time.RFC3339),
 		})
 	}
 	return out
@@ -131,6 +155,7 @@ func (h *ChannelMonitorUserHandler) ListModelStatus(c *gin.Context) {
 		})
 		return
 	}
+	selfCheckEnabled := h.modelSelfCheckEnabled(c)
 	views, err := h.modelStatusService.ListUserModelStatus(c.Request.Context(), subject.UserID)
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -138,7 +163,7 @@ func (h *ChannelMonitorUserHandler) ListModelStatus(c *gin.Context) {
 	}
 	items := make([]userModelStatusListItem, 0, len(views))
 	for _, v := range views {
-		items = append(items, userModelStatusViewToItem(v))
+		items = append(items, userModelStatusViewToItemWithRuntime(v, selfCheckEnabled))
 	}
 	response.Success(c, gin.H{
 		"items":      items,
@@ -161,6 +186,7 @@ func (h *ChannelMonitorUserHandler) GetModelStatus(c *gin.Context) {
 		response.ErrorFrom(c, service.ErrChannelMonitorNotFound)
 		return
 	}
+	selfCheckEnabled := h.modelSelfCheckEnabled(c)
 	model := c.Query("model")
 	groupID, err := parseOptionalGroupID(c.Query("group_id"))
 	if err != nil {
@@ -172,7 +198,7 @@ func (h *ChannelMonitorUserHandler) GetModelStatus(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, userModelStatusViewToItem(&detail.UserModelStatusView))
+	response.Success(c, userModelStatusViewToItemWithRuntime(&detail.UserModelStatusView, selfCheckEnabled))
 }
 
 func parseOptionalGroupID(raw string) (int64, error) {

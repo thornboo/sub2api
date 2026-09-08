@@ -538,7 +538,7 @@ func detachStreamUpstreamContext(ctx context.Context, stream bool) (context.Cont
 	if ctx == nil {
 		return context.Background(), func() {}
 	}
-	if !stream {
+	if !stream || isModelSelfCheckProbeContext(ctx) {
 		return ctx, func() {}
 	}
 	return context.WithoutCancel(ctx), func() {}
@@ -547,6 +547,11 @@ func detachStreamUpstreamContext(ctx context.Context, stream bool) (context.Cont
 func detachUpstreamContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		return context.Background(), func() {}
+	}
+	// Self-checks are bounded diagnostics, not user streams whose billing must
+	// survive a client disconnect. Preserve their attempt/round deadline.
+	if isModelSelfCheckProbeContext(ctx) {
+		return ctx, func() {}
 	}
 	return context.WithoutCancel(ctx), func() {}
 }

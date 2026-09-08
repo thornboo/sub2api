@@ -3,7 +3,7 @@
     <div
       class="flex justify-between text-[10px] font-semibold uppercase tracking-widest text-stone-400 dark:text-stone-500 mb-2"
     >
-      <span>{{ t('monitorCommon.history60pts', { n: length }) }}</span>
+      <span>{{ t(titleKey, { n: length }) }}</span>
       <span class="tabular-nums">{{ t('monitorCommon.nextUpdateIn', { n: countdownSeconds }) }}</span>
     </div>
 
@@ -54,6 +54,7 @@ import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 type TimelineStatus = MonitorTimelinePoint['status'] | 'unknown'
 interface TimelinePoint extends Omit<MonitorTimelinePoint, 'status'> {
   status: TimelineStatus
+  reason_code?: string
 }
 
 const props = withDefaults(defineProps<{
@@ -61,10 +62,12 @@ const props = withDefaults(defineProps<{
   countdownSeconds: number
   length?: number
   maintenance?: boolean
+  titleKey?: string
 }>(), {
   buckets: () => [],
   length: 60,
   maintenance: false,
+  titleKey: 'monitorCommon.history60pts',
 })
 
 const { t } = useI18n()
@@ -124,10 +127,11 @@ const displayBars = computed<Bar[]>(() => {
     const latency = formatLatency(point.latency_ms)
     const relative = formatRelativeTime(point.checked_at)
     const label = statusLabel(point.status)
+    const reason = timelineReasonLabel(point.reason_code)
     bars.push({
       colorClass,
       heightPct,
-      title: `${relative} · ${label} · ${latency}ms`,
+      title: reason ? `${relative} · ${label} · ${reason} · ${latency}ms` : `${relative} · ${label} · ${latency}ms`,
       tooltipClass: tooltipAlignClass(padCount + idx, props.length),
     })
   }
@@ -139,6 +143,12 @@ function tooltipAlignClass(index: number, total: number): string {
   if (index <= 1) return 'left-0'
   if (index >= total - 2) return 'right-0'
   return 'left-1/2 -translate-x-1/2'
+}
+
+function timelineReasonLabel(reasonCode: string | undefined): string {
+  const code = (reasonCode || '').trim()
+  if (code === '' || code === 'ok') return ''
+  return t(`monitorCommon.timelineReason.${code}`)
 }
 </script>
 

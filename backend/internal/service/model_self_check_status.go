@@ -131,6 +131,7 @@ type UserModelStatusView struct {
 	Model            string
 	DisplayName      string
 	Status           string
+	ReasonCode       string
 	MessageCode      string
 	LatestLatencyMs  *int
 	AvgLatency24hMs  *int
@@ -150,9 +151,10 @@ type UserModelStatusDetail struct {
 }
 
 type UserModelTimelinePoint struct {
-	Status    string
-	LatencyMs *int
-	CheckedAt time.Time
+	Status     string
+	ReasonCode string
+	LatencyMs  *int
+	CheckedAt  time.Time
 }
 
 type ModelSelfCheckService struct {
@@ -529,17 +531,20 @@ func (s *ModelSelfCheckService) buildStatusView(
 ) *UserModelStatusView {
 	accountIDs := s.accountIDsForTarget(ctx, target, data)
 	var status string
+	var reasonCode string
 	var latestLatency *int
 	var lastCheckedAt *time.Time
 	if s.roundRepo() != nil {
-		status, latestLatency, lastCheckedAt = s.currentStatusFromLatestRound(target, data, accountIDs)
+		status, reasonCode, latestLatency, lastCheckedAt = s.currentStatusFromLatestRound(target, data, accountIDs)
 	} else {
 		latestRows := collectSelfCheckLatest(target.Model, accountIDs, data.latestByModel)
 		freshLatest := filterFreshSelfCheckLatest(latestRows, data.now)
 		status = aggregateSelfCheckStatus(freshLatest, len(accountIDs))
+		reasonCode = reasonCodeForCurrentModelStatus(status, freshLatest, len(accountIDs))
 		latestLatency = bestSelfCheckLatency(freshLatest)
 		lastCheckedAt = latestSelfCheckCheckedAt(freshLatest)
 	}
+	reasonCode = userSafeModelStatusReasonCode(status, reasonCode)
 	availability24h := aggregateSelfCheckAvailability(target.Model, accountIDs, data.historyByModel, data.now, modelStatusWindow24h)
 	availability7d := aggregateSelfCheckAvailability(target.Model, accountIDs, data.historyByModel, data.now, monitorAvailability7Days)
 	availability30d := aggregateSelfCheckAvailability(target.Model, accountIDs, data.historyByModel, data.now, monitorAvailability30Days)
@@ -550,6 +555,7 @@ func (s *ModelSelfCheckService) buildStatusView(
 		Model:            target.Model,
 		DisplayName:      target.Model,
 		Status:           status,
+		ReasonCode:       reasonCode,
 		MessageCode:      messageCodeForModelStatus(status),
 		LatestLatencyMs:  latestLatency,
 		AvgLatency24hMs:  availability24h.AvgLatencyMs,
@@ -645,6 +651,67 @@ func reasonCodeForModelStatusSnapshot(snapshot *ModelSelfCheckStatusSnapshot) st
 		return modelSelfCheckSnapshotReasonAllProbeFailed
 	default:
 		return modelSelfCheckSnapshotReasonNoFreshProbe
+	}
+}
+
+func reasonCodeForCurrentModelStatus(status string, rows []*ModelSelfCheckHistory, expectedAccounts int) string {
+	if expectedAccounts == 0 {
+		return modelSelfCheckSnapshotReasonNoAvailableAccount
+	}
+	if len(rows) == 0 {
+		return modelSelfCheckSnapshotReasonNoFreshProbe
+	}
+	snapshot := &ModelSelfCheckStatusSnapshot{
+		Status:               status,
+		EligibleAccountCount: expectedAccounts,
+		CheckedAccountCount:  len(rows),
+	}
+	for _, row := range rows {
+		if row == nil {
+			continue
+		}
+		switch row.Status {
+		case MonitorStatusOperational:
+			snapshot.OperationalAccountCount++
+		case MonitorStatusDegraded:
+			snapshot.DegradedAccountCount++
+		default:
+			snapshot.FailedAccountCount++
+		}
+	}
+	return reasonCodeForModelStatusSnapshot(snapshot)
+}
+
+func userSafeModelStatusReasonCode(status, reasonCode string) string {
+	reasonCode = strings.TrimSpace(reasonCode)
+	switch reasonCode {
+	case modelSelfCheckSnapshotReasonOK,
+		modelSelfCheckSnapshotReasonNoAvailableAccount,
+		modelSelfCheckSnapshotReasonNoFreshProbe,
+		modelSelfCheckSnapshotReasonPartialDegraded,
+		modelSelfCheckSnapshotReasonAllDegraded,
+		modelSelfCheckSnapshotReasonAllProbeFailed,
+		modelSelfCheckProbeReasonNoEligible,
+		modelSelfCheckProbeReasonFallbackOK,
+		modelSelfCheckProbeReasonRateLimited,
+		modelSelfCheckProbeReasonRoundDeadline,
+		modelSelfCheckProbeReasonIncomplete,
+		"checking",
+		"stale_probe",
+		"transient_probe_failed",
+		"retry_succeeded":
+		return reasonCode
+	default:
+		switch status {
+		case MonitorStatusOperational:
+			return modelSelfCheckSnapshotReasonOK
+		case MonitorStatusDegraded:
+			return modelSelfCheckSnapshotReasonPartialDegraded
+		case MonitorStatusFailed, MonitorStatusError:
+			return modelSelfCheckSnapshotReasonAllProbeFailed
+		default:
+			return modelSelfCheckSnapshotReasonNoFreshProbe
+		}
 	}
 }
 
@@ -936,9 +1003,10 @@ func timelineFromStatusSnapshots(rows []ModelSelfCheckStatusSnapshot) []UserMode
 	points := make([]UserModelTimelinePoint, 0, len(rows))
 	for _, row := range rows {
 		points = append(points, UserModelTimelinePoint{
-			Status:    row.Status,
-			LatencyMs: row.LatencyMs,
-			CheckedAt: row.CheckedAt,
+			Status:     row.Status,
+			ReasonCode: userSafeModelStatusReasonCode(row.Status, row.ReasonCode),
+			LatencyMs:  row.LatencyMs,
+			CheckedAt:  row.CheckedAt,
 		})
 	}
 	sort.Slice(points, func(i, j int) bool {
@@ -985,9 +1053,10 @@ func timelineFromHistories(rows []ModelSelfCheckHistory, limit int) []UserModelT
 	points := make([]UserModelTimelinePoint, 0, len(rows))
 	for _, row := range rows {
 		points = append(points, UserModelTimelinePoint{
-			Status:    row.Status,
-			LatencyMs: row.LatencyMs,
-			CheckedAt: row.CheckedAt,
+			Status:     row.Status,
+			ReasonCode: userSafeModelStatusReasonCode(row.Status, ""),
+			LatencyMs:  row.LatencyMs,
+			CheckedAt:  row.CheckedAt,
 		})
 	}
 	sort.Slice(points, func(i, j int) bool {
