@@ -2,9 +2,9 @@
   <AppLayout>
     <TablePageLayout table-mode="auto">
       <template #filters>
-        <div class="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
-          <div class="flex flex-1 flex-wrap items-center gap-3">
-            <div class="relative w-full sm:w-80">
+        <div class="flex min-w-0 flex-col justify-between gap-3 md:flex-row md:items-center">
+          <div class="grid min-w-0 flex-1 grid-cols-2 gap-2 md:max-w-4xl md:grid-cols-[minmax(0,1.5fr)_repeat(4,minmax(0,1fr))] [&_.select-trigger]:!px-2">
+            <div class="relative col-span-2 min-w-0 md:col-span-1">
               <Icon
                 name="search"
                 size="md"
@@ -18,28 +18,40 @@
               />
             </div>
 
-            <Select v-model="platformFilter" :options="platformFilterOptions" class="w-full sm:w-52" />
+            <Select
+              v-model="platformFilter"
+              :options="platformFilterOptions"
+              :aria-label="t('availableChannels.platformFilter.label')"
+              match-trigger-width
+              class="min-w-0"
+            />
 
             <Select
               v-model="billingModeFilter"
               :options="billingModeFilterOptions"
-              class="w-full sm:w-44"
+              :aria-label="t('availableChannels.billingModeFilter.label')"
+              match-trigger-width
+              class="min-w-0"
             />
 
             <Select
               v-model="groupScopeFilter"
               :options="groupScopeFilterOptions"
-              class="w-full sm:w-44"
+              :aria-label="t('availableChannels.groupScopeFilter.label')"
+              match-trigger-width
+              class="min-w-0"
             />
 
             <Select
               v-model="priceStatusFilter"
               :options="priceStatusFilterOptions"
-              class="w-full sm:w-40"
+              :aria-label="t('availableChannels.priceStatusFilter.label')"
+              match-trigger-width
+              class="min-w-0"
             />
           </div>
 
-          <div class="flex w-full flex-shrink-0 flex-wrap items-center justify-end gap-3 lg:w-auto">
+          <div class="flex shrink-0 items-center justify-end gap-2">
             <button
               type="button"
               @click="openExportDialog"
@@ -48,7 +60,7 @@
               :title="t('availableChannels.exportExcel')"
             >
               <Icon name="download" size="md" />
-              <span class="hidden sm:inline">
+              <span class="hidden xl:inline">
                 {{ exporting ? t('availableChannels.exporting') : t('availableChannels.exportExcel') }}
               </span>
             </button>

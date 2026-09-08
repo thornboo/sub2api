@@ -638,7 +638,8 @@ export default {
       modelLabel: 'Model',
       searchPlaceholder: 'Search models',
       clearSearch: 'Clear model search',
-      all: 'All'
+      allPlatforms: 'All platforms',
+      allGroups: 'All groups'
     },
     badges: {
       exclusive: 'Exclusive',

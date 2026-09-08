@@ -39,7 +39,7 @@ const mockTriggerRect = (left: number, width: number) => {
   })
 }
 
-const openSelect = async () => {
+const openSelect = async (props: Record<string, unknown> = {}) => {
   const selectWrapper = mount(Select, {
     props: {
       modelValue: null,
@@ -48,7 +48,8 @@ const openSelect = async () => {
           value: 'example',
           label: 'very-long-unbroken-option-value-that-must-not-overflow'
         }
-      ]
+      ],
+      ...props
     }
   })
   unmountWrapper = () => selectWrapper.unmount()
@@ -123,6 +124,44 @@ describe('Select dropdown viewport constraints', () => {
     expect(dropdown?.style.left).toBe('20px')
     expect(dropdown?.style.minWidth).toBe('200px')
     expect(dropdown?.style.maxWidth).toBe('996px')
+    expect(dropdown?.style.width).toBe('')
+  })
+
+  it.each([160, 280])('matches a %ipx trigger when requested, even with a long option', async (width) => {
+    setViewportWidth(1024)
+    mockTriggerRect(20, width)
+
+    const dropdown = await openSelect({ matchTriggerWidth: true })
+
+    expect(dropdown?.style.width).toBe(`${width}px`)
+    expect(dropdown?.style.minWidth).toBe(`${width}px`)
+    const label = dropdown?.querySelector<HTMLElement>('.select-option-label')
+    expect(label?.title).toBe('very-long-unbroken-option-value-that-must-not-overflow')
+  })
+
+  it('keeps a matched dropdown inside the viewport near its right edge', async () => {
+    setViewportWidth(320)
+    mockTriggerRect(220, 160)
+
+    const dropdown = await openSelect({ matchTriggerWidth: true })
+
+    expect(dropdown?.style.width).toBe('92px')
+    expect(dropdown?.style.minWidth).toBe('92px')
+    expect(dropdown?.style.maxWidth).toBe('92px')
+  })
+
+  it('updates the matched width when the window resizes while open', async () => {
+    setViewportWidth(1024)
+    mockTriggerRect(20, 160)
+    const dropdown = await openSelect({ matchTriggerWidth: true })
+
+    setViewportWidth(768)
+    mockTriggerRect(20, 120)
+    window.dispatchEvent(new Event('resize'))
+    await nextTick()
+
+    expect(dropdown?.style.width).toBe('120px')
+    expect(dropdown?.style.minWidth).toBe('120px')
   })
 
   it('shrinks the minimum width to fit near the right viewport edge', async () => {

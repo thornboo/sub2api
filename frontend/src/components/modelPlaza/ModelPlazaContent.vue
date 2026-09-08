@@ -1,12 +1,30 @@
 <template>
   <div class="space-y-4">
-    <div v-if="!embedded">
-      <h1 class="text-2xl font-bold tracking-tight text-stone-950 dark:text-white sm:text-3xl">
-        {{ t('modelPlaza.title') }}
-      </h1>
-      <p class="mt-1.5 text-sm text-stone-500 dark:text-stone-400">
-        {{ t('modelPlaza.description') }}
-      </p>
+    <div
+      v-if="!embedded || (!loading && !error)"
+      class="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"
+    >
+      <div v-if="!embedded" class="min-w-0 xl:max-w-sm">
+        <h1 class="text-2xl font-bold tracking-tight text-stone-950 dark:text-white">
+          {{ t('modelPlaza.title') }}
+        </h1>
+        <p class="mt-1.5 text-sm text-stone-500 dark:text-stone-400">
+          {{ t('modelPlaza.description') }}
+        </p>
+      </div>
+
+      <PlazaFilterBar
+        v-if="!loading && !error"
+        class="w-full md:max-w-2xl xl:shrink-0"
+        :platforms="platforms"
+        :groups="groupOptions"
+        :platform="selectedPlatform"
+        :group-id="selectedGroupId"
+        :search="searchQuery"
+        @update:platform="selectedPlatform = $event"
+        @update:group-id="selectedGroupId = $event"
+        @update:search="searchQuery = $event"
+      />
     </div>
 
     <div
@@ -30,18 +48,6 @@
     </div>
 
     <template v-else>
-      <PlazaFilterBar
-        v-if="!loading"
-        :platforms="platforms"
-        :groups="groupOptions"
-        :platform="selectedPlatform"
-        :group-id="selectedGroupId"
-        :search="searchQuery"
-        @update:platform="selectedPlatform = $event"
-        @update:group-id="selectedGroupId = $event"
-        @update:search="searchQuery = $event"
-      />
-
       <div
         class="overflow-hidden rounded-2xl border border-stone-200/80 bg-white/80 shadow-sm dark:border-white/10 dark:bg-black/25"
       >

@@ -97,7 +97,7 @@
                   size="sm"
                   class="flex-shrink-0 text-stone-400"
                 />
-                <span class="select-option-label" :class="option._creatable && 'italic text-stone-500 dark:text-stone-300'">{{ getOptionLabel(option) }}</span>
+                <span class="select-option-label" :title="matchTriggerWidth ? getOptionLabel(option) : undefined" :class="option._creatable && 'italic text-stone-500 dark:text-stone-300'">{{ getOptionLabel(option) }}</span>
                 <Icon
                   v-if="isSelected(option)"
                   name="check"
@@ -150,6 +150,8 @@ interface Props {
   id?: string
   ariaLabel?: string
   ariaDescribedby?: string
+  /** 将下拉面板宽度与触发框对齐，仍受视口边界限制。 */
+  matchTriggerWidth?: boolean
   /** 远程搜索模式：输入不在本地过滤 options，而是防抖后 emit('search', query)，由父组件请求数据更新 options */
   remote?: boolean
   /** 远程搜索模式下的加载态：options 为空时下拉显示 loading 文案 */
@@ -171,6 +173,7 @@ const props = withDefaults(defineProps<Props>(), {
   clearable: false,
   valueKey: 'value',
   labelKey: 'label',
+  matchTriggerWidth: false,
   remote: false,
   loading: false
 })
@@ -217,7 +220,9 @@ const dropdownStyle = computed(() => {
     viewportRight
   )
   const availableWidth = Math.max(0, viewportRight - left)
-  const preferredMinWidth = Math.max(dropdownMinimumWidth, rect.width)
+  const preferredMinWidth = props.matchTriggerWidth
+    ? rect.width
+    : Math.max(dropdownMinimumWidth, rect.width)
   const minWidth = Math.min(preferredMinWidth, availableWidth)
   const style: Record<string, string> = {
     position: 'fixed',
@@ -225,6 +230,10 @@ const dropdownStyle = computed(() => {
     minWidth: `${minWidth}px`,
     maxWidth: `${availableWidth}px`,
     zIndex: '100000020'
+  }
+
+  if (props.matchTriggerWidth) {
+    style.width = `${minWidth}px`
   }
 
   if (dropdownPosition.value === 'top') {
@@ -557,7 +566,7 @@ onUnmounted(() => {
 }
 
 .select-dropdown-portal .select-search-input {
-  @apply flex-1 bg-transparent text-sm;
+  @apply min-w-0 flex-1 bg-transparent text-sm;
   @apply text-stone-900 dark:text-stone-100;
   @apply placeholder:text-stone-400 dark:placeholder:text-stone-500;
   @apply focus:outline-none;
