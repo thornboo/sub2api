@@ -192,6 +192,13 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 	if err := json.Unmarshal(response.Body, &payload); err != nil {
 		return nil, fmt.Errorf("decode OpenAI account models: %w", err)
 	}
+	// Public model catalogs may omit display_name, but the admin test picker
+	// requires a non-empty label. Keep this fallback local to the picker DTO.
+	for i := range payload.Data {
+		if strings.TrimSpace(payload.Data[i].DisplayName) == "" {
+			payload.Data[i].DisplayName = payload.Data[i].ID
+		}
+	}
 	return payload.Data, nil
 }
 
