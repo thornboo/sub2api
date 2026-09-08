@@ -764,6 +764,43 @@ describe('availableChannelsCatalog', () => {
     expect(noGroupLegacyRows).toHaveLength(1)
   })
 
+  it('keeps configured catalog models visible even when no route group is callable', () => {
+    const channels: UserAvailableChannel[] = [{
+      name: 'Configured Catalog Channel',
+      description: '',
+      platforms: [{
+        platform: 'openai',
+        groups: [{
+          id: 1,
+          name: 'public',
+          platform: 'openai',
+          subscription_type: 'standard',
+          rate_multiplier: 0.8,
+          peak_rate_enabled: false,
+          peak_start: '',
+          peak_end: '',
+          peak_rate_multiplier: 1,
+          is_exclusive: false,
+        }],
+        supported_models: [{
+          name: 'configured-but-not-routable',
+          platform: 'openai',
+          pricing: null,
+          catalog_group_ids: [1],
+          route_group_ids: [],
+          supported_endpoints: [],
+        }],
+      }],
+    }]
+
+    const rows = buildAvailableChannelCatalogRows(channels)
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0].modelName).toBe('configured-but-not-routable')
+    expect(rows[0].groups[0]?.id).toBe(1)
+    expect(formatAvailableChannelGroups(rows[0].groups, {})).toBe('public 0.8x')
+  })
+
   it('expands tiered pricing into interval rows and sorts by effective row price', () => {
     const channels: UserAvailableChannel[] = [
       {

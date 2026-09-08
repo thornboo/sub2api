@@ -95,6 +95,7 @@ func TestBuildAvailableChannelCatalog_PublicUsesSharedDeliveryProjection(t *test
 		channels,
 		delivery,
 		filterPublicStandardGroups,
+		catalogModelsCallable,
 	)
 
 	require.NoError(t, err)

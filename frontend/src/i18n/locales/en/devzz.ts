@@ -564,7 +564,7 @@ export default {
             availableChannels: 'Available channels',
             apiEndpoints: 'Native endpoints',
             copyEndpointHint: 'Click to copy endpoint',
-            endpointUnavailable: 'Only a compatibility route exists; no native endpoint is published',
+            endpointUnavailable: 'No native endpoint information is published yet.',
             priceVariants: '{count} price variants',
             priceVariantsHint: 'Channel prices differ. Switch to the pricing table for an exact comparison.',
             originalPrice: 'Original',

@@ -130,4 +130,68 @@ describe('AvailableChannelModelsTable', () => {
     expect(wrapper.text()).toContain('Public 8 Off')
     expect(wrapper.find('[data-testid="group-rate"]').exists()).toBe(false)
   })
+
+  it('renders catalog-visible configured models without route evidence', () => {
+    const channels: UserAvailableChannel[] = [
+      {
+        name: 'Catalog Channel',
+        description: '',
+        platforms: [
+          {
+            platform: 'openai',
+            groups: [
+              {
+                id: 1,
+                name: 'Public Catalog',
+                platform: 'openai',
+                subscription_type: 'standard',
+                rate_multiplier: 1,
+                peak_rate_enabled: false,
+                peak_start: '',
+                peak_end: '',
+                peak_rate_multiplier: 1,
+                is_exclusive: false,
+              },
+            ],
+            supported_models: [
+              {
+                name: 'configured-but-not-routable',
+                platform: 'openai',
+                catalog_group_ids: [1],
+                route_group_ids: [],
+                supported_endpoints: [],
+                pricing: null,
+              },
+            ],
+          },
+        ],
+      },
+    ]
+    const rows = buildAvailableChannelCatalogRows(channels)
+
+    const wrapper = mount(AvailableChannelModelsTable, {
+      props: {
+        columns,
+        tooltips,
+        pricingLabels,
+        rows,
+        loading: false,
+        emptyLabel: 'No models',
+        sortBy: 'model',
+        sortOrder: 'asc',
+      },
+      global: {
+        stubs: {
+          Icon: IconStub,
+          PlatformIcon: PlatformIconStub,
+          GroupBadge: GroupBadgeStub,
+        },
+      },
+    })
+
+    expect(rows).toHaveLength(1)
+    expect(wrapper.text()).toContain('configured-but-not-routable')
+    expect(wrapper.text()).toContain('Public Catalog')
+    expect(wrapper.text()).toContain('No Pricing')
+  })
 })

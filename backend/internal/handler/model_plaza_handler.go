@@ -68,6 +68,7 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 		channels,
 		h.modelDelivery,
 		filterPublicStandardGroups,
+		catalogModelsCallable,
 	)
 	if err != nil {
 		response.ErrorFrom(c, err)

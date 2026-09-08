@@ -85,6 +85,7 @@ export interface UserSupportedModel {
     group_id: number
     pricing: UserSupportedModelPricing | null
   }>
+  catalog_group_ids?: number[]
   route_group_ids?: number[]
   supported_endpoints?: UserSupportedEndpoint[]
 }
@@ -146,6 +147,9 @@ export function normalizeAvailableChannels<T extends UserAvailableChannel>(
         }
         if (Array.isArray(model.route_group_ids)) {
           normalized.route_group_ids = arrayOrEmpty(model.route_group_ids)
+        }
+        if (Array.isArray(model.catalog_group_ids)) {
+          normalized.catalog_group_ids = arrayOrEmpty(model.catalog_group_ids)
         }
         if (Array.isArray(model.group_pricing)) {
           normalized.group_pricing = model.group_pricing.map((entry) => ({

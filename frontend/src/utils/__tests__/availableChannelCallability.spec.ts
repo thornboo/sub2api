@@ -52,6 +52,43 @@ describe('resolveAvailableModelGroupContexts', () => {
     expect(contexts[0].endpoints).toEqual([])
   })
 
+  it('uses catalog groups for display while keeping endpoint evidence separate', () => {
+    const contexts = resolveAvailableModelGroupContexts(model({
+      catalog_group_ids: [1],
+      route_group_ids: [],
+      supported_endpoints: [
+        { protocol: 'openai_responses', path: '/v1/responses', group_ids: [2] },
+      ],
+    }), groups)
+
+    expect(contexts.map(({ group }) => group.id)).toEqual([1])
+    expect(contexts[0].endpoints).toEqual([])
+  })
+
+  it('treats an explicit empty catalog group array as not visible', () => {
+    const contexts = resolveAvailableModelGroupContexts(model({
+      catalog_group_ids: [],
+      route_group_ids: [1, 2],
+      supported_endpoints: [
+        { protocol: 'openai_responses', path: '/v1/responses', group_ids: [] },
+      ],
+    }), groups)
+
+    expect(contexts).toEqual([])
+  })
+
+  it('does not display catalog group ids absent from the provided visible groups', () => {
+    const contexts = resolveAvailableModelGroupContexts(model({
+      catalog_group_ids: [999],
+      route_group_ids: [1],
+      supported_endpoints: [
+        { protocol: 'openai_responses', path: '/v1/responses', group_ids: [1] },
+      ],
+    }), groups)
+
+    expect(contexts).toEqual([])
+  })
+
   it('falls back to endpoint groups when route metadata is absent', () => {
     const contexts = resolveAvailableModelGroupContexts(model({
       supported_endpoints: [

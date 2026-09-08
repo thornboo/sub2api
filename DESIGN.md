@@ -68,7 +68,7 @@
   - A platform admin can answer "what is failing now, whether it affects SLA, who should act, and whether retries recovered the request?"
   - A platform admin can start from a channel-priced public model and see whether any stable account route can deliver it, which public endpoints are available, and which upstream capabilities produce that result.
   - A platform admin can see mapped, covered, missing, and pricing-only model counts per platform, repair missing coverage in one action, and retain a deterministic display order after reload.
-  - A user never sees a model or endpoint described as available solely because a price row or disconnected upstream capability exists.
+  - `/available-channels` shows configured channel models and customer prices even when accounts are absent, disabled, unschedulable, or lack protocol evidence. Model publication does not assert current callability; endpoint metadata still requires delivery evidence.
   - An anonymous visitor and an authenticated user see the same public-standard-group catalog at `/model-plaza`; personalized access remains in `/available-channels`.
   - A standard pay-as-you-go group can use multiple same-day or cross-midnight model-price windows, and the displayed schedule always agrees with the multiplier used by request billing.
   - Reviewers can tell from DTO names and routes whether a field is user-safe or admin-only.
@@ -110,7 +110,7 @@
   - Admin Ops remains the platform health, customer-visible failure, SLA, attribution, alert, and error-evidence surface.
   - Channel pricing is the primary public-model management surface. Each model exposes a delivery summary and drilldown from group to candidate account to final upstream model.
   - Account "upstream model protocol capabilities" is an advanced evidence/override surface. It must show which public channel models consume each upstream capability and flag capabilities with no public-model route.
-  - `/available-channels` is a customer-safe projection of published models that have at least one stable delivery route; it never exposes account identity, upstream URL, cost, or failover topology.
+  - `/available-channels` is the configured model and price directory for the user's accessible active channels/groups. Account availability and protocol evidence do not hide configured models. It never exposes account identity, upstream URL, cost, or failover topology.
 - Content hierarchy:
   - Summary cards first, then filters, then charts/rankings, then table drilldown.
   - Rank and anomaly panels must always link to the underlying Key/user/group/request details.
@@ -155,11 +155,11 @@
   - Public model identity and channel-mapped model identity remain separate inputs: publication/pricing checks use the public model, while account eligibility and protocol capability checks use the mapped/final upstream model.
   - Messages-specific group dispatch mapping is a protocol fallback below explicit channel mapping and above account mapping; control-plane diagnostics and runtime forwarding must resolve the same chain.
   - Short-lived health, concurrency, and rate-limit state must not make catalog metadata flicker, but inactive, unschedulable, or model-ineligible accounts do not prove delivery.
-- Principle 10: Public discovery and personalized access share one delivery truth but have different visibility scopes.
+- Principle 10: Public discovery and the personalized model directory share delivery evidence but have distinct publication policies.
   - `/model-plaza` is a standalone page linked from Home, not an embedded full catalog inside the landing page.
   - Its public scope is active standard non-exclusive groups only; login state, exclusive authorization, subscriptions, and user-specific rates never expand or alter its response.
-  - `/available-channels` remains the authenticated personalized view and may include additional groups and rates authorized for that user.
-  - Both surfaces reuse the same group-aware model route, price formatting, and customer-callable endpoint projection.
+  - `/available-channels` remains the authenticated personalized directory and shows all configured models in the groups authorized for that user, independently of runtime account eligibility. Missing delivery metadata must not prevent the configured directory from loading.
+  - Both surfaces reuse price formatting and customer-callable endpoint evidence. `/model-plaza` retains its callable-model filtering; changing the authenticated directory does not expand public visibility or change runtime scheduling.
 - Principle 11: Mapping-to-pricing consistency is an explicit admin contract.
   - Coverage is derived from the selected billing-model source: requested names use mapping sources, channel-mapped names use mapping targets, and final-upstream names require delivery evidence rather than inference.
   - Exact and wildcard coverage must use the same case-insensitive pattern semantics as runtime pricing lookup.
@@ -315,7 +315,7 @@
   - Model delivery projections batch-load groups, accounts, mappings, and protocol records; no channel-by-model-by-account query loop is allowed.
 - Compatibility constraints:
   - Preserve the existing `/v1/messages` compatibility contract only when at least one stable route can serve the public model through the account's selected Chat or Responses transport. Native Messages evidence is not required, but an explicit unsupported fact for that selected transport disables the compatibility path.
-  - User catalog `route_group_ids` describes per-group runtime callability; `supported_endpoints[].group_ids` is the stricter set with publishable endpoint evidence. Neither field may expose account topology.
+  - Authenticated catalog `catalog_group_ids` describes configured model publication within visible groups and controls cards, tables, and directory exports. `route_group_ids` continues to describe per-group runtime callability; `supported_endpoints[].group_ids` is the stricter set with publishable endpoint evidence. Publication must not fabricate routes or endpoints, and none of these fields may expose account topology.
   - Channel pricing remains the publication source, but pricing alone cannot prove deliverability. Existing capability records remain account-scoped and are not duplicated into channel pricing.
   - Channel pricing entries carry an explicit platform-local `sort_order`; channel mapping order is stored separately from the JSONB mapping object. Runtime mapping and pricing lookup ignore these presentation fields.
   - Existing channels backfill pricing order from row ID and mapping display order from deterministic natural model-name order. New ordering fields must remain backward-compatible for older clients that omit them.
@@ -331,7 +331,7 @@
   - Time-price configuration is customer sale-price policy. It does not alter upstream account cost, account-statistics pricing, scheduling weights, or provider health.
   - Legacy group-level peak pricing remains readable for compatibility. When model-level time pricing is present the complete group/user/legacy multiplier chain is bypassed, so no hidden factor can double-charge a request.
   - Public delivery metadata may ignore transient runtime saturation and cooldown, but must exclude inactive, unschedulable, platform-incompatible, and model-ineligible accounts.
-  - `/model-plaza` must use the same delivery projection as `/available-channels`, scoped to active standard non-exclusive groups. A bearer token may be accepted by shared transport middleware but must not add exclusive groups, subscription groups, or user-specific rates to the public response.
+  - `/model-plaza` uses the shared delivery projection to filter models, scoped to active standard non-exclusive groups; `/available-channels` uses it only to enrich configured models with route and endpoint evidence. A bearer token may be accepted by shared transport middleware but must not add exclusive groups, subscription groups, or user-specific rates to the public response.
   - Preserve ADR 0003: enterprise members are non-login entities; member Keys inherit the member's ordered group delegation.
   - `member_code` is immutable while a member exists and remains unique across current and archived members. Irreversible owner-facing removal replaces historical tombstones with a server-only code, allowing the original code to be reused without reassigning old facts.
   - Restore clears archive state but leaves the member disabled so group access and Keys cannot resume without an explicit owner enable action.
@@ -359,7 +359,7 @@
   - Frontend typecheck and lint are required for new analytics components.
   - Channel reconciliation tests must cover requested versus channel-mapped billing sources, exact and wildcard coverage, explicit quick-pricing append-only repair, restricted-save blocking, mapping rename/delete safety, and order persistence.
   - Visual QA should be done on the user-run dev server when the user asks for browser validation.
-  - Public catalog tests must compare anonymous and authenticated responses, exclude exclusive/subscription/user-rate data, and prove parity with the public-group portion of `/available-channels`.
+  - Public catalog tests must compare anonymous and authenticated responses and exclude exclusive/subscription/user-rate data. Authenticated directory tests must retain configured models without eligible accounts or protocol evidence, retain publication when delivery lookup fails, and preserve group visibility and truthful endpoint metadata across cards, tables, and exports.
   - Time-pricing tests must cover standard groups, price-source precedence, multiple and cross-midnight windows, boundary minutes, overlap rejection, legacy fallback without double multiplication, user-rate composition, actual public prices, and exclusion from per-request billing.
   - Ops tests must prove raw-query and pre-aggregated parity, overview-to-detail filter parity, terminal request de-duplication for stream failures, and deterministic handling of the documented production classification fixture.
 

@@ -564,7 +564,7 @@ export default {
             availableChannels: '可用渠道',
             apiEndpoints: '原生端点',
             copyEndpointHint: '点击复制端点',
-            endpointUnavailable: '仅存在兼容转换路由，未发布原生端点',
+            endpointUnavailable: '暂未发布原生端点信息',
             priceVariants: '{count} 种报价',
             priceVariantsHint: '不同渠道的价格配置不同，请切换价格表格精确比较。',
             originalPrice: '原价',

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"log/slog"
 	"sort"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -130,12 +131,14 @@ type userPricingIntervalDTO struct {
 
 // userSupportedModel 用户可见的支持模型条目。
 type userSupportedModel struct {
-	Name               string                     `json:"name"`
-	Platform           string                     `json:"platform"`
-	Pricing            *userSupportedModelPricing `json:"pricing"`
-	GroupPricing       []userGroupModelPricing    `json:"group_pricing,omitempty"`
-	RouteGroupIDs      []int64                    `json:"route_group_ids,omitempty"`
-	SupportedEndpoints []userSupportedEndpoint    `json:"supported_endpoints,omitempty"`
+	Name          string                     `json:"name"`
+	Platform      string                     `json:"platform"`
+	Pricing       *userSupportedModelPricing `json:"pricing"`
+	GroupPricing  []userGroupModelPricing    `json:"group_pricing,omitempty"`
+	RouteGroupIDs []int64                    `json:"route_group_ids,omitempty"`
+	// CatalogGroupIDs describes publication independently of runtime callability.
+	CatalogGroupIDs    []int64                 `json:"catalog_group_ids,omitempty"`
+	SupportedEndpoints []userSupportedEndpoint `json:"supported_endpoints,omitempty"`
 }
 
 type userGroupModelPricing struct {
@@ -169,6 +172,13 @@ type userAvailableChannel struct {
 }
 
 type availableGroupFilter func([]service.AvailableGroupRef) []userAvailableGroup
+
+type catalogModelVisibility uint8
+
+const (
+	catalogModelsCallable catalogModelVisibility = iota
+	catalogModelsConfigured
+)
 
 // List 列出当前用户可见的「可用渠道」。
 // GET /api/v1/channels/available
@@ -209,6 +219,7 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 		func(groups []service.AvailableGroupRef) []userAvailableGroup {
 			return filterUserVisibleGroups(groups, allowedGroupIDs)
 		},
+		catalogModelsConfigured,
 	)
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -220,12 +231,14 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 
 // buildAvailableChannelCatalog projects a set of visible groups through the
 // same customer-safe channel, model, pricing and endpoint contract. Callers
-// own only group visibility; delivery eligibility must stay shared.
+// own group visibility and whether publication requires a callable route.
+// Endpoint metadata always comes from the shared delivery evaluator.
 func buildAvailableChannelCatalog(
 	ctx context.Context,
 	channels []service.AvailableChannel,
 	modelDelivery *service.ModelDeliveryService,
 	filterGroups availableGroupFilter,
+	visibility catalogModelVisibility,
 ) ([]userAvailableChannel, error) {
 	out := make([]userAvailableChannel, 0, len(channels))
 	for _, ch := range channels {
@@ -240,22 +253,35 @@ func buildAvailableChannelCatalog(
 		if len(sections) == 0 {
 			continue
 		}
+		if visibility == catalogModelsConfigured {
+			for i := range sections {
+				groupIDs := make([]int64, 0, len(sections[i].Groups))
+				for _, group := range sections[i].Groups {
+					groupIDs = append(groupIDs, group.ID)
+				}
+				sort.Slice(groupIDs, func(i, j int) bool { return groupIDs[i] < groupIDs[j] })
+				for j := range sections[i].SupportedModels {
+					sections[i].SupportedModels[j].CatalogGroupIDs = groupIDs
+				}
+			}
+		}
 		out = append(out, userAvailableChannel{
 			Name:        ch.Name,
 			Description: ch.Description,
 			Platforms:   sections,
 		})
 	}
-	if err := attachSupportedEndpoints(ctx, modelDelivery, out); err != nil {
+	if err := attachSupportedEndpoints(ctx, modelDelivery, out, visibility); err != nil {
 		return nil, err
 	}
-	return pruneUndeliverableChannels(out), nil
+	return pruneEmptyChannels(out), nil
 }
 
 func attachSupportedEndpoints(
 	ctx context.Context,
 	modelDelivery *service.ModelDeliveryService,
 	channels []userAvailableChannel,
+	visibility catalogModelVisibility,
 ) error {
 	if len(channels) == 0 {
 		return nil
@@ -287,6 +313,10 @@ func attachSupportedEndpoints(
 	}
 	delivery, err := modelDelivery.ResolveForGroups(ctx, groupIDs, models)
 	if err != nil {
+		if visibility == catalogModelsConfigured && ctx.Err() == nil {
+			slog.Warn("available_channel_endpoint_metadata_unavailable", "error", err)
+			return nil
+		}
 		return err
 	}
 	protocolOrder := []service.ModelProtocol{
@@ -314,7 +344,9 @@ func attachSupportedEndpoints(
 			}
 		}
 	}
-	filterUndeliverableModels(channels, delivery)
+	if visibility == catalogModelsCallable {
+		filterUndeliverableModels(channels, delivery)
+	}
 	return nil
 }
 
@@ -339,7 +371,7 @@ func filterUndeliverableModels(channels []userAvailableChannel, delivery *servic
 	}
 }
 
-func pruneUndeliverableChannels(channels []userAvailableChannel) []userAvailableChannel {
+func pruneEmptyChannels(channels []userAvailableChannel) []userAvailableChannel {
 	filteredChannels := channels[:0]
 	for i := range channels {
 		channel := &channels[i]

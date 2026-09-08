@@ -315,7 +315,7 @@ func TestAttachSupportedEndpoints_PublishesIntrinsicAnthropicButNotUnprovenOpenA
 	}}
 	delivery := service.NewModelDeliveryService(accountRepo, groupRepo, nil, nil, &config.Config{})
 
-	err := attachSupportedEndpoints(context.Background(), delivery, channels)
+	err := attachSupportedEndpoints(context.Background(), delivery, channels, catalogModelsCallable)
 	require.NoError(t, err)
 
 	category := channels[0].Platforms
@@ -381,7 +381,7 @@ func TestAttachSupportedEndpoints_DoesNotAdvertiseResponsesCompatibilityAsNative
 	)
 	delivery := service.NewModelDeliveryService(accountRepo, groupRepo, nil, capability, cfg)
 
-	require.NoError(t, attachSupportedEndpoints(context.Background(), delivery, channels))
+	require.NoError(t, attachSupportedEndpoints(context.Background(), delivery, channels, catalogModelsCallable))
 	require.Equal(t, []userSupportedEndpoint{
 		{
 			Protocol: string(service.ModelProtocolAnthropicMessages),
@@ -446,7 +446,7 @@ func TestAttachSupportedEndpoints_AggregatesExactProtocolsAcrossHeterogeneousAcc
 	)
 	delivery := service.NewModelDeliveryService(accountRepo, groupRepo, nil, capability, cfg)
 
-	require.NoError(t, attachSupportedEndpoints(context.Background(), delivery, channels))
+	require.NoError(t, attachSupportedEndpoints(context.Background(), delivery, channels, catalogModelsCallable))
 	require.Equal(t, []userSupportedEndpoint{
 		{
 			Protocol: string(service.ModelProtocolAnthropicMessages),
@@ -496,9 +496,9 @@ func TestAttachSupportedEndpoints_RemovesPricingOnlyModelWithoutStableRoute(t *t
 	}
 	delivery := service.NewModelDeliveryService(&availableDeliveryAccountRepoStub{}, groupRepo, nil, nil, &config.Config{})
 
-	require.NoError(t, attachSupportedEndpoints(context.Background(), delivery, channels))
+	require.NoError(t, attachSupportedEndpoints(context.Background(), delivery, channels, catalogModelsCallable))
 	require.Empty(t, channels[0].Platforms[0].SupportedModels)
-	require.Empty(t, pruneUndeliverableChannels(channels))
+	require.Empty(t, pruneEmptyChannels(channels))
 }
 
 func TestAttachSupportedEndpoints_KeepsStableLegacyRouteWhenNativeRoutingDisabled(t *testing.T) {
@@ -520,7 +520,7 @@ func TestAttachSupportedEndpoints_KeepsStableLegacyRouteWhenNativeRoutingDisable
 	}}}
 	delivery := service.NewModelDeliveryService(accountRepo, groupRepo, nil, nil, &config.Config{})
 
-	require.NoError(t, attachSupportedEndpoints(context.Background(), delivery, channels))
+	require.NoError(t, attachSupportedEndpoints(context.Background(), delivery, channels, catalogModelsCallable))
 	require.Len(t, channels[0].Platforms[0].SupportedModels, 1)
 	require.Equal(t, []int64{7}, channels[0].Platforms[0].SupportedModels[0].RouteGroupIDs)
 	require.Nil(t, channels[0].Platforms[0].SupportedModels[0].SupportedEndpoints)
@@ -550,7 +550,7 @@ func TestAttachSupportedEndpoints_RemovesUnknownStrictRoute(t *testing.T) {
 	)
 	delivery := service.NewModelDeliveryService(accountRepo, groupRepo, nil, capability, cfg)
 
-	require.NoError(t, attachSupportedEndpoints(context.Background(), delivery, channels))
+	require.NoError(t, attachSupportedEndpoints(context.Background(), delivery, channels, catalogModelsCallable))
 	require.Empty(t, channels[0].Platforms[0].SupportedModels)
 }
 
@@ -591,7 +591,7 @@ func TestAttachSupportedEndpoints_RemovesRouteWhenAllProtocolsExplicitlyUnsuppor
 	)
 	delivery := service.NewModelDeliveryService(accountRepo, groupRepo, nil, capability, cfg)
 
-	require.NoError(t, attachSupportedEndpoints(context.Background(), delivery, channels))
+	require.NoError(t, attachSupportedEndpoints(context.Background(), delivery, channels, catalogModelsCallable))
 	require.Empty(t, channels[0].Platforms[0].SupportedModels)
 }
 

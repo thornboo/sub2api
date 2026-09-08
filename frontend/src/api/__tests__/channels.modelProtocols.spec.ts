@@ -17,6 +17,8 @@ describe('available channels model protocol metadata', () => {
                 name: 'MiniMax-M3',
                 platform: 'openai',
                 pricing: null,
+                catalog_group_ids: [10],
+                route_group_ids: [],
                 supported_endpoints: [
                   {
                     protocol: 'anthropic_messages' as const,
@@ -39,6 +41,9 @@ describe('available channels model protocol metadata', () => {
     expect(result[0].platforms[0].supported_models[0].supported_endpoints).toEqual([
       { protocol: 'anthropic_messages', path: '/v1/messages', group_ids: [10] },
     ])
+    expect(result[0].platforms[0].supported_models[0].catalog_group_ids).toEqual([10])
+    expect(result[0].platforms[0].supported_models[0].route_group_ids).toEqual([])
     expect(result[0].platforms[0].supported_models[1].supported_endpoints).toBeUndefined()
+    expect(result[0].platforms[0].supported_models[1].catalog_group_ids).toBeUndefined()
   })
 })

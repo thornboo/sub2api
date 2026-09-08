@@ -308,4 +308,30 @@ describe('buildAvailableModelMarketplaceCards', () => {
     expect(cards[0].group.id).toBe(exclusiveGroup.id)
     expect(cards[0].endpoints).toEqual([])
   })
+
+  it('shows catalog-visible configured models even when route evidence is empty', () => {
+    const configuredChannels: UserAvailableChannel[] = [{
+      name: 'configured-catalog',
+      description: '',
+      platforms: [{
+        platform: 'openai',
+        groups: [publicGroup],
+        supported_models: [{
+          name: 'configured-but-not-routable',
+          platform: 'openai',
+          pricing,
+          catalog_group_ids: [publicGroup.id],
+          route_group_ids: [],
+          supported_endpoints: [],
+        }],
+      }],
+    }]
+
+    const cards = buildAvailableModelMarketplaceCards(configuredChannels)
+
+    expect(cards).toHaveLength(1)
+    expect(cards[0].name).toBe('configured-but-not-routable')
+    expect(cards[0].group.id).toBe(publicGroup.id)
+    expect(cards[0].endpoints).toEqual([])
+  })
 })

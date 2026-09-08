@@ -141,7 +141,8 @@ export function buildAvailableChannelCatalogRows(
       supportedModels.forEach((model, modelIndex) => {
         const modelGroups = resolveAvailableModelGroupContexts(model, groups)
           .map(({ group }) => group)
-        const callabilityMetadataPresent = Array.isArray(model.route_group_ids)
+        const callabilityMetadataPresent = Array.isArray(model.catalog_group_ids)
+          || Array.isArray(model.route_group_ids)
           || Array.isArray(model.supported_endpoints)
         if (modelGroups.length === 0 && (sectionGroups.length > 0 || callabilityMetadataPresent)) return
 
