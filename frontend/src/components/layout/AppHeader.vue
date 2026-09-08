@@ -26,6 +26,16 @@
         <!-- Announcement Bell -->
         <AnnouncementBell v-if="user" />
 
+        <router-link
+          v-if="user"
+          to="/feedback"
+          class="hidden h-9 items-center gap-1.5 rounded-lg border border-transparent px-2.5 text-sm font-medium text-stone-600 transition hover:border-stone-200/70 hover:bg-white/60 hover:text-stone-950 dark:text-stone-400 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-white sm:flex"
+          :title="t('feedback.myTickets')"
+        >
+          <Icon name="chat" size="sm" />
+          <span class="hidden md:inline">{{ t('feedback.entry') }}</span>
+        </router-link>
+
         <!-- Docs Link -->
         <a
           v-if="docUrl"
@@ -151,6 +161,11 @@
                 <router-link to="/keys" @click="closeDropdown" class="dropdown-item">
                   <Icon name="key" size="sm" />
                   {{ t('nav.apiKeys') }}
+                </router-link>
+
+                <router-link to="/feedback" @click="closeDropdown" class="dropdown-item">
+                  <Icon name="chat" size="sm" />
+                  {{ t('feedback.entry') }}
                 </router-link>
 
               </div>

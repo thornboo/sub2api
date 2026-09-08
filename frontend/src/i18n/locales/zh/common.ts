@@ -165,6 +165,7 @@ export default {
   nav: {
     dashboard: '仪表盘',
     announcements: '公告',
+    feedback: '反馈',
     apiKeys: 'API 密钥',
     enterpriseMembers: '企业成员',
     enterpriseMemberUsage: '成员使用记录',
@@ -214,6 +215,64 @@ export default {
     contentModeration: '内容审核',
     promptAudit: '提示词审计',
     auditLogs: '操作日志',
+  },
+
+  feedback: {
+    title: '提交反馈',
+    entry: '反馈',
+    myTickets: '我的反馈',
+    myTicketsDescription: '查看你提交的反馈记录、管理员回复和当前处理状态。',
+    newTicket: '新建反馈',
+    contentLabel: '反馈内容',
+    placeholder: '请描述你遇到的问题或想反馈的内容，仅支持文字。',
+    textOnly: '仅支持文本，不支持图片、文件或富文本。',
+    submit: '提交反馈',
+    sendReply: '发送回复',
+    replyPlaceholder: '继续补充说明，仅支持文字。',
+    waitSubmit: '{seconds}s 后可提交',
+    cooldown: '还需等待 {seconds}s 才能再次提交。',
+    rateLimited: '提交过于频繁，请 {seconds}s 后再试。',
+    success: '反馈已提交',
+    replySuccess: '回复已发送',
+    closeSuccess: '反馈已关闭',
+    failed: '提交失败，请稍后重试。',
+    replyFailed: '发送回复失败，请稍后重试。',
+    closeFailed: '关闭失败，请稍后重试。',
+    loadFailed: '加载反馈记录失败。',
+    detailLoadFailed: '加载反馈详情失败。',
+    messagesLoadFailed: '加载回复失败。',
+    loadingTickets: '正在加载反馈记录...',
+    loadingMessages: '正在加载回复...',
+    emptyTickets: '暂无反馈记录',
+    selectTicket: '请选择一条反馈记录查看详情',
+    noReplies: '暂无回复',
+    unreadCount: '{count} 条未读消息',
+    allTickets: '全部',
+    lastActivity: '最后更新',
+    openingMessage: '初始反馈',
+    olderMessages: '更早',
+    newerMessages: '更新',
+    messagePage: '第 {page}/{pages} 页',
+    closeTicket: '关闭反馈',
+    closeConfirmTitle: '关闭反馈',
+    closeConfirmMessage: '关闭后双方都不能继续回复，此操作无法撤销。',
+    closedReadOnly: '该反馈已关闭，不能继续回复。',
+    closedStale: '该反馈已被关闭，已刷新最新状态。',
+    closedBy: '{actor} 于 {time} 关闭',
+    sourceLabels: {
+      user: '登录用户',
+      key: 'Key 查询'
+    },
+    statusLabels: {
+      open: '进行中',
+      closed: '已关闭'
+    },
+    authorLabels: {
+      user: '用户',
+      admin: '管理员'
+    },
+    emptyError: '请输入反馈内容。',
+    tooLongError: '反馈内容不能超过 {max} 个字符。'
   },
 
   // Auth

@@ -95,6 +95,17 @@ func RegisterUserRoutes(
 			groups.GET("/rates", h.APIKey.GetUserGroupRates)
 		}
 
+		feedback := authenticated.Group("/feedback")
+		{
+			feedback.GET("", h.Feedback.ListUser)
+			feedback.POST("", h.Feedback.SubmitUser)
+			feedback.GET("/:id", h.Feedback.GetUser)
+			feedback.GET("/:id/messages", h.Feedback.ListUserMessages)
+			feedback.POST("/:id/messages", h.Feedback.ReplyUser)
+			feedback.POST("/:id/read", h.Feedback.MarkUserRead)
+			feedback.POST("/:id/close", h.Feedback.CloseUser)
+		}
+
 		// 企业成员、成员分组与成员 Key 管理
 		enterpriseMembers := authenticated.Group("/enterprise/members")
 		{

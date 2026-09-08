@@ -3,13 +3,14 @@
 ## Source of truth
 
 - Status: Active
-- Last refreshed: 2026-08-17
+- Last refreshed: 2026-09-08
 - Primary product surfaces:
   - User console: `frontend/src/views/user/**`
   - User API Key management: `frontend/src/views/user/KeysView.vue`, `frontend/src/components/keys/**`
   - Enterprise member control plane: `frontend/src/views/user/EnterpriseMembersView.vue`
   - User usage records: `frontend/src/views/user/UsageView.vue`
   - Public Key self-service: `frontend/src/views/KeyUsageView.vue`, route `/key-usage`
+  - Text support tickets: authenticated `/feedback` workspace and public Key self-service entry; administrator queue at `/admin/feedback`
   - Public model catalog: `frontend/src/views/ModelPlazaView.vue`, route `/model-plaza`
   - Admin usage and dashboard: `frontend/src/views/admin/UsageView.vue`, `frontend/src/api/admin/dashboard.ts`
   - Admin operations monitoring: `frontend/src/views/admin/ops/**`, `frontend/src/components/admin/ops/**`
@@ -190,6 +191,14 @@
 - Existing components to reuse:
   - `LocaleSwitcher`, `Select`, `Pagination`, `Icon`, existing card/table utilities, existing `components/keys` panels, and the customer-safe `AvailableModelMarketplace` catalog components.
 - New/changed components:
+  - Text support tickets provide a personal ticket list, a conversation detail, and a compact new-ticket dialog for both authenticated accounts and established public Key query sessions. Administrators use the same conversation structure from their platform-wide queue. Reuse existing neutral dialogs, tables, pagination, confirmations, and global toast notifications.
+  - Successful creation shows the standard success toast, clears the draft, closes the creation dialog, and refreshes the personal list. Users can open existing tickets, read administrator replies, and send additional plain-text messages. Lists show a content preview, ticket number, status, and last activity; detail identifies user versus administrator messages and their timestamps.
+  - Ticket state is `open` (进行中) or `closed` (已关闭). Either participant may close an open ticket after confirmation that no further messages will be accepted. Closure is final, retains history, identifies the closing side and time, and disables the composer on both sides. Concurrent close/reply operations must obey the same rule on the server.
+  - Customer creation and replies share one 60-second cooldown per account or actual Key. Administrator replies do not consume the customer's cooldown. Login-origin tickets belong to that login identity; Key-origin tickets belong only to the verified Key identity, never sibling Keys. Identity changes abort pending loads and clear conversation/draft state.
+  - Conversations and ticket lists are paginated. Opening and refreshing a ticket retrieves current server state; a stale open conversation rejected as closed must refresh and remove the composer. All message bodies render as escaped plain text with preserved line breaks. Attachments, rich content, reopening, external notifications, and realtime transport are outside this iteration.
+  - Unread support messages are indicated by a small red dot beside the ticket number, with a localized unread-count tooltip and accessible text. Preserve the compact list layout; the red dot means unread incoming content, independently of the open/closed badge. User submissions (including the opening message) notify each administrator; administrator replies notify the submitting user or Key. A sender's own messages do not create unread messages for that side.
+  - Read receipts persist on the server per ticket and viewer identity, including separate administrator accounts. Opening a detail and successfully displaying the latest reply page acknowledges only the reply IDs actually fetched; list polling and failed/hidden/stale loads never acknowledge unseen content. Read cursors only advance, so older tabs cannot undo newer reads or consume messages arriving after the displayed page. Closing a ticket does not clear unread messages.
+  - A mounted, visible feedback workspace quietly checks for incoming messages every 15 seconds. Pause checks in hidden tabs, avoid overlapping requests, stop on unmount/session change, and retain drafts/selection during refresh. A selected conversation on its latest message page may refresh and acknowledge newly displayed replies; reading an older page keeps newer incoming messages unread.
   - Public Key query orchestration currently stays in `KeyUsageView.vue`; its API transport remains isolated in `frontend/src/api/publicKeyUsage.ts` so the signed-in JWT client cannot overwrite the one-time Key credential.
   - Owner analytics dashboard components should live under `frontend/src/components/keys` or a future `frontend/src/components/enterprise-usage`.
   - Admin-only analytics components should stay under `frontend/src/components/admin`.

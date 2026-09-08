@@ -165,6 +165,7 @@ export default {
   nav: {
     dashboard: 'Dashboard',
     announcements: 'Announcements',
+    feedback: 'Feedback',
     apiKeys: 'API Keys',
     enterpriseMembers: 'Enterprise Members',
     enterpriseMemberUsage: 'Member Usage',
@@ -214,6 +215,64 @@ export default {
     contentModeration: 'Content Moderation',
     promptAudit: 'Prompt Audit',
     auditLogs: 'Audit Logs',
+  },
+
+  feedback: {
+    title: 'Submit feedback',
+    entry: 'Feedback',
+    myTickets: 'My Feedback',
+    myTicketsDescription: 'View your feedback history, administrator replies, and current status.',
+    newTicket: 'New feedback',
+    contentLabel: 'Feedback',
+    placeholder: 'Describe the issue or note you want to send. Text only.',
+    textOnly: 'Text only. Images, files, and rich content are not supported.',
+    submit: 'Submit feedback',
+    sendReply: 'Send reply',
+    replyPlaceholder: 'Add more detail. Text only.',
+    waitSubmit: '{seconds}s remaining',
+    cooldown: 'Wait {seconds}s before submitting again.',
+    rateLimited: 'Feedback was submitted too recently. Try again in {seconds}s.',
+    success: 'Feedback submitted',
+    replySuccess: 'Reply sent',
+    closeSuccess: 'Feedback closed',
+    failed: 'Failed to submit feedback. Try again later.',
+    replyFailed: 'Failed to send reply. Try again later.',
+    closeFailed: 'Failed to close feedback. Try again later.',
+    loadFailed: 'Failed to load feedback.',
+    detailLoadFailed: 'Failed to load feedback detail.',
+    messagesLoadFailed: 'Failed to load replies.',
+    loadingTickets: 'Loading feedback...',
+    loadingMessages: 'Loading replies...',
+    emptyTickets: 'No feedback yet',
+    selectTicket: 'Select a feedback record to view details',
+    noReplies: 'No replies yet',
+    unreadCount: '{count} unread message | {count} unread messages',
+    allTickets: 'All',
+    lastActivity: 'Last activity',
+    openingMessage: 'Original feedback',
+    olderMessages: 'Older',
+    newerMessages: 'Newer',
+    messagePage: 'Page {page}/{pages}',
+    closeTicket: 'Close feedback',
+    closeConfirmTitle: 'Close feedback',
+    closeConfirmMessage: 'After closing, neither side can add new replies. This cannot be undone.',
+    closedReadOnly: 'This feedback is closed and no longer accepts replies.',
+    closedStale: 'This feedback has been closed. The latest state was loaded.',
+    closedBy: 'Closed by {actor} at {time}',
+    sourceLabels: {
+      user: 'Signed-in user',
+      key: 'Key session'
+    },
+    statusLabels: {
+      open: 'Open',
+      closed: 'Closed'
+    },
+    authorLabels: {
+      user: 'User',
+      admin: 'Administrator'
+    },
+    emptyError: 'Enter feedback before submitting.',
+    tooLongError: 'Feedback cannot exceed {max} characters.'
   },
 
   // Auth

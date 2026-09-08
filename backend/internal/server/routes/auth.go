@@ -255,6 +255,34 @@ func RegisterAuthRoutes(
 			keyUsageReadLimit,
 			h.Gateway.GetPublicKeyUsageSession,
 		)
+		key.POST("/feedback",
+			rateLimiter.LimitWithOptions("key-feedback", 30, time.Minute, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose}),
+			h.Feedback.SubmitKey,
+		)
+		key.GET("/feedback",
+			keyUsageReadLimit,
+			h.Feedback.ListKey,
+		)
+		key.GET("/feedback/:id",
+			keyUsageReadLimit,
+			h.Feedback.GetKey,
+		)
+		key.GET("/feedback/:id/messages",
+			keyUsageReadLimit,
+			h.Feedback.ListKeyMessages,
+		)
+		key.POST("/feedback/:id/messages",
+			rateLimiter.LimitWithOptions("key-feedback-message", 30, time.Minute, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose}),
+			h.Feedback.ReplyKey,
+		)
+		key.POST("/feedback/:id/read",
+			rateLimiter.LimitWithOptions("key-feedback-read", 30, time.Minute, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose}),
+			h.Feedback.MarkKeyRead,
+		)
+		key.POST("/feedback/:id/close",
+			rateLimiter.LimitWithOptions("key-feedback-close", 30, time.Minute, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose}),
+			h.Feedback.CloseKey,
+		)
 		key.DELETE("/usage-session",
 			rateLimiter.LimitWithOptions("key-usage-session-delete", 20, time.Minute, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose}),
 			h.Gateway.DeletePublicKeyUsageSession,

@@ -449,6 +449,32 @@ export default {
       deleteConfirm: 'Are you sure you want to delete this announcement? This action cannot be undone.'
     },
 
+    feedback: {
+      title: 'Feedback',
+      description: 'Review, reply to, and close text feedback from signed-in users and Key self-service sessions',
+      queueTitle: 'Feedback queue',
+      userId: 'User #{id}',
+      memberId: 'Member #{id}',
+      keyId: 'Key #{id}',
+      deletedKey: 'Deleted Key',
+      columns: {
+        source: 'Source',
+        identity: 'Identity',
+        content: 'Content',
+        status: 'Status',
+        createdAt: 'Submitted',
+        actions: 'Actions'
+      },
+      sourceLabels: {
+        user: 'Signed-in user',
+        key: 'Key session'
+      },
+      statusLabels: {
+        open: 'Open',
+        closed: 'Closed'
+      }
+    },
+
     // Promo Codes
     promo: {
       title: 'Promo Code Management',

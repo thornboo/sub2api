@@ -712,6 +712,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   }
   items.push(
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
+    { path: '/feedback', label: t('nav.feedback'), icon: TicketIcon },
     { path: '/enterprise/members', label: t('nav.enterpriseMembers'), icon: UsersIcon, hideInSimpleMode: true, featureFlag: flagEnterpriseMembers },
     { path: '/enterprise/member-usage', label: t('nav.enterpriseMemberUsage'), icon: ChartIcon, hideInSimpleMode: true, featureFlag: flagEnterpriseAccount },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
@@ -784,6 +785,7 @@ const adminNavItems = computed((): NavItem[] => {
     { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
     { path: '/admin/plugins', label: t('nav.plugins'), icon: PluginIcon, featureFlag: flagPluginManagement },
     { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon },
+    { path: '/admin/feedback', label: t('nav.feedback'), icon: TicketIcon },
     { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },
     {
       path: '/admin/security-audit',

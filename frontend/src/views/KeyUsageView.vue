@@ -37,6 +37,16 @@
           <button
             v-if="hasSession"
             type="button"
+            class="inline-flex h-9 items-center gap-2 rounded-lg border border-stone-200 px-3 text-sm font-medium text-stone-700 transition hover:border-emerald-500/40 hover:text-emerald-600 dark:border-[#262626] dark:text-stone-300"
+            :title="t('feedback.myTickets')"
+            @click="openFeedbackHistory"
+          >
+            <Icon name="chat" size="sm" />
+            <span class="hidden sm:inline">{{ t('feedback.entry') }}</span>
+          </button>
+          <button
+            v-if="hasSession"
+            type="button"
             class="inline-flex h-9 items-center rounded-lg border border-stone-200 px-3 text-sm font-medium text-stone-700 transition hover:border-rose-400 hover:text-rose-600 dark:border-[#262626] dark:text-stone-300"
             :disabled="sessionDeleting"
             @click="exitQuery"
@@ -448,11 +458,38 @@
         </button>
       </template>
     </BaseDialog>
+
+    <FeedbackDialog
+      :show="hasSession && feedbackCreateOpen"
+      :identity-key="feedbackIdentityKey"
+      :submitter="submitKeyFeedback"
+      @close="feedbackCreateOpen = false"
+      @submitted="handleFeedbackSubmitted"
+      @unauthorized="handleFeedbackUnauthorized"
+    />
+
+    <BaseDialog
+      :show="hasSession && feedbackOpen"
+      :title="t('feedback.myTickets')"
+      width="wide"
+      prevent-horizontal-scroll
+      @close="feedbackOpen = false"
+    >
+      <FeedbackThreadPanel
+        ref="feedbackThreadRef"
+        :identity-key="feedbackIdentityKey"
+        :title="t('feedback.myTickets')"
+        :api="keyFeedbackAPI"
+        show-create
+        @create="openFeedbackCreate"
+        @unauthorized="handleFeedbackUnauthorized"
+      />
+    </BaseDialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { BarElement, CategoryScale, Chart as ChartJS, Legend, LinearScale, Tooltip } from 'chart.js'
 import type { ChartData, ChartOptions, TooltipItem } from 'chart.js'
@@ -461,6 +498,8 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import FeedbackDialog from '@/components/common/FeedbackDialog.vue'
+import FeedbackThreadPanel from '@/components/common/FeedbackThreadPanel.vue'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import Select from '@/components/common/Select.vue'
@@ -473,6 +512,7 @@ import {
   type PublicKeyUsageRecordKind,
   type PublicKeyUsageSummary,
 } from '@/api/publicKeyUsage'
+import type { FeedbackSubmitResult } from '@/api/feedback'
 import { useAppStore } from '@/stores'
 import type { UserAnnouncement } from '@/types'
 import { clearKeyAnnouncementSession, restoreKeyAnnouncementIds, saveKeyAnnouncementIds } from '@/utils/keyAnnouncementSession'
@@ -518,6 +558,21 @@ const announcementReadPendingIds = ref(new Set<number>())
 const unreadAnnouncementCount = computed(() => announcements.value.filter((announcement) => !announcement.read_at).length)
 const selectedAnnouncementHtml = computed(() => renderAnnouncementMarkdown(selectedAnnouncement.value?.content || ''))
 const currentAnnouncementPopupHtml = computed(() => renderAnnouncementMarkdown(currentAnnouncementPopup.value?.content || ''))
+const feedbackOpen = ref(false)
+const feedbackCreateOpen = ref(false)
+const feedbackThreadRef = ref<InstanceType<typeof FeedbackThreadPanel> | null>(null)
+const pendingFeedbackCooldown = ref<number | null>(null)
+const pendingCreatedFeedbackId = ref<number | null>(null)
+const feedbackSessionKey = ref('')
+const feedbackIdentityKey = computed(() => hasSession.value ? feedbackSessionKey.value : '')
+const keyFeedbackAPI = {
+  list: publicKeyUsageAPI.listFeedback,
+  get: publicKeyUsageAPI.getFeedback,
+  listMessages: publicKeyUsageAPI.listFeedbackMessages,
+  reply: publicKeyUsageAPI.replyFeedback,
+  close: publicKeyUsageAPI.closeFeedback,
+  markRead: publicKeyUsageAPI.markFeedbackRead,
+}
 
 let sessionEpoch = 0
 let summaryController: AbortController | null = null
@@ -783,6 +838,7 @@ function showNextAnnouncementPopup() {
 
 function restoreAnnouncementSession(session: PublicKeyUsageSession) {
   announcementSessionId = session.session_id || null
+  feedbackSessionKey.value = session.session_id ? `key:${session.session_id}` : `key:${Date.now()}`
   shownAnnouncementPopupIds = announcementSessionId ? restoreKeyAnnouncementIds(announcementSessionId) : new Set()
 }
 
@@ -1021,12 +1077,55 @@ function resetQueryState() {
 function clearQueryData(options: { preserveAnnouncementSession?: boolean } = {}) {
   if (!options.preserveAnnouncementSession) clearKeyAnnouncementSession()
   hasSession.value = false
+  feedbackOpen.value = false
+  feedbackCreateOpen.value = false
+  pendingFeedbackCooldown.value = null
+  pendingCreatedFeedbackId.value = null
+  feedbackSessionKey.value = ''
   summary.value = null
   records.value = []
   recordTotal.value = 0
   selectedRecord.value = null
   apiKey.value = ''
   clearAnnouncementState()
+}
+
+function submitKeyFeedback(content: string, signal?: AbortSignal) {
+  return publicKeyUsageAPI.submitFeedback(content, signal)
+}
+
+function openFeedbackHistory() {
+  feedbackOpen.value = true
+  void nextTick(() => {
+    if (pendingFeedbackCooldown.value !== null) {
+      feedbackThreadRef.value?.applyCooldown(pendingFeedbackCooldown.value)
+      pendingFeedbackCooldown.value = null
+    }
+    const createdId = pendingCreatedFeedbackId.value
+    pendingCreatedFeedbackId.value = null
+    if (createdId !== null) {
+      void feedbackThreadRef.value?.refreshAfterCreate(createdId)
+    }
+  })
+}
+
+function openFeedbackCreate() {
+  feedbackOpen.value = false
+  feedbackCreateOpen.value = true
+}
+
+function handleFeedbackSubmitted(result: FeedbackSubmitResult) {
+  pendingFeedbackCooldown.value = result.retry_after
+  pendingCreatedFeedbackId.value = result.id
+  feedbackOpen.value = false
+  feedbackCreateOpen.value = false
+}
+
+function handleFeedbackUnauthorized() {
+  feedbackOpen.value = false
+  feedbackCreateOpen.value = false
+  resetQueryState()
+  appStore.showInfo(t('keyUsage.sessionExpired'))
 }
 
 function invalidateSessionRequests() {

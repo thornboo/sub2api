@@ -2,6 +2,8 @@ import axios, { type AxiosInstance } from 'axios'
 
 import { getLocale } from '@/i18n'
 import type { ApiResponse, PaginatedResponse, UserAnnouncement } from '@/types'
+import type { BasePaginationResponse } from '@/types'
+import type { FeedbackListFilters, FeedbackReadState, FeedbackReply, FeedbackReplyResult, FeedbackSubmitResult, FeedbackTicket } from '@/api/feedback'
 import { getAPIBaseURL } from './url'
 
 export type PublicKeyUsageRecordKind = 'success' | 'error'
@@ -159,6 +161,8 @@ export interface PublicKeyUsageRecordQuery extends PublicKeyUsageQuery {
   category?: string
 }
 
+export type PublicKeyFeedbackSubmitResult = FeedbackSubmitResult
+
 // This client is intentionally isolated from apiClient. The shared client
 // injects the signed-in user's JWT and would overwrite the API Key used for the
 // one-time session exchange.
@@ -239,6 +243,73 @@ export const publicKeyUsageAPI = {
     const response = await publicKeyUsageClient.post<ApiResponse<{ message: string }> | { message: string }>(
       `/key/announcements/${id}/read`,
       undefined,
+      { signal },
+    )
+    return unwrap(response.data)
+  },
+
+  async submitFeedback(content: string, signal?: AbortSignal): Promise<PublicKeyFeedbackSubmitResult> {
+    const response = await publicKeyUsageClient.post<ApiResponse<PublicKeyFeedbackSubmitResult>>(
+      '/key/feedback',
+      { content },
+      { signal },
+    )
+    return unwrap(response.data)
+  },
+
+  async listFeedback(
+    page: number = 1,
+    pageSize: number = 20,
+    filters: FeedbackListFilters = {},
+    options?: { signal?: AbortSignal },
+  ): Promise<BasePaginationResponse<FeedbackTicket>> {
+    const response = await publicKeyUsageClient.get<ApiResponse<BasePaginationResponse<FeedbackTicket>>>('/key/feedback', {
+      params: { page, page_size: pageSize, ...filters },
+      signal: options?.signal,
+    })
+    return unwrap(response.data)
+  },
+
+  async getFeedback(id: number, signal?: AbortSignal): Promise<FeedbackTicket> {
+    const response = await publicKeyUsageClient.get<ApiResponse<FeedbackTicket>>(`/key/feedback/${id}`, { signal })
+    return unwrap(response.data)
+  },
+
+  async listFeedbackMessages(
+    id: number,
+    page: number = 1,
+    pageSize: number = 20,
+    signal?: AbortSignal,
+  ): Promise<BasePaginationResponse<FeedbackReply>> {
+    const response = await publicKeyUsageClient.get<ApiResponse<BasePaginationResponse<FeedbackReply>>>(
+      `/key/feedback/${id}/messages`,
+      { params: { page, page_size: pageSize }, signal },
+    )
+    return unwrap(response.data)
+  },
+
+  async replyFeedback(id: number, content: string, signal?: AbortSignal): Promise<FeedbackReplyResult> {
+    const response = await publicKeyUsageClient.post<ApiResponse<FeedbackReplyResult>>(
+      `/key/feedback/${id}/messages`,
+      { content },
+      { signal },
+    )
+    return unwrap(response.data)
+  },
+
+  async closeFeedback(id: number, signal?: AbortSignal): Promise<FeedbackTicket> {
+    const response = await publicKeyUsageClient.post<ApiResponse<FeedbackTicket>>(
+      `/key/feedback/${id}/close`,
+      {},
+      { signal },
+    )
+    return unwrap(response.data)
+  },
+
+  async markFeedbackRead(id: number, lastReadReplyID: number, signal?: AbortSignal): Promise<FeedbackReadState> {
+    const response = await publicKeyUsageClient.post<ApiResponse<FeedbackReadState>>(
+      `/key/feedback/${id}/read`,
+      { last_read_reply_id: lastReadReplyID },
       { signal },
     )
     return unwrap(response.data)

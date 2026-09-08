@@ -446,6 +446,32 @@ export default {
       deleteConfirm: '确定要删除该公告吗？此操作无法撤销。'
     },
 
+    feedback: {
+      title: '反馈管理',
+      description: '查看、回复并关闭用户与 Key 自助查询提交的文本反馈',
+      queueTitle: '反馈队列',
+      userId: '用户 #{id}',
+      memberId: '成员 #{id}',
+      keyId: 'Key #{id}',
+      deletedKey: 'Key 已删除',
+      columns: {
+        source: '来源',
+        identity: '身份',
+        content: '内容',
+        status: '状态',
+        createdAt: '提交时间',
+        actions: '操作'
+      },
+      sourceLabels: {
+        user: '登录用户',
+        key: 'Key 查询'
+      },
+      statusLabels: {
+        open: '进行中',
+        closed: '已关闭'
+      }
+    },
+
     // Promo Codes
     promo: {
       title: '优惠码管理',

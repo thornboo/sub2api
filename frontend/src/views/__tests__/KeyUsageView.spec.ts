@@ -22,8 +22,15 @@ const {
   getSummary,
   getRecordDetail,
   listAnnouncements,
+  listFeedback,
+  getFeedback,
+  listFeedbackMessages,
+  replyFeedback,
+  closeFeedback,
+  markFeedbackRead,
   listRecords,
   markAnnouncementRead,
+  submitFeedback,
   showError,
   showInfo,
   showSuccess,
@@ -35,8 +42,15 @@ const {
   getSummary: vi.fn(),
   getRecordDetail: vi.fn(),
   listAnnouncements: vi.fn(),
+  listFeedback: vi.fn(),
+  getFeedback: vi.fn(),
+  listFeedbackMessages: vi.fn(),
+  replyFeedback: vi.fn(),
+  closeFeedback: vi.fn(),
+  markFeedbackRead: vi.fn(),
   listRecords: vi.fn(),
   markAnnouncementRead: vi.fn(),
+  submitFeedback: vi.fn(),
   showError: vi.fn(),
   showInfo: vi.fn(),
   showSuccess: vi.fn(),
@@ -53,11 +67,31 @@ vi.mock('@/api/publicKeyUsage', () => ({
     getRecordDetail,
     listAnnouncements,
     markAnnouncementRead,
+    submitFeedback,
+    listFeedback,
+    getFeedback,
+    listFeedbackMessages,
+    replyFeedback,
+    closeFeedback,
+    markFeedbackRead,
     exportRecords: vi.fn(),
   },
 }))
 
 vi.mock('@/stores', () => ({
+  useAppStore: () => ({
+    cachedPublicSettings: { site_name: 'Sub2API' },
+    siteName: 'Sub2API',
+    publicSettingsLoaded: true,
+    fetchPublicSettings: vi.fn(),
+    showError,
+    showInfo,
+    showSuccess,
+    showWarning,
+  }),
+}))
+
+vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
     cachedPublicSettings: { site_name: 'Sub2API' },
     siteName: 'Sub2API',
@@ -204,7 +238,34 @@ describe('KeyUsageView', () => {
       stream: false,
     })
     listAnnouncements.mockResolvedValue([])
+    listFeedback.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
+    getFeedback.mockResolvedValue({
+      id: 9,
+      content: 'key issue',
+      source: 'key',
+      status: 'open',
+      created_at: '2026-09-08T00:00:00Z',
+      updated_at: '2026-09-08T00:00:00Z',
+      closed_at: null,
+      closed_by: null,
+      unread_count: 0,
+    })
+    listFeedbackMessages.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
+    replyFeedback.mockResolvedValue({ message: { id: 1, feedback_id: 9, author_role: 'user', content: 'reply', created_at: '2026-09-08T00:01:00Z' }, retry_after: 60 })
+    closeFeedback.mockResolvedValue({
+      id: 9,
+      content: 'key issue',
+      source: 'key',
+      status: 'closed',
+      created_at: '2026-09-08T00:00:00Z',
+      updated_at: '2026-09-08T00:02:00Z',
+      closed_at: '2026-09-08T00:02:00Z',
+      closed_by: 'user',
+      unread_count: 0,
+    })
     markAnnouncementRead.mockResolvedValue({ message: 'ok' })
+    markFeedbackRead.mockResolvedValue({ unread_count: 0, last_read_reply_id: 0 })
+    submitFeedback.mockResolvedValue({ id: 17, created_at: '2026-09-08T00:00:00Z', retry_after: 60 })
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       value: 'visible',
@@ -257,6 +318,74 @@ describe('KeyUsageView', () => {
     expect(wrapper.text()).toContain('gpt-5.5')
     expect(wrapper.text()).toContain('keyUsage.exit')
     expect(wrapper.text()).not.toContain('$53.38')
+  })
+
+  it('submits key feedback through the isolated key usage API after a session exists', async () => {
+    getSession.mockResolvedValue({ valid: true, session_id: 'session-a' })
+    const createdTicket = {
+      id: 17,
+      content: 'key scoped issue',
+      source: 'key',
+      status: 'open',
+      created_at: '2026-09-08T00:00:00Z',
+      updated_at: '2026-09-08T00:00:00Z',
+      closed_at: null,
+      closed_by: null,
+    }
+    listFeedback
+      .mockResolvedValueOnce({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
+      .mockResolvedValueOnce({ items: [createdTicket], total: 1, page: 1, page_size: 20, pages: 1 })
+      .mockResolvedValueOnce({ items: [createdTicket], total: 1, page: 1, page_size: 20, pages: 1 })
+    getFeedback.mockResolvedValueOnce(createdTicket)
+    const wrapper = mountView()
+    await flushPromises()
+
+    const feedbackButton = wrapper.findAll('button').find((button) => button.text().includes('feedback.entry'))
+    expect(feedbackButton).toBeTruthy()
+    await feedbackButton!.trigger('click')
+    await flushPromises()
+    expect(listFeedback).toHaveBeenCalledWith(1, 20, { status: undefined }, { signal: expect.any(AbortSignal) })
+    const newButton = wrapper.findAll('button').find((button) => button.text().includes('feedback.newTicket'))
+    expect(newButton).toBeTruthy()
+    await newButton!.trigger('click')
+    await flushPromises()
+
+    await wrapper.get('#feedback-content').setValue('key scoped issue')
+    await wrapper.get('#feedback-form').trigger('submit')
+    await flushPromises()
+
+    expect(submitFeedback).toHaveBeenCalledWith('key scoped issue', expect.any(AbortSignal))
+    expect(JSON.stringify(getSummary.mock.calls)).not.toContain('key scoped issue')
+    expect(showSuccess).toHaveBeenCalledWith('feedback.success')
+    expect(wrapper.find('#feedback-content').exists()).toBe(false)
+    expect(wrapper.find('.base-dialog-stub').exists()).toBe(false)
+
+    await feedbackButton!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('key scoped issue')
+    expect(listFeedback).toHaveBeenLastCalledWith(1, 20, { status: undefined }, { signal: expect.any(AbortSignal) })
+    expect(getFeedback).toHaveBeenCalledWith(17, expect.any(AbortSignal))
+  })
+
+  it('clears key feedback state when exiting the query session', async () => {
+    getSession.mockResolvedValue({ valid: true, session_id: 'session-a' })
+    const wrapper = mountView()
+    await flushPromises()
+
+    const feedbackButton = wrapper.findAll('button').find((button) => button.text().includes('feedback.entry'))
+    await feedbackButton!.trigger('click')
+    await flushPromises()
+    const newButton = wrapper.findAll('button').find((button) => button.text().includes('feedback.newTicket'))
+    await newButton!.trigger('click')
+    await flushPromises()
+    await wrapper.get('#feedback-content').setValue('draft')
+
+    const exitButton = wrapper.findAll('button').find((button) => button.text() === 'keyUsage.exit')
+    await exitButton!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('#feedback-content').exists()).toBe(false)
   })
 
   it('renders an interactive spending trend with daily cost, request, and token details', async () => {

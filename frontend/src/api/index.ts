@@ -22,6 +22,7 @@ export { totpAPI } from './totp'
 export { passkeyAPI, type PasskeyCredentialSummary } from './passkey'
 export { default as announcementsAPI } from './announcements'
 export { modelStatusAPI } from './modelStatus'
+export { default as feedbackAPI } from './feedback'
 
 // Admin APIs
 export { adminAPI } from './admin'

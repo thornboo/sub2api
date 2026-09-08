@@ -49,6 +49,7 @@ func RegisterAdminRoutes(
 
 		// 公告管理
 		registerAnnouncementRoutes(admin, h)
+		registerFeedbackRoutes(admin, h)
 
 		// OpenAI OAuth
 		registerOpenAIOAuthRoutes(admin, h)
@@ -486,6 +487,18 @@ func registerAnnouncementRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		announcements.PUT("/:id", h.Admin.Announcement.Update)
 		announcements.DELETE("/:id", h.Admin.Announcement.Delete)
 		announcements.GET("/:id/read-status", h.Admin.Announcement.ListReadStatus)
+	}
+}
+
+func registerFeedbackRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	feedback := admin.Group("/feedback")
+	{
+		feedback.GET("", h.Admin.Feedback.List)
+		feedback.GET("/:id", h.Admin.Feedback.Get)
+		feedback.GET("/:id/messages", h.Admin.Feedback.ListMessages)
+		feedback.POST("/:id/messages", h.Admin.Feedback.Reply)
+		feedback.POST("/:id/read", h.Admin.Feedback.MarkRead)
+		feedback.POST("/:id/close", h.Admin.Feedback.Close)
 	}
 }
 

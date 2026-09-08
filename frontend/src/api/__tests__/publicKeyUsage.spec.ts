@@ -64,4 +64,22 @@ describe('publicKeyUsageAPI', () => {
     )
     expect(JSON.stringify(post.mock.calls)).not.toContain('signed-in-user-jwt')
   })
+
+  it('uses the isolated public Key session client for feedback ticket reads and writes', async () => {
+    get.mockResolvedValue({ data: { code: 0, message: 'success', data: { items: [], total: 0, page: 1, page_size: 20, pages: 0 } } })
+    post.mockResolvedValue({ data: { code: 0, message: 'success', data: { id: 9, status: 'closed' } } })
+    const { publicKeyUsageAPI } = await import('../publicKeyUsage')
+    const signal = new AbortController().signal
+
+    await publicKeyUsageAPI.listFeedback(2, 20, { status: 'open' }, { signal })
+    await publicKeyUsageAPI.listFeedbackMessages(9, 1, 20, signal)
+    await publicKeyUsageAPI.replyFeedback(9, 'plain text', signal)
+    await publicKeyUsageAPI.closeFeedback(9, signal)
+
+    expect(get).toHaveBeenCalledWith('/key/feedback', { params: { page: 2, page_size: 20, status: 'open' }, signal })
+    expect(get).toHaveBeenCalledWith('/key/feedback/9/messages', { params: { page: 1, page_size: 20 }, signal })
+    expect(post).toHaveBeenCalledWith('/key/feedback/9/messages', { content: 'plain text' }, { signal })
+    expect(post).toHaveBeenCalledWith('/key/feedback/9/close', {}, { signal })
+    expect(JSON.stringify([...get.mock.calls, ...post.mock.calls])).not.toContain('signed-in-user-jwt')
+  })
 })

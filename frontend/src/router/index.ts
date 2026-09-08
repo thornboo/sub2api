@@ -217,6 +217,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/feedback',
+    name: 'Feedback',
+    component: () => import('@/views/user/FeedbackView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Feedback',
+      titleKey: 'feedback.myTickets',
+      descriptionKey: 'feedback.myTicketsDescription'
+    }
+  },
+  {
     path: '/enterprise/members',
     name: 'EnterpriseMembers',
     component: () => import('@/views/user/EnterpriseMembersView.vue'),
@@ -575,6 +587,18 @@ const routes: RouteRecordRaw[] = [
       title: 'Announcements',
       titleKey: 'admin.announcements.title',
       descriptionKey: 'admin.announcements.description'
+    }
+  },
+  {
+    path: '/admin/feedback',
+    name: 'AdminFeedback',
+    component: () => import('@/views/admin/FeedbackView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Feedback',
+      titleKey: 'admin.feedback.title',
+      descriptionKey: 'admin.feedback.description'
     }
   },
   {
