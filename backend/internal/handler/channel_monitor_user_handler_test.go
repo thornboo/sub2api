@@ -171,7 +171,7 @@ func newAuthenticatedModelStatusContext(method, path string) (*httptest.Response
 }
 
 func newPausedModelStatusTestHandler(selfCheckEnabled bool) *ChannelMonitorUserHandler {
-	checkedAt := time.Date(2026, 9, 8, 10, 0, 0, 0, time.UTC)
+	checkedAt := time.Now().UTC().Add(-time.Minute)
 	latency := 321
 	repo := &userModelStatusHandlerRepoStub{
 		targets: []service.ModelSelfCheckTarget{{
