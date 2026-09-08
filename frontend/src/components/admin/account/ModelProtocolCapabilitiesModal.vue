@@ -162,7 +162,9 @@
                   <div class="space-y-2.5">
                     <div class="flex items-center justify-between gap-2">
                       <span class="text-[10px] font-semibold uppercase tracking-[0.12em] text-stone-400 dark:text-stone-500">
-                        {{ t('admin.accounts.modelProtocol.effectiveState') }}
+                        {{ t(hasDraftChanges(model, protocol.value)
+                          ? 'admin.accounts.modelProtocol.afterSaveState'
+                          : 'admin.accounts.modelProtocol.effectiveState') }}
                       </span>
                       <span :class="stateBadgeClass(displayCapability(model, protocol.value).state)">
                         {{ stateLabel(displayCapability(model, protocol.value).state) }}
@@ -197,9 +199,22 @@
                     </div>
 
                     <div class="flex min-h-10 items-start gap-2 rounded-lg bg-stone-50/80 px-2.5 py-2 text-[11px] leading-4 text-stone-500 dark:bg-black/25 dark:text-stone-400">
-                      <span :class="stateDotClass(displayCapability(model, protocol.value).state)" />
+                      <span :class="stateDotClass(observationEvidence(model, protocol.value)?.state ?? displayCapability(model, protocol.value).state)" />
                       <span>
-                        <template v-if="displayCapability(model, protocol.value).source">
+                        <template v-if="observationEvidence(model, protocol.value)">
+                          <span
+                            v-if="displayCapability(model, protocol.value).source && displayCapability(model, protocol.value).source !== observationEvidence(model, protocol.value)?.source"
+                            class="block"
+                          >{{ sourceLabel(displayCapability(model, protocol.value).source) }}</span>
+                          <span data-observed-evidence class="block">
+                            {{ t('admin.accounts.modelProtocol.observedEvidence') }} · {{ stateLabel(observationEvidence(model, protocol.value)!.state) }}
+                            <span class="block">{{ sourceLabel(observationEvidence(model, protocol.value)?.source) }}</span>
+                            <span v-if="observationEvidence(model, protocol.value)?.observedAt" class="block text-stone-400 dark:text-stone-500">
+                              {{ formatObservedAt(observationEvidence(model, protocol.value)?.observedAt) }}
+                            </span>
+                          </span>
+                        </template>
+                        <template v-else-if="displayCapability(model, protocol.value).source">
                           {{ sourceLabel(displayCapability(model, protocol.value).source) }}
                           <span v-if="displayCapability(model, protocol.value).observedAt" class="block text-stone-400 dark:text-stone-500">
                             {{ formatObservedAt(displayCapability(model, protocol.value).observedAt) }}
@@ -226,7 +241,7 @@
           </button>
           <button
             class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled="loading || saving || syncing || !account"
+            :disabled="loading || saving || syncing || !account || !capabilitiesLoaded"
             @click="saveOverrides"
           >
             {{ saving ? t('common.saving') : t('common.save') }}
@@ -293,6 +308,7 @@ const overrideOptions: Array<{
 ]
 
 const loading = ref(false)
+const capabilitiesLoaded = ref(false)
 const syncing = ref(false)
 const saving = ref(false)
 const error = ref('')
@@ -398,6 +414,12 @@ function originalOverrideState(model: string, protocol: ModelProtocol) {
   return entryFor(model, protocol)?.override_state || 'auto'
 }
 
+function observationEvidence(model: string, protocol: ModelProtocol): DisplayCapability | undefined {
+  const entry = entryFor(model, protocol)
+  if (!entry?.observed_source) return undefined
+  return { state: entry.observed_state, source: entry.observed_source, observedAt: entry.observed_at }
+}
+
 function backendCapability(model: string, protocol: ModelProtocol): DisplayCapability {
   const exact = entryFor(model, protocol)
   const fallback = model === '*' ? undefined : entryFor('*', protocol)
@@ -430,7 +452,7 @@ function draftCapability(model: string, protocol: ModelProtocol): DisplayCapabil
   const exact = entryFor(model, protocol)
   const fallback = model === '*' ? undefined : entryFor('*', protocol)
   const exactDraft = draft[capabilityKey(model, protocol)] || 'auto'
-  const fallbackDraft = fallback ? draft[capabilityKey('*', protocol)] || fallback.override_state : 'auto'
+  const fallbackDraft = model === '*' ? 'auto' : draft[capabilityKey('*', protocol)] || fallback?.override_state || 'auto'
   if (exactDraft === 'supported' || exactDraft === 'unsupported') {
     return { state: exactDraft, source: 'admin_override' }
   }
@@ -450,25 +472,30 @@ function draftCapability(model: string, protocol: ModelProtocol): DisplayCapabil
   }
 }
 
-function displayCapability(model: string, protocol: ModelProtocol): DisplayCapability {
-  const exactDraftChanged = (draft[capabilityKey(model, protocol)] || 'auto') !== originalOverrideState(model, protocol)
-  const wildcardDraftChanged = model !== '*' && (
+function hasDraftChanges(model: string, protocol: ModelProtocol): boolean {
+  const exactDraft = draft[capabilityKey(model, protocol)] || 'auto'
+  const exactDraftChanged = exactDraft !== originalOverrideState(model, protocol)
+  const wildcardDraftChanged = model !== '*' && exactDraft === 'auto' && (
     (draft[capabilityKey('*', protocol)] || 'auto') !== originalOverrideState('*', protocol)
   )
+  return exactDraftChanged || wildcardDraftChanged
+}
 
+function displayCapability(model: string, protocol: ModelProtocol): DisplayCapability {
   // The server owns the persisted resolution contract. Local resolution is
   // limited to cells affected by an unsaved exact or wildcard override.
-  if (!exactDraftChanged && !wildcardDraftChanged) {
+  if (!hasDraftChanges(model, protocol)) {
     return backendCapability(model, protocol)
   }
   return draftCapability(model, protocol)
 }
 
-function resetDraft() {
+function resetDraft(preservedDraft: Record<string, ModelProtocolOverrideInput['state']> = {}) {
   Object.keys(draft).forEach(key => delete draft[key])
   for (const model of models.value) {
     for (const protocol of protocols) {
-      draft[capabilityKey(model, protocol.value)] = entryFor(model, protocol.value)?.override_state || 'auto'
+      const key = capabilityKey(model, protocol.value)
+      draft[key] = preservedDraft[key] ?? originalOverrideState(model, protocol.value)
     }
   }
 }
@@ -503,6 +530,7 @@ async function loadCapabilities() {
     manualModelInput.value = ''
     warnings.value = result.warnings || []
     resetDraft()
+    capabilitiesLoaded.value = true
   } catch (requestError) {
     if (isCurrentAccount(accountId, generation)) error.value = extractApiErrorMessage(requestError)
   } finally {
@@ -540,8 +568,24 @@ async function syncCapabilities() {
     responseModels.value = Array.isArray(result.models) ? result.models : null
     mappingRestricted.value = result.mapping_restricted === true
     warnings.value = result.warnings || []
-    resetDraft()
-    appStore.showSuccess(t('admin.accounts.modelProtocol.syncSuccess'))
+    resetDraft({ ...draft })
+    const visibleModels = new Set(models.value)
+    let filledCount = 0
+    for (const observation of result.synced_observations || []) {
+      const protocol = protocols.find(protocol => protocol.value === observation.protocol)
+      if (
+        !protocol ||
+        observation.upstream_model === '*' ||
+        !visibleModels.has(observation.upstream_model) ||
+        (observation.state !== 'supported' && observation.state !== 'unsupported')
+      ) continue
+      draft[capabilityKey(observation.upstream_model, protocol.value)] = observation.state
+      filledCount += 1
+    }
+    capabilitiesLoaded.value = true
+    appStore.showSuccess(t(filledCount > 0
+      ? 'admin.accounts.modelProtocol.syncSuccess'
+      : 'admin.accounts.modelProtocol.syncNoChanges'))
   } catch (requestError) {
     if (isCurrentAccount(accountId, generation)) error.value = extractApiErrorMessage(requestError)
   } finally {
@@ -550,7 +594,7 @@ async function syncCapabilities() {
 }
 
 async function saveOverrides() {
-  if (!props.account) return
+  if (!props.account || !capabilitiesLoaded.value) return
   const accountId = props.account.id
   const generation = contextGeneration
   const payload: ModelProtocolOverrideInput[] = []
@@ -642,6 +686,8 @@ watch(
   () => [props.show, props.account?.id] as const,
   ([visible]) => {
     contextGeneration += 1
+    Object.keys(draft).forEach(key => delete draft[key])
+    capabilitiesLoaded.value = false
     loading.value = false
     syncing.value = false
     saving.value = false

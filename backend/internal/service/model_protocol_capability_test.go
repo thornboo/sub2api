@@ -132,7 +132,9 @@ func TestModelProtocolCapabilityResolvePrecedence(t *testing.T) {
 
 func TestModelProtocolCapabilitySyncCatalogKeepsMissingAndUnknownSafe(t *testing.T) {
 	t.Parallel()
-	repo := &modelProtocolCapabilityRepoStub{}
+	repo := &modelProtocolCapabilityRepoStub{items: []AccountModelProtocolCapability{
+		{UpstreamModel: "historic-only", Protocol: ModelProtocolOpenAIChat, ObservedState: ModelProtocolStateSupported, ObservedSource: "upstream_model_list"},
+	}}
 	svc := &ModelProtocolCapabilityService{repo: repo}
 
 	result, err := svc.SyncCatalog(context.Background(), 9, []UpstreamModelDescriptor{
@@ -143,10 +145,11 @@ func TestModelProtocolCapabilitySyncCatalogKeepsMissingAndUnknownSafe(t *testing
 	require.Equal(t, []string{"Kimi-K2", "MiniMax-M3"}, result.Models)
 	require.Len(t, result.Warnings, 2)
 	require.Contains(t, result.Warnings[0]+result.Warnings[1], "did not declare supported_endpoint_types")
+	require.Equal(t, repo.observations, result.Observations)
 
 	states := make(map[string]ModelProtocolState)
 	sources := make(map[string]string)
-	for _, observation := range repo.observations {
+	for _, observation := range result.Observations {
 		key := observation.UpstreamModel + ":" + string(observation.Protocol)
 		states[key] = observation.State
 		sources[key] = observation.Source
@@ -156,6 +159,7 @@ func TestModelProtocolCapabilitySyncCatalogKeepsMissingAndUnknownSafe(t *testing
 	require.Equal(t, ModelProtocolStateUnknown, states["MiniMax-M3:openai_chat_completions"])
 	require.Equal(t, ModelProtocolStateUnknown, states["Kimi-K2:anthropic_messages"])
 	require.Equal(t, "upstream_model_list_missing", sources["Kimi-K2:anthropic_messages"])
+	require.Empty(t, states["historic-only:openai_chat_completions"])
 }
 
 func TestModelProtocolCapabilitySyncCatalogKeepsEmptyEndpointTypesUnknown(t *testing.T) {
@@ -171,11 +175,27 @@ func TestModelProtocolCapabilitySyncCatalogKeepsEmptyEndpointTypesUnknown(t *tes
 	require.Len(t, result.Warnings, 1)
 	require.Contains(t, result.Warnings[0], "empty supported_endpoint_types array")
 	require.Len(t, repo.observations, len(AllModelProtocols))
-	for _, observation := range repo.observations {
+	require.Equal(t, repo.observations, result.Observations)
+	for _, observation := range result.Observations {
 		require.Equal(t, "MiniMax-M3", observation.UpstreamModel)
 		require.Equal(t, ModelProtocolStateUnknown, observation.State)
 		require.Equal(t, "upstream_model_list_empty", observation.Source)
 	}
+}
+
+func TestModelProtocolCapabilitySyncCatalogReturnsEmptyObservationsForEmptyCatalog(t *testing.T) {
+	t.Parallel()
+	repo := &modelProtocolCapabilityRepoStub{}
+	svc := &ModelProtocolCapabilityService{repo: repo}
+
+	result, err := svc.SyncCatalog(context.Background(), 9, nil)
+
+	require.NoError(t, err)
+	require.Empty(t, result.Models)
+	require.Empty(t, result.Warnings)
+	require.NotNil(t, result.Observations)
+	require.Empty(t, result.Observations)
+	require.Empty(t, repo.observations)
 }
 
 func TestScopeAccountModelProtocolCapabilitiesUsesMappedUpstreamModels(t *testing.T) {
@@ -234,11 +254,17 @@ func TestModelProtocolCapabilitySyncCatalogForAccountIgnoresUnmappedUpstreamMode
 
 	require.NoError(t, err)
 	require.Equal(t, []string{"MiniMax-M2.7", "minimax-m2.5"}, result.Models)
+	require.Equal(t, repo.observations, result.Observations)
 	require.NotEmpty(t, repo.observations)
+	states := make(map[string]ModelProtocolState)
 	for _, observation := range repo.observations {
 		require.NotEqual(t, "glm-5", observation.UpstreamModel)
 		require.Contains(t, result.Models, observation.UpstreamModel)
+		states[observation.UpstreamModel+":"+string(observation.Protocol)] = observation.State
 	}
+	require.Equal(t, ModelProtocolStateSupported, states["MiniMax-M2.7:openai_chat_completions"])
+	require.Equal(t, ModelProtocolStateSupported, states["MiniMax-M2.7:anthropic_messages"])
+	require.Equal(t, ModelProtocolStateUnsupported, states["minimax-m2.5:openai_chat_completions"])
 }
 
 func TestModelProtocolCapabilityUpdateOverridesForAccountRejectsUnmappedModel(t *testing.T) {

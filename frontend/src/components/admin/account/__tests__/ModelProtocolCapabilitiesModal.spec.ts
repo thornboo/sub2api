@@ -118,6 +118,49 @@ async function setOverride(
   await row.get(`button[data-override-state="${state}"]`).trigger('click')
 }
 
+function chatControls(wrapper: ReturnType<typeof mountModal>, model: string) {
+  return rowFor(wrapper, model).findAll('[role="radiogroup"]')[1]
+}
+
+function protocolCell(wrapper: ReturnType<typeof mountModal>, model: string, protocol: 'anthropic_messages' | 'openai_chat_completions' | 'openai_responses') {
+  const protocolIndex = {
+    anthropic_messages: 1,
+    openai_chat_completions: 2,
+    openai_responses: 3
+  }[protocol]
+  return rowFor(wrapper, model).findAll('td')[protocolIndex]
+}
+
+function saveButton(wrapper: ReturnType<typeof mountModal>) {
+  const button = wrapper.findAll('button').find(button => button.text() === 'common.save')
+  expect(button, 'save button').toBeTruthy()
+  return button!
+}
+
+async function syncCapabilities(wrapper: ReturnType<typeof mountModal>) {
+  const button = wrapper.findAll('button').find(button => button.text() === 'admin.accounts.modelProtocol.sync')
+  await button!.trigger('click')
+  await flushPromises()
+}
+
+function syncResult(
+  items: AccountModelProtocolCapability[],
+  observations: Array<{ upstream_model: string; protocol: string; state: string }> = []
+) {
+  return {
+    account_id: 7,
+    items,
+    warnings: [],
+    public_model_impacts: {},
+    orphan_upstream_models: [],
+    synced_observations: observations.map(observation => ({
+      ...observation,
+      source: 'upstream_model_list',
+      observed_at: '2026-09-08T01:00:00Z'
+    }))
+  }
+}
+
 describe('ModelProtocolCapabilitiesModal', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -214,7 +257,29 @@ describe('ModelProtocolCapabilitiesModal', () => {
     await setOverride(exactRow, 'unsupported')
 
     expect(exactRow.text()).toContain('admin.accounts.modelProtocol.sources.adminOverride')
-    expect(exactRow.text()).not.toContain('2026')
+    const observedEvidence = protocolCell(wrapper, 'MiniMax-M3', 'anthropic_messages').find('[data-observed-evidence]')
+    expect(observedEvidence.text()).toContain('admin.accounts.modelProtocol.observedEvidence')
+    expect(observedEvidence.text()).toContain('admin.accounts.modelProtocol.states.supported')
+    expect(observedEvidence.text()).toContain('admin.accounts.modelProtocol.sources.upstreamModelList')
+    expect(observedEvidence.text()).toContain('2026')
+
+    wrapper.unmount()
+  })
+
+  it('does not fabricate observed evidence when upstream has not provided an observation', async () => {
+    const wrapper = mountModal([
+      capability('MiniMax-M3', 'anthropic_messages', {
+        override_state: 'unsupported',
+        observed_state: 'unknown',
+        observed_source: undefined,
+        observed_at: undefined,
+        effective_state: 'unsupported',
+        effective_source: 'admin_override'
+      })
+    ])
+    await flushPromises()
+
+    expect(protocolCell(wrapper, 'MiniMax-M3', 'anthropic_messages').find('[data-observed-evidence]').exists()).toBe(false)
 
     wrapper.unmount()
   })
@@ -346,6 +411,314 @@ describe('ModelProtocolCapabilitiesModal', () => {
     }
     expect(wrapper.emitted('close')).toHaveLength(1)
 
+    wrapper.unmount()
+  })
+
+  it.each(['supported', 'unsupported'] as const)('selects a freshly synced %s result over a saved manual choice', async state => {
+    const previousState = state === 'supported' ? 'unsupported' : 'supported'
+    const item = capability('gpt-test', 'openai_chat_completions', {
+      override_state: previousState,
+      observed_state: state,
+      observed_source: 'upstream_model_list',
+      observed_at: '2026-09-08T01:00:00Z',
+      effective_state: previousState,
+      effective_source: 'admin_override'
+    })
+    const wrapper = mountModal([item])
+    await flushPromises()
+    syncModelProtocolCapabilities.mockResolvedValueOnce(syncResult([item], [
+      { upstream_model: 'gpt-test', protocol: 'openai_chat_completions', state }
+    ]))
+
+    await syncCapabilities(wrapper)
+
+    expect(chatControls(wrapper, 'gpt-test').get(`[data-override-state="${state}"]`).attributes('aria-checked')).toBe('true')
+    const evidence = protocolCell(wrapper, 'gpt-test', 'openai_chat_completions').get('[data-observed-evidence]')
+    expect(evidence.text()).toContain(`admin.accounts.modelProtocol.states.${state}`)
+    expect(evidence.text()).toContain('admin.accounts.modelProtocol.sources.upstreamModelList')
+    expect(evidence.text()).toContain('2026')
+    expect(updateModelProtocolCapabilityOverrides).not.toHaveBeenCalled()
+    expect(wrapper.emitted('close')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it.each(['unknown', 'missing', 'legacy'] as const)('preserves unsaved choices when fresh capability evidence is %s', async evidence => {
+    const item = capability('gpt-test', 'openai_chat_completions', {
+      observed_state: 'supported',
+      effective_state: 'supported',
+      observed_source: 'upstream_model_list'
+    })
+    const wrapper = mountModal([item])
+    await flushPromises()
+    await chatControls(wrapper, 'gpt-test').get('[data-override-state="unsupported"]').trigger('click')
+    await chatControls(wrapper, '*').get('[data-override-state="unsupported"]').trigger('click')
+    const result = syncResult([item], evidence === 'unknown' ? [
+      { upstream_model: 'gpt-test', protocol: 'openai_chat_completions', state: 'unknown' }
+    ] : [])
+    syncModelProtocolCapabilities.mockResolvedValueOnce(evidence === 'legacy'
+      ? { ...result, synced_observations: undefined }
+      : result)
+
+    await syncCapabilities(wrapper)
+
+    expect(chatControls(wrapper, 'gpt-test').get('[data-override-state="unsupported"]').attributes('aria-checked')).toBe('true')
+    expect(chatControls(wrapper, '*').get('[data-override-state="unsupported"]').attributes('aria-checked')).toBe('true')
+    wrapper.unmount()
+  })
+
+  it('fills new model choices without changing the account default or unsupported protocol controls', async () => {
+    const wrapper = mountModal([])
+    await flushPromises()
+    const item = capability('new-model', 'openai_chat_completions', { observed_state: 'supported' })
+    syncModelProtocolCapabilities.mockResolvedValueOnce(syncResult([item], [
+      { upstream_model: 'new-model', protocol: 'openai_chat_completions', state: 'supported' },
+      { upstream_model: '*', protocol: 'openai_chat_completions', state: 'supported' },
+      { upstream_model: 'new-model', protocol: 'openai_images', state: 'supported' }
+    ]))
+
+    await syncCapabilities(wrapper)
+
+    expect(chatControls(wrapper, 'new-model').get('[data-override-state="supported"]').attributes('aria-checked')).toBe('true')
+    expect(chatControls(wrapper, '*').get('[data-override-state="auto"]').attributes('aria-checked')).toBe('true')
+    expect(rowFor(wrapper, 'new-model').findAll('[role="radiogroup"]')).toHaveLength(3)
+    wrapper.unmount()
+  })
+
+  it('replaces unsaved manual choices on every sync and saves subsequent adjustments only when requested', async () => {
+    const item = capability('gpt-test', 'openai_chat_completions')
+    const wrapper = mountModal([item])
+    await flushPromises()
+    syncModelProtocolCapabilities
+      .mockResolvedValueOnce(syncResult([item], [
+        { upstream_model: 'gpt-test', protocol: 'openai_chat_completions', state: 'supported' }
+      ]))
+      .mockResolvedValueOnce(syncResult([item], [
+        { upstream_model: 'gpt-test', protocol: 'openai_chat_completions', state: 'supported' }
+      ]))
+
+    await syncCapabilities(wrapper)
+    await chatControls(wrapper, 'gpt-test').get('[data-override-state="unsupported"]').trigger('click')
+    await syncCapabilities(wrapper)
+
+    expect(chatControls(wrapper, 'gpt-test').get('[data-override-state="supported"]').attributes('aria-checked')).toBe('true')
+    expect(syncModelProtocolCapabilities).toHaveBeenCalledTimes(2)
+    expect(updateModelProtocolCapabilityOverrides).not.toHaveBeenCalled()
+    // The administrator can still adjust another protocol before saving all choices.
+    await setOverride(rowFor(wrapper, 'gpt-test'), 'unsupported')
+    updateModelProtocolCapabilityOverrides.mockResolvedValueOnce(syncResult([item]))
+    await wrapper.findAll('button').find(button => button.text() === 'common.save')!.trigger('click')
+    await flushPromises()
+
+    expect(updateModelProtocolCapabilityOverrides).toHaveBeenCalledWith(7, expect.arrayContaining([
+      { upstream_model: 'gpt-test', protocol: 'openai_chat_completions', state: 'supported' },
+      { upstream_model: 'gpt-test', protocol: 'anthropic_messages', state: 'unsupported' }
+    ]))
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('retains unsaved choices and keeps the dialog open when sync fails', async () => {
+    const wrapper = mountModal([capability('gpt-test', 'openai_chat_completions')])
+    await flushPromises()
+    await chatControls(wrapper, 'gpt-test').get('[data-override-state="supported"]').trigger('click')
+    syncModelProtocolCapabilities.mockRejectedValueOnce(new Error('upstream unavailable'))
+
+    await syncCapabilities(wrapper)
+
+    expect(chatControls(wrapper, 'gpt-test').get('[data-override-state="supported"]').attributes('aria-checked')).toBe('true')
+    expect(wrapper.text()).toContain('upstream unavailable')
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(updateModelProtocolCapabilityOverrides).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('does not submit a previous account draft after the next account first load fails', async () => {
+    const wrapper = mountModal([
+      capability('*', 'openai_chat_completions', { override_state: 'supported', effective_state: 'supported', effective_source: 'admin_override' }),
+      capability('shared-model', 'openai_chat_completions', { override_state: 'unsupported', effective_state: 'unsupported', effective_source: 'admin_override' }),
+      capability('a-only-model', 'openai_chat_completions', { override_state: 'supported', effective_state: 'supported', effective_source: 'admin_override' })
+    ])
+    await flushPromises()
+    await chatControls(wrapper, '*').get('[data-override-state="unsupported"]').trigger('click')
+    await chatControls(wrapper, 'shared-model').get('[data-override-state="supported"]').trigger('click')
+
+    getModelProtocolCapabilities.mockRejectedValueOnce(new Error('initial load failed'))
+    await wrapper.setProps({ account: { id: 8, name: 'second account' } as any })
+    await flushPromises()
+
+    expect(saveButton(wrapper).attributes('disabled')).toBeDefined()
+
+    const bItem = capability('shared-model', 'openai_chat_completions', {
+      account_id: 8,
+      observed_state: 'unknown',
+      effective_state: 'unknown'
+    })
+    syncModelProtocolCapabilities.mockResolvedValueOnce(syncResult([bItem], [
+      { upstream_model: 'shared-model', protocol: 'openai_chat_completions', state: 'unknown' }
+    ]))
+    await syncCapabilities(wrapper)
+
+    expect(saveButton(wrapper).attributes('disabled')).toBeUndefined()
+    updateModelProtocolCapabilityOverrides.mockResolvedValueOnce(syncResult([bItem]))
+    await saveButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(updateModelProtocolCapabilityOverrides).toHaveBeenCalledOnce()
+    expect(updateModelProtocolCapabilityOverrides.mock.calls[0][0]).toBe(8)
+    const payload = updateModelProtocolCapabilityOverrides.mock.calls[0][1]
+    expect(payload).not.toContainEqual(expect.objectContaining({ upstream_model: 'a-only-model' }))
+    expect(payload).toContainEqual({ upstream_model: '*', protocol: 'openai_chat_completions', state: 'auto' })
+    expect(payload).toContainEqual({ upstream_model: 'shared-model', protocol: 'openai_chat_completions', state: 'auto' })
+    wrapper.unmount()
+  })
+
+  it('does not retain cancelled drafts when the same account is reopened and reloaded by sync', async () => {
+    const item = capability('gpt-test', 'openai_chat_completions', {
+      observed_state: 'unknown',
+      effective_state: 'unknown'
+    })
+    const wrapper = mountModal([item])
+    await flushPromises()
+    await chatControls(wrapper, 'gpt-test').get('[data-override-state="unsupported"]').trigger('click')
+
+    await wrapper.setProps({ show: false })
+    await flushPromises()
+    getModelProtocolCapabilities.mockRejectedValueOnce(new Error('initial load failed'))
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    expect(saveButton(wrapper).attributes('disabled')).toBeDefined()
+
+    syncModelProtocolCapabilities.mockResolvedValueOnce(syncResult([item], [
+      { upstream_model: 'gpt-test', protocol: 'openai_chat_completions', state: 'unknown' }
+    ]))
+    await syncCapabilities(wrapper)
+
+    expect(saveButton(wrapper).attributes('disabled')).toBeUndefined()
+    updateModelProtocolCapabilityOverrides.mockResolvedValueOnce(syncResult([item]))
+    await saveButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(updateModelProtocolCapabilityOverrides.mock.calls[0][1]).toContainEqual({
+      upstream_model: 'gpt-test',
+      protocol: 'openai_chat_completions',
+      state: 'auto'
+    })
+    wrapper.unmount()
+  })
+
+  it('ignores a sync response from a previously selected account', async () => {
+    const wrapper = mountModal([capability('first-model', 'openai_chat_completions')])
+    await flushPromises()
+    let resolveSync!: (value: ReturnType<typeof syncResult>) => void
+    syncModelProtocolCapabilities.mockReturnValueOnce(new Promise(resolve => { resolveSync = resolve }))
+    await syncCapabilities(wrapper)
+    getModelProtocolCapabilities.mockResolvedValueOnce(syncResult([capability('second-model', 'openai_chat_completions')]))
+    await wrapper.setProps({ account: { id: 8, name: 'second account' } as any })
+    await flushPromises()
+
+    resolveSync(syncResult([capability('first-model', 'openai_chat_completions')], [
+      { upstream_model: 'first-model', protocol: 'openai_chat_completions', state: 'supported' }
+    ]))
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('first-model')
+    expect(chatControls(wrapper, 'second-model').get('[data-override-state="auto"]').attributes('aria-checked')).toBe('true')
+    expect(showSuccess).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('marks a synced choice as pending until it is saved successfully', async () => {
+    const savedAuto = capability('gpt-test', 'openai_chat_completions', {
+      override_state: 'auto',
+      observed_state: 'unknown',
+      effective_state: 'unknown'
+    })
+    const savedSupported = capability('gpt-test', 'openai_chat_completions', {
+      override_state: 'supported',
+      observed_state: 'supported',
+      observed_source: 'upstream_model_list',
+      observed_at: '2026-09-08T01:00:00Z',
+      effective_state: 'supported',
+      effective_source: 'admin_override'
+    })
+    const wrapper = mountModal([savedAuto])
+    await flushPromises()
+    syncModelProtocolCapabilities.mockResolvedValueOnce(syncResult([savedAuto], [
+      { upstream_model: 'gpt-test', protocol: 'openai_chat_completions', state: 'supported' }
+    ]))
+
+    await syncCapabilities(wrapper)
+
+    expect(protocolCell(wrapper, 'gpt-test', 'openai_chat_completions').text()).toContain('admin.accounts.modelProtocol.afterSaveState')
+    expect(protocolCell(wrapper, 'gpt-test', 'openai_chat_completions').text()).not.toContain('admin.accounts.modelProtocol.effectiveState')
+
+    updateModelProtocolCapabilityOverrides.mockRejectedValueOnce(new Error('save failed'))
+    await saveButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(protocolCell(wrapper, 'gpt-test', 'openai_chat_completions').text()).toContain('admin.accounts.modelProtocol.afterSaveState')
+
+    updateModelProtocolCapabilityOverrides.mockResolvedValueOnce(syncResult([savedSupported]))
+    await saveButton(wrapper).trigger('click')
+    await flushPromises()
+    getModelProtocolCapabilities.mockResolvedValueOnce(syncResult([savedSupported]))
+    await wrapper.setProps({ show: false })
+    await flushPromises()
+    await wrapper.setProps({ show: true, account: { id: 7, name: 'new-api upstream' } as any })
+    await flushPromises()
+
+    expect(protocolCell(wrapper, 'gpt-test', 'openai_chat_completions').text()).toContain('admin.accounts.modelProtocol.effectiveState')
+    expect(protocolCell(wrapper, 'gpt-test', 'openai_chat_completions').text()).not.toContain('admin.accounts.modelProtocol.afterSaveState')
+    wrapper.unmount()
+  })
+
+  it('marks inherited wildcard drafts as pending without marking exact saved overrides', async () => {
+    const wrapper = mountModal([
+      capability('*', 'openai_chat_completions', {
+        override_state: 'unsupported',
+        effective_state: 'unsupported',
+        effective_source: 'admin_override'
+      }),
+      capability('inherits-default', 'openai_chat_completions', {
+        override_state: 'auto',
+        effective_state: 'unsupported',
+        effective_source: 'admin_override'
+      }),
+      capability('has-exact-override', 'openai_chat_completions', {
+        override_state: 'supported',
+        effective_state: 'supported',
+        effective_source: 'admin_override'
+      })
+    ])
+    await flushPromises()
+
+    await chatControls(wrapper, '*').get('[data-override-state="supported"]').trigger('click')
+
+    expect(protocolCell(wrapper, 'inherits-default', 'openai_chat_completions').text()).toContain('admin.accounts.modelProtocol.afterSaveState')
+    expect(protocolCell(wrapper, 'inherits-default', 'openai_chat_completions').text()).toContain('admin.accounts.modelProtocol.states.supported')
+    expect(protocolCell(wrapper, 'has-exact-override', 'openai_chat_completions').text()).toContain('admin.accounts.modelProtocol.effectiveState')
+    expect(protocolCell(wrapper, 'has-exact-override', 'openai_chat_completions').text()).not.toContain('admin.accounts.modelProtocol.afterSaveState')
+    wrapper.unmount()
+  })
+
+  it('previews a new account default before any wildcard record has been saved', async () => {
+    const wrapper = mountModal([
+      capability('inherits-new-default', 'openai_chat_completions', {
+        observed_state: 'supported',
+        observed_source: 'upstream_model_list',
+        effective_state: 'supported',
+        effective_source: 'upstream_model_list'
+      })
+    ])
+    await flushPromises()
+
+    await chatControls(wrapper, '*').get('[data-override-state="unsupported"]').trigger('click')
+
+    const cell = protocolCell(wrapper, 'inherits-new-default', 'openai_chat_completions')
+    expect(cell.text()).toContain('admin.accounts.modelProtocol.afterSaveState')
+    expect(cell.text()).toContain('admin.accounts.modelProtocol.states.unsupported')
+    expect(cell.get('[data-observed-evidence]').text()).toContain('admin.accounts.modelProtocol.states.supported')
     wrapper.unmount()
   })
 

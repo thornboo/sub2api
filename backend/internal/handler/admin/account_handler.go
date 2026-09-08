@@ -3475,7 +3475,9 @@ func (h *AccountHandler) SyncModelProtocolCapabilities(c *gin.Context) {
 		response.InternalError(c, "Capabilities were synced but could not be reloaded")
 		return
 	}
-	response.Success(c, h.modelProtocolCapabilityResponse(c, account, items, result.Warnings))
+	payload := h.modelProtocolCapabilityResponse(c, account, items, result.Warnings)
+	payload["synced_observations"] = result.Observations
+	response.Success(c, payload)
 }
 
 func supportsModelProtocolCapabilityManagement(account *service.Account) bool {

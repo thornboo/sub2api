@@ -1431,6 +1431,16 @@ export interface AccountModelProtocolCapabilitiesResponse {
   mapping_restricted?: boolean
   public_model_impacts: Record<string, AccountPublicModelImpact[]>
   orphan_upstream_models: string[]
+  // Present on sync responses; persisted items may also contain older observations.
+  synced_observations?: ModelProtocolSyncObservation[]
+}
+
+export interface ModelProtocolSyncObservation {
+  upstream_model: string
+  protocol: string
+  state: Exclude<ModelProtocolState, 'auto'>
+  source: string
+  observed_at: string
 }
 
 export interface AccountPublicModelImpact {

@@ -73,11 +73,11 @@ type AccountModelProtocolCapability struct {
 }
 
 type ModelProtocolObservation struct {
-	UpstreamModel string
-	Protocol      ModelProtocol
-	State         ModelProtocolState
-	Source        string
-	ObservedAt    time.Time
+	UpstreamModel string             `json:"upstream_model"`
+	Protocol      ModelProtocol      `json:"protocol"`
+	State         ModelProtocolState `json:"state"`
+	Source        string             `json:"source"`
+	ObservedAt    time.Time          `json:"observed_at"`
 }
 
 type ModelProtocolOverride struct {
@@ -332,8 +332,9 @@ func accountModelProtocolTargetModels(account *Account) ([]string, bool) {
 }
 
 type ModelProtocolCapabilitySyncResult struct {
-	Models   []string `json:"models"`
-	Warnings []string `json:"warnings"`
+	Models       []string                   `json:"models"`
+	Warnings     []string                   `json:"warnings"`
+	Observations []ModelProtocolObservation `json:"synced_observations"`
 }
 
 const (
@@ -480,7 +481,7 @@ func (s *ModelProtocolCapabilityService) SyncCatalog(ctx context.Context, accoun
 		return nil, err
 	}
 	s.invalidate(accountID)
-	return &ModelProtocolCapabilitySyncResult{Models: models, Warnings: warnings}, nil
+	return &ModelProtocolCapabilitySyncResult{Models: models, Warnings: warnings, Observations: observations}, nil
 }
 
 // SyncCatalogForAccount limits upstream observations to models that this
