@@ -7,6 +7,8 @@ import GroupsView from '../GroupsView.vue'
 const {
   listGroups,
   getAllGroups,
+  getAllGroupsIncludingInactive,
+  updateSortOrder,
   getModelAllowlistCandidates,
   getLiveCapability,
   getUsageSummary,
@@ -20,6 +22,8 @@ const {
 } = vi.hoisted(() => ({
   listGroups: vi.fn(),
   getAllGroups: vi.fn(),
+  getAllGroupsIncludingInactive: vi.fn(),
+  updateSortOrder: vi.fn(),
   getModelAllowlistCandidates: vi.fn(),
   getLiveCapability: vi.fn(),
   getUsageSummary: vi.fn(),
@@ -37,6 +41,7 @@ const messages: Record<string, string> = {
   'admin.groups.columns.name': 'Name',
   'admin.groups.columns.id': 'ID',
   'admin.groups.columns.platform': 'Platform',
+  'admin.groups.columns.sortOrder': 'Display Order',
   'admin.groups.columns.billingType': 'Billing Type',
   'admin.groups.columns.rateMultiplier': 'Rate Multiplier',
   'admin.groups.columns.type': 'Type',
@@ -55,6 +60,7 @@ vi.mock('@/api/admin', () => ({
     groups: {
       list: listGroups,
       getAll: getAllGroups,
+      getAllIncludingInactive: getAllGroupsIncludingInactive,
       getModelAllowlistCandidates,
       getLiveCapability,
       getUsageSummary,
@@ -62,7 +68,7 @@ vi.mock('@/api/admin', () => ({
       create: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
-      updateSortOrder: vi.fn(),
+      updateSortOrder,
     },
     accounts: {
       list: listAccounts,
@@ -163,6 +169,9 @@ const DataTableStub = {
       <div v-if="data.length" data-test="usage-cell">
         <slot name="cell-usage" :row="data[0]" />
       </div>
+      <div v-if="data.length" data-test="sort-order-cell">
+        <slot name="cell-sort_order" :value="data[0].sort_order" />
+      </div>
     </div>
   `,
 }
@@ -184,7 +193,7 @@ const SelectStub = {
 
 const BaseDialogStub = {
   props: ['show'],
-  template: '<div v-if="show"><slot /><slot name="footer" /></div>',
+  template: '<div v-if="show" role="dialog"><slot /><slot name="footer" /></div>',
 }
 
 const IconStub = {
@@ -209,7 +218,7 @@ const mountView = async () => {
         GroupCapacityBadge: true,
         GroupRateMultipliersModal: true,
         GroupRPMOverridesModal: true,
-        VueDraggable: { template: '<div><slot /></div>' },
+        VueDraggable: { name: 'VueDraggable', props: ['modelValue'], emits: ['update:modelValue'], template: '<div><slot /></div>' },
       },
     },
   })
@@ -239,6 +248,8 @@ describe('admin GroupsView column settings', () => {
 
     listGroups.mockReset()
     getAllGroups.mockReset()
+    getAllGroupsIncludingInactive.mockReset()
+    updateSortOrder.mockReset()
     getModelAllowlistCandidates.mockReset()
     getUsageSummary.mockReset()
     getCapacitySummary.mockReset()
@@ -258,6 +269,8 @@ describe('admin GroupsView column settings', () => {
       pages: 1,
     })
     getAllGroups.mockResolvedValue([])
+    getAllGroupsIncludingInactive.mockResolvedValue([])
+    updateSortOrder.mockResolvedValue(undefined)
     getModelAllowlistCandidates.mockResolvedValue([])
     getUsageSummary.mockResolvedValue([])
     getCapacitySummary.mockResolvedValue([])
@@ -293,6 +306,7 @@ describe('admin GroupsView column settings', () => {
     expect(columnKeys(wrapper)).toEqual([
       'name',
       'platform',
+      'sort_order',
       'billing_type',
       'rate_multiplier',
       'is_exclusive',
@@ -304,6 +318,37 @@ describe('admin GroupsView column settings', () => {
     ])
     expect(localStorage.getItem('group-hidden-columns')).toBe(JSON.stringify(['id']))
     expect(localStorage.getItem('group-column-settings-version')).toBe('2')
+    expect(wrapper.get('[data-test="sort-order-cell"]').text()).toBe('10')
+  })
+
+  it('saves the full dragged display order including inactive groups, independently of table sorting', async () => {
+    const second = createGroup({ id: 2, name: 'Second', sort_order: 10 })
+    const first = createGroup({ id: 1, name: 'First inactive', sort_order: 10, status: 'inactive' })
+    getAllGroupsIncludingInactive.mockResolvedValue([second, first])
+    const wrapper = await mountView()
+
+    wrapper.getComponent(DataTableStub).vm.$emit('sort', 'name', 'desc')
+    await flushPromises()
+    expect(listGroups).toHaveBeenLastCalledWith(
+      1, expect.any(Number), expect.objectContaining({ sort_by: 'name', sort_order: 'desc' }), expect.anything(),
+    )
+    expect(updateSortOrder).not.toHaveBeenCalled()
+    await wrapper.get('button[title="admin.groups.sortOrder"]').trigger('click')
+    await flushPromises()
+
+    expect(getAllGroupsIncludingInactive).toHaveBeenCalledOnce()
+    const draggable = wrapper.getComponent({ name: 'VueDraggable' })
+    expect(draggable.props('modelValue').map((group: AdminGroup) => group.id)).toEqual([1, 2])
+    expect(wrapper.get('[role="dialog"]').text()).toContain('admin.accounts.status.inactive')
+    draggable.vm.$emit('update:modelValue', [second, first])
+    await wrapper.vm.$nextTick()
+    await wrapper.get('[role="dialog"] .btn-primary').trigger('click')
+    await flushPromises()
+
+    expect(updateSortOrder).toHaveBeenCalledWith([{ id: 2, sort_order: 0 }, { id: 1, sort_order: 10 }])
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(showSuccess).toHaveBeenCalledWith('admin.groups.sortOrderUpdated')
+    wrapper.unmount()
   })
 
   it('applies saved hidden columns on mount and ignores unknown keys', async () => {
@@ -319,6 +364,7 @@ describe('admin GroupsView column settings', () => {
       'name',
       'id',
       'platform',
+      'sort_order',
       'billing_type',
       'rate_multiplier',
       'is_exclusive',
@@ -337,6 +383,7 @@ describe('admin GroupsView column settings', () => {
     expect(columnKeys(wrapper)).toEqual([
       'name',
       'platform',
+      'sort_order',
       'billing_type',
       'rate_multiplier',
       'is_exclusive',
@@ -360,6 +407,7 @@ describe('admin GroupsView column settings', () => {
     expect(columnKeys(wrapper)).toEqual([
       'name',
       'platform',
+      'sort_order',
       'billing_type',
       'rate_multiplier',
       'is_exclusive',
@@ -383,6 +431,7 @@ describe('admin GroupsView column settings', () => {
       'name',
       'id',
       'platform',
+      'sort_order',
       'billing_type',
       'rate_multiplier',
       'is_exclusive',

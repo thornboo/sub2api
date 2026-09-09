@@ -136,6 +136,13 @@
             >
           </template>
 
+          <template #cell-sort_order="{ value }">
+            <span
+              class="font-mono text-sm tabular-nums text-stone-600 dark:text-stone-300"
+              :title="t('admin.groups.sortOrderValueHint')"
+            >{{ value }}</span>
+          </template>
+
           <template #cell-platform="{ value }">
             <span
               :class="[
@@ -4320,16 +4327,20 @@
           class="space-y-2"
         >
           <div
-            v-for="group in sortableGroups"
+            v-for="(group, index) in sortableGroups"
             :key="group.id"
             class="flex cursor-grab items-center gap-3 rounded-lg border border-stone-200/70 bg-white p-3 transition-shadow hover:shadow-md active:cursor-grabbing dark:border-white/10 dark:bg-white/[0.06]"
           >
             <div class="text-stone-400">
               <Icon name="menu" size="md" />
             </div>
+            <span class="w-6 shrink-0 text-center text-sm tabular-nums text-stone-500">{{ index + 1 }}</span>
             <div class="flex-1">
               <div class="font-medium text-stone-950 dark:text-white">
                 {{ group.name }}
+                <span v-if="group.status !== 'active'" class="ml-2 text-xs font-normal text-stone-500">
+                  {{ t('admin.accounts.status.inactive') }}
+                </span>
               </div>
               <div class="text-xs text-stone-500 dark:text-stone-500">
                 <span
@@ -4991,6 +5002,7 @@ const allColumns = computed<Column[]>(() => {
   if (authStore.isSimpleMode) return basic;
   return [
     ...basic.slice(0, 3),
+    { key: "sort_order", label: t("admin.groups.columns.sortOrder"), sortable: true },
     { key: "billing_type", label: t("admin.groups.columns.billingType"), sortable: true },
     { key: "rate_multiplier", label: t("admin.groups.columns.rateMultiplier"), sortable: true },
     { key: "is_exclusive", label: t("admin.groups.columns.type"), sortable: true },
@@ -7396,11 +7408,11 @@ const handleClickOutside = (event: MouseEvent) => {
 // 打开排序弹窗
 const openSortModal = async () => {
   try {
-    // 获取所有分组（不分页）
-    const allGroups = await adminAPI.groups.getAll();
+    // 统一排列所有未删除分组，停用分组重新启用后仍保留其展示位置。
+    const allGroups = await adminAPI.groups.getAllIncludingInactive();
     // 按 sort_order 排序
     sortableGroups.value = [...allGroups].sort(
-      (a, b) => a.sort_order - b.sort_order,
+      (a, b) => a.sort_order - b.sort_order || a.id - b.id,
     );
     showSortModal.value = true;
   } catch (error) {

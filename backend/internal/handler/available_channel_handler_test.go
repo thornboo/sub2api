@@ -93,7 +93,7 @@ func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 		Platforms: []userChannelPlatformSection{
 			{
 				Platform:        "anthropic",
-				Groups:          []userAvailableGroup{{ID: 1, Name: "g1", Platform: "anthropic"}},
+				Groups:          []userAvailableGroup{{ID: 1, Name: "g1", Platform: "anthropic", SortOrder: 7}},
 				SupportedModels: []userSupportedModel{},
 			},
 		},
@@ -130,6 +130,7 @@ func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rawGroup, &groupDecoded))
 	for _, key := range []string{
 		"id", "name", "description", "platform", "subscription_type", "rate_multiplier",
+		"sort_order",
 		"image_rate_independent", "image_rate_multiplier", "image_price_1k", "image_price_2k", "image_price_4k",
 		"peak_rate_enabled", "peak_start", "peak_end", "peak_rate_multiplier", "is_exclusive",
 	} {
@@ -138,6 +139,7 @@ func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 	}
 	_, exposesDispatchPolicy := groupDecoded["allow_messages_dispatch"]
 	require.False(t, exposesDispatchPolicy, "group DTO must not expose internal endpoint policy fields")
+	require.Equal(t, float64(7), groupDecoded["sort_order"])
 
 	// pricing interval 白名单：不应暴露 id / sort_order。
 	defaultMultiplier := 0.8

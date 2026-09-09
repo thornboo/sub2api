@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 
@@ -42,6 +43,11 @@ type groupRepoStubForAdmin struct {
 	listWithFiltersGroups      []Group
 	listWithFiltersResult      *pagination.PaginationResult
 	listWithFiltersErr         error
+
+	listCalls  int
+	listParams pagination.PaginationParams
+	listGroups []Group
+	listErr    error
 }
 
 func (s *groupRepoStubForAdmin) Create(_ context.Context, g *Group) error {
@@ -96,8 +102,18 @@ func (s *groupRepoStubForAdmin) DeleteCascadeIfEmpty(_ context.Context, _ int64)
 	panic("unexpected DeleteCascadeIfEmpty call")
 }
 
-func (s *groupRepoStubForAdmin) List(_ context.Context, _ pagination.PaginationParams) ([]Group, *pagination.PaginationResult, error) {
-	panic("unexpected List call")
+func (s *groupRepoStubForAdmin) List(_ context.Context, params pagination.PaginationParams) ([]Group, *pagination.PaginationResult, error) {
+	s.listCalls++
+	s.listParams = params
+	if s.listErr != nil {
+		return nil, nil, s.listErr
+	}
+	result := &pagination.PaginationResult{
+		Total:    int64(len(s.listGroups)),
+		Page:     params.Page,
+		PageSize: params.PageSize,
+	}
+	return s.listGroups, result, nil
 }
 
 func (s *groupRepoStubForAdmin) ListWithFilters(_ context.Context, params pagination.PaginationParams, platform, status, search string, isExclusive *bool) ([]Group, *pagination.PaginationResult, error) {
@@ -358,6 +374,81 @@ func TestAdminService_CreateGroup_RejectsTimePricing(t *testing.T) {
 	require.Equal(t, int32(http.StatusBadRequest), appErr.Code)
 	require.Equal(t, "GROUP_MODEL_TIME_PRICING_UNSUPPORTED", appErr.Reason)
 	require.Nil(t, repo.created)
+}
+
+func TestAdminService_CreateGroup_DefaultSortOrderAppendsAfterExistingGroups(t *testing.T) {
+	repo := &groupRepoStubForAdmin{
+		createID: 51,
+		listGroups: []Group{
+			{ID: 9, Name: "disabled-tail", Status: StatusDisabled, SortOrder: 12},
+		},
+	}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	created, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name:           "new-tail",
+		Platform:       PlatformOpenAI,
+		RateMultiplier: 1,
+	})
+
+	require.NoError(t, err)
+	require.Same(t, repo.created, created)
+	require.Equal(t, 1, repo.listCalls)
+	require.Equal(t, pagination.PaginationParams{
+		Page:      1,
+		PageSize:  1,
+		SortBy:    "sort_order",
+		SortOrder: pagination.SortOrderDesc,
+	}, repo.listParams)
+	require.Equal(t, 13, created.SortOrder)
+}
+
+func TestAdminService_CreateGroup_DefaultSortOrderEmptyRepositoryStartsAtZero(t *testing.T) {
+	repo := &groupRepoStubForAdmin{createID: 51}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	created, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name:           "first",
+		Platform:       PlatformOpenAI,
+		RateMultiplier: 1,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 0, created.SortOrder)
+}
+
+func TestAdminService_CreateGroup_DefaultSortOrderListErrorStopsCreate(t *testing.T) {
+	wantErr := errors.New("list failed")
+	repo := &groupRepoStubForAdmin{listErr: wantErr}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	created, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name:           "blocked",
+		Platform:       PlatformOpenAI,
+		RateMultiplier: 1,
+	})
+
+	require.Nil(t, created)
+	require.ErrorIs(t, err, wantErr)
+	require.Nil(t, repo.created)
+}
+
+func TestAdminService_CreateGroup_DefaultSortOrderCapsAtDatabaseIntegerMax(t *testing.T) {
+	const maxDatabaseInt = int(^uint32(0) >> 1)
+	repo := &groupRepoStubForAdmin{
+		createID:   51,
+		listGroups: []Group{{ID: 9, SortOrder: maxDatabaseInt}},
+	}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	created, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name:           "max-tail",
+		Platform:       PlatformOpenAI,
+		RateMultiplier: 1,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, maxDatabaseInt, created.SortOrder)
 }
 
 func TestAdminService_UpdateGroup_RejectsTimePricing(t *testing.T) {
@@ -1589,7 +1680,7 @@ func (s *groupRepoStubForFallbackCycle) DeleteCascade(_ context.Context, _ int64
 }
 
 func (s *groupRepoStubForFallbackCycle) List(_ context.Context, _ pagination.PaginationParams) ([]Group, *pagination.PaginationResult, error) {
-	panic("unexpected List call")
+	return nil, &pagination.PaginationResult{}, nil
 }
 
 func (s *groupRepoStubForFallbackCycle) ListWithFilters(_ context.Context, _ pagination.PaginationParams, _, _, _ string, _ *bool) ([]Group, *pagination.PaginationResult, error) {
@@ -1664,7 +1755,7 @@ func (s *groupRepoStubForInvalidRequestFallback) DeleteCascade(_ context.Context
 }
 
 func (s *groupRepoStubForInvalidRequestFallback) List(_ context.Context, _ pagination.PaginationParams) ([]Group, *pagination.PaginationResult, error) {
-	panic("unexpected List call")
+	return nil, &pagination.PaginationResult{}, nil
 }
 
 func (s *groupRepoStubForInvalidRequestFallback) ListWithFilters(_ context.Context, _ pagination.PaginationParams, _, _, _ string, _ *bool) ([]Group, *pagination.PaginationResult, error) {

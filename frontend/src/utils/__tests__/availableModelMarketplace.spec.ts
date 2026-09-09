@@ -129,6 +129,32 @@ const channels: UserAvailableChannel[] = [
 ]
 
 describe('buildAvailableModelMarketplaceCards', () => {
+  it('uses administrator group order ahead of exclusivity, names and rates', () => {
+    const input = structuredClone(channels)
+    for (const channel of input) {
+      for (const section of channel.platforms) {
+        for (const group of section.groups) {
+          group.sort_order = { 1: 20, 2: 30, 3: 10 }[group.id]
+        }
+      }
+    }
+
+    const cards = buildAvailableModelMarketplaceCards(input)
+    expect(cards.map(card => card.group.id)).toEqual([3, 3, 1, 2])
+    expect(cards.slice(0, 2).map(card => card.name)).toEqual(['claude-sonnet', 'MiniMax-M3'])
+    expect(buildAvailableModelMarketplaceCards(input, { groupScope: 'public' }).map(card => card.group.id))
+      .toEqual([3, 3, 1])
+  })
+
+  it('uses group IDs to break ties and treats a missing legacy order as zero', () => {
+    const input = structuredClone(channels)
+    input[0].platforms[0].groups[0].sort_order = 0
+
+    expect(buildAvailableModelMarketplaceCards(input).map(card => card.group.id)).toEqual([1, 2, 3, 3])
+    expect(buildAvailableModelMarketplaceCards([...input].reverse()).map(card => card.group.id))
+      .toEqual([1, 2, 3, 3])
+  })
+
   it('orders published endpoints as chat completions, messages, then responses across routes', () => {
     const input = structuredClone(channels)
     input[0].platforms[0].supported_models[0].supported_endpoints = [

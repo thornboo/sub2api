@@ -128,7 +128,7 @@ func TestModelPlazaResponse_UsesCustomerSafeChannelDTO(t *testing.T) {
 				Platform: service.PlatformOpenAI,
 				Groups: []userAvailableGroup{{
 					ID: 1, Name: "public", Platform: service.PlatformOpenAI,
-					SubscriptionType: service.SubscriptionTypeStandard, RateMultiplier: 0.8,
+					SubscriptionType: service.SubscriptionTypeStandard, SortOrder: 3, RateMultiplier: 0.8,
 				}},
 				SupportedModels: []userSupportedModel{{
 					Name: "deepseek-v4-flash", Platform: service.PlatformOpenAI,
@@ -163,6 +163,7 @@ func TestModelPlazaResponse_UsesCustomerSafeChannelDTO(t *testing.T) {
 		require.NotContains(t, serialized, forbidden)
 	}
 	require.Contains(t, serialized, `"route_group_ids":[1]`)
+	require.Contains(t, serialized, `"sort_order":3`)
 	require.Contains(t, serialized, `"path":"/v1/chat/completions"`)
 }
 

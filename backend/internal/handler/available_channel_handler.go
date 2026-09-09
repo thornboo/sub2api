@@ -65,6 +65,7 @@ type userAvailableGroup struct {
 	Description          string   `json:"description"`
 	Platform             string   `json:"platform"`
 	SubscriptionType     string   `json:"subscription_type"`
+	SortOrder            int      `json:"sort_order"`
 	RateMultiplier       float64  `json:"rate_multiplier"`
 	ImageRateIndependent bool     `json:"image_rate_independent"`
 	ImageRateMultiplier  float64  `json:"image_rate_multiplier"`
@@ -572,6 +573,7 @@ func toUserAvailableGroup(g service.AvailableGroupRef) userAvailableGroup {
 		Description:           g.Description,
 		Platform:              g.Platform,
 		SubscriptionType:      g.SubscriptionType,
+		SortOrder:             g.SortOrder,
 		RateMultiplier:        g.RateMultiplier,
 		ImageRateIndependent:  g.ImageRateIndependent,
 		ImageRateMultiplier:   g.ImageRateMultiplier,

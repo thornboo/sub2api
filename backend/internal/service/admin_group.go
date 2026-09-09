@@ -63,6 +63,26 @@ func (s *adminServiceImpl) GetAllGroupsIncludingInactive(ctx context.Context) ([
 	return groups, err
 }
 
+func (s *adminServiceImpl) nextGroupSortOrder(ctx context.Context) (int, error) {
+	const maxGroupSortOrder = int(^uint32(0) >> 1)
+	groups, _, err := s.groupRepo.List(ctx, pagination.PaginationParams{
+		Page:      1,
+		PageSize:  1,
+		SortBy:    "sort_order",
+		SortOrder: pagination.SortOrderDesc,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if len(groups) == 0 {
+		return 0, nil
+	}
+	if groups[0].SortOrder >= maxGroupSortOrder {
+		return maxGroupSortOrder, nil
+	}
+	return groups[0].SortOrder + 1, nil
+}
+
 func (s *adminServiceImpl) GetGroup(ctx context.Context, id int64) (*Group, error) {
 	group, err := s.groupRepo.GetByID(ctx, id)
 	if err != nil {
@@ -590,6 +610,10 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	if err != nil {
 		return nil, err
 	}
+	sortOrder, err := s.nextGroupSortOrder(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list groups for next sort order: %w", err)
+	}
 
 	group := &Group{
 		Name:                            input.Name,
@@ -637,6 +661,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		ModelRouting:                    input.ModelRouting,
 		MCPXMLInject:                    mcpXMLInject,
 		SupportedModelScopes:            input.SupportedModelScopes,
+		SortOrder:                       sortOrder,
 		AllowMessagesDispatch:           input.AllowMessagesDispatch,
 		AllowLive:                       input.AllowLive,
 		ForceOpenAIFast:                 input.ForceOpenAIFast,

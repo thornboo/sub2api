@@ -78,6 +78,35 @@ func TestAttachAvailableCatalogRouteGroupIDs_IntersectsSectionAndUsesEmptyArray(
 	require.Contains(t, string(payload), `"route_group_ids":[]`)
 }
 
+func TestAvailableCatalogToResponse_SortsGroupsBySortOrderThenID(t *testing.T) {
+	resp := availableCatalogToResponse(service.AvailableChannel{
+		ID:     10,
+		Name:   "catalog",
+		Status: service.StatusActive,
+		Groups: []service.AvailableGroupRef{
+			{ID: 30, Name: "z-later", Platform: service.PlatformOpenAI, SortOrder: 20},
+			{ID: 20, Name: "a-tie", Platform: service.PlatformOpenAI, SortOrder: 10},
+			{ID: 10, Name: "b-tie", Platform: service.PlatformOpenAI, SortOrder: 10},
+			{ID: 40, Name: "zero", Platform: service.PlatformOpenAI, SortOrder: 0},
+		},
+	})
+
+	require.Len(t, resp.Platforms, 1)
+	groups := resp.Platforms[0].Groups
+	require.Equal(t, []int64{40, 10, 20, 30}, []int64{
+		groups[0].ID,
+		groups[1].ID,
+		groups[2].ID,
+		groups[3].ID,
+	})
+	require.Equal(t, []int{0, 10, 10, 20}, []int{
+		groups[0].SortOrder,
+		groups[1].SortOrder,
+		groups[2].SortOrder,
+		groups[3].SortOrder,
+	})
+}
+
 // ---------------------------------------------------------------------------
 // 1. channelToResponse
 // ---------------------------------------------------------------------------

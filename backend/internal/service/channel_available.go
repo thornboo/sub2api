@@ -18,6 +18,7 @@ type AvailableGroupRef struct {
 	Description                 string
 	Platform                    string
 	SubscriptionType            string
+	SortOrder                   int
 	RateMultiplier              float64
 	ImageRateIndependent        bool
 	ImageRateMultiplier         float64
@@ -77,6 +78,7 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 			Description:                 g.Description,
 			Platform:                    g.Platform,
 			SubscriptionType:            g.SubscriptionType,
+			SortOrder:                   g.SortOrder,
 			RateMultiplier:              g.RateMultiplier,
 			ImageRateIndependent:        g.ImageRateIndependent,
 			ImageRateMultiplier:         g.ImageRateMultiplier,
@@ -103,7 +105,12 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 				groups = append(groups, ref)
 			}
 		}
-		sort.SliceStable(groups, func(i, j int) bool { return groups[i].Name < groups[j].Name })
+		sort.SliceStable(groups, func(i, j int) bool {
+			if groups[i].SortOrder == groups[j].SortOrder {
+				return groups[i].ID < groups[j].ID
+			}
+			return groups[i].SortOrder < groups[j].SortOrder
+		})
 
 		ch.normalizeBillingModelSource()
 

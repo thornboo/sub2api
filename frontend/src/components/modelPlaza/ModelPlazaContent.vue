@@ -119,9 +119,8 @@ const allCards = computed(() =>
 const groups = computed<UserAvailableGroup[]>(() => {
   const byID = new Map<number, UserAvailableGroup>()
   allCards.value.forEach((card) => byID.set(card.group.id, card.group))
-  return Array.from(byID.values()).sort(
-    (a, b) => a.rate_multiplier - b.rate_multiplier || a.name.localeCompare(b.name),
-  )
+  // allCards 已按管理员展示顺序排列，下拉框与卡片保持一致。
+  return Array.from(byID.values())
 })
 
 const platforms = computed(() =>

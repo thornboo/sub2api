@@ -212,8 +212,7 @@ function localeCompare(a: string, b: string): number {
 }
 
 function compareGroups(a: UserAvailableGroup, b: UserAvailableGroup): number {
-  if (a.is_exclusive !== b.is_exclusive) return a.is_exclusive ? -1 : 1
-  return localeCompare(a.name, b.name)
+  return (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id
 }
 
 const endpointProtocolOrder: Record<UserSupportedEndpoint['protocol'], number> = {

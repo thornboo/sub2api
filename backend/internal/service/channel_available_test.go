@@ -113,6 +113,41 @@ func TestListAvailable_InactiveGroupIDSilentlyDropped(t *testing.T) {
 	require.Equal(t, int64(1), out[0].Groups[0].ID)
 }
 
+func TestListAvailable_ProjectsAndSortsGroupsBySortOrderThenID(t *testing.T) {
+	channels := []Channel{{
+		ID:       1,
+		Name:     "chA",
+		Status:   StatusActive,
+		GroupIDs: []int64{30, 10, 20, 40},
+	}}
+	groupRepo := &stubGroupRepoForAvailable{
+		activeGroups: []Group{
+			{ID: 30, Name: "z-later", Platform: PlatformOpenAI, SortOrder: 20},
+			{ID: 10, Name: "b-tie", Platform: PlatformOpenAI, SortOrder: 10},
+			{ID: 20, Name: "a-tie", Platform: PlatformOpenAI, SortOrder: 10},
+			{ID: 40, Name: "zero", Platform: PlatformOpenAI, SortOrder: 0},
+		},
+	}
+
+	out, err := newAvailableChannelService(channels, groupRepo).ListAvailable(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	require.Len(t, out[0].Groups, 4)
+	require.Equal(t, []int64{40, 10, 20, 30}, []int64{
+		out[0].Groups[0].ID,
+		out[0].Groups[1].ID,
+		out[0].Groups[2].ID,
+		out[0].Groups[3].ID,
+	})
+	require.Equal(t, []int{0, 10, 10, 20}, []int{
+		out[0].Groups[0].SortOrder,
+		out[0].Groups[1].SortOrder,
+		out[0].Groups[2].SortOrder,
+		out[0].Groups[3].SortOrder,
+	})
+}
+
 func TestListAvailable_ProjectsGroupImagePricing(t *testing.T) {
 	price1K := 0.02
 	price4K := 0.3

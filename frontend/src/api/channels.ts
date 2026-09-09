@@ -8,6 +8,8 @@ import type { BillingMode } from '@/constants/channel'
 
 export interface UserAvailableGroup {
   id: number
+  /** 管理员设置的展示顺序；兼容旧接口缺省时按 0 处理，同值按 ID 排列。 */
+  sort_order?: number
   name: string
   description?: string
   platform: string

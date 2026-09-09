@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ModelPlazaResponse } from '@/api/modelPlaza'
 import ModelPlazaContent from '../ModelPlazaContent.vue'
+import PlazaFilterBar from '../PlazaFilterBar.vue'
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -107,6 +108,30 @@ function mountContent() {
 afterEach(() => vi.unstubAllEnvs())
 
 describe('ModelPlazaContent', () => {
+  it('keeps the public cards and group selector in the same administrator order', async () => {
+    const wrapper = mountContent()
+    const orderedResponse = structuredClone(response)
+    const section = orderedResponse.channels[0].platforms[0]
+    section.groups = [
+      { ...publicGroup, id: 4, name: 'AAA cheap', rate_multiplier: 0.1, sort_order: 20 },
+      { ...publicGroup, name: 'ZZZ first', rate_multiplier: 3, sort_order: 10 },
+    ]
+    for (const model of section.supported_models) {
+      model.route_group_ids = [1, 4]
+      for (const endpoint of model.supported_endpoints ?? []) endpoint.group_ids = [1, 4]
+    }
+    await wrapper.setProps({ response: orderedResponse })
+
+    const cards = wrapper.getComponent(MarketplaceStub).props('cards') as Array<{ group: { id: number } }>
+    expect([...new Set(cards.map(card => card.group.id))]).toEqual([1, 4])
+    expect(wrapper.getComponent(PlazaFilterBar).props('groups').map(group => group.id)).toEqual([1, 4])
+
+    await wrapper.get('input[type="text"]').setValue('flash')
+    const filtered = wrapper.getComponent(MarketplaceStub).props('cards') as Array<{ group: { id: number } }>
+    expect(filtered.map(card => card.group.id)).toEqual([1, 4])
+    wrapper.unmount()
+  })
+
   it('renders only public standard group cards through the shared marketplace contract', () => {
     const wrapper = mountContent()
     const marketplace = wrapper.findComponent(MarketplaceStub)

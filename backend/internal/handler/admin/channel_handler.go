@@ -129,6 +129,7 @@ type availableCatalogGroupResponse struct {
 	Name             string  `json:"name"`
 	Platform         string  `json:"platform"`
 	SubscriptionType string  `json:"subscription_type"`
+	SortOrder        int     `json:"sort_order"`
 	RateMultiplier   float64 `json:"rate_multiplier"`
 	IsExclusive      bool    `json:"is_exclusive"`
 }
@@ -431,6 +432,7 @@ func buildAvailableCatalogPlatformSections(ch service.AvailableChannel) []availa
 			Name:             group.Name,
 			Platform:         group.Platform,
 			SubscriptionType: group.SubscriptionType,
+			SortOrder:        group.SortOrder,
 			RateMultiplier:   group.RateMultiplier,
 			IsExclusive:      group.IsExclusive,
 		})
@@ -463,7 +465,10 @@ func buildAvailableCatalogPlatformSections(ch service.AvailableChannel) []availa
 			groups = []availableCatalogGroupResponse{}
 		}
 		sort.SliceStable(groups, func(i, j int) bool {
-			return groups[i].Name < groups[j].Name
+			if groups[i].SortOrder == groups[j].SortOrder {
+				return groups[i].ID < groups[j].ID
+			}
+			return groups[i].SortOrder < groups[j].SortOrder
 		})
 		sections = append(sections, availableCatalogPlatformSectionResponse{
 			Platform:        platform,
