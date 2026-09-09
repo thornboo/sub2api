@@ -964,8 +964,22 @@ export async function setSchedulable(id: number, schedulable: boolean): Promise<
  * @param id - Account ID
  * @returns List of available models for this account
  */
-export async function getAvailableModels(id: number): Promise<ClaudeModel[]> {
-  const { data } = await apiClient.get<ClaudeModel[]>(`/admin/accounts/${id}/models`)
+export interface AccountTestModel extends ClaudeModel {
+  upstream_model_id?: string
+  is_pattern?: boolean
+  disabled?: boolean
+}
+
+export async function getAvailableModels(id: number): Promise<AccountTestModel[]> {
+  const { data } = await apiClient.get<AccountTestModel[]>(`/admin/accounts/${id}/models`)
+  return data
+}
+
+export async function resolveTestModel(id: number, modelId: string, signal?: AbortSignal): Promise<{ model_id: string; upstream_model_id: string }> {
+  const { data } = await apiClient.get<{ model_id: string; upstream_model_id: string }>(`/admin/accounts/${id}/models/resolve`, {
+    params: { model_id: modelId },
+    signal
+  })
   return data
 }
 
@@ -1585,6 +1599,7 @@ export const accountsAPI = {
   resetTempUnschedulable,
   setSchedulable,
   getAvailableModels,
+  resolveTestModel,
   probeModels,
   syncUpstreamModels,
   syncUpstreamModelsPreview,

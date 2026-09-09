@@ -6,10 +6,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -34,6 +37,7 @@ func setupAvailableModelsRouter(adminSvc service.AdminService) *gin.Engine {
 	router := gin.New()
 	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	router.GET("/api/v1/admin/accounts/:id/models", handler.GetAvailableModels)
+	router.GET("/api/v1/admin/accounts/:id/models/resolve", handler.ResolveAvailableModel)
 	return router
 }
 
@@ -183,7 +187,7 @@ func TestAccountHandlerGetAvailableModels_OpenAIOAuthUsesExplicitModelMapping(t 
 	require.Equal(t, "gpt-5", resp.Data[0].ID)
 }
 
-func TestAccountHandlerGetAvailableModels_OpenAIOAuthPassthroughFallsBackToDefaults(t *testing.T) {
+func TestAccountHandlerGetAvailableModels_OpenAIOAuthPassthroughIgnoresInactiveModelMapping(t *testing.T) {
 	svc := &availableModelsAdminService{
 		stubAdminService: newStubAdminService(),
 		account: service.Account{
@@ -217,7 +221,12 @@ func TestAccountHandlerGetAvailableModels_OpenAIOAuthPassthroughFallsBackToDefau
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp.Data)
-	require.NotEqual(t, "gpt-5", resp.Data[0].ID)
+	ids := make([]string, 0, len(resp.Data))
+	for _, model := range resp.Data {
+		ids = append(ids, model.ID)
+	}
+	require.Contains(t, ids, "gpt-5.6-sol")
+	require.NotContains(t, ids, "gpt-5")
 }
 
 func TestAccountHandlerGetAvailableModels_OpenAIAPIKeyDefaultsToConcreteGPT56Sol(t *testing.T) {
@@ -328,6 +337,350 @@ func TestAccountHandlerGetAvailableModels_GeminiGoogleOneUsesConservativeCatalog
 	require.ElementsMatch(t, []string{"gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"}, ids)
 	require.NotContains(t, ids, "gemini-3.5-flash")
 	require.NotContains(t, ids, "gemini-2.5-flash-image")
+}
+
+func TestAccountHandlerGetAvailableModels_ClaudeAPIKeyUsesExplicitMappingDisplay(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       47,
+			Name:     "claude-apikey-mapped",
+			Platform: service.PlatformAnthropic,
+			Type:     service.AccountTypeAPIKey,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"api_key": "test-key",
+				"model_mapping": map[string]any{
+					"z-public":        "a-upstream",
+					"claude-fable-5":  "claude-fable-5",
+					"claude-private*": "claude-fixed",
+				},
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/47/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Data []struct {
+			ID                     string   `json:"id"`
+			Type                   string   `json:"type"`
+			DisplayName            string   `json:"display_name"`
+			CreatedAt              string   `json:"created_at"`
+			SupportedEndpointTypes []string `json:"supported_endpoint_types"`
+			UpstreamModelID        string   `json:"upstream_model_id"`
+			IsPattern              bool     `json:"is_pattern"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Data, 3)
+	require.Equal(t, "claude-fable-5", resp.Data[0].ID)
+	require.Equal(t, "claude-fable-5", resp.Data[0].DisplayName)
+	require.Equal(t, "claude-fable-5", resp.Data[0].UpstreamModelID)
+	require.NotEmpty(t, resp.Data[0].CreatedAt, "known default models keep default metadata")
+	require.Equal(t, "claude-private*", resp.Data[1].ID)
+	require.Equal(t, "claude-private* → claude-fixed", resp.Data[1].DisplayName)
+	require.Equal(t, "claude-fixed", resp.Data[1].UpstreamModelID)
+	require.True(t, resp.Data[1].IsPattern)
+	require.Equal(t, "z-public", resp.Data[2].ID)
+	require.Equal(t, "z-public → a-upstream", resp.Data[2].DisplayName)
+	require.Equal(t, "a-upstream", resp.Data[2].UpstreamModelID)
+	require.False(t, resp.Data[2].IsPattern)
+}
+
+func TestAccountHandlerGetAvailableModels_ClaudeAPIKeyPreservesAliasesAndTargets(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       48,
+			Name:     "claude-apikey-chain",
+			Platform: service.PlatformAnthropic,
+			Type:     service.AccountTypeAPIKey,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"api_key": "test-key",
+				"model_mapping": map[string]any{
+					"a-model":      "b-model",
+					"b-model":      "c-model",
+					"target-alias": "b-model",
+				},
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/48/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Data []struct {
+			ID              string `json:"id"`
+			DisplayName     string `json:"display_name"`
+			UpstreamModelID string `json:"upstream_model_id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Data, 3, "aliases must not be deduped by upstream target")
+	require.Equal(t, "a-model", resp.Data[0].ID)
+	require.Equal(t, "a-model → b-model", resp.Data[0].DisplayName)
+	require.Equal(t, "b-model", resp.Data[0].UpstreamModelID)
+	require.Equal(t, "b-model", resp.Data[1].ID)
+	require.Equal(t, "b-model → c-model", resp.Data[1].DisplayName)
+	require.Equal(t, "target-alias", resp.Data[2].ID)
+	require.Equal(t, "target-alias → b-model", resp.Data[2].DisplayName)
+}
+
+func TestAccountHandlerGetAvailableModels_ClaudeNoMappingDefaultsAndOAuthUsesExplicitMapping(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		account service.Account
+		wantIDs []string
+	}{
+		{
+			name: "api key no mapping",
+			account: service.Account{
+				ID:          49,
+				Platform:    service.PlatformAnthropic,
+				Type:        service.AccountTypeAPIKey,
+				Status:      service.StatusActive,
+				Credentials: map[string]any{"api_key": "test-key"},
+			},
+			wantIDs: []string{claude.DefaultModels[0].ID},
+		},
+		{
+			name: "oauth uses mapping",
+			account: service.Account{
+				ID:       50,
+				Platform: service.PlatformAnthropic,
+				Type:     service.AccountTypeOAuth,
+				Status:   service.StatusActive,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"only-this": "upstream"},
+				},
+			},
+			wantIDs: []string{"only-this"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: tt.account}
+			router := setupAvailableModelsRouter(svc)
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/"+strconv.FormatInt(tt.account.ID, 10)+"/models", nil)
+			router.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			var resp struct {
+				Data []struct {
+					ID string `json:"id"`
+				} `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NotEmpty(t, resp.Data)
+			ids := make([]string, 0, len(resp.Data))
+			for _, model := range resp.Data {
+				ids = append(ids, model.ID)
+			}
+			for _, wantID := range tt.wantIDs {
+				require.Contains(t, ids, wantID)
+			}
+		})
+	}
+}
+
+func TestAccountHandlerResolveAvailableModel_ClaudeAPIKeyMapping(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       51,
+			Name:     "claude-apikey-resolve",
+			Platform: service.PlatformAnthropic,
+			Type:     service.AccountTypeAPIKey,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"api_key": "test-key",
+				"model_mapping": map[string]any{
+					"exact-model":          "exact-target",
+					"claude-long-prefix-*": "long-target",
+					"claude-*":             "short-target",
+				},
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	for _, tt := range []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "exact", raw: " exact-model ", want: "exact-target"},
+		{name: "longest wildcard", raw: "claude-long-prefix-value", want: "long-target"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/51/models/resolve?model_id="+url.QueryEscape(tt.raw), nil)
+			router.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			var resp struct {
+				Data struct {
+					ModelID         string `json:"model_id"`
+					UpstreamModelID string `json:"upstream_model_id"`
+				} `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.Equal(t, strings.TrimSpace(tt.raw), resp.Data.ModelID)
+			require.Equal(t, tt.want, resp.Data.UpstreamModelID)
+		})
+	}
+}
+
+func TestAccountHandlerClaudeAPIKeyMappingPreservesRawUpstreamTarget(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       58,
+			Name:     "claude-apikey-spaced-target",
+			Platform: service.PlatformAnthropic,
+			Type:     service.AccountTypeAPIKey,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"api_key": "test-key",
+				"model_mapping": map[string]any{
+					"spaced-model": " upstream-with-spaces ",
+				},
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/58/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var listResp struct {
+		Data []struct {
+			ID              string `json:"id"`
+			DisplayName     string `json:"display_name"`
+			UpstreamModelID string `json:"upstream_model_id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.Len(t, listResp.Data, 1)
+	require.Equal(t, "spaced-model", listResp.Data[0].ID)
+	require.Equal(t, " upstream-with-spaces ", listResp.Data[0].UpstreamModelID)
+	require.Equal(t, "spaced-model →  upstream-with-spaces ", listResp.Data[0].DisplayName)
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/58/models/resolve?model_id=spaced-model", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resolveResp struct {
+		Data struct {
+			ModelID         string `json:"model_id"`
+			UpstreamModelID string `json:"upstream_model_id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resolveResp))
+	require.Equal(t, "spaced-model", resolveResp.Data.ModelID)
+	require.Equal(t, " upstream-with-spaces ", resolveResp.Data.UpstreamModelID)
+}
+
+func TestAccountHandlerResolveAvailableModelRejectsInvalidInputs(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		account service.Account
+		query   string
+	}{
+		{
+			name: "empty model",
+			account: service.Account{
+				ID:          52,
+				Platform:    service.PlatformAnthropic,
+				Type:        service.AccountTypeAPIKey,
+				Credentials: map[string]any{"api_key": "test-key", "model_mapping": map[string]any{"a": "b"}},
+			},
+			query: "",
+		},
+		{
+			name: "wildcard model",
+			account: service.Account{
+				ID:          53,
+				Platform:    service.PlatformAnthropic,
+				Type:        service.AccountTypeAPIKey,
+				Credentials: map[string]any{"api_key": "test-key", "model_mapping": map[string]any{"a*": "b"}},
+			},
+			query: "a*",
+		},
+		{
+			name: "not matched",
+			account: service.Account{
+				ID:          54,
+				Platform:    service.PlatformAnthropic,
+				Type:        service.AccountTypeAPIKey,
+				Credentials: map[string]any{"api_key": "test-key", "model_mapping": map[string]any{"a": "b"}},
+			},
+			query: "unknown",
+		},
+		{
+			name: "target wildcard",
+			account: service.Account{
+				ID:          57,
+				Platform:    service.PlatformAnthropic,
+				Type:        service.AccountTypeAPIKey,
+				Credentials: map[string]any{"api_key": "test-key", "model_mapping": map[string]any{"a": "b*"}},
+			},
+			query: "a",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: tt.account}
+			router := setupAvailableModelsRouter(svc)
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/"+strconv.FormatInt(tt.account.ID, 10)+"/models/resolve?model_id="+url.QueryEscape(tt.query), nil)
+			router.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+func TestAccountHandlerResolveAvailableModelAllowsConcreteIDWithoutMapping(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:          55,
+			Platform:    service.PlatformAnthropic,
+			Type:        service.AccountTypeAPIKey,
+			Credentials: map[string]any{"api_key": "test-key"},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/55/models/resolve?model_id=anything", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Data struct {
+			ModelID         string `json:"model_id"`
+			UpstreamModelID string `json:"upstream_model_id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, "anything", resp.Data.ModelID)
+	require.Equal(t, "anything", resp.Data.UpstreamModelID)
 }
 
 func TestAccountHandlerSyncUpstreamModels_ConfigErrorReturnsBadRequest(t *testing.T) {

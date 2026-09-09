@@ -78,7 +78,7 @@ const TextAreaStub = defineComponent({
   `
 })
 
-function buildAccount() {
+function buildAccount(overrides: Record<string, unknown> = {}) {
   return {
     id: 1,
     name: 'OpenAI OAuth',
@@ -90,7 +90,8 @@ function buildAccount() {
     concurrency: 1,
     priority: 1,
     proxy_id: null,
-    auto_pause_on_expired: false
+    auto_pause_on_expired: false,
+    ...overrides
   } as any
 }
 
@@ -188,5 +189,42 @@ describe('AccountTestModal', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('已通过 /v1/chat/completions 验证')
+  })
+
+  it('posts the left-side id while detecting OpenAI image aliases by upstream target', async () => {
+    getAvailableModelsMock.mockResolvedValue([
+      {
+        id: 'openai-image-alias',
+        display_name: 'OpenAI Image Alias',
+        upstream_model_id: 'gpt-image-1'
+      }
+    ])
+
+    const wrapper = mount(AccountTestModal, {
+      props: {
+        show: false,
+        account: buildAccount({ id: 7, type: 'apikey' })
+      },
+      global: {
+        stubs: {
+          BaseDialog: BaseDialogStub,
+          Select: SelectStub,
+          TextArea: TextAreaStub,
+          Icon: true
+        }
+      }
+    })
+
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+
+    const [, options] = (global.fetch as any).mock.calls[0]
+    expect(JSON.parse(options.body)).toMatchObject({
+      model_id: 'openai-image-alias',
+      prompt: 'admin.accounts.imagePromptDefault',
+      mode: 'default'
+    })
   })
 })

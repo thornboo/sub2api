@@ -424,6 +424,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/:id/schedulable", h.Admin.Account.SetSchedulable)
 		accounts.POST("/models/sync-upstream-preview", h.Admin.Account.SyncUpstreamModelsPreview)
 		accounts.GET("/:id/models", h.Admin.Account.GetAvailableModels)
+		accounts.GET("/:id/models/resolve", h.Admin.Account.ResolveAvailableModel)
 		accounts.POST("/:id/models/sync-upstream", h.Admin.Account.SyncUpstreamModels)
 		accounts.GET("/:id/model-protocol-capabilities", h.Admin.Account.GetModelProtocolCapabilities)
 		accounts.PUT("/:id/model-protocol-capabilities/overrides", h.Admin.Account.UpdateModelProtocolCapabilityOverrides)

@@ -33,7 +33,17 @@
             <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
               {{ t('admin.scheduledTests.model') }}
             </label>
+            <AccountTestModelSelect
+              v-if="hasConfiguredModelOptions && accountId"
+              v-model="newPlan.model_id"
+              :options="configuredModelOptions"
+              :account-id="accountId"
+              :active="show"
+              :disabled="creating"
+              :placeholder="t('admin.scheduledTests.model')"
+            />
             <Select
+              v-else
               v-model="newPlan.model_id"
               :options="modelOptions"
               :placeholder="t('admin.scheduledTests.model')"
@@ -243,7 +253,17 @@
                 <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                   {{ t('admin.scheduledTests.model') }}
                 </label>
+                <AccountTestModelSelect
+                  v-if="hasConfiguredModelOptions && accountId"
+                  v-model="editForm.model_id"
+                  :options="configuredModelOptions"
+                  :account-id="accountId"
+                  :active="show"
+                  :disabled="updating"
+                  :placeholder="t('admin.scheduledTests.model')"
+                />
                 <Select
+                  v-else
                   v-model="editForm.model_id"
                   :options="modelOptions"
                   :placeholder="t('admin.scheduledTests.model')"
@@ -463,13 +483,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
+import { computed, ref, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import Input from '@/components/common/Input.vue'
+import AccountTestModelSelect from './AccountTestModelSelect.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import { Icon } from '@/components/icons'
 import { adminAPI } from '@/api/admin'
@@ -485,6 +506,17 @@ const props = defineProps<{
   accountId: number | null
   modelOptions: SelectOption[]
 }>()
+
+const hasConfiguredModelOptions = computed(() => props.modelOptions.some((model) => model.upstream_model_id !== undefined))
+const configuredModelOptions = computed(() => props.modelOptions.map((model) => ({
+  id: String(model.value ?? ''),
+  display_name: model.label,
+  type: 'model',
+  created_at: '',
+  upstream_model_id: typeof model.upstream_model_id === 'string' ? model.upstream_model_id : undefined,
+  is_pattern: model.is_pattern === true,
+  disabled: model.disabled === true
+})))
 
 const emit = defineEmits<{
   (e: 'close'): void

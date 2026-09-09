@@ -45,7 +45,18 @@
         <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
           {{ t('admin.accounts.selectTestModel') }}
         </label>
+        <AccountTestModelSelect
+          v-if="hasConfiguredModelOptions && account"
+          v-model="selectedModelId"
+          @update:resolved-target="selectedModelTarget = $event"
+          :account-id="account.id"
+          :options="availableModels"
+          :active="show"
+          :disabled="loadingModels || status === 'connecting'"
+          :placeholder="t('admin.accounts.selectTestModel')"
+        />
         <Select
+          v-else
           v-model="selectedModelId"
           :options="availableModels"
           :disabled="loadingModels || status === 'connecting'"
@@ -246,11 +257,13 @@ import { computed, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
+import AccountTestModelSelect from '@/components/admin/account/AccountTestModelSelect.vue'
 import TextArea from '@/components/common/TextArea.vue'
 import { Icon } from '@/components/icons'
 import { useClipboard } from '@/composables/useClipboard'
 import { buildApiUrl } from '@/api/client'
 import { adminAPI } from '@/api/admin'
+import type { AccountTestModel } from '@/api/admin/accounts'
 import type { Account, ClaudeModel } from '@/types'
 
 const { t } = useI18n()
@@ -280,8 +293,11 @@ const status = ref<'idle' | 'connecting' | 'success' | 'error'>('idle')
 const outputLines = ref<OutputLine[]>([])
 const streamingContent = ref('')
 const errorMessage = ref('')
-const availableModels = ref<ClaudeModel[]>([])
+const availableModels = ref<AccountTestModel[]>([])
+const hasConfiguredModelOptions = computed(() => availableModels.value.some((model) => model.upstream_model_id !== undefined))
 const selectedModelId = ref('')
+const selectedModelTarget = ref('')
+let modelsRequestId = 0
 const testPrompt = ref('')
 const loadingModels = ref(false)
 let abortController: AbortController | null = null
@@ -295,14 +311,14 @@ const openAITestModeOptions = computed(() => [
 const previewImageUrl = ref('')
 const prioritizedGeminiModels = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-2.0-flash']
 const supportsGeminiImageTest = computed(() => {
-  const modelID = selectedModelId.value.toLowerCase()
+  const modelID = selectedModelTarget.value.toLowerCase()
   if (!modelID.startsWith('gemini-') || !modelID.includes('-image')) return false
 
   return props.account?.platform === 'gemini' || (props.account?.platform === 'antigravity' && props.account?.type === 'apikey')
 })
 
 const supportsOpenAIImageTest = computed(() => {
-  const modelID = selectedModelId.value.toLowerCase()
+  const modelID = selectedModelTarget.value.toLowerCase()
   if (!modelID.startsWith('gpt-image-')) return false
   return props.account?.platform === 'openai'
 })
@@ -322,15 +338,19 @@ const sortTestModels = (models: ClaudeModel[]) => {
 
 // Load available models when modal opens
 watch(
-  () => props.show,
-  async (newVal) => {
-    if (newVal && props.account) {
+  () => [props.show, props.account?.id] as const,
+  async ([show]) => {
+    modelsRequestId += 1
+    abortStream()
+    availableModels.value = []
+    selectedModelId.value = ''
+    selectedModelTarget.value = ''
+    loadingModels.value = false
+    if (show && props.account) {
       testPrompt.value = ''
       testMode.value = 'default'
       resetState()
       await loadAvailableModels()
-    } else {
-      abortStream()
     }
   }
 )
@@ -341,35 +361,55 @@ watch(selectedModelId, () => {
   }
 })
 
+watch(selectedModelTarget, () => {
+  if (supportsImageTest.value && !testPrompt.value.trim()) {
+    testPrompt.value = t('admin.accounts.imagePromptDefault')
+  }
+})
+
 const loadAvailableModels = async () => {
   if (!props.account) return
 
+  const accountId = props.account.id
+  const requestId = ++modelsRequestId
   loadingModels.value = true
   selectedModelId.value = '' // Reset selection before loading
   try {
-    const models = await adminAPI.accounts.getAvailableModels(props.account.id)
+    const models = await adminAPI.accounts.getAvailableModels(accountId)
+    if (requestId !== modelsRequestId || !props.show || props.account?.id !== accountId) return
     availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
       ? sortTestModels(models)
       : models
     // Default selection by platform
     if (availableModels.value.length > 0) {
+      const selectableModels = availableModels.value.filter((m) => !m.disabled)
       if (props.account.platform === 'gemini') {
-        selectedModelId.value = availableModels.value[0].id
+        selectedModelId.value = selectableModels[0]?.id || ''
       } else {
         // Try to select Sonnet as default, otherwise use first model
-        const sonnetModel = availableModels.value.find((m) => m.id.includes('sonnet'))
-        selectedModelId.value = sonnetModel?.id || availableModels.value[0].id
+        const sonnetModel = selectableModels.find((m) => m.id.includes('sonnet'))
+        selectedModelId.value = sonnetModel?.id || selectableModels[0]?.id || ''
       }
     }
   } catch (error) {
+    if (requestId !== modelsRequestId || !props.show || props.account?.id !== accountId) return
     console.error('Failed to load available models:', error)
     // Fallback to empty list
     availableModels.value = []
     selectedModelId.value = ''
   } finally {
-    loadingModels.value = false
+    if (requestId === modelsRequestId) loadingModels.value = false
   }
 }
+
+watch([selectedModelId, availableModels], () => {
+  if (!selectedModelId.value) {
+    selectedModelTarget.value = ''
+    return
+  }
+  const option = availableModels.value.find((model) => model.id === selectedModelId.value)
+  if (option) selectedModelTarget.value = option.upstream_model_id || option.id
+})
 
 const resetState = () => {
   status.value = 'idle'

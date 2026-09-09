@@ -60,7 +60,18 @@
         <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
           {{ t('admin.accounts.selectTestModel') }}
         </label>
+        <AccountTestModelSelect
+          v-if="hasConfiguredModelOptions && account"
+          v-model="selectedModelId"
+          @update:resolved-target="selectedModelTarget = $event"
+          :account-id="account.id"
+          :options="modelOptionsForMode"
+          :active="show"
+          :disabled="loadingModels || status === 'connecting'"
+          :placeholder="t('admin.accounts.selectTestModel')"
+        />
         <Select
+          v-else
           v-model="selectedModelId"
           :options="modelOptionsForMode"
           :disabled="loadingModels || status === 'connecting'"
@@ -369,12 +380,14 @@ import { computed, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
+import AccountTestModelSelect from './AccountTestModelSelect.vue'
 import TextArea from '@/components/common/TextArea.vue'
 import { Icon } from '@/components/icons'
 import { useClipboard } from '@/composables/useClipboard'
 import { buildApiUrl } from '@/api/client'
 import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 import { adminAPI } from '@/api/admin'
+import type { AccountTestModel } from '@/api/admin/accounts'
 import type { Account, ClaudeModel } from '@/types'
 
 const { t } = useI18n()
@@ -404,8 +417,11 @@ const status = ref<'idle' | 'connecting' | 'success' | 'error'>('idle')
 const outputLines = ref<OutputLine[]>([])
 const streamingContent = ref('')
 const errorMessage = ref('')
-const availableModels = ref<ClaudeModel[]>([])
+const availableModels = ref<AccountTestModel[]>([])
+const hasConfiguredModelOptions = computed(() => availableModels.value.some((model) => model.upstream_model_id !== undefined))
 const selectedModelId = ref('')
+const selectedModelTarget = ref('')
+let modelsRequestId = 0
 const testPrompt = ref('')
 const loadingModels = ref(false)
 let abortController: AbortController | null = null
@@ -439,17 +455,19 @@ const grokTestModeOptions = computed(() => [
 ])
 const prioritizedGeminiModels = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-2.0-flash']
 const supportsGeminiImageTest = computed(() => {
-  const modelID = selectedModelId.value.toLowerCase()
+  const modelID = selectedModelTarget.value.toLowerCase()
   if (!modelID.startsWith('gemini-') || !modelID.includes('-image')) return false
 
   return props.account?.platform === 'gemini' || (props.account?.platform === 'antigravity' && props.account?.type === 'apikey')
 })
 
 const supportsOpenAIImageTest = computed(() => {
-  const modelID = selectedModelId.value.toLowerCase()
-  if (!modelID.startsWith('gpt-image-')) return false
+  const modelID = selectedModelTarget.value.toLowerCase()
+  if (!isOpenAIImageModel(modelID)) return false
   return props.account?.platform === 'openai'
 })
+
+const isOpenAIImageModel = (id: string) => id.toLowerCase().startsWith('gpt-image-')
 
 const isGrokImageModel = (id: string) => {
   const modelID = id.toLowerCase()
@@ -464,6 +482,21 @@ const isGrokVideoModel = (id: string) => {
   return modelID.startsWith('grok-imagine-video') || modelID.startsWith('grok-video')
 }
 const isGrokTextModel = (id: string) => !isGrokImageModel(id) && !isGrokVideoModel(id)
+const modelTarget = (model: AccountTestModel) => model.upstream_model_id || model.id
+const selectedModelFitsGrokMode = computed(() => {
+  if (!isGrokAccount.value) return true
+  const target = selectedModelTarget.value.toLowerCase()
+  if (!target) return false
+  if (grokTestMode.value === 'image') return isGrokImageModel(target)
+  if (grokTestMode.value === 'video') return isGrokVideoModel(target)
+  if (grokTestMode.value === 'text') return isGrokTextModel(target)
+  return true
+})
+const selectedModelFitsOpenAIMode = computed(() => {
+  if (!isOpenAIAccount.value || testMode.value !== 'compact') return true
+  const target = selectedModelTarget.value.toLowerCase()
+  return Boolean(target) && !isOpenAIImageModel(target)
+})
 
 const supportsGrokImageTest = computed(
   () => isGrokAccount.value && grokTestMode.value === 'image'
@@ -483,15 +516,18 @@ const showModelSelect = computed(() => {
 })
 
 const modelOptionsForMode = computed(() => {
+  if (isOpenAIAccount.value && testMode.value === 'compact') {
+    return availableModels.value.filter((m) => !isOpenAIImageModel(modelTarget(m)))
+  }
   if (!isGrokAccount.value) return availableModels.value
   if (grokTestMode.value === 'image') {
-    return availableModels.value.filter((m) => isGrokImageModel(m.id))
+    return availableModels.value.filter((m) => isGrokImageModel(modelTarget(m)))
   }
   if (grokTestMode.value === 'video') {
-    return availableModels.value.filter((m) => isGrokVideoModel(m.id))
+    return availableModels.value.filter((m) => isGrokVideoModel(modelTarget(m)))
   }
   if (grokTestMode.value === 'text') {
-    return availableModels.value.filter((m) => isGrokTextModel(m.id))
+    return availableModels.value.filter((m) => isGrokTextModel(modelTarget(m)))
   }
   return []
 })
@@ -684,7 +720,10 @@ const canStartTest = computed(() => {
     ) {
       return true // standalone modes (prompt/model optional)
     }
-    return Boolean(selectedModelId.value)
+    return Boolean(selectedModelId.value) && selectedModelFitsGrokMode.value
+  }
+  if (isOpenAIAccount.value) {
+    return Boolean(selectedModelId.value) && selectedModelFitsOpenAIMode.value
   }
   return Boolean(selectedModelId.value)
 })
@@ -716,9 +755,10 @@ const applyDefaultPromptForMode = () => {
 }
 
 const pickDefaultModelForMode = () => {
-  const opts = modelOptionsForMode.value
+  const opts = modelOptionsForMode.value.filter((model) => !model.disabled)
   if (!opts.length) {
     selectedModelId.value = ''
+    selectedModelTarget.value = ''
     return
   }
   if (opts.some((m) => m.id === selectedModelId.value)) return
@@ -734,20 +774,26 @@ const pickDefaultModelForMode = () => {
 }
 
 watch(
-  () => props.show,
-  async (newVal) => {
-    if (newVal && props.account) {
+  () => [props.show, props.account?.id] as const,
+  async ([show, accountId]) => {
+    const requestId = ++modelsRequestId
+    abortStream()
+    availableModels.value = []
+    selectedModelId.value = ''
+    selectedModelTarget.value = ''
+    loadingModels.value = false
+    if (show && props.account) {
       testPrompt.value = ''
       testMode.value = 'default'
       grokTestMode.value = 'text'
       resetState()
-      await loadAvailableModels()
+      await loadAvailableModels(requestId)
+      // Loading and default selection must belong to the same modal request.
+      if (requestId !== modelsRequestId || !props.show || props.account?.id !== accountId) return
       if (isGrokAccount.value) {
         pickDefaultModelForMode()
         applyDefaultPromptForMode()
       }
-    } else {
-      abortStream()
     }
   }
 )
@@ -760,35 +806,59 @@ watch(grokTestMode, () => {
   applyDefaultPromptForMode()
 })
 
-const loadAvailableModels = async () => {
+watch(testMode, () => {
+  if (!isOpenAIAccount.value) return
+  pickDefaultModelForMode()
+})
+
+const loadAvailableModels = async (requestId: number) => {
   if (!props.account) return
 
+  const accountId = props.account.id
   loadingModels.value = true
   selectedModelId.value = '' // Reset selection before loading
   try {
-    const models = await adminAPI.accounts.getAvailableModels(props.account.id)
+    const models = await adminAPI.accounts.getAvailableModels(accountId)
+    if (requestId !== modelsRequestId || !props.show || props.account?.id !== accountId) return
     availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
       ? sortTestModels(models)
       : models
     // Default selection by platform
     if (availableModels.value.length > 0) {
+      const selectableModels = availableModels.value.filter((m) => !m.disabled)
       if (props.account.platform === 'gemini') {
-        selectedModelId.value = availableModels.value[0].id
+        selectedModelId.value = selectableModels[0]?.id || ''
       } else {
         // Try to select Sonnet as default, otherwise use first model
-        const sonnetModel = availableModels.value.find((m) => m.id.includes('sonnet'))
-        selectedModelId.value = sonnetModel?.id || availableModels.value[0].id
+        const sonnetModel = selectableModels.find((m) => m.id.includes('sonnet'))
+        selectedModelId.value = sonnetModel?.id || selectableModels[0]?.id || ''
       }
     }
   } catch (error) {
+    if (requestId !== modelsRequestId || !props.show || props.account?.id !== accountId) return
     console.error('Failed to load available models:', error)
     // Fallback to empty list
     availableModels.value = []
     selectedModelId.value = ''
   } finally {
-    loadingModels.value = false
+    if (requestId === modelsRequestId) loadingModels.value = false
   }
 }
+
+watch([selectedModelId, modelOptionsForMode], () => {
+  if (!selectedModelId.value) {
+    selectedModelTarget.value = ''
+    return
+  }
+  const option = modelOptionsForMode.value.find((model) => model.id === selectedModelId.value)
+  if (option) selectedModelTarget.value = modelTarget(option)
+})
+
+watch(selectedModelTarget, () => {
+  if (supportsImageTest.value && !testPrompt.value.trim()) {
+    testPrompt.value = t('admin.accounts.imagePromptDefault')
+  }
+})
 
 const resetState = () => {
   status.value = 'idle'

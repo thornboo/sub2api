@@ -107,7 +107,7 @@ const (
 
 // isOpenAIImageModel checks if the model is an OpenAI image generation model (e.g. gpt-image-2).
 func isOpenAIImageModel(model string) bool {
-	return strings.HasPrefix(strings.ToLower(model), "gpt-image-")
+	return IsGPTImageGenerationModel(model)
 }
 
 func isGrokVideoGenerationModel(model string) bool {
@@ -365,11 +365,10 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 }
 
 func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
-	testModelID := strings.TrimSpace(modelID)
-	if testModelID == "" {
-		testModelID = openai.DefaultTestModel
+	testModelID, err := ResolveAccountTestModel(account, modelID)
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
 	}
-	testModelID = account.GetMappedModel(testModelID)
 
 	authToken := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
 	if authToken == "" {
@@ -389,23 +388,17 @@ func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Cont
 func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account *Account, modelID string) error {
 	ctx := c.Request.Context()
 
-	// Determine the model to use
-	testModelID := modelID
-	if testModelID == "" {
-		testModelID = claude.DefaultTestModel
-	}
-
-	// API Key 账号测试连接时也需要应用通配符模型映射。
-	if account.Type == "apikey" {
-		testModelID = account.GetMappedModel(testModelID)
-	}
-
 	// Bedrock accounts use a separate test path
 	if account.IsBedrock() {
-		return s.testBedrockAccountConnection(c, ctx, account, testModelID)
+		return s.testBedrockAccountConnection(c, ctx, account, modelID)
 	}
 	if account.Type == AccountTypeServiceAccount {
-		return s.testClaudeVertexServiceAccountConnection(c, ctx, account, testModelID)
+		return s.testClaudeVertexServiceAccountConnection(c, ctx, account, modelID)
+	}
+
+	testModelID, err := ResolveAccountTestModel(account, modelID)
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
 	}
 
 	// Determine authentication method and API URL
@@ -511,11 +504,11 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 }
 
 func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Context, ctx context.Context, account *Account, testModelID string) error {
-	if mappedModel, matched := account.ResolveMappedModel(testModelID); matched {
-		testModelID = mappedModel
-	} else {
-		testModelID = normalizeVertexAnthropicModelID(claude.NormalizeModelID(testModelID))
+	resolvedModelID, err := ResolveAccountTestModel(account, testModelID)
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
 	}
+	testModelID = resolvedModelID
 
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
@@ -581,9 +574,9 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 // testBedrockAccountConnection tests a Bedrock (SigV4 or API Key) account using non-streaming invoke
 func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx context.Context, account *Account, testModelID string) error {
 	region := bedrockRuntimeRegion(account)
-	resolvedModelID, ok := ResolveBedrockModelID(account, testModelID)
-	if !ok {
-		return s.sendErrorAndEnd(c, fmt.Sprintf("Unsupported Bedrock model: %s", testModelID))
+	resolvedModelID, err := ResolveAccountTestModel(account, testModelID)
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
 	}
 	testModelID = resolvedModelID
 
@@ -686,17 +679,11 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	ctx := c.Request.Context()
 	mode = normalizeAccountTestMode(mode)
 
-	// Default to openai.DefaultTestModel for OpenAI testing
-	testModelID := modelID
-	if testModelID == "" {
-		testModelID = openai.DefaultTestModel
+	testModelID, err := ResolveAccountTestModel(account, modelID)
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
 	}
 
-	// Align test routing with gateway behavior: OpenAI accounts apply normal
-	// account model mapping. Native remote compaction v2 rides the ordinary
-	// /responses wire and does NOT apply the legacy compact-only mapping
-	// (post-#5641 semantics: compact_model_mapping is /responses/compact-only).
-	testModelID = account.GetMappedModel(testModelID)
 	if mode == AccountTestModeCompact {
 		return s.testOpenAICompactConnection(c, account, testModelID)
 	}
@@ -913,31 +900,32 @@ func (s *AccountTestService) testGrokAccountConnection(c *gin.Context, account *
 		return s.testGrokSTT(c, ctx, account, authToken, opts.AudioDataURL)
 	case AccountTestModeGrokRealtime:
 		return s.testGrokRealtime(c, ctx, account, authToken, modelID)
+	}
+
+	// Model-dependent modes share the same mapping and validation as the picker.
+	// Supply the mode's default before resolving; never map an upstream ID again.
+	if strings.TrimSpace(modelID) == "" {
+		switch mode {
+		case AccountTestModeGrokImage:
+			modelID = "grok-imagine-image"
+		case AccountTestModeGrokVideo:
+			modelID = "grok-imagine-video"
+		}
+	}
+	testModelID, err := ResolveAccountTestModel(account, modelID)
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
+	switch mode {
 	case AccountTestModeGrokImage:
-		return s.testGrokImageGeneration(c, ctx, account, authToken, resolveGrokImageTestModel(account, modelID), resolveGrokImagePrompt(prompt), opts.ImageDataURL)
+		return s.testGrokImageGeneration(c, ctx, account, authToken, testModelID, resolveGrokImagePrompt(prompt), opts.ImageDataURL)
 	case AccountTestModeGrokVideo:
-		return s.testGrokVideoGeneration(c, ctx, account, authToken, resolveGrokVideoTestModel(account, modelID), resolveGrokVideoPrompt(prompt), opts)
+		return s.testGrokVideoGeneration(c, ctx, account, authToken, testModelID, resolveGrokVideoPrompt(prompt), opts)
 	case AccountTestModeGrokText:
-		// Force text Responses even if model_id looks like media.
-		testModelID := strings.TrimSpace(modelID)
-		if testModelID == "" {
-			testModelID = grokDefaultResponsesModel
-		}
-		if mapped := strings.TrimSpace(account.GetMappedModel(testModelID)); mapped != "" {
-			testModelID = mapped
-		}
 		return s.testGrokResponsesConnection(c, ctx, account, authToken, testModelID)
 	}
 
-	// mode == default: infer from model family (legacy UI / API clients).
-	testModelID := strings.TrimSpace(modelID)
-	if testModelID == "" {
-		testModelID = grokDefaultResponsesModel
-	}
-	if mapped := strings.TrimSpace(account.GetMappedModel(testModelID)); mapped != "" {
-		testModelID = mapped
-	}
-
+	// mode == default: infer from the resolved model family (including scheduled tests).
 	switch {
 	case isGrokImageGenerationModel(testModelID):
 		return s.testGrokImageGeneration(c, ctx, account, authToken, testModelID, resolveGrokImagePrompt(prompt), opts.ImageDataURL)
@@ -960,28 +948,6 @@ func resolveGrokVideoPrompt(prompt string) string {
 		return defaultGrokVideoTestPrompt
 	}
 	return strings.TrimSpace(prompt)
-}
-
-func resolveGrokImageTestModel(account *Account, modelID string) string {
-	testModelID := strings.TrimSpace(modelID)
-	if testModelID == "" {
-		testModelID = "grok-imagine-image"
-	}
-	if mapped := strings.TrimSpace(account.GetMappedModel(testModelID)); mapped != "" {
-		return mapped
-	}
-	return testModelID
-}
-
-func resolveGrokVideoTestModel(account *Account, modelID string) string {
-	testModelID := strings.TrimSpace(modelID)
-	if testModelID == "" {
-		testModelID = "grok-imagine-video"
-	}
-	if mapped := strings.TrimSpace(account.GetMappedModel(testModelID)); mapped != "" {
-		return mapped
-	}
-	return testModelID
 }
 
 func (s *AccountTestService) grokTestAccessToken(ctx context.Context, account *Account) (string, error) {
@@ -2267,20 +2233,9 @@ func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, accoun
 func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	ctx := c.Request.Context()
 
-	// Determine the model to use
-	testModelID := modelID
-	if testModelID == "" {
-		testModelID = geminicli.DefaultTestModel
-	}
-
-	// For static upstream credentials with model mapping, map the model
-	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
-		mapping := account.GetModelMapping()
-		if len(mapping) > 0 {
-			if mappedModel, exists := mapping[testModelID]; exists {
-				testModelID = mappedModel
-			}
-		}
+	testModelID, err := ResolveAccountTestModel(account, modelID)
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
 	}
 
 	// Set SSE headers
@@ -2295,7 +2250,6 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 
 	// Build request based on account type
 	var req *http.Request
-	var err error
 
 	switch account.Type {
 	case AccountTypeAPIKey:
@@ -2340,10 +2294,15 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 // APIKey 类型走原生协议（与 gateway_handler 路由一致），OAuth/Upstream 走 CRS 中转。
 func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Account, modelID string, prompt string) error {
 	if account.Type == AccountTypeAPIKey {
-		if strings.HasPrefix(modelID, "gemini-") {
-			return s.testGeminiAccountConnection(c, account, modelID, prompt)
+		testModelID := antigravityConnectionTestModel(modelID)
+		upstreamModelID, err := ResolveAccountTestModel(account, testModelID)
+		if err != nil {
+			return s.sendErrorAndEnd(c, err.Error())
 		}
-		return s.testClaudeAccountConnection(c, account, modelID)
+		if strings.HasPrefix(upstreamModelID, "gemini-") {
+			return s.testGeminiAccountConnection(c, account, testModelID, prompt)
+		}
+		return s.testClaudeAccountConnection(c, account, testModelID)
 	}
 	return s.testAntigravityAccountConnection(c, account, modelID)
 }
@@ -2354,6 +2313,10 @@ func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, ac
 	ctx := c.Request.Context()
 
 	testModelID := antigravityConnectionTestModel(modelID)
+	upstreamModelID, err := ResolveAccountTestModel(account, testModelID)
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
 
 	if s.antigravityGatewayService == nil {
 		return s.sendErrorAndEnd(c, "Antigravity gateway service not configured")
@@ -2367,7 +2330,7 @@ func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, ac
 	c.Writer.Flush()
 
 	// Send test_start event
-	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: upstreamModelID})
 
 	// 调用 AntigravityGatewayService.TestConnection（复用协议转换逻辑）
 	result, err := s.antigravityGatewayService.TestConnection(ctx, account, testModelID)

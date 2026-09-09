@@ -361,14 +361,14 @@ func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account 
 	}
 
 	// 模型映射
-	mappedModel := s.getMappedModel(account, modelID)
-	if mappedModel == "" {
-		return nil, fmt.Errorf("model %s not in whitelist", modelID)
+	mappedModel, err := ResolveAccountTestModel(account, modelID)
+	if err != nil {
+		return nil, err
 	}
 
 	// 构建请求体
 	var requestBody []byte
-	if strings.HasPrefix(modelID, "gemini-") {
+	if strings.HasPrefix(mappedModel, "gemini-") {
 		requestBody, err = s.buildGeminiTestRequest(projectID, mappedModel)
 	} else {
 		requestBody, err = s.buildClaudeTestRequest(projectID, mappedModel)

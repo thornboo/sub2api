@@ -111,6 +111,25 @@ type openAIModelsResponse struct {
 	} `json:"data"`
 }
 
+type accountTestModel struct {
+	ID                     string   `json:"id"`
+	Type                   string   `json:"type"`
+	DisplayName            string   `json:"display_name"`
+	CreatedAt              string   `json:"created_at"`
+	SupportedEndpointTypes []string `json:"supported_endpoint_types,omitempty"`
+	UpstreamModelID        string   `json:"upstream_model_id"`
+	IsPattern              bool     `json:"is_pattern,omitempty"`
+	Disabled               bool     `json:"disabled,omitempty"`
+	Object                 string   `json:"object,omitempty"`
+	Created                int64    `json:"created,omitempty"`
+	OwnedBy                string   `json:"owned_by,omitempty"`
+}
+
+type resolvedAccountModelResponse struct {
+	ModelID         string `json:"model_id"`
+	UpstreamModelID string `json:"upstream_model_id"`
+}
+
 const probeModelsResponseLimit = 256 << 10
 
 func (h *AccountHandler) SetOllamaCloudUsageService(usage *service.OllamaCloudUsageService) {
@@ -3104,192 +3123,142 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
-	// Handle OpenAI accounts
-	if account.IsOpenAI() {
-		// Prefer the shared, account-keyed upstream catalog. If discovery fails,
-		// retain the legacy local catalog below so the test dialog remains usable.
-		if h.accountTestService != nil {
-			if models, fetchErr := h.accountTestService.FetchOpenAIAccountModels(c.Request.Context(), account); fetchErr == nil {
-				response.Success(c, models)
-				return
-			}
+	models := defaultAccountTestModels(account)
+	// Saved configuration takes priority over both built-in names and discovery.
+	// Enumerate only saved keys: GetModelMapping may add implicit platform aliases.
+	if mapping := configuredAccountTestMapping(account); len(mapping) > 0 {
+		defaults := make(map[string]accountTestModel, len(models))
+		for _, model := range models {
+			defaults[model.ID] = model
 		}
-		// OpenAI 自动透传会绕过常规模型改写，测试/模型列表也应回落到默认模型集。
-		if account.IsOpenAIPassthroughEnabled() {
-			response.Success(c, openai.DefaultModels)
-			return
+		ids := make([]string, 0, len(mapping))
+		for id := range mapping {
+			ids = append(ids, id)
 		}
-
-		mapping := account.GetModelMapping()
-		if len(mapping) == 0 {
-			response.Success(c, openai.DefaultModels)
-			return
+		sort.Strings(ids)
+		models = make([]accountTestModel, 0, len(ids))
+		for _, id := range ids {
+			model := defaults[id]
+			model.ID = id
+			model.UpstreamModelID = mapping[id]
+			models = append(models, model)
 		}
-
-		// Return mapped models
-		var models []openai.Model
-		for requestedModel := range mapping {
-			var found bool
-			for _, dm := range openai.DefaultModels {
-				if dm.ID == requestedModel {
-					models = append(models, dm)
-					found = true
-					break
-				}
-			}
-			if !found {
-				models = append(models, openai.Model{
-					ID:          requestedModel,
-					Object:      "model",
-					Type:        "model",
-					DisplayName: requestedModel,
-				})
-			}
-		}
-		response.Success(c, models)
-		return
-	}
-
-	// Handle Gemini accounts
-	if account.IsGemini() {
-		// Consumer Google One OAuth still uses the legacy Gemini CLI / Code
-		// Assist channel. Do not advertise newer 3.x or image models that the
-		// channel cannot serve.
-		if account.IsOAuth() {
-			if account.IsGeminiGoogleOne() {
-				response.Success(c, geminicli.GoogleOneModels)
-				return
-			}
-			response.Success(c, geminicli.DefaultModels)
-			return
-		}
-
-		// For API Key accounts: return models based on model_mapping
-		mapping := account.GetModelMapping()
-		if len(mapping) == 0 {
-			response.Success(c, geminicli.DefaultModels)
-			return
-		}
-
-		var models []geminicli.Model
-		for requestedModel := range mapping {
-			var found bool
-			for _, dm := range geminicli.DefaultModels {
-				if dm.ID == requestedModel {
-					models = append(models, dm)
-					found = true
-					break
-				}
-			}
-			if !found {
-				models = append(models, geminicli.Model{
-					ID:          requestedModel,
-					Type:        "model",
-					DisplayName: requestedModel,
-					CreatedAt:   "",
-				})
-			}
-		}
-		response.Success(c, models)
-		return
-	}
-
-	// Handle Antigravity accounts: return Claude + Gemini models
-	if account.Platform == service.PlatformAntigravity {
-		// 直接复用 antigravity.DefaultModels()，与 /v1/models 端点保持同步
-		response.Success(c, antigravity.DefaultModels())
-		return
-	}
-
-	// Handle Grok accounts
-	if account.Platform == service.PlatformGrok {
-		defaultModels := xai.DefaultModels()
-
-		hasExplicitMapping := false
-		switch rawMapping := account.Credentials["model_mapping"].(type) {
-		case map[string]any:
-			hasExplicitMapping = len(rawMapping) > 0
-		case map[string]string:
-			hasExplicitMapping = len(rawMapping) > 0
-		}
-		if !hasExplicitMapping {
-			response.Success(c, defaultModels)
-			return
-		}
-
-		mapping := account.GetModelMapping()
-		if len(mapping) == 0 {
-			response.Success(c, defaultModels)
-			return
-		}
-
-		defaultByID := make(map[string]xai.Model, len(defaultModels))
-		for _, model := range defaultModels {
-			defaultByID[model.ID] = model
-		}
-
-		requestedModels := make([]string, 0, len(mapping))
-		for requestedModel := range mapping {
-			requestedModels = append(requestedModels, requestedModel)
-		}
-		sort.Strings(requestedModels)
-
-		var models []xai.Model
-		for _, requestedModel := range requestedModels {
-			if defaultModel, found := defaultByID[requestedModel]; found {
-				models = append(models, defaultModel)
-				continue
-			}
-			models = append(models, xai.Model{
-				ID:          requestedModel,
-				Object:      "model",
-				OwnedBy:     "xai",
-				DisplayName: requestedModel,
-			})
-		}
-		response.Success(c, models)
-		return
-	}
-
-	// Handle Claude/Anthropic accounts
-	// For OAuth and Setup-Token accounts: return default models
-	if account.IsOAuth() {
-		response.Success(c, claude.DefaultModels)
-		return
-	}
-
-	// For API Key accounts: return models based on model_mapping
-	mapping := account.GetModelMapping()
-	if len(mapping) == 0 {
-		// No mapping configured, return default models
-		response.Success(c, claude.DefaultModels)
-		return
-	}
-
-	// Return mapped models (keys of the mapping are the available model IDs)
-	var models []claude.Model
-	for requestedModel := range mapping {
-		// Try to find display info from default models
-		var found bool
-		for _, dm := range claude.DefaultModels {
-			if dm.ID == requestedModel {
-				models = append(models, dm)
-				found = true
-				break
-			}
-		}
-		// If not found in defaults, create a basic entry
-		if !found {
-			models = append(models, claude.Model{
-				ID:          requestedModel,
-				Type:        "model",
-				DisplayName: requestedModel,
-				CreatedAt:   "",
-			})
+	} else if (account.IsOpenAI() || service.IsCNProvider(account.Platform)) && h.accountTestService != nil {
+		// Unconfigured and passthrough accounts retain account-keyed discovery.
+		if discovered, fetchErr := h.accountTestService.FetchOpenAIAccountModels(c.Request.Context(), account); fetchErr == nil && len(discovered) > 0 {
+			models = openAIAccountTestModels(discovered)
 		}
 	}
 
+	for i := range models {
+		model := &models[i]
+		model.Type = "model"
+		model.DisplayName = model.ID
+		model.IsPattern = strings.Contains(model.ID, "*")
+		upstreamModel, resolveErr := service.ResolveAccountTestModel(account, model.ID)
+		if resolveErr != nil {
+			model.Disabled = true
+		} else {
+			model.UpstreamModelID = upstreamModel
+		}
+		if model.UpstreamModelID != "" && model.UpstreamModelID != model.ID {
+			model.DisplayName = model.ID + " → " + model.UpstreamModelID
+		}
+	}
 	response.Success(c, models)
+}
+
+func configuredAccountTestMapping(account *service.Account) map[string]string {
+	if !service.AccountTestUsesModelMapping(account) {
+		return nil
+	}
+	mapping := make(map[string]string)
+	// Credentials loaded from JSON use map[string]any, as does GetModelMapping.
+	rawMapping, _ := account.Credentials["model_mapping"].(map[string]any)
+	for id, value := range rawMapping {
+		if target, ok := value.(string); ok {
+			mapping[id] = target
+		}
+	}
+	return mapping
+}
+
+func openAIAccountTestModels(models []openai.Model) []accountTestModel {
+	result := make([]accountTestModel, 0, len(models))
+	for _, model := range models {
+		result = append(result, accountTestModel{
+			ID: model.ID, Object: model.Object, Created: model.Created, OwnedBy: model.OwnedBy,
+			SupportedEndpointTypes: model.SupportedEndpointTypes,
+		})
+	}
+	return result
+}
+
+func defaultAccountTestModels(account *service.Account) []accountTestModel {
+	models := make([]accountTestModel, 0)
+	switch account.Platform {
+	case service.PlatformOpenAI:
+		return openAIAccountTestModels(openai.DefaultModels)
+	case service.PlatformGemini:
+		catalog := geminicli.DefaultModels
+		if account.IsGeminiGoogleOne() {
+			catalog = geminicli.GoogleOneModels
+		}
+		for _, model := range catalog {
+			models = append(models, accountTestModel{ID: model.ID, CreatedAt: model.CreatedAt})
+		}
+	case service.PlatformAntigravity:
+		for _, model := range antigravity.DefaultModels() {
+			models = append(models, accountTestModel{ID: model.ID, CreatedAt: model.CreatedAt})
+		}
+	case service.PlatformGrok:
+		for _, model := range xai.DefaultModels() {
+			models = append(models, accountTestModel{ID: model.ID, Object: model.Object, Created: model.Created, OwnedBy: model.OwnedBy})
+		}
+	case service.PlatformKimi:
+		models = append(models, accountTestModel{ID: "kimi-k2.5"})
+	case service.PlatformZhipu:
+		models = append(models, accountTestModel{ID: "glm-4.7"})
+	case service.PlatformDeepseek:
+		models = append(models, accountTestModel{ID: "deepseek-v4-pro"})
+	default:
+		for _, model := range claude.DefaultModels {
+			models = append(models, accountTestModel{
+				ID: model.ID, CreatedAt: model.CreatedAt, SupportedEndpointTypes: model.SupportedEndpointTypes,
+			})
+		}
+	}
+	return models
+}
+
+// ResolveAvailableModel previews a concrete request against saved account configuration.
+// GET /api/v1/admin/accounts/:id/models/resolve?model_id=<model>
+func (h *AccountHandler) ResolveAvailableModel(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.NotFound(c, "Account not found")
+		return
+	}
+	modelID := strings.TrimSpace(c.Query("model_id"))
+	if modelID == "" || strings.Contains(modelID, "*") {
+		response.BadRequest(c, "model_id must be a concrete model ID")
+		return
+	}
+	if service.AccountTestUsesModelMapping(account) && len(account.GetModelMapping()) > 0 && !account.IsModelSupported(modelID) {
+		response.BadRequest(c, "model_id is not supported by this account")
+		return
+	}
+	upstreamModelID, err := service.ResolveAccountTestModel(account, modelID)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, resolvedAccountModelResponse{ModelID: modelID, UpstreamModelID: upstreamModelID})
 }
 
 // SyncUpstreamModels handles syncing live supported models from an account's upstream.

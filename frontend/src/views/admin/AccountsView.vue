@@ -692,7 +692,7 @@ import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
 import type { UpstreamAccountCostBinding, UpstreamCostPool, UpstreamSupplier, UpstreamSupplierRechargeOverview } from '@/api/admin/accounts'
-import type { Account, AccountListItem, AccountPlatform, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
+import type { Account, AccountListItem, AccountPlatform, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, UpstreamBillingProbeSnapshot } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -2967,20 +2967,29 @@ const handleSupplierRechargeUpdated = () => {
     })
   }
 }
+let scheduleModelsRequestId = 0
 const handleSchedule = async (a: AccountListItem) => {
+  const requestId = ++scheduleModelsRequestId
   const account = await loadAccountDetails(a)
-  if (!account) return
+  if (!account || requestId !== scheduleModelsRequestId) return
   scheduleAcc.value = account
   scheduleModelOptions.value = []
   showSchedulePanel.value = true
   try {
     const models = await adminAPI.accounts.getAvailableModels(a.id)
-    scheduleModelOptions.value = models.map((m: ClaudeModel) => ({ value: m.id, label: m.display_name || m.id }))
+    if (requestId !== scheduleModelsRequestId || !showSchedulePanel.value) return
+    scheduleModelOptions.value = models.map((m) => ({
+      value: m.id,
+      label: m.display_name || m.id,
+      upstream_model_id: m.upstream_model_id,
+      is_pattern: m.is_pattern,
+      disabled: m.disabled
+    }))
   } catch {
-    scheduleModelOptions.value = []
+    if (requestId === scheduleModelsRequestId) scheduleModelOptions.value = []
   }
 }
-const closeSchedulePanel = () => { showSchedulePanel.value = false; scheduleAcc.value = null; scheduleModelOptions.value = [] }
+const closeSchedulePanel = () => { scheduleModelsRequestId += 1; showSchedulePanel.value = false; scheduleAcc.value = null; scheduleModelOptions.value = [] }
 const handleReAuth = async (a: AccountListItem) => {
   const account = await loadAccountDetails(a)
   if (!account) return
