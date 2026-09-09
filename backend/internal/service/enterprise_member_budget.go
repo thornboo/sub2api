@@ -19,11 +19,11 @@ import (
 )
 
 var (
-	ErrEnterpriseMemberBudgetExceeded         = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_BUDGET_EXCEEDED", "enterprise member monthly budget is exhausted")
-	ErrEnterpriseMemberRateLimit5hExceeded    = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_RATE_5H_EXCEEDED", "enterprise member 5-hour spending limit is exhausted")
-	ErrEnterpriseMemberRateLimit1dExceeded    = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_RATE_1D_EXCEEDED", "enterprise member daily spending limit is exhausted")
-	ErrEnterpriseMemberRateLimit7dExceeded    = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_RATE_7D_EXCEEDED", "enterprise member 7-day spending limit is exhausted")
-	ErrEnterpriseMemberAsyncBudgetUnavailable = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_ASYNC_BUDGET_UNAVAILABLE", "available enterprise member budget is insufficient for this asynchronous task after accounting for active task holds and this task's estimated cost")
+	ErrEnterpriseMemberBudgetExceeded         = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_BUDGET_EXCEEDED", "您的月度消费额度已用完，请联系企业管理员。")
+	ErrEnterpriseMemberRateLimit5hExceeded    = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_RATE_5H_EXCEEDED", "您的 5 小时消费额度已用完，请稍后重试或联系企业管理员。")
+	ErrEnterpriseMemberRateLimit1dExceeded    = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_RATE_1D_EXCEEDED", "您的 1 天消费额度已用完，请稍后重试或联系企业管理员。")
+	ErrEnterpriseMemberRateLimit7dExceeded    = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_RATE_7D_EXCEEDED", "您的 7 天消费额度已用完，请稍后重试或联系企业管理员。")
+	ErrEnterpriseMemberAsyncBudgetUnavailable = infraerrors.TooManyRequests("ENTERPRISE_MEMBER_ASYNC_BUDGET_UNAVAILABLE", "可用额度不足以预占本次异步任务费用，请稍后重试。")
 	ErrEnterpriseMemberBudgetUnbounded        = infraerrors.BadRequest("ENTERPRISE_MEMBER_BUDGET_UNBOUNDED_REQUEST", "request cost cannot be bounded for the enterprise member budget")
 	ErrEnterpriseMemberBudgetConflict         = infraerrors.Conflict("ENTERPRISE_MEMBER_BUDGET_REQUEST_CONFLICT", "member budget request id was reused with different parameters")
 	ErrEnterpriseMemberBudgetReceiptNotFound  = infraerrors.NotFound("ENTERPRISE_MEMBER_BUDGET_RECEIPT_NOT_FOUND", "enterprise member budget receipt not found")

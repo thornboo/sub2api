@@ -78,9 +78,41 @@ func TestEnforceEnterpriseMemberBudgetExplainsAsyncTaskHoldRejection(t *testing.
 	require.Contains(t, response.Body.String(), `"code":"ENTERPRISE_MEMBER_ASYNC_BUDGET_UNAVAILABLE"`)
 	require.Contains(t, response.Body.String(), `"metadata":`)
 	require.Contains(t, response.Body.String(), `"active_task_holds_usd":"253.380000"`)
-	require.Contains(t, response.Body.String(), "settled usage US$39.640000")
-	require.Contains(t, response.Body.String(), "active task holds US$253.380000")
+	require.Contains(t, response.Body.String(), "您的月度消费额度不足以提交本次异步任务")
+	require.Contains(t, response.Body.String(), "限额 US$300.000000")
+	require.Contains(t, response.Body.String(), "已消费 US$39.640000")
+	require.Contains(t, response.Body.String(), "进行中任务占用 US$253.380000")
+	require.Contains(t, response.Body.String(), "本次任务需预占 US$20.000000")
 	require.NotContains(t, response.Body.String(), "metadata=map")
+}
+
+func TestEnterpriseMemberAsyncBudgetMessageLocalizesWindows(t *testing.T) {
+	for _, tc := range []struct {
+		window string
+		label  string
+	}{
+		{"monthly", "月度"},
+		{"5h", "5 小时"},
+		{"1d", "1 天"},
+		{"7d", "7 天"},
+		{"", ""},
+		{"unknown", ""},
+	} {
+		t.Run(tc.window, func(t *testing.T) {
+			metadata := map[string]string{
+				"limit_window": tc.window, "limit_usd": "100.000000", "settled_used_usd": "80.000000",
+				"active_task_holds_usd": "15.000000", "requested_task_hold_usd": "10.000000",
+			}
+			err := service.ErrEnterpriseMemberAsyncBudgetUnavailable.WithMetadata(metadata)
+			message := enterpriseMemberBudgetClientMessage(err)
+			if tc.label == "" {
+				require.Equal(t, "可用额度不足以预占本次异步任务费用，请稍后重试。", message)
+			} else {
+				require.Equal(t, "您的"+tc.label+"消费额度不足以提交本次异步任务：限额 US$100.000000，已消费 US$80.000000，进行中任务占用 US$15.000000，本次任务需预占 US$10.000000。请等待进行中的任务完成、降低任务费用，或联系企业管理员调整限额。", message)
+			}
+			require.Equal(t, metadata, err.Metadata, "machine-readable metadata must retain its original values")
+		})
+	}
 }
 
 // TestEnforceEnterpriseMemberBudgetReportsUnclassifiedFailureAsPlatformFault
@@ -135,18 +167,22 @@ func TestEnforceEnterpriseMemberBudgetReportsUnclassifiedFailureAsPlatformFault(
 
 // TestEnforceEnterpriseMemberBudgetKeepsClassifiedFailuresUnchanged guards the
 // blast radius of the status remap: errors that carry a domain reason must keep
-// the status and message they had before.
+// their status and structured error code, with user-facing limit messages in Chinese.
 func TestEnforceEnterpriseMemberBudgetKeepsClassifiedFailuresUnchanged(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, tc := range []struct {
-		name       string
-		reserveErr error
-		wantStatus int
-		wantCode   string
+		name        string
+		reserveErr  error
+		wantStatus  int
+		wantCode    string
+		wantMessage string
 	}{
-		{"unbounded request", service.ErrEnterpriseMemberBudgetUnbounded, http.StatusBadRequest, "ENTERPRISE_MEMBER_BUDGET_UNBOUNDED_REQUEST"},
-		{"request id conflict", service.ErrEnterpriseMemberBudgetConflict, http.StatusBadRequest, "ENTERPRISE_MEMBER_BUDGET_REQUEST_CONFLICT"},
-		{"budget exhausted", service.ErrEnterpriseMemberBudgetExceeded, http.StatusTooManyRequests, "ENTERPRISE_MEMBER_BUDGET_EXCEEDED"},
+		{"unbounded request", service.ErrEnterpriseMemberBudgetUnbounded, http.StatusBadRequest, "ENTERPRISE_MEMBER_BUDGET_UNBOUNDED_REQUEST", "request cost cannot be bounded for the enterprise member budget"},
+		{"request id conflict", service.ErrEnterpriseMemberBudgetConflict, http.StatusBadRequest, "ENTERPRISE_MEMBER_BUDGET_REQUEST_CONFLICT", "member budget request id was reused with different parameters"},
+		{"budget exhausted", service.ErrEnterpriseMemberBudgetExceeded, http.StatusTooManyRequests, "ENTERPRISE_MEMBER_BUDGET_EXCEEDED", "您的月度消费额度已用完，请联系企业管理员。"},
+		{"5h limit exhausted", service.ErrEnterpriseMemberRateLimit5hExceeded, http.StatusTooManyRequests, "ENTERPRISE_MEMBER_RATE_5H_EXCEEDED", "您的 5 小时消费额度已用完，请稍后重试或联系企业管理员。"},
+		{"1d limit exhausted", service.ErrEnterpriseMemberRateLimit1dExceeded, http.StatusTooManyRequests, "ENTERPRISE_MEMBER_RATE_1D_EXCEEDED", "您的 1 天消费额度已用完，请稍后重试或联系企业管理员。"},
+		{"7d limit exhausted", service.ErrEnterpriseMemberRateLimit7dExceeded, http.StatusTooManyRequests, "ENTERPRISE_MEMBER_RATE_7D_EXCEEDED", "您的 7 天消费额度已用完，请稍后重试或联系企业管理员。"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			memberID := int64(8)
@@ -172,6 +208,15 @@ func TestEnforceEnterpriseMemberBudgetKeepsClassifiedFailuresUnchanged(t *testin
 
 			require.Equal(t, tc.wantStatus, response.Code)
 			require.Equal(t, tc.wantCode, response.Header().Get(gatewayErrorCodeHeader))
+			var body struct {
+				Error struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+			require.Equal(t, tc.wantCode, body.Error.Code)
+			require.Equal(t, tc.wantMessage, body.Error.Message)
 		})
 	}
 }
@@ -184,9 +229,11 @@ func TestGoogleErrorWriterExposesStructuredBudgetDetails(t *testing.T) {
 	c.Header(gatewayBudgetMetadataHeaders["limit_window"], "monthly")
 	c.Header(gatewayBudgetMetadataHeaders["active_task_holds_usd"], "253.380000")
 
-	GoogleErrorWriter(c, http.StatusTooManyRequests, "Asynchronous task budget is unavailable")
+	message := enterpriseMemberBudgetClientMessage(service.ErrEnterpriseMemberAsyncBudgetUnavailable)
+	GoogleErrorWriter(c, http.StatusTooManyRequests, message)
 
 	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Contains(t, w.Body.String(), `"message":"可用额度不足以预占本次异步任务费用，请稍后重试。"`)
 	require.Contains(t, w.Body.String(), `"reason":"ENTERPRISE_MEMBER_ASYNC_BUDGET_UNAVAILABLE"`)
 	require.Contains(t, w.Body.String(), `"limit_window":"monthly"`)
 	require.Contains(t, w.Body.String(), `"active_task_holds_usd":"253.380000"`)

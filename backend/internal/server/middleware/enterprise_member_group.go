@@ -866,9 +866,22 @@ func enterpriseMemberBudgetClientMessage(err error) string {
 		return appErr.Message
 	}
 	metadata := appErr.Metadata
+	var window string
+	switch strings.TrimSpace(metadata["limit_window"]) {
+	case "monthly":
+		window = "月度"
+	case "5h":
+		window = "5 小时"
+	case "1d":
+		window = "1 天"
+	case "7d":
+		window = "7 天"
+	default:
+		return appErr.Message
+	}
 	return fmt.Sprintf(
-		"Asynchronous task budget is unavailable for the %s limit: limit US$%s, settled usage US$%s, active task holds US$%s, requested task hold US$%s. Wait for an active task to finish, lower the task cost, or ask the enterprise administrator to increase the limit.",
-		strings.TrimSpace(metadata["limit_window"]),
+		"您的%s消费额度不足以提交本次异步任务：限额 US$%s，已消费 US$%s，进行中任务占用 US$%s，本次任务需预占 US$%s。请等待进行中的任务完成、降低任务费用，或联系企业管理员调整限额。",
+		window,
 		strings.TrimSpace(metadata["limit_usd"]),
 		strings.TrimSpace(metadata["settled_used_usd"]),
 		strings.TrimSpace(metadata["active_task_holds_usd"]),

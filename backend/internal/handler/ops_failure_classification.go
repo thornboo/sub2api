@@ -64,14 +64,20 @@ func classifyOpsFailureV2(
 		return classification
 	}
 
-	if isEnterpriseMemberLimit(normalizedCode, msg) {
+	asyncBudgetUnavailable := isEnterpriseMemberAsyncBudgetUnavailable(normalizedCode, msg)
+	if asyncBudgetUnavailable || isEnterpriseMemberLimit(normalizedCode, msg) {
 		classification.FailureDomain = service.OpsFailureDomainEnterprise
 		classification.ResolutionOwner = service.OpsResolutionOwnerEnterpriseAdmin
 		classification.SLAImpact = service.OpsBool(false)
-		if strings.Contains(normalizedCode, "BUDGET") || strings.Contains(msg, "monthly budget") {
+		switch {
+		case asyncBudgetUnavailable:
+			classification.FailureCategory = service.OpsFailureCategoryBudget
+			classification.FailureReason = service.OpsFailureReasonEnterpriseMemberAsyncBudgetUnavailable
+		case strings.Contains(normalizedCode, "BUDGET") || strings.Contains(msg, "monthly budget") ||
+			strings.Contains(msg, service.ErrEnterpriseMemberBudgetExceeded.Message):
 			classification.FailureCategory = service.OpsFailureCategoryBudget
 			classification.FailureReason = service.OpsFailureReasonEnterpriseMemberBudgetExhausted
-		} else {
+		default:
 			classification.FailureCategory = service.OpsFailureCategoryRateLimit
 			classification.FailureReason = service.OpsFailureReasonEnterpriseMemberRateExceeded
 		}
@@ -155,11 +161,27 @@ func classifyMarkedClientPolicyFailure(c *gin.Context) (string, bool) {
 	}
 }
 
+func isEnterpriseMemberAsyncBudgetUnavailable(code, msg string) bool {
+	// Prefer the stable code, with message fallbacks for older logs and response
+	// formats where the parsed code is only an HTTP status (for example Google).
+	return code == service.ErrEnterpriseMemberAsyncBudgetUnavailable.Reason ||
+		strings.Contains(msg, "enterprise_member_async_budget_unavailable") ||
+		strings.Contains(msg, service.ErrEnterpriseMemberAsyncBudgetUnavailable.Message) ||
+		strings.Contains(msg, "消费额度不足以提交本次异步任务") ||
+		strings.Contains(msg, "available enterprise member budget is insufficient for this asynchronous task") ||
+		strings.Contains(msg, "asynchronous task budget is unavailable for the ")
+}
+
 func isEnterpriseMemberLimit(code, msg string) bool {
+	// Retain English matches for historical errors alongside current client messages.
 	return strings.Contains(code, "ENTERPRISE_MEMBER_BUDGET_EXCEEDED") ||
 		strings.Contains(code, "ENTERPRISE_MEMBER_RATE_") ||
 		strings.Contains(msg, "enterprise_member_budget_exceeded") ||
 		strings.Contains(msg, "enterprise_member_rate_") ||
+		strings.Contains(msg, service.ErrEnterpriseMemberBudgetExceeded.Message) ||
+		strings.Contains(msg, service.ErrEnterpriseMemberRateLimit5hExceeded.Message) ||
+		strings.Contains(msg, service.ErrEnterpriseMemberRateLimit1dExceeded.Message) ||
+		strings.Contains(msg, service.ErrEnterpriseMemberRateLimit7dExceeded.Message) ||
 		strings.Contains(msg, "enterprise member monthly budget is exhausted") ||
 		strings.Contains(msg, "enterprise member 5-hour spending limit is exhausted") ||
 		strings.Contains(msg, "enterprise member daily spending limit is exhausted") ||

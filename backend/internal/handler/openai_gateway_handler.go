@@ -19,6 +19,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
@@ -3239,7 +3240,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					return newOpenAIWSUnsupportedModelSwitchError(model)
 				}
 				if _, err := reserveWSTurnBudget(turn, payload, model); err != nil {
-					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
+					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, enterpriseMemberBudgetWSCloseReason(err), err)
 				}
 				// 分组级模型白名单：后续 turn 同样校验客户端模型（省略 model 时
 				// 沿用会话实际生效模型，含 session.update 轮换后的模型），不通过
@@ -3470,7 +3471,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		// stable, so the receipt GroupID cannot refer to a rejected candidate.
 		firstTurnCtx, err := reserveWSTurnBudget(1, firstMessage, reqModel)
 		if err != nil {
-			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, err.Error())
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, enterpriseMemberBudgetWSCloseReason(err))
 			return
 		}
 		attemptCtx := firstTurnCtx
@@ -4309,6 +4310,16 @@ func blockedModelAllowlistCandidate(group *service.Group, candidates []string) s
 		}
 	}
 	return ""
+}
+
+// Keep the code and user-facing limit message within the WebSocket close-frame
+// budget; the full error string includes diagnostic fields that crowd it out.
+func enterpriseMemberBudgetWSCloseReason(err error) string {
+	if service.IsEnterpriseMemberBudgetExceeded(err) {
+		appErr := infraerrors.FromError(err)
+		return appErr.Reason + ": " + appErr.Message
+	}
+	return err.Error()
 }
 
 func closeOpenAIClientWS(conn *coderws.Conn, status coderws.StatusCode, reason string) {

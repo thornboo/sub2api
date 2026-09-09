@@ -146,6 +146,163 @@ func TestClassifyOpsFailureV2SeparatesAttributionFromSLA(t *testing.T) {
 	}
 }
 
+func TestClassifyOpsFailureV2EnterpriseMemberLimitSignals(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name     string
+		message  string
+		code     string
+		category string
+		reason   string
+	}{
+		{
+			name:     "shared budget message only",
+			message:  service.ErrEnterpriseMemberBudgetExceeded.Message,
+			category: service.OpsFailureCategoryBudget,
+			reason:   service.OpsFailureReasonEnterpriseMemberBudgetExhausted,
+		},
+		{
+			name:     "shared 5h rate message only",
+			message:  service.ErrEnterpriseMemberRateLimit5hExceeded.Message,
+			category: service.OpsFailureCategoryRateLimit,
+			reason:   service.OpsFailureReasonEnterpriseMemberRateExceeded,
+		},
+		{
+			name:     "shared daily rate message only",
+			message:  service.ErrEnterpriseMemberRateLimit1dExceeded.Message,
+			category: service.OpsFailureCategoryRateLimit,
+			reason:   service.OpsFailureReasonEnterpriseMemberRateExceeded,
+		},
+		{
+			name:     "shared 7 day rate message only",
+			message:  service.ErrEnterpriseMemberRateLimit7dExceeded.Message,
+			category: service.OpsFailureCategoryRateLimit,
+			reason:   service.OpsFailureReasonEnterpriseMemberRateExceeded,
+		},
+		{
+			name:     "legacy English budget message only",
+			message:  "enterprise member monthly budget is exhausted",
+			category: service.OpsFailureCategoryBudget,
+			reason:   service.OpsFailureReasonEnterpriseMemberBudgetExhausted,
+		},
+		{
+			name:     "legacy English short-window message only",
+			message:  "enterprise member 5-hour spending limit is exhausted",
+			category: service.OpsFailureCategoryRateLimit,
+			reason:   service.OpsFailureReasonEnterpriseMemberRateExceeded,
+		},
+		{
+			name:     "budget code only",
+			code:     "ENTERPRISE_MEMBER_BUDGET_EXCEEDED",
+			category: service.OpsFailureCategoryBudget,
+			reason:   service.OpsFailureReasonEnterpriseMemberBudgetExhausted,
+		},
+		{
+			name:     "rate code only",
+			code:     "ENTERPRISE_MEMBER_RATE_1D_EXCEEDED",
+			category: service.OpsFailureCategoryRateLimit,
+			reason:   service.OpsFailureReasonEnterpriseMemberRateExceeded,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(nil)
+
+			got := classifyOpsFailureV2(
+				c,
+				"api_error",
+				tt.message,
+				tt.code,
+				http.StatusTooManyRequests,
+				service.OpsEventScopeRequestTerminal,
+			)
+
+			require.Equal(t, service.OpsFailureDomainEnterprise, got.FailureDomain)
+			require.Equal(t, tt.category, got.FailureCategory)
+			require.Equal(t, tt.reason, got.FailureReason)
+			require.Equal(t, service.OpsResolutionOwnerEnterpriseAdmin, got.ResolutionOwner)
+			require.True(t, got.CustomerVisible)
+			require.NotNil(t, got.SLAImpact)
+			require.False(t, *got.SLAImpact)
+		})
+	}
+}
+
+func TestClassifyOpsFailureV2AsyncEnterpriseMemberBudgetUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name    string
+		message string
+		code    string
+	}{
+		{"code only", "", "ENTERPRISE_MEMBER_ASYNC_BUDGET_UNAVAILABLE"},
+		{"normalized code", "", " enterprise_member_async_budget_unavailable "},
+		{"Chinese message only", service.ErrEnterpriseMemberAsyncBudgetUnavailable.Message, ""},
+		{"wrapped error", service.ErrEnterpriseMemberAsyncBudgetUnavailable.Error(), ""},
+		{"legacy English message", "available enterprise member budget is insufficient for this asynchronous task after accounting for active task holds and this task's estimated cost", ""},
+		{"legacy detailed message", "Asynchronous task budget is unavailable for the monthly limit: limit US$100.000000, settled usage US$80.000000, active task holds US$15.000000, requested task hold US$10.000000.", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(nil)
+			got := classifyOpsFailureV2(c, "api_error", tc.message, tc.code, http.StatusTooManyRequests, service.OpsEventScopeRequestTerminal)
+			require.Equal(t, service.OpsFailureDomainEnterprise, got.FailureDomain)
+			require.Equal(t, service.OpsFailureCategoryBudget, got.FailureCategory)
+			require.Equal(t, "enterprise_member_async_budget_unavailable", got.FailureReason)
+			require.Equal(t, service.OpsResolutionOwnerEnterpriseAdmin, got.ResolutionOwner)
+			require.True(t, got.CustomerVisible)
+			require.NotNil(t, got.SLAImpact)
+			require.False(t, *got.SLAImpact)
+		})
+	}
+}
+
+func TestClassifyOpsFailureV2AsyncBudgetGoogleResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, window := range []string{"月度", "5 小时", "1 天", "7 天"} {
+		t.Run(window, func(t *testing.T) {
+			// Google responses carry a numeric error.code. The logger must also
+			// recognize the detailed client message when no domain code is parsed.
+			parsed := parseOpsErrorResponse([]byte(`{"error":{"code":429,"reason":"ENTERPRISE_MEMBER_ASYNC_BUDGET_UNAVAILABLE","message":"您的` + window + `消费额度不足以提交本次异步任务：限额 US$100.000000，已消费 US$80.000000，进行中任务占用 US$15.000000，本次任务需预占 US$10.000000。"}}`))
+			c, _ := gin.CreateTestContext(nil)
+			got := classifyOpsFailureV2(c, parsed.ErrorType, parsed.Message, parsed.Code, http.StatusTooManyRequests, service.OpsEventScopeRequestTerminal)
+			require.Equal(t, service.OpsFailureDomainEnterprise, got.FailureDomain)
+			require.Equal(t, service.OpsFailureCategoryBudget, got.FailureCategory)
+			require.Equal(t, "enterprise_member_async_budget_unavailable", got.FailureReason)
+			require.Equal(t, service.OpsResolutionOwnerEnterpriseAdmin, got.ResolutionOwner)
+			require.NotNil(t, got.SLAImpact)
+			require.False(t, *got.SLAImpact)
+		})
+	}
+}
+
+func TestClassifyOpsFailureV2AsyncBudgetDoesNotHidePlatformFailures(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name          string
+		message       string
+		code          string
+		markAmbiguous bool
+		wantReason    string
+	}{
+		{"internal failure", "Member budget authorization is temporarily unavailable", "", false, service.OpsFailureReasonInternalError},
+		{"ambiguous task outcome", service.ErrEnterpriseMemberAsyncBudgetUnavailable.Message, "ENTERPRISE_MEMBER_ASYNC_BUDGET_UNAVAILABLE", true, service.OpsFailureReasonBudgetOutcomeAmbiguous},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(nil)
+			if tc.markAmbiguous {
+				service.MarkEnterpriseMemberBudgetOutcomeAmbiguous(c)
+			}
+			got := classifyOpsFailureV2(c, "api_error", tc.message, tc.code, http.StatusInternalServerError, service.OpsEventScopeRequestTerminal)
+			require.Equal(t, service.OpsFailureDomainPlatform, got.FailureDomain)
+			require.Equal(t, tc.wantReason, got.FailureReason)
+			require.NotNil(t, got.SLAImpact)
+			require.True(t, *got.SLAImpact)
+		})
+	}
+}
+
 func TestOpsFailureProductionFixtureIsConserved(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
