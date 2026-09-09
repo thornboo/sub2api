@@ -1,57 +1,64 @@
 <template>
   <div class="min-h-screen bg-stone-50 text-stone-950 dark:bg-[#050505] dark:text-white">
     <header class="sticky top-0 z-40 border-b border-stone-200/80 bg-white/90 backdrop-blur dark:border-[#1e1e1e] dark:bg-[#050505]/90">
-      <nav class="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
-        <router-link to="/home" class="truncate text-base font-bold tracking-tight text-emerald-600 dark:text-emerald-400">
+      <nav class="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4">
+        <router-link to="/home" class="min-w-0 truncate text-base font-bold tracking-tight text-emerald-600 dark:text-emerald-400">
           {{ siteName }}
         </router-link>
-        <div class="flex items-center gap-2">
-          <LocaleSwitcher />
-          <button
-            type="button"
-            class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stone-200 text-stone-500 transition hover:border-emerald-500/40 hover:text-emerald-600 dark:border-[#262626] dark:text-stone-400"
-            :title="isDark ? t('home.switchToLight') : t('home.switchToDark')"
-            @click="toggleTheme"
-          >
-            <Icon v-if="isDark" name="sun" size="sm" />
-            <Icon v-else name="moon" size="sm" />
-          </button>
+        <div class="flex shrink-0 items-center gap-1.5 sm:gap-3">
           <button
             v-if="hasSession"
             type="button"
-            class="relative inline-flex h-9 items-center gap-2 rounded-lg border border-stone-200 px-3 text-sm font-medium text-stone-700 transition hover:border-emerald-500/40 hover:text-emerald-600 dark:border-[#262626] dark:text-stone-300"
+            class="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-stone-200/70 bg-white/55 shadow-sm transition hover:border-emerald-500/30 hover:bg-white/75 hover:text-stone-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/[0.035] dark:shadow-none dark:hover:border-emerald-500/25 dark:hover:bg-white/[0.07] dark:hover:text-white"
+            :class="unreadAnnouncementCount > 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-stone-600 dark:text-stone-300'"
             :disabled="announcementsLoading"
             :aria-label="t('keyUsage.announcements')"
             :title="t('keyUsage.announcements')"
             @click="openAnnouncementList"
           >
-            <Icon name="bell" size="sm" />
-            <span class="hidden sm:inline">{{ t('keyUsage.announcements') }}</span>
+            <Icon name="bell" size="md" />
             <span
               v-if="unreadAnnouncementCount > 0"
-              class="ml-0.5 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-black"
+              class="absolute right-1 top-1 flex h-2 w-2"
             >
-              {{ unreadAnnouncementCount > 99 ? '99+' : unreadAnnouncementCount }}
+              <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75"></span>
+              <span class="relative inline-flex h-2 w-2 rounded-full bg-red-500"></span>
             </span>
           </button>
           <button
             v-if="hasSession"
             type="button"
-            class="inline-flex h-9 items-center gap-2 rounded-lg border border-stone-200 px-3 text-sm font-medium text-stone-700 transition hover:border-emerald-500/40 hover:text-emerald-600 dark:border-[#262626] dark:text-stone-300"
+            class="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-stone-200/70 bg-white/55 px-2.5 text-sm font-semibold text-stone-600 shadow-sm transition hover:border-emerald-500/30 hover:bg-white/75 hover:text-stone-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35 dark:border-white/10 dark:bg-white/[0.035] dark:text-stone-300 dark:shadow-none dark:hover:border-emerald-500/25 dark:hover:bg-white/[0.07] dark:hover:text-white"
             :title="t('feedback.myTickets')"
+            :aria-label="t('feedback.myTickets')"
             @click="openFeedbackHistory"
           >
             <Icon name="chat" size="sm" />
             <span class="hidden sm:inline">{{ t('feedback.entry') }}</span>
           </button>
+
+          <LocaleSwitcher />
+          <button
+            type="button"
+            class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-stone-200/70 bg-white/55 text-stone-600 shadow-sm transition hover:border-emerald-500/30 hover:bg-white/75 hover:text-stone-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35 dark:border-white/10 dark:bg-white/[0.035] dark:text-stone-300 dark:shadow-none dark:hover:border-emerald-500/25 dark:hover:bg-white/[0.07] dark:hover:text-white"
+            :title="isDark ? t('home.switchToLight') : t('home.switchToDark')"
+            :aria-label="isDark ? t('home.switchToLight') : t('home.switchToDark')"
+            @click="toggleTheme"
+          >
+            <Icon :name="isDark ? 'sun' : 'moon'" size="sm" :class="{ 'text-amber-500': isDark }" />
+          </button>
+
           <button
             v-if="hasSession"
             type="button"
-            class="inline-flex h-9 items-center rounded-lg border border-stone-200 px-3 text-sm font-medium text-stone-700 transition hover:border-rose-400 hover:text-rose-600 dark:border-[#262626] dark:text-stone-300"
+            class="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-rose-300 bg-rose-50 px-2.5 text-sm font-semibold text-rose-700 shadow-sm transition hover:border-rose-400 hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/35 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-400/40 dark:bg-rose-500/15 dark:text-rose-300 dark:shadow-none dark:hover:border-rose-400/60 dark:hover:bg-rose-500/25 sm:px-3"
             :disabled="sessionDeleting"
+            :title="t('keyUsage.exit')"
+            :aria-label="t('keyUsage.exit')"
             @click="exitQuery"
           >
-            {{ t('keyUsage.exit') }}
+            <Icon name="login" size="sm" />
+            <span class="hidden sm:inline">{{ t('keyUsage.exit') }}</span>
           </button>
         </div>
       </nav>
