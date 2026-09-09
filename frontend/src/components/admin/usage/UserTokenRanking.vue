@@ -15,7 +15,7 @@
           {{ t('admin.usage.tokenRanking.userCount', { count: items.length }) }}
         </span>
         <div class="w-28">
-          <Select v-model="limit" :options="limitOptions" @change="load" />
+          <Select v-model="limit" :options="limitOptions" match-trigger-width @change="load" />
         </div>
       </div>
     </div>

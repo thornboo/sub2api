@@ -1,13 +1,20 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <TablePageLayout class="!gap-4">
       <template #filters>
         <div
-          class="flex flex-col justify-between gap-4 lg:flex-row lg:items-start"
+          data-testid="group-toolbar"
+          class="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3"
         >
-          <!-- Left: fuzzy search + filters (can wrap to multiple lines) -->
-          <div class="flex flex-1 flex-wrap items-center gap-3">
-            <div class="relative w-full sm:w-64">
+          <!-- Left: flexible search and filters share one row at normal widths. -->
+          <div
+            data-testid="group-table-filters"
+            class="grid min-w-0 flex-1 grid-cols-2 items-center gap-2 sm:[&_.select-trigger]:!gap-1 sm:[&_.select-trigger]:!px-2 2xl:[&_.select-trigger]:!gap-2 2xl:[&_.select-trigger]:!px-4"
+            :class="authStore.isSimpleMode
+              ? 'sm:grid-cols-[minmax(0,1.2fr)_repeat(2,minmax(0,1fr))]'
+              : 'sm:grid-cols-[minmax(0,1.2fr)_repeat(3,minmax(0,1fr))]'"
+          >
+            <div class="relative col-span-2 min-w-0 sm:col-span-1">
               <Icon
                 name="search"
                 size="md"
@@ -25,14 +32,16 @@
               v-model="filters.platform"
               :options="platformFilterOptions"
               :placeholder="t('admin.groups.allPlatforms')"
-              class="w-44"
+              class="min-w-0"
+              match-trigger-width
               @change="loadGroups"
             />
             <Select
               v-model="filters.status"
               :options="statusOptions"
               :placeholder="t('admin.groups.allStatus')"
-              class="w-40"
+              class="min-w-0"
+              match-trigger-width
               @change="loadGroups"
             />
             <Select
@@ -40,20 +49,23 @@
               v-model="filters.is_exclusive"
               :options="exclusiveOptions"
               :placeholder="t('admin.groups.allGroups')"
-              class="w-44"
+              class="col-span-2 min-w-0 sm:col-span-1"
+              match-trigger-width
               @change="loadGroups"
             />
           </div>
 
           <!-- Right: actions -->
           <div
-            class="flex w-full flex-shrink-0 flex-wrap items-center justify-end gap-3 lg:w-auto"
+            data-testid="group-table-actions"
+            class="flex shrink-0 items-center justify-end gap-2"
           >
             <button
               @click="loadGroups"
               :disabled="loading"
-              class="btn btn-secondary"
+              class="btn btn-secondary px-2.5 2xl:px-4"
               :title="t('common.refresh')"
+              :aria-label="t('common.refresh')"
             >
               <Icon
                 name="refresh"
@@ -64,11 +76,13 @@
             <div class="relative" ref="columnDropdownRef">
               <button
                 @click="showColumnDropdown = !showColumnDropdown"
-                class="btn btn-secondary"
+                class="btn btn-secondary px-2.5 2xl:px-4"
                 :title="t('admin.groups.columnSettings')"
+                :aria-label="t('admin.groups.columnSettings')"
+                :aria-expanded="showColumnDropdown"
               >
-                <Icon name="grid" size="md" class="mr-2" />
-                <span class="hidden md:inline">{{
+                <Icon name="grid" size="md" />
+                <span class="hidden xl:inline">{{
                   t("admin.groups.columnSettings")
                 }}</span>
               </button>
@@ -96,18 +110,19 @@
             <button
               v-if="!authStore.isSimpleMode"
               @click="openSortModal"
-              class="btn btn-secondary"
+              class="btn btn-secondary px-2.5 2xl:px-4"
               :title="t('admin.groups.sortOrder')"
+              :aria-label="t('admin.groups.sortOrder')"
             >
-              <Icon name="arrowsUpDown" size="md" class="mr-2" />
-              {{ t("admin.groups.sortOrder") }}
+              <Icon name="arrowsUpDown" size="md" />
+              <span class="hidden xl:inline">{{ t("admin.groups.sortOrder") }}</span>
             </button>
             <button
               @click="openCreateModal"
               class="btn btn-primary"
               data-tour="groups-create-btn"
             >
-              <Icon name="plus" size="md" class="mr-2" />
+              <Icon name="plus" size="md" class="hidden xl:inline" />
               {{ t("admin.groups.createGroup") }}
             </button>
           </div>

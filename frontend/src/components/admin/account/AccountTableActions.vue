@@ -1,7 +1,7 @@
 <template>
-  <div class="flex flex-wrap items-center gap-3">
+  <div class="flex shrink-0 items-center gap-2">
     <slot name="before"></slot>
-    <button type="button" @click="$emit('refresh')" :disabled="loading" class="btn btn-secondary">
+    <button type="button" @click="$emit('refresh')" :disabled="loading" :title="t('common.refresh')" :aria-label="t('common.refresh')" class="btn btn-secondary">
       <Icon name="refresh" size="md" :class="[loading ? 'animate-spin' : '']" />
     </button>
     <slot name="after"></slot>

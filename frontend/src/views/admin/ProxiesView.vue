@@ -1,86 +1,93 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <TablePageLayout class="!gap-4">
       <template #filters>
-        <div class="flex flex-wrap items-center gap-3">
+        <div data-testid="proxy-toolbar" class="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
           <!-- Left: Search + Filters -->
-          <div class="relative w-full sm:w-64">
-            <Icon
-              name="search"
-              size="md"
-              class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
-            />
-            <input
-              v-model="searchQuery"
-              type="text"
-              :placeholder="t('admin.proxies.searchProxies')"
-              class="input pl-10"
-              @input="handleSearch"
-            />
+          <div data-testid="proxy-table-filters" class="grid min-w-0 flex-1 grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1.4fr)_repeat(2,minmax(0,1fr))] sm:[&_.select-trigger]:!gap-1 sm:[&_.select-trigger]:!px-2 2xl:[&_.select-trigger]:!gap-2 2xl:[&_.select-trigger]:!px-4">
+            <div class="relative col-span-2 min-w-0 sm:col-span-1">
+              <Icon
+                name="search"
+                size="md"
+                class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
+              />
+              <input
+                v-model="searchQuery"
+                type="text"
+                :placeholder="t('admin.proxies.searchProxies')"
+                class="input pl-10"
+                @input="handleSearch"
+              />
+            </div>
+
+            <div class="min-w-0">
+              <Select
+                v-model="filters.protocol"
+                :options="protocolOptions"
+                :placeholder="t('admin.proxies.allProtocols')"
+                match-trigger-width
+                @change="loadProxies"
+              />
+            </div>
+            <div class="min-w-0">
+              <Select
+                v-model="filters.status"
+                :options="statusOptions"
+                :placeholder="t('admin.proxies.allStatus')"
+                match-trigger-width
+                @change="loadProxies"
+              />
+            </div>
           </div>
 
-          <div class="w-full sm:w-40">
-            <Select
-              v-model="filters.protocol"
-              :options="protocolOptions"
-              :placeholder="t('admin.proxies.allProtocols')"
-              @change="loadProxies"
-            />
-          </div>
-          <div class="w-full sm:w-36">
-            <Select
-              v-model="filters.status"
-              :options="statusOptions"
-              :placeholder="t('admin.proxies.allStatus')"
-              @change="loadProxies"
-            />
-          </div>
-
-          <!-- Right: All action buttons -->
-          <div class="flex flex-1 flex-wrap items-center justify-end gap-2">
+          <!-- Right: primary actions and secondary tools -->
+          <div data-testid="proxy-table-actions" class="flex shrink-0 items-center justify-end gap-2">
             <button
               @click="loadProxies"
               :disabled="loading"
-              class="btn btn-secondary"
+              class="btn btn-secondary px-2.5 2xl:px-4"
               :title="t('common.refresh')"
+              :aria-label="t('common.refresh')"
             >
               <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
             </button>
             <button
               @click="handleBatchTest"
               :disabled="batchTesting || loading"
-              class="btn btn-secondary"
+              class="btn btn-secondary px-2.5 2xl:px-4"
               :title="t('admin.proxies.testConnection')"
+              :aria-label="t('admin.proxies.testConnection')"
             >
-              <Icon name="play" size="md" class="mr-2" />
-              {{ t('admin.proxies.testConnection') }}
+              <Icon name="play" size="md" :class="batchTesting ? 'animate-pulse' : ''" />
+              <span class="hidden xl:inline">{{ t('admin.proxies.testConnection') }}</span>
             </button>
-            <button
-              @click="handleBatchQualityCheck"
-              :disabled="batchQualityChecking || loading"
-              class="btn btn-secondary"
-              :title="t('admin.proxies.batchQualityCheck')"
-            >
-              <Icon name="shield" size="md" class="mr-2" :class="batchQualityChecking ? 'animate-pulse' : ''" />
-              {{ t('admin.proxies.batchQualityCheck') }}
-            </button>
-            <button
-              @click="openBatchDelete"
-              :disabled="selectedCount === 0"
-              class="btn btn-danger"
-              :title="t('admin.proxies.batchDeleteAction')"
-            >
-              <Icon name="trash" size="md" class="mr-2" />
-              {{ t('admin.proxies.batchDeleteAction') }}
-            </button>
-            <button @click="showImportData = true" class="btn btn-secondary">
-              {{ t('admin.proxies.dataImport') }}
-            </button>
-            <button @click="showExportDataDialog = true" class="btn btn-secondary">
-              {{ selectedCount > 0 ? t('admin.proxies.dataExportSelected') : t('admin.proxies.dataExport') }}
-            </button>
+            <Popover v-model:open="showToolsMenu">
+              <PopoverTrigger as-child>
+                <button type="button" class="btn btn-secondary px-2.5 2xl:px-4" :title="t('common.more')" :aria-label="t('common.more')">
+                  <Icon name="more" size="md" :class="batchQualityChecking ? 'animate-pulse' : ''" />
+                  <span class="hidden xl:inline">{{ t('common.more') }}</span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" class="w-52 p-1 dark:bg-neutral-950 [&_.popover-item]:justify-start" :aria-label="t('common.more')" data-testid="proxy-tools-menu">
+                <button type="button" class="popover-item disabled:cursor-not-allowed disabled:opacity-50" :disabled="batchQualityChecking || loading" @click="showToolsMenu = false; handleBatchQualityCheck()">
+                  <Icon name="shield" size="sm" :class="batchQualityChecking ? 'animate-pulse' : ''" />
+                  {{ t('admin.proxies.batchQualityCheck') }}
+                </button>
+                <button type="button" class="popover-item" @click="showToolsMenu = false; showImportData = true">
+                  {{ t('admin.proxies.dataImport') }}
+                </button>
+                <button type="button" class="popover-item" @click="showToolsMenu = false; showExportDataDialog = true">
+                  {{ selectedCount > 0 ? t('admin.proxies.dataExportSelected') : t('admin.proxies.dataExport') }}
+                </button>
+                <div class="my-1 border-t border-stone-200/70 dark:border-white/10"></div>
+                <button type="button" class="popover-item text-red-600 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-400" :disabled="selectedCount === 0" @click="showToolsMenu = false; openBatchDelete()">
+                  <Icon name="trash" size="sm" />
+                  {{ t('admin.proxies.batchDeleteAction') }}
+                </button>
+              </PopoverContent>
+            </Popover>
             <button @click="showCreateModal = true" class="btn btn-primary">
-              <Icon name="plus" size="md" class="mr-2" />
+              <Icon name="plus" size="md" class="hidden xl:inline" />
               {{ t('admin.proxies.createProxy') }}
             </button>
           </div>
@@ -991,6 +998,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ImportDataModal from '@/components/admin/proxy/ImportDataModal.vue'
 import Select from '@/components/common/Select.vue'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
@@ -1005,6 +1013,7 @@ import { tableSelectionCheckboxClasses as selectionCheckboxClasses, tableSelecti
 const { t } = useI18n()
 const appStore = useAppStore()
 const { copyToClipboard } = useClipboard()
+const showToolsMenu = ref(false)
 
 const columns = computed<Column[]>(() => [
   { key: 'select', label: '', sortable: false, class: 'w-12 text-center' },

@@ -1,17 +1,20 @@
 <template>
-  <div class="flex flex-wrap items-center gap-3">
+  <div
+    data-testid="account-table-filters"
+    class="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1.4fr)_repeat(4,minmax(0,1fr))_minmax(0,1.2fr)] sm:[&_.select-trigger]:!gap-1 sm:[&_.select-trigger]:!px-2 xl:[&_.select-trigger]:!gap-2 xl:[&_.select-trigger]:!px-4"
+  >
     <SearchInput
       :model-value="searchQuery"
       :placeholder="t('admin.accounts.searchAccounts')"
-      class="w-full sm:w-64"
+      class="col-span-2 min-w-0 sm:col-span-1"
       @update:model-value="$emit('update:searchQuery', $event)"
       @search="$emit('change')"
     />
-    <Select :model-value="filters.platform" class="w-40" :options="pOpts" @update:model-value="updatePlatform" @change="$emit('change')" />
-    <Select :model-value="filters.type" class="w-40" :options="tOpts" @update:model-value="updateType" @change="$emit('change')" />
-    <Select :model-value="filters.status" class="w-40" :options="sOpts" @update:model-value="updateStatus" @change="$emit('change')" />
-    <Select :model-value="filters.privacy_mode" class="w-40" :options="privacyOpts" @update:model-value="updatePrivacyMode" @change="$emit('change')" />
-    <Select :model-value="filters.group" class="w-40" :options="gOpts" @update:model-value="updateGroup" @change="$emit('change')" />
+    <Select :model-value="filters.platform" class="min-w-0" :options="pOpts" match-trigger-width @update:model-value="updatePlatform" @change="$emit('change')" />
+    <Select :model-value="filters.type" class="min-w-0" :options="tOpts" match-trigger-width @update:model-value="updateType" @change="$emit('change')" />
+    <Select :model-value="filters.status" class="min-w-0" :options="sOpts" match-trigger-width @update:model-value="updateStatus" @change="$emit('change')" />
+    <Select :model-value="filters.privacy_mode" class="min-w-0" :options="privacyOpts" match-trigger-width @update:model-value="updatePrivacyMode" @change="$emit('change')" />
+    <Select :model-value="filters.group" class="col-span-2 min-w-0 sm:col-span-1" :options="gOpts" match-trigger-width @update:model-value="updateGroup" @change="$emit('change')" />
   </div>
 </template>
 

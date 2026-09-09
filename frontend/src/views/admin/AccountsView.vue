@@ -1,18 +1,48 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <TablePageLayout class="!gap-4">
       <template #filters>
-        <div class="flex flex-wrap-reverse items-start justify-between gap-3">
-          <AccountTableFilters
-            v-if="activeAccountView !== 'cost'"
-            v-model:searchQuery="params.search"
-            :filters="params"
-            :groups="groups"
-            @update:filters="(newFilters) => Object.assign(params, newFilters)"
-            @change="debouncedReload"
-            @update:searchQuery="debouncedReload"
-          />
+        <div data-testid="account-toolbar-top" class="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <div class="inline-flex shrink-0 self-start rounded-lg bg-gray-100 p-1 dark:bg-white/[0.06]">
+            <button
+              type="button"
+              :class="[
+                'rounded-md px-3 py-1.5 text-sm font-medium transition-all',
+                activeAccountView === 'list'
+                  ? 'bg-white text-gray-900 shadow-sm dark:bg-white/[0.08] dark:text-white'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+              ]"
+              @click="setAccountView('list')"
+            >
+              {{ t('admin.accounts.views.list') }}
+            </button>
+            <button
+              type="button"
+              :class="[
+                'rounded-md px-3 py-1.5 text-sm font-medium transition-all',
+                activeAccountView === 'archived'
+                  ? 'bg-white text-gray-900 shadow-sm dark:bg-white/[0.08] dark:text-white'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+              ]"
+              @click="setAccountView('archived')"
+            >
+              {{ t('admin.accounts.views.archived') }}
+            </button>
+            <button
+              type="button"
+              :class="[
+                'rounded-md px-3 py-1.5 text-sm font-medium transition-all',
+                activeAccountView === 'cost'
+                  ? 'bg-white text-emerald-700 shadow-sm dark:bg-white/[0.08] dark:text-emerald-300'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+              ]"
+              @click="setAccountView('cost')"
+            >
+              {{ t('admin.accounts.views.upstreamCost') }}
+            </button>
+          </div>
           <AccountTableActions
+            class="self-end sm:self-auto"
             :loading="activeAccountView === 'cost' ? costComparisonLoading : loading"
             :create-label="activeAccountView === 'cost' ? t('admin.accounts.upstreamCost.addSupplier') : undefined"
             :show-create-icon="activeAccountView === 'cost'"
@@ -74,9 +104,9 @@
                   :title="t('admin.accounts.moreActions')"
                   :aria-expanded="showAccountToolsDropdown"
                 >
-                  <Icon name="more" size="sm" class="md:mr-1.5" />
-                  <span class="hidden md:inline">{{ t('admin.accounts.moreActions') }}</span>
-                  <Icon name="chevronDown" size="xs" class="ml-1 hidden md:inline" />
+                  <Icon name="more" size="sm" class="xl:mr-1.5" />
+                  <span class="hidden xl:inline">{{ t('admin.accounts.moreActions') }}</span>
+                  <Icon name="chevronDown" size="xs" class="ml-1 hidden xl:inline" />
                 </button>
                 <Teleport to="body">
                   <div
@@ -164,6 +194,16 @@
             </template>
           </AccountTableActions>
         </div>
+        <AccountTableFilters
+          class="mt-2.5"
+          v-if="activeAccountView !== 'cost'"
+          v-model:searchQuery="params.search"
+          :filters="params"
+          :groups="groups"
+          @update:filters="(newFilters) => Object.assign(params, newFilters)"
+          @change="debouncedReload"
+          @update:searchQuery="debouncedReload"
+        />
         <div
           v-if="hasPendingListSync"
           class="mt-2 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-700/40 dark:bg-amber-900/20 dark:text-amber-200"
@@ -174,44 +214,6 @@
             @click="syncPendingListChanges"
           >
             {{ t('admin.accounts.listPendingSyncAction') }}
-          </button>
-        </div>
-        <div class="mt-3 inline-flex rounded-lg bg-gray-100 p-1 dark:bg-white/[0.06]">
-          <button
-            type="button"
-            :class="[
-              'rounded-md px-3 py-1.5 text-sm font-medium transition-all',
-              activeAccountView === 'list'
-                ? 'bg-white text-gray-900 shadow-sm dark:bg-white/[0.08] dark:text-white'
-                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
-            ]"
-            @click="setAccountView('list')"
-          >
-            {{ t('admin.accounts.views.list') }}
-          </button>
-          <button
-            type="button"
-            :class="[
-              'rounded-md px-3 py-1.5 text-sm font-medium transition-all',
-              activeAccountView === 'archived'
-                ? 'bg-white text-gray-900 shadow-sm dark:bg-white/[0.08] dark:text-white'
-                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
-            ]"
-            @click="setAccountView('archived')"
-          >
-            {{ t('admin.accounts.views.archived') }}
-          </button>
-          <button
-            type="button"
-            :class="[
-              'rounded-md px-3 py-1.5 text-sm font-medium transition-all',
-              activeAccountView === 'cost'
-                ? 'bg-white text-emerald-700 shadow-sm dark:bg-white/[0.08] dark:text-emerald-300'
-                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
-            ]"
-            @click="setAccountView('cost')"
-          >
-            {{ t('admin.accounts.views.upstreamCost') }}
           </button>
         </div>
       </template>

@@ -1,14 +1,18 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <TablePageLayout class="!gap-4">
       <template #filters>
-        <!-- Top Toolbar: Left (search + filters) / Right (actions) -->
-        <div class="flex flex-wrap items-start justify-between gap-4">
-          <!-- Left: Fuzzy user search + filters (wrap to multiple lines) -->
-          <div class="flex flex-1 flex-wrap items-center gap-3">
+        <div
+          data-testid="subscription-toolbar"
+          class="flex flex-col justify-between gap-2.5 sm:flex-row sm:items-center"
+        >
+          <div
+            data-testid="subscription-table-filters"
+            class="grid min-w-0 flex-1 grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1.2fr)_repeat(3,minmax(0,1fr))] sm:[&_.select-trigger]:!gap-1 sm:[&_.select-trigger]:!px-2 2xl:[&_.select-trigger]:!gap-2 2xl:[&_.select-trigger]:!px-4"
+          >
             <!-- User Search -->
             <div
-              class="relative w-full sm:w-64"
+              class="relative col-span-2 min-w-0 sm:col-span-1"
               data-filter-user-search
             >
               <Icon
@@ -65,39 +69,46 @@
             </div>
 
             <!-- Filters -->
-            <div class="w-full sm:w-40">
+            <div class="min-w-0">
               <Select
                 v-model="filters.status"
                 :options="statusOptions"
                 :placeholder="t('admin.subscriptions.allStatus')"
+                match-trigger-width
                 @change="applyFilters"
               />
             </div>
-            <div class="w-full sm:w-48">
+            <div class="order-last col-span-2 min-w-0 sm:order-none sm:col-span-1">
               <Select
                 v-model="filters.group_id"
                 :options="groupOptions"
                 :placeholder="t('admin.subscriptions.allGroups')"
+                match-trigger-width
                 @change="applyFilters"
               />
             </div>
-            <div class="w-full sm:w-40">
+            <div class="min-w-0">
               <Select
                 v-model="filters.platform"
                 :options="platformFilterOptions"
                 :placeholder="t('admin.subscriptions.allPlatforms')"
+                match-trigger-width
                 @change="applyFilters"
               />
             </div>
           </div>
 
           <!-- Right: Actions -->
-          <div class="ml-auto flex flex-wrap items-center justify-end gap-3">
+          <div
+            data-testid="subscription-table-actions"
+            class="flex shrink-0 items-center gap-2 self-end sm:self-auto"
+          >
             <button
               @click="loadSubscriptions"
               :disabled="loading"
-              class="btn btn-secondary"
+              class="btn btn-secondary px-2.5 2xl:px-4"
               :title="t('common.refresh')"
+              :aria-label="t('common.refresh')"
             >
               <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
             </button>
@@ -105,13 +116,13 @@
             <div class="relative" ref="columnDropdownRef">
               <button
                 @click="showColumnDropdown = !showColumnDropdown"
-                class="btn btn-secondary px-2 md:px-3"
+                class="btn btn-secondary px-2.5 2xl:px-4"
                 :title="t('admin.users.columnSettings')"
+                :aria-label="t('admin.users.columnSettings')"
+                :aria-expanded="showColumnDropdown"
               >
-                <svg class="h-4 w-4 md:mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125z" />
-                </svg>
-                <span class="hidden md:inline">{{ t('admin.users.columnSettings') }}</span>
+                <Icon name="grid" size="md" />
+                <span class="hidden xl:inline">{{ t('admin.users.columnSettings') }}</span>
               </button>
               <!-- Dropdown menu -->
               <div
@@ -154,13 +165,14 @@
             </div>
             <button
               @click="showGuideModal = true"
-              class="btn btn-secondary"
+              class="btn btn-secondary px-2.5 2xl:px-4"
               :title="t('admin.subscriptions.guide.showGuide')"
+              :aria-label="t('admin.subscriptions.guide.showGuide')"
             >
               <Icon name="questionCircle" size="md" />
             </button>
             <button @click="showAssignModal = true" class="btn btn-primary">
-              <Icon name="plus" size="md" class="mr-2" />
+              <Icon name="plus" size="md" class="hidden xl:inline" />
               {{ t('admin.subscriptions.assignSubscription') }}
             </button>
           </div>
