@@ -2,14 +2,25 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
+
+type upstreamCostPoolBalanceTestEncryptor struct{}
+
+func (upstreamCostPoolBalanceTestEncryptor) Encrypt(value string) (string, error) {
+	return "cipher:" + value, nil
+}
+func (upstreamCostPoolBalanceTestEncryptor) Decrypt(value string) (string, error) {
+	return strings.TrimPrefix(value, "cipher:"), nil
+}
 
 func TestApplyUpstreamSupplierUpdateRenamesAndArchives(t *testing.T) {
 	db, mock, err := sqlmock.New()
@@ -91,6 +102,70 @@ func TestReservedUpstreamSupplierUsesSystemFlag(t *testing.T) {
 		Name:     "任意供应商",
 		IsSystem: false,
 	}))
+}
+
+func TestNormalizeSupplierBalanceInputPreservesConfiguredTokenForSameSite(t *testing.T) {
+	current := &UpstreamSupplier{
+		BalanceConfig: UpstreamSupplierBalanceConfig{
+			Enabled:  true,
+			Provider: "newapi",
+			BaseURL:  "https://newapi.example.com",
+		},
+		balanceAccessToken: "cipher:old",
+	}
+
+	cfg, token, resetSnapshot, err := normalizeSupplierBalanceInput(current, UpstreamSupplierBalanceInput{
+		Enabled:  true,
+		Provider: "newapi",
+		BaseURL:  "https://newapi.example.com/",
+	}, upstreamCostPoolBalanceTestEncryptor{})
+
+	require.NoError(t, err)
+	require.True(t, cfg.Enabled)
+	require.True(t, cfg.HasAccessToken)
+	require.Equal(t, "https://newapi.example.com", cfg.BaseURL)
+	require.Equal(t, "cipher:old", token)
+	require.False(t, resetSnapshot)
+}
+
+func TestNormalizeSupplierBalanceInputRequiresTokenAfterSiteChange(t *testing.T) {
+	current := &UpstreamSupplier{
+		BalanceConfig: UpstreamSupplierBalanceConfig{
+			Enabled:  true,
+			Provider: "newapi",
+			BaseURL:  "https://old.example.com",
+		},
+		balanceAccessToken: "cipher:old",
+	}
+
+	_, _, _, err := normalizeSupplierBalanceInput(current, UpstreamSupplierBalanceInput{
+		Enabled:  true,
+		Provider: "newapi",
+		BaseURL:  "https://new.example.com",
+	}, upstreamCostPoolBalanceTestEncryptor{})
+
+	require.ErrorContains(t, err, "enter a new token")
+}
+
+func TestSupplierBalanceSnapshotKeepsPreviousBalanceOnError(t *testing.T) {
+	previousTime := time.Date(2026, 9, 8, 12, 30, 0, 0, time.UTC)
+	previousBalance := 12.34
+	previous := &UpstreamSupplierBalanceSnapshot{
+		BalanceUSD: &previousBalance,
+		UpdatedAt:  &previousTime,
+		Status:     "ok",
+	}
+	attemptTime := previousTime.Add(time.Hour)
+
+	snapshot := supplierBalanceSnapshot(previous, 0, errors.New("upstream unavailable"), attemptTime)
+
+	require.Equal(t, "error", snapshot.Status)
+	require.Equal(t, "upstream unavailable", snapshot.Error)
+	require.Equal(t, attemptTime, snapshot.LastAttemptAt)
+	require.NotNil(t, snapshot.BalanceUSD)
+	require.Equal(t, previousBalance, *snapshot.BalanceUSD)
+	require.NotNil(t, snapshot.UpdatedAt)
+	require.Equal(t, previousTime, *snapshot.UpdatedAt)
 }
 
 func TestFindActiveUpstreamCostPoolIDForAccountIgnoresSystemSupplier(t *testing.T) {

@@ -84,14 +84,19 @@ WHERE cost_pool_id = $1
 }
 
 type UpstreamSupplier struct {
-	ID         int64      `json:"id"`
-	Name       string     `json:"name"`
-	Status     string     `json:"status"`
-	Note       *string    `json:"note,omitempty"`
-	IsSystem   bool       `json:"is_system"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
-	ArchivedAt *time.Time `json:"archived_at,omitempty"`
+	ID                  int64                            `json:"id"`
+	Name                string                           `json:"name"`
+	Status              string                           `json:"status"`
+	Note                *string                          `json:"note,omitempty"`
+	IsSystem            bool                             `json:"is_system"`
+	BalanceConfig       UpstreamSupplierBalanceConfig    `json:"balance_config"`
+	BalanceSnapshot     *UpstreamSupplierBalanceSnapshot `json:"balance_snapshot,omitempty"`
+	CreatedAt           time.Time                        `json:"created_at"`
+	UpdatedAt           time.Time                        `json:"updated_at"`
+	ArchivedAt          *time.Time                       `json:"archived_at,omitempty"`
+	balanceAccessToken  string
+	balanceConfigJSON   string
+	balanceSnapshotJSON string
 }
 
 type UpstreamCostPool struct {
@@ -182,6 +187,7 @@ type UpstreamSupplierBindingInput struct {
 }
 
 type CreateUpstreamSupplierInput struct {
+	BalanceConfig             *UpstreamSupplierBalanceInput
 	Name                      string
 	Note                      *string
 	DefaultEffectiveCNYPerUSD float64
@@ -194,7 +200,7 @@ func (s *adminServiceImpl) ListUpstreamSuppliers(ctx context.Context) ([]Upstrea
 		return nil, err
 	}
 	rows, err := s.entClient.QueryContext(ctx, `
-SELECT id, name, status, note, is_system, created_at, updated_at, archived_at
+SELECT id, name, status, note, is_system, balance_config::text, balance_access_token, balance_snapshot::text, created_at, updated_at, archived_at
 FROM upstream_suppliers
 WHERE is_system = FALSE
 ORDER BY status ASC, name ASC, id ASC`)
@@ -270,8 +276,16 @@ func (s *adminServiceImpl) CreateUpstreamSupplier(ctx context.Context, input Cre
 		return nil, err
 	}
 
+	current, err := loadUpstreamSupplierForUpdate(ctx, txClient, supplierID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.configureUpstreamSupplierBalance(ctx, txClient, current, input.BalanceConfig); err != nil {
+		return nil, err
+	}
+
 	rows, err := txClient.QueryContext(ctx, `
-SELECT id, name, status, note, is_system, created_at, updated_at, archived_at
+SELECT id, name, status, note, is_system, balance_config::text, balance_access_token, balance_snapshot::text, created_at, updated_at, archived_at
 FROM upstream_suppliers
 WHERE id = $1`, supplierID)
 	if err != nil {
@@ -308,6 +322,7 @@ type UpdateUpstreamSupplierInput struct {
 	Status                    *string
 	DefaultEffectiveCNYPerUSD *float64
 	DefaultReferenceFXRate    *float64
+	BalanceConfig             *UpstreamSupplierBalanceInput
 }
 
 // UpdateUpstreamSupplier renames, re-notes or archives an upstream supplier.
@@ -373,6 +388,9 @@ func (s *adminServiceImpl) UpdateUpstreamSupplier(ctx context.Context, input Upd
 		if err := updateDefaultUpstreamCostPoolConfig(ctx, txClient, poolID, defaultEffective, defaultReferenceFX); err != nil {
 			return nil, err
 		}
+	}
+	if err := s.configureUpstreamSupplierBalance(ctx, txClient, current, input.BalanceConfig); err != nil {
+		return nil, err
 	}
 
 	supplier, err := fetchUpstreamSupplierByID(ctx, txClient, input.SupplierID)
@@ -1189,7 +1207,7 @@ RETURNING id`, name, nullableString(note), nullableInt64(createdBy))
 // ErrUpstreamSupplierNotFound.
 func loadUpstreamSupplierForUpdate(ctx context.Context, exec upstreamCostPoolSQLExecutor, supplierID int64) (*UpstreamSupplier, error) {
 	rows, err := exec.QueryContext(ctx, `
-SELECT id, name, status, note, is_system, created_at, updated_at, archived_at
+SELECT id, name, status, note, is_system, balance_config::text, balance_access_token, balance_snapshot::text, created_at, updated_at, archived_at
 FROM upstream_suppliers
 WHERE id = $1`, supplierID)
 	if err != nil {
@@ -1857,9 +1875,12 @@ SELECT binding.id,
 
 func scanUpstreamSupplier(scanner upstreamRechargeScanner) (*UpstreamSupplier, error) {
 	var (
-		item       UpstreamSupplier
-		note       sql.NullString
-		archivedAt sql.NullTime
+		item                UpstreamSupplier
+		note                sql.NullString
+		balanceConfigJSON   sql.NullString
+		balanceAccessToken  sql.NullString
+		balanceSnapshotJSON sql.NullString
+		archivedAt          sql.NullTime
 	)
 	if err := scanner.Scan(
 		&item.ID,
@@ -1867,6 +1888,9 @@ func scanUpstreamSupplier(scanner upstreamRechargeScanner) (*UpstreamSupplier, e
 		&item.Status,
 		&note,
 		&item.IsSystem,
+		&balanceConfigJSON,
+		&balanceAccessToken,
+		&balanceSnapshotJSON,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 		&archivedAt,
@@ -1879,7 +1903,33 @@ func scanUpstreamSupplier(scanner upstreamRechargeScanner) (*UpstreamSupplier, e
 	if archivedAt.Valid {
 		item.ArchivedAt = &archivedAt.Time
 	}
+	item.balanceAccessToken = balanceAccessToken.String
+	item.balanceConfigJSON = balanceConfigJSON.String
+	item.balanceSnapshotJSON = balanceSnapshotJSON.String
+	item.BalanceConfig = decodeUpstreamSupplierBalanceConfig(item.balanceConfigJSON)
+	item.BalanceConfig.HasAccessToken = strings.TrimSpace(item.balanceAccessToken) != ""
+	item.BalanceSnapshot = decodeUpstreamSupplierBalanceSnapshot(item.balanceSnapshotJSON)
 	return &item, nil
+}
+
+func decodeUpstreamSupplierBalanceConfig(raw string) UpstreamSupplierBalanceConfig {
+	var cfg UpstreamSupplierBalanceConfig
+	if strings.TrimSpace(raw) == "" {
+		return cfg
+	}
+	_ = json.Unmarshal([]byte(raw), &cfg)
+	return cfg
+}
+
+func decodeUpstreamSupplierBalanceSnapshot(raw string) *UpstreamSupplierBalanceSnapshot {
+	if strings.TrimSpace(raw) == "" || strings.TrimSpace(raw) == "{}" {
+		return nil
+	}
+	var snapshot UpstreamSupplierBalanceSnapshot
+	if err := json.Unmarshal([]byte(raw), &snapshot); err != nil {
+		return nil
+	}
+	return &snapshot
 }
 
 func scanUpstreamCostPool(scanner upstreamRechargeScanner) (*UpstreamCostPool, error) {

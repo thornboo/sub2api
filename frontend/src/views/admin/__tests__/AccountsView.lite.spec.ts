@@ -4,6 +4,9 @@ import { defineComponent } from 'vue'
 
 import AccountsView from '../AccountsView.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
+import UpstreamCostComparison from '@/components/admin/account/UpstreamCostComparison.vue'
+import UpstreamSupplierModal from '@/components/admin/account/UpstreamSupplierModal.vue'
+import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
 
 const {
   listAccounts,
@@ -14,6 +17,7 @@ const {
   listUpstreamCostPools,
   listUpstreamCostPoolAccounts,
   listUpstreamSuppliers,
+  refreshUpstreamSupplierBalance,
   getUpstreamSupplierRechargeOverview,
   getAllProxies,
   getAllGroups,
@@ -27,6 +31,7 @@ const {
   listUpstreamCostPools: vi.fn(),
   listUpstreamCostPoolAccounts: vi.fn(),
   listUpstreamSuppliers: vi.fn(),
+  refreshUpstreamSupplierBalance: vi.fn(),
   getUpstreamSupplierRechargeOverview: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
@@ -44,6 +49,7 @@ vi.mock('@/api/admin', () => ({
       listUpstreamCostPools,
       listUpstreamCostPoolAccounts,
       listUpstreamSuppliers,
+      refreshUpstreamSupplierBalance,
       getUpstreamSupplierRechargeOverview,
       delete: vi.fn(),
       batchClearError: vi.fn(),
@@ -107,7 +113,7 @@ function mountView() {
         AppLayout: { template: '<div><slot /></div>' },
         TablePageLayout: { template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>' },
         DataTable: DataTableStub,
-        AccountTableActions: { template: '<div><slot name="after" /></div>' },
+        AccountTableActions: { props: ['loading'], template: '<div><slot name="after" /></div>' },
         AccountTableFilters: true,
         AccountBulkActionsBar: true,
         Pagination: true,
@@ -132,6 +138,8 @@ function mountView() {
         AccountGroupsCell: AccountGroupsCellStub,
         AccountUsageCell: true,
         UpstreamBillingRateCell: true,
+        UpstreamCostComparison: true,
+        UpstreamSupplierModal: true,
         HelpTooltip: true,
         Icon: true,
         Teleport: true,
@@ -175,6 +183,7 @@ describe('admin AccountsView lite account list', () => {
     listUpstreamCostPools.mockReset().mockResolvedValue([])
     listUpstreamCostPoolAccounts.mockReset().mockResolvedValue([])
     listUpstreamSuppliers.mockReset().mockResolvedValue([])
+    refreshUpstreamSupplierBalance.mockReset()
     getUpstreamSupplierRechargeOverview.mockReset().mockResolvedValue({ suppliers: [] })
     getAllProxies.mockReset().mockResolvedValue([])
     getAllGroups.mockReset().mockResolvedValue([{ id: 7, name: 'codex', platform: 'openai' }])
@@ -184,6 +193,118 @@ describe('admin AccountsView lite account list', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
+  })
+
+  const supplier = (id: number) => ({
+    id, name: `supplier-${id}`, status: 'active', is_system: false,
+    balance_config: { enabled: true, provider: 'newapi', has_access_token: true },
+    balance_snapshot: { balance_usd: 13, updated_at: '2026-09-09T10:00:00Z', status: 'ok' }
+  })
+
+  const selectView = async (wrapper: ReturnType<typeof mountView>, key: string) => {
+    await wrapper.findAll('button').find(button => button.text() === `admin.accounts.views.${key}`)!.trigger('click')
+    await flushPromises()
+  }
+
+  it('shows the supplier list before wallet queries complete and queries only enabled active suppliers', async () => {
+    const active = supplier(1)
+    const disabled = { ...supplier(2), balance_config: { enabled: false } }
+    const archived = { ...supplier(3), status: 'archived' }
+    const system = { ...supplier(4), is_system: true }
+    listUpstreamSuppliers.mockResolvedValue([active, disabled, archived, system])
+    let finish!: (value: unknown) => void
+    refreshUpstreamSupplierBalance.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    const wrapper = mountView()
+    await flushPromises()
+    await selectView(wrapper, 'upstreamCost')
+
+    expect(refreshUpstreamSupplierBalance.mock.calls).toEqual([[1]])
+    expect(wrapper.findComponent(UpstreamCostComparison).props('loading')).toBe(false)
+    expect(wrapper.findComponent(UpstreamCostComparison).props('suppliers')).toEqual([active, disabled, archived, system])
+    expect(wrapper.findComponent(AccountTableActions).props('loading')).toBe(true)
+
+    const updated = { ...active, balance_snapshot: { ...active.balance_snapshot, balance_usd: 27.33 } }
+    finish(updated)
+    await flushPromises()
+    expect(wrapper.findComponent(UpstreamCostComparison).props('suppliers')[0]).toEqual(updated)
+    expect(wrapper.findComponent(AccountTableActions).props('loading')).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('preserves the last balance on a failed request while updating other suppliers', async () => {
+    const first = supplier(1)
+    const second = supplier(2)
+    listUpstreamSuppliers.mockResolvedValue([first, second])
+    refreshUpstreamSupplierBalance.mockImplementation((id: number) => id === 1
+      ? Promise.reject({ message: 'HTTP 503: balance service unavailable' })
+      : Promise.resolve({ ...second, balance_snapshot: { status: 'ok', balance_usd: 0 } }))
+    const wrapper = mountView()
+    await flushPromises()
+    await selectView(wrapper, 'upstreamCost')
+
+    const rows = wrapper.findComponent(UpstreamCostComparison).props('suppliers')
+    expect(rows[0].balance_snapshot).toMatchObject({
+      balance_usd: 13, updated_at: first.balance_snapshot.updated_at,
+      status: 'error', error: 'HTTP 503: balance service unavailable'
+    })
+    expect(rows[1].balance_snapshot).toMatchObject({ status: 'ok', balance_usd: 0 })
+    expect(wrapper.findComponent(UpstreamCostComparison).props('error')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('queries balances again through toolbar refresh and the supplier saved event', async () => {
+    const active = supplier(1)
+    listUpstreamSuppliers.mockResolvedValue([active])
+    refreshUpstreamSupplierBalance.mockResolvedValue(active)
+    const wrapper = mountView()
+    await flushPromises()
+    await selectView(wrapper, 'upstreamCost')
+    expect(refreshUpstreamSupplierBalance).toHaveBeenCalledTimes(1)
+
+    wrapper.findComponent(AccountTableActions).vm.$emit('refresh')
+    await flushPromises()
+    expect(refreshUpstreamSupplierBalance).toHaveBeenCalledTimes(2)
+
+    wrapper.findComponent(UpstreamSupplierModal).vm.$emit('saved')
+    await flushPromises()
+    expect(refreshUpstreamSupplierBalance).toHaveBeenCalledTimes(3)
+    wrapper.unmount()
+  })
+
+  it('ignores old balance results after a newer supplier list refresh', async () => {
+    const active = supplier(1)
+    listUpstreamSuppliers.mockResolvedValue([active])
+    let finishOld!: (value: unknown) => void
+    refreshUpstreamSupplierBalance.mockReturnValueOnce(new Promise(resolve => { finishOld = resolve }))
+    const latest = { ...active, balance_snapshot: { status: 'ok', balance_usd: 42 } }
+    refreshUpstreamSupplierBalance.mockResolvedValue(latest)
+    const wrapper = mountView()
+    await flushPromises()
+    await selectView(wrapper, 'upstreamCost')
+    await selectView(wrapper, 'list')
+    await selectView(wrapper, 'upstreamCost')
+
+    finishOld({ ...active, balance_snapshot: { status: 'ok', balance_usd: 999 } })
+    await flushPromises()
+    expect(wrapper.findComponent(UpstreamCostComparison).props('suppliers')).toEqual([latest])
+    wrapper.unmount()
+  })
+
+  it('limits concurrent wallet queries and stops queued queries after leaving the supplier list', async () => {
+    listUpstreamSuppliers.mockResolvedValue(Array.from({ length: 9 }, (_, index) => supplier(index + 1)))
+    let finish!: () => void
+    const pending = new Promise<void>(resolve => { finish = resolve })
+    refreshUpstreamSupplierBalance.mockImplementation((id: number) => pending.then(() => supplier(id)))
+    const wrapper = mountView()
+    await flushPromises()
+    await selectView(wrapper, 'upstreamCost')
+    expect(refreshUpstreamSupplierBalance).toHaveBeenCalledTimes(4)
+
+    await selectView(wrapper, 'list')
+    finish()
+    await flushPromises()
+    expect(refreshUpstreamSupplierBalance).toHaveBeenCalledTimes(4)
+    wrapper.unmount()
   })
 
   it('keeps lite=1 on the initial list request', async () => {

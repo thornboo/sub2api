@@ -76,6 +76,16 @@ vi.mock('vue-i18n', async () => {
     'admin.accounts.upstreamCost.needsConfig': 'Needs setup',
     'admin.accounts.upstreamCost.discountSuffix': '/10',
     'admin.accounts.upstreamCost.notConfigured': 'Not configured',
+    'admin.accounts.upstreamCost.supplierBalance.balance': 'Account balance',
+    'admin.accounts.upstreamCost.supplierBalance.disabled': 'Disabled',
+    'admin.accounts.upstreamCost.supplierBalance.disabledHint': 'Balance query disabled',
+    'admin.accounts.upstreamCost.supplierBalance.pending': 'Not checked',
+    'admin.accounts.upstreamCost.supplierBalance.unknown': 'Unknown',
+    'admin.accounts.upstreamCost.supplierBalance.detailsNotLoaded': 'Supplier details not loaded',
+    'admin.accounts.upstreamCost.supplierBalance.failed': 'Query failed',
+    'admin.accounts.upstreamCost.supplierBalance.notFetched': 'Not fetched',
+    'admin.accounts.upstreamCost.supplierBalance.updatedAt': 'Updated {time}',
+    'admin.accounts.upstreamCost.supplierBalance.refreshFailed': 'Balance refresh failed',
     'admin.accounts.upstreamCost.errors.hasBoundAccounts': 'Supplier has bound accounts',
     'admin.accounts.upstreamCost.errors.hasBindingHistory': 'Supplier has binding history',
     'admin.accounts.upstreamCost.rechargeTrend.action': 'Recharge trend',
@@ -145,7 +155,9 @@ function mountComparison(options: {
           is_system: options.isSystem === true,
           created_at: '2026-01-01T00:00:00Z',
           updated_at: '2026-01-01T00:00:00Z',
-          archived_at: null
+          archived_at: null,
+          balance_config: { enabled: false, provider: 'newapi', base_url: '', has_access_token: false },
+          balance_snapshot: null
         }
       ],
       costPools: options.costPools ?? [
@@ -228,7 +240,7 @@ describe('UpstreamCostComparison', () => {
       ]
     })
 
-    const sortKeys = ['supplier', 'boundAccounts', 'currentCost', 'rechargeRatio', 'poolDiscount', 'totalPaid', 'records', 'status']
+    const sortKeys = ['supplier', 'boundAccounts', 'currentCost', 'rechargeRatio', 'poolDiscount', 'totalPaid', 'records', 'walletBalance', 'status']
     expect(wrapper.findAll('thead button[data-test^="sort-"]')).toHaveLength(sortKeys.length)
     for (const key of sortKeys) {
       expect(wrapper.get(`[data-test="sort-${key}"]`).element.closest('th')?.getAttribute('aria-sort')).toBe('none')
@@ -252,6 +264,7 @@ describe('UpstreamCostComparison', () => {
       ['rechargeRatio', ['Alpha', 'Zulu', 'No cost']],
       ['poolDiscount', ['Alpha', 'Zulu', 'No cost']],
       ['records', ['Alpha', 'No cost', 'Zulu']],
+      ['walletBalance', ['Alpha', 'No cost', 'Zulu']],
       ['status', ['Alpha', 'Zulu', 'No cost']]
     ]
     for (const [key, expectedNames] of ascendingCases) {
@@ -379,6 +392,116 @@ describe('UpstreamCostComparison', () => {
     expect(wrapper.text()).not.toContain('6 CNY/USD')
     expect(wrapper.text()).not.toContain('主余额池')
     expect(wrapper.text()).not.toContain('当前余额池')
+  })
+
+  it('distinguishes zero, unknown and stale failed supplier balances', () => {
+    const wrapper = mountComparison({
+      suppliers: [
+        {
+          id: 7, name: 'SoleAPI Zero', status: 'active', note: null, is_system: false,
+          balance_config: { enabled: true, provider: 'soleapi', base_url: 'https://soleapi.com', has_access_token: true },
+          balance_snapshot: { status: 'ok', balance_usd: 0, unit: 'Credits', updated_at: '2026-09-10T01:02:03Z', last_attempt_at: '2026-09-10T01:02:03Z' }
+        },
+        {
+          id: 8, name: 'NewAPI Zero', status: 'active', note: null, is_system: false,
+          balance_config: { enabled: true, provider: 'newapi', base_url: 'https://newapi.example.com', has_access_token: true },
+          balance_snapshot: { status: 'ok', balance_usd: 0, updated_at: '2026-09-10T01:02:03Z', last_attempt_at: '2026-09-10T01:02:03Z' }
+        },
+        {
+          id: 9, name: 'Unknown', status: 'active', note: null, is_system: false,
+          balance_config: { enabled: true, provider: 'newapi', base_url: 'https://newapi.example.com', has_access_token: true },
+          balance_snapshot: { status: 'ok', balance_usd: null, last_attempt_at: '2026-09-10T01:03:03Z' }
+        },
+        {
+          id: 10, name: 'SoleAPI Stale', status: 'active', note: null, is_system: false,
+          balance_config: { enabled: true, provider: 'soleapi', base_url: 'https://soleapi.com', has_access_token: true },
+          balance_snapshot: { status: 'error', balance_usd: -12.34, unit: 'Credits', updated_at: '2026-09-10T01:00:03Z', last_attempt_at: '2026-09-10T01:04:03Z', error: 'upstream HTTP 401' }
+        },
+        {
+          id: 11, name: 'Off', status: 'active', note: null, is_system: false,
+          balance_config: { enabled: false, provider: 'newapi', base_url: 'https://newapi.example.com', has_access_token: true },
+          balance_snapshot: null
+        }
+      ],
+      costPools: []
+    })
+
+    expect(wrapper.text()).toContain('0 Credits')
+    expect(wrapper.text()).toContain('$0.00 USD')
+    expect(wrapper.text()).toContain('-12.34 Credits')
+    expect(wrapper.text()).toContain('Not checked')
+    expect(wrapper.text()).toContain('Updated 09/10 09:00')
+    expect(wrapper.text()).toContain('upstream HTTP 401')
+    expect(wrapper.text()).toContain('Disabled')
+  })
+
+  it('keeps a cost-pool-only supplier balance unknown when balance config is not loaded', () => {
+    const wrapper = mountComparison({
+      suppliers: [],
+      costPools: [
+        {
+          id: 9,
+          supplier_id: 7,
+          supplier_name: 'Pool-only supplier',
+          name: '主余额池',
+          is_default: true,
+          status: 'active',
+          archived_at: null,
+          reference_fx_rate: 7,
+          current_effective_cny_per_usd: 6,
+          current_snapshot_id: 10,
+          binding_count: 0,
+          record_count: 0
+        }
+      ]
+    })
+
+    expect(wrapper.text()).toContain('Pool-only supplier')
+    expect(wrapper.text()).toContain('Unknown')
+    expect(wrapper.text()).toContain('Supplier details not loaded')
+    expect(wrapper.text()).not.toContain('Not checked')
+    expect(wrapper.text()).not.toContain('Not fetched')
+    expect(wrapper.text()).not.toContain('Disabled')
+    expect(wrapper.text()).not.toContain('Balance query disabled')
+  })
+
+  it('still shows disabled when a supplier row has an explicit disabled balance config', () => {
+    const wrapper = mountComparison({
+      suppliers: [
+        {
+          id: 7,
+          name: 'Explicitly disabled',
+          status: 'active',
+          note: null,
+          is_system: false,
+          balance_config: { enabled: false, provider: 'newapi', base_url: 'https://newapi.example.com', has_access_token: true },
+          balance_snapshot: null
+        }
+      ],
+      costPools: []
+    })
+
+    expect(wrapper.text()).toContain('Explicitly disabled')
+    expect(wrapper.text()).toContain('Disabled')
+    expect(wrapper.text()).toContain('Balance query disabled')
+  })
+
+  it('shows failed supplier balances without an inline row refresh button', async () => {
+    const wrapper = mountComparison({
+      suppliers: [
+        {
+          id: 7, name: 'Supplier A', status: 'active', note: null, is_system: false,
+          balance_config: { enabled: true, provider: 'newapi', base_url: 'https://newapi.example.com', has_access_token: true },
+          balance_snapshot: { status: 'error', balance_usd: null, error: 'invalid Access Token', last_attempt_at: '2026-09-10T01:04:03Z' }
+        }
+      ]
+    })
+
+    expect(wrapper.text()).toContain('Query failed')
+    expect(wrapper.text()).toContain('invalid Access Token')
+    expect(wrapper.find('button[title="Refresh balance"]').exists()).toBe(false)
+    const errorLine = wrapper.findAll('td div').find((node) => node.text() === 'invalid Access Token')
+    expect(errorLine?.attributes('title')).toBe('invalid Access Token')
   })
 
   it('hands supplier editing to the page-level modal', async () => {

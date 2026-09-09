@@ -360,12 +360,39 @@ export interface UpstreamSupplierRechargeTrend {
   points: UpstreamSupplierRechargeTrendPoint[]
 }
 
+export interface UpstreamSupplierBalanceConfig {
+  enabled: boolean
+  provider?: string
+  base_url?: string
+  user_id?: number
+  has_access_token?: boolean
+}
+
+export interface UpstreamSupplierBalanceSnapshot {
+  balance_usd?: number | null
+  unit?: 'USD' | 'Credits' | string
+  updated_at?: string | null
+  last_attempt_at?: string | null
+  status?: 'ok' | 'error' | string
+  error?: string
+}
+
+export interface UpstreamSupplierBalancePayload {
+  enabled: boolean
+  provider?: string
+  base_url?: string
+  user_id?: number
+  access_token?: string
+}
+
 export interface UpstreamSupplier {
   id: number
   name: string
   status: string
   note?: string | null
   is_system?: boolean
+  balance_config?: UpstreamSupplierBalanceConfig
+  balance_snapshot?: UpstreamSupplierBalanceSnapshot | null
   created_at: string
   updated_at: string
   archived_at?: string | null
@@ -376,6 +403,7 @@ export interface UpstreamSupplierPayload {
   note?: string | null
   default_effective_cny_per_usd?: number
   default_reference_fx_rate?: number
+  balance_config?: UpstreamSupplierBalancePayload
 }
 
 export interface UpstreamCostPool {
@@ -492,6 +520,7 @@ export interface UpstreamSupplierUpdatePayload {
   status?: 'active' | 'archived'
   default_effective_cny_per_usd?: number
   default_reference_fx_rate?: number
+  balance_config?: UpstreamSupplierBalancePayload
 }
 
 export async function updateUpstreamSupplier(
@@ -499,6 +528,11 @@ export async function updateUpstreamSupplier(
   payload: UpstreamSupplierUpdatePayload
 ): Promise<UpstreamSupplier> {
   const { data } = await apiClient.patch<UpstreamSupplier>(`/admin/upstream-suppliers/${id}`, payload)
+  return data
+}
+
+export async function refreshUpstreamSupplierBalance(id: number): Promise<UpstreamSupplier> {
+  const { data } = await apiClient.post<UpstreamSupplier>(`/admin/upstream-suppliers/${id}/balance/refresh`)
   return data
 }
 
@@ -1564,6 +1598,7 @@ export const accountsAPI = {
   listUpstreamSuppliers,
   createUpstreamSupplier,
   updateUpstreamSupplier,
+  refreshUpstreamSupplierBalance,
   deleteUpstreamSupplier,
   getUpstreamSupplierRechargeOverview,
   getUpstreamSupplierRechargeTrend,

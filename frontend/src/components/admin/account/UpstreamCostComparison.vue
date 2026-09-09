@@ -38,7 +38,7 @@
     </div>
 
     <div class="min-h-0 flex-1 overflow-auto">
-      <table class="min-w-[1120px] divide-y divide-stone-200 text-sm dark:divide-white/10">
+      <table class="min-w-[1260px] divide-y divide-stone-200 text-sm dark:divide-white/10">
         <thead class="sticky top-0 z-10 bg-stone-50 dark:bg-stone-950">
           <tr>
             <th
@@ -62,12 +62,12 @@
         </thead>
         <tbody class="divide-y divide-stone-100 dark:divide-white/[0.06]">
           <tr v-if="loading">
-            <td colspan="9" class="px-4 py-10 text-center text-stone-500 dark:text-stone-400">
+            <td colspan="10" class="px-4 py-10 text-center text-stone-500 dark:text-stone-400">
               {{ t('common.loading') }}...
             </td>
           </tr>
           <tr v-else-if="rows.length === 0">
-            <td colspan="9" class="px-4 py-10 text-center text-stone-500 dark:text-stone-400">
+            <td colspan="10" class="px-4 py-10 text-center text-stone-500 dark:text-stone-400">
               {{ t('admin.accounts.upstreamCost.noSuppliers') }}
             </td>
           </tr>
@@ -126,6 +126,29 @@
               </td>
               <td class="px-4 py-4 font-mono text-stone-700 dark:text-stone-300">
                 {{ row.recordCount }}
+              </td>
+              <td class="px-4 py-4">
+                <div class="min-w-[180px]">
+                  <div class="min-w-0">
+                    <div :class="balanceValueClass(row)">
+                      {{ balanceLabel(row) }}
+                    </div>
+                    <div
+                      v-if="balanceTimeHint(row)"
+                      class="mt-1 truncate text-xs text-stone-500 dark:text-stone-400"
+                      :title="balanceTimeHint(row)"
+                    >
+                      {{ balanceTimeHint(row) }}
+                    </div>
+                    <div
+                      v-if="balanceErrorHint(row)"
+                      class="mt-1 line-clamp-2 max-w-[220px] break-words text-xs leading-4 text-amber-700 dark:text-amber-300"
+                      :title="balanceErrorHint(row)"
+                    >
+                      {{ balanceErrorHint(row) }}
+                    </div>
+                  </div>
+                </div>
               </td>
               <td class="px-4 py-4">
                 <span :class="statusBadgeClass(row)">
@@ -225,6 +248,7 @@ interface SupplierCostRow {
   supplierStatus: string
   supplierNote?: string | null
   isSystem: boolean
+  supplier: UpstreamSupplier
   pools: UpstreamCostPool[]
   pool: UpstreamCostPool | null
   showPoolName: boolean
@@ -255,7 +279,7 @@ const supplierMutating = ref(false)
 const archiveTarget = ref<SupplierCostRow | null>(null)
 const deleteTarget = ref<SupplierCostRow | null>(null)
 
-type SupplierSortKey = 'supplier' | 'boundAccounts' | 'currentCost' | 'rechargeRatio' | 'poolDiscount' | 'totalPaid' | 'records' | 'status'
+type SupplierSortKey = 'supplier' | 'boundAccounts' | 'currentCost' | 'rechargeRatio' | 'poolDiscount' | 'totalPaid' | 'records' | 'walletBalance' | 'status'
 type SupplierSortOrder = 'asc' | 'desc'
 
 const sortKey = ref<SupplierSortKey | null>(null)
@@ -268,6 +292,7 @@ const sortableColumns = computed<Array<{ key: SupplierSortKey; label: string }>>
   { key: 'poolDiscount', label: t('admin.accounts.upstreamCost.poolDiscountUSD') },
   { key: 'totalPaid', label: t('admin.accounts.upstreamCost.totalPaid') },
   { key: 'records', label: t('admin.accounts.upstreamCost.rechargeRecords.records') },
+  { key: 'walletBalance', label: t('admin.accounts.upstreamCost.supplierBalance.balance') },
   { key: 'status', label: t('admin.accounts.upstreamCost.status') }
 ])
 
@@ -397,6 +422,7 @@ const rows = computed<SupplierCostRow[]>(() => {
       supplierStatus: supplier.status,
       supplierNote: supplier.note,
       isSystem: supplier.is_system === true,
+      supplier,
       pools: [],
       pool: null,
       showPoolName: false,
@@ -417,6 +443,13 @@ const rows = computed<SupplierCostRow[]>(() => {
         supplierName: pool.supplier_name,
         supplierStatus: pool.archived_at ? 'archived' : pool.status,
         isSystem: false,
+        supplier: {
+          id: pool.supplier_id,
+          name: pool.supplier_name,
+          status: pool.archived_at ? 'archived' : pool.status,
+          created_at: pool.created_at,
+          updated_at: pool.updated_at
+        },
         pools: [],
         pool: null,
         showPoolName: false,
@@ -506,6 +539,8 @@ const compareSupplierRows = (left: SupplierCostRow, right: SupplierCostRow, key:
       return left.paidReferenceCNY - right.paidReferenceCNY
     case 'records':
       return left.recordCount - right.recordCount
+    case 'walletBalance':
+      return compareOptionalNumbers(walletBalanceValue(left), walletBalanceValue(right))
     case 'status':
       return statusSortRank(left) - statusSortRank(right)
   }
@@ -514,6 +549,7 @@ const compareSupplierRows = (left: SupplierCostRow, right: SupplierCostRow, key:
 const isSortValueMissing = (row: SupplierCostRow, key: SupplierSortKey): boolean => {
   if (key === 'currentCost') return currentEffectiveCost(row) == null
   if (key === 'rechargeRatio' || key === 'poolDiscount') return !Number.isFinite(discountFactor(row))
+  if (key === 'walletBalance') return walletBalanceValue(row) == null
   return false
 }
 
@@ -589,6 +625,100 @@ const formatAmount = (value: number) => {
 }
 
 const formatMoney = (amount: number, currency: string) => `${formatAmount(amount)} ${currency || '-'}`
+
+const formatUSD = (amount: number) => {
+  if (!Number.isFinite(amount)) return '-'
+  return `$${new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(amount)}`
+}
+
+const formatBalanceAmount = (amount: number, unit?: string | null) => {
+  if (unit === 'Credits') {
+    return `${formatAmount(amount)} Credits`
+  }
+  return `${formatUSD(amount)} USD`
+}
+
+const walletBalanceValue = (row: SupplierCostRow) => {
+  const value = row.supplier.balance_snapshot?.balance_usd
+  if (value == null) return null
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : null
+}
+
+const formatBalanceTime = (value?: string | null) => {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+const isBalanceExplicitlyDisabled = (row: SupplierCostRow) => row.supplier.balance_config?.enabled === false
+
+const balanceLabel = (row: SupplierCostRow) => {
+  if (!row.supplier.balance_config) {
+    return t('admin.accounts.upstreamCost.supplierBalance.unknown')
+  }
+  if (isBalanceExplicitlyDisabled(row)) {
+    return t('admin.accounts.upstreamCost.supplierBalance.disabled')
+  }
+  const value = walletBalanceValue(row)
+  if (row.supplier.balance_snapshot?.status === 'error' && value == null) {
+    return t('admin.accounts.upstreamCost.supplierBalance.failed')
+  }
+  if (value == null) {
+    return t('admin.accounts.upstreamCost.supplierBalance.pending')
+  }
+  return formatBalanceAmount(value, row.supplier.balance_snapshot?.unit)
+}
+
+const balanceTimeHint = (row: SupplierCostRow) => {
+  if (!row.supplier.balance_config) {
+    return t('admin.accounts.upstreamCost.supplierBalance.detailsNotLoaded')
+  }
+  if (isBalanceExplicitlyDisabled(row)) {
+    return t('admin.accounts.upstreamCost.supplierBalance.disabledHint')
+  }
+  const snapshot = row.supplier.balance_snapshot
+  if (!snapshot?.last_attempt_at) {
+    return t('admin.accounts.upstreamCost.supplierBalance.notFetched')
+  }
+  if (snapshot.status === 'error') {
+    const lastSuccessTime = formatBalanceTime(snapshot.updated_at)
+    if (walletBalanceValue(row) != null && lastSuccessTime) {
+      return t('admin.accounts.upstreamCost.supplierBalance.updatedAt', { time: lastSuccessTime })
+    }
+    return ''
+  }
+  return t('admin.accounts.upstreamCost.supplierBalance.updatedAt', {
+    time: formatBalanceTime(snapshot.updated_at || snapshot.last_attempt_at)
+  })
+}
+
+const balanceErrorHint = (row: SupplierCostRow) => {
+  if (row.supplier.balance_config?.enabled !== true || row.supplier.balance_snapshot?.status !== 'error') {
+    return ''
+  }
+  return balanceErrorReason(row.supplier.balance_snapshot.error)
+}
+
+const balanceErrorReason = (reason?: string | null) => {
+  const trimmed = String(reason || '').trim()
+  return trimmed || t('admin.accounts.upstreamCost.supplierBalance.refreshFailed')
+}
+
+const balanceValueClass = (row: SupplierCostRow) => {
+  const base = 'font-mono text-sm font-semibold'
+  if (row.supplier.balance_snapshot?.status === 'error') {
+    return `${base} text-amber-700 dark:text-amber-300`
+  }
+  if (walletBalanceValue(row) != null) {
+    return `${base} text-stone-800 dark:text-stone-100`
+  }
+  return `${base} text-stone-400 dark:text-stone-500`
+}
 
 const statusText = (row: SupplierCostRow) => {
   if (!row.pool) return t('admin.accounts.upstreamCost.supplierNoPool')

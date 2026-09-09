@@ -9,6 +9,7 @@ const {
   getBatchTodayStats,
   listUpstreamSuppliers,
   listUpstreamCostPools,
+  refreshUpstreamSupplierBalance,
   getUpstreamSupplierRechargeOverview,
   listUpstreamCostPoolAccounts,
   getAllProxies,
@@ -19,6 +20,7 @@ const {
   getBatchTodayStats: vi.fn(),
   listUpstreamSuppliers: vi.fn(),
   listUpstreamCostPools: vi.fn(),
+  refreshUpstreamSupplierBalance: vi.fn(),
   getUpstreamSupplierRechargeOverview: vi.fn(),
   listUpstreamCostPoolAccounts: vi.fn(),
   getAllProxies: vi.fn(),
@@ -33,6 +35,7 @@ vi.mock('@/api/admin', () => ({
       getBatchTodayStats,
       listUpstreamSuppliers,
       listUpstreamCostPools,
+      refreshUpstreamSupplierBalance,
       getUpstreamSupplierRechargeOverview,
       listUpstreamCostPoolAccounts,
       getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 30 }),
@@ -120,10 +123,12 @@ function mountView() {
         EditAccountModal: true,
         UpstreamSupplierModal: true,
         UpstreamCostComparison: {
-          props: ['costPools'],
+          props: ['costPools', 'suppliers', 'loading'],
           emits: ['refresh', 'recharge-records'],
           template: `
             <div data-test="upstream-cost-comparison">
+              <span data-test="upstream-cost-loading">{{ loading ? 'loading' : 'ready' }}</span>
+              <span data-test="supplier-balance">{{ suppliers[0]?.balance_snapshot?.balance_usd ?? '-' }}</span>
               <span data-test="upstream-current-cost">{{ costPools[0]?.current_effective_cny_per_usd ?? '-' }}</span>
               <button data-test="upstream-cost-refresh" @click="$emit('refresh')">refresh costs</button>
               <button v-if="costPools[0]" data-test="open-recharge-records" @click="$emit('recharge-records', costPools[0])">records</button>
@@ -172,6 +177,7 @@ describe('admin AccountsView scheduler score column', () => {
     getBatchTodayStats.mockReset()
     listUpstreamSuppliers.mockReset()
     listUpstreamCostPools.mockReset()
+    refreshUpstreamSupplierBalance.mockReset()
     getUpstreamSupplierRechargeOverview.mockReset()
     listUpstreamCostPoolAccounts.mockReset()
     getAllProxies.mockReset()
@@ -229,6 +235,7 @@ describe('admin AccountsView scheduler score column', () => {
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     listUpstreamSuppliers.mockResolvedValue([])
     listUpstreamCostPools.mockResolvedValue([])
+    refreshUpstreamSupplierBalance.mockResolvedValue({ id: 7, name: 'Supplier A', status: 'active', is_system: false })
     getUpstreamSupplierRechargeOverview.mockResolvedValue({ totals: [], suppliers: [] })
     listUpstreamCostPoolAccounts.mockResolvedValue([])
     getAllProxies.mockResolvedValue([])
@@ -436,5 +443,53 @@ describe('admin AccountsView scheduler score column', () => {
     resolveStaleRequest([initialPool])
     await flushPromises()
     expect(wrapper.get('[data-test="upstream-current-cost"]').text()).toBe('5')
+  })
+
+  it('refreshes enabled supplier balances when the supplier cost view loads', async () => {
+    listUpstreamSuppliers.mockResolvedValue([
+      {
+        id: 7,
+        name: 'Supplier A',
+        status: 'active',
+        is_system: false,
+        balance_config: { enabled: true, provider: 'newapi', base_url: 'https://newapi.example.com', has_access_token: true },
+        balance_snapshot: null
+      },
+      {
+        id: 8,
+        name: 'Supplier B',
+        status: 'active',
+        is_system: false,
+        balance_config: { enabled: false, provider: 'newapi', base_url: 'https://newapi.example.com', has_access_token: true },
+        balance_snapshot: null
+      },
+      {
+        id: 9,
+        name: 'Supplier C',
+        status: 'archived',
+        is_system: false,
+        balance_config: { enabled: true, provider: 'newapi', base_url: 'https://newapi.example.com', has_access_token: true },
+        balance_snapshot: null
+      }
+    ])
+    refreshUpstreamSupplierBalance.mockResolvedValue({
+      id: 7,
+      name: 'Supplier A',
+      status: 'active',
+      is_system: false,
+      balance_config: { enabled: true, provider: 'newapi', base_url: 'https://newapi.example.com', has_access_token: true },
+      balance_snapshot: { status: 'ok', balance_usd: 27.33, updated_at: '2026-09-10T00:45:00Z' }
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    const costTab = wrapper.findAll('button').find((button) => button.text() === 'admin.accounts.views.upstreamCost')
+    expect(costTab).toBeTruthy()
+    await costTab!.trigger('click')
+    await flushPromises()
+
+    expect(refreshUpstreamSupplierBalance).toHaveBeenCalledTimes(1)
+    expect(refreshUpstreamSupplierBalance).toHaveBeenCalledWith(7)
+    expect(wrapper.get('[data-test="supplier-balance"]').text()).toBe('27.33')
   })
 })

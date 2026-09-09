@@ -43,7 +43,7 @@
           </div>
           <AccountTableActions
             class="self-end sm:self-auto"
-            :loading="activeAccountView === 'cost' ? costComparisonLoading : loading"
+            :loading="activeAccountView === 'cost' ? costComparisonLoading || supplierBalancesRefreshing : loading"
             :create-label="activeAccountView === 'cost' ? t('admin.accounts.upstreamCost.addSupplier') : undefined"
             :show-create-icon="activeAccountView === 'cost'"
             @refresh="handleManualRefresh"
@@ -804,6 +804,7 @@ const editingUpstreamSupplierPool = computed(() => {
 const upstreamAccountBindings = ref<Record<number, UpstreamAccountCostBinding>>({})
 const upstreamCostContextLoading = ref(false)
 const costComparisonLoading = ref(false)
+const supplierBalancesRefreshing = ref(false)
 const costComparisonError = ref<string | null>(null)
 let upstreamCostPoolsRequest: Promise<UpstreamCostPool[]> | null = null
 let upstreamCostBindingsRequestKey = ''
@@ -1439,6 +1440,36 @@ const loadVisibleUpstreamCostContext = async (options?: { forcePools?: boolean }
   }
 }
 
+const refreshSupplierBalances = async (suppliers: UpstreamSupplier[], requestSeq: number) => {
+  const pending = suppliers.filter(supplier => (
+    supplier.status === 'active' && !supplier.is_system && supplier.balance_config?.enabled === true
+  ))
+  const isCurrent = () => requestSeq === supplierCostViewRequestSeq && activeAccountView.value === 'cost'
+  let nextIndex = 0
+  // Keep slow upstreams independent without opening a request for every supplier at once.
+  await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => {
+    while (isCurrent() && nextIndex < pending.length) {
+      const supplier = pending[nextIndex++]!
+      let updated: UpstreamSupplier
+      try {
+        updated = await adminAPI.accounts.refreshUpstreamSupplierBalance(supplier.id)
+      } catch (error) {
+        updated = {
+          ...supplier,
+          balance_snapshot: {
+            ...supplier.balance_snapshot,
+            status: 'error',
+            error: extractApiErrorMessage(error, t('admin.accounts.upstreamCost.supplierBalance.refreshFailed')),
+            last_attempt_at: new Date().toISOString()
+          }
+        }
+      }
+      if (!isCurrent()) return
+      upstreamSuppliers.value = upstreamSuppliers.value.map(row => row.id === supplier.id ? updated : row)
+    }
+  }))
+}
+
 const loadSupplierCostView = async (options?: { forcePools?: boolean }) => {
   const requestSeq = ++supplierCostViewRequestSeq
   costComparisonLoading.value = true
@@ -1455,6 +1486,9 @@ const loadSupplierCostView = async (options?: { forcePools?: boolean }) => {
     upstreamSuppliers.value = suppliers
     setUpstreamCostPools(pools)
     supplierRechargeOverview.value = rechargeOverview
+    costComparisonLoading.value = false
+    supplierBalancesRefreshing.value = true
+    await refreshSupplierBalances(suppliers, requestSeq)
   } catch (error: any) {
     if (requestSeq !== supplierCostViewRequestSeq || activeAccountView.value !== 'cost') {
       return
@@ -1467,6 +1501,7 @@ const loadSupplierCostView = async (options?: { forcePools?: boolean }) => {
   } finally {
     if (requestSeq === supplierCostViewRequestSeq) {
       costComparisonLoading.value = false
+      supplierBalancesRefreshing.value = false
     }
   }
 }
@@ -3265,6 +3300,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  supplierCostViewRequestSeq++
   upstreamBillingRateAbortController?.abort()
   if (usageBatchFlushTimer !== null) {
     clearTimeout(usageBatchFlushTimer)

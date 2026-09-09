@@ -19,6 +19,7 @@ type upstreamCostPoolService interface {
 	CreateUpstreamSupplier(ctx context.Context, input service.CreateUpstreamSupplierInput) (*service.UpstreamSupplier, error)
 	UpdateUpstreamSupplier(ctx context.Context, input service.UpdateUpstreamSupplierInput) (*service.UpstreamSupplier, error)
 	DeleteUpstreamSupplier(ctx context.Context, supplierID int64) error
+	RefreshUpstreamSupplierBalance(ctx context.Context, supplierID int64) (*service.UpstreamSupplier, error)
 	GetUpstreamSupplierRechargeOverview(ctx context.Context) (*service.UpstreamSupplierRechargeOverview, error)
 	GetUpstreamSupplierRechargeTrend(ctx context.Context, supplierID int64, granularity service.UpstreamRechargeTrendGranularity) (*service.UpstreamSupplierRechargeTrend, error)
 	ListUpstreamCostPools(ctx context.Context) ([]service.UpstreamCostPool, error)
@@ -70,18 +71,20 @@ type upstreamSupplierBindingRequest struct {
 }
 
 type upstreamSupplierRequest struct {
-	Name                      string  `json:"name"`
-	Note                      *string `json:"note"`
-	DefaultEffectiveCNYPerUSD float64 `json:"default_effective_cny_per_usd"`
-	DefaultReferenceFXRate    float64 `json:"default_reference_fx_rate"`
+	BalanceConfig             *service.UpstreamSupplierBalanceInput `json:"balance_config"`
+	Name                      string                                `json:"name"`
+	Note                      *string                               `json:"note"`
+	DefaultEffectiveCNYPerUSD float64                               `json:"default_effective_cny_per_usd"`
+	DefaultReferenceFXRate    float64                               `json:"default_reference_fx_rate"`
 }
 
 type upstreamSupplierUpdateRequest struct {
-	Name                      *string  `json:"name"`
-	Note                      *string  `json:"note"`
-	Status                    *string  `json:"status"`
-	DefaultEffectiveCNYPerUSD *float64 `json:"default_effective_cny_per_usd"`
-	DefaultReferenceFXRate    *float64 `json:"default_reference_fx_rate"`
+	BalanceConfig             *service.UpstreamSupplierBalanceInput `json:"balance_config"`
+	Name                      *string                               `json:"name"`
+	Note                      *string                               `json:"note"`
+	Status                    *string                               `json:"status"`
+	DefaultEffectiveCNYPerUSD *float64                              `json:"default_effective_cny_per_usd"`
+	DefaultReferenceFXRate    *float64                              `json:"default_reference_fx_rate"`
 }
 
 // ListUpstreamSuppliers handles listing upstream suppliers.
@@ -113,6 +116,7 @@ func (h *AccountHandler) CreateUpstreamSupplier(c *gin.Context) {
 		return
 	}
 	input := service.CreateUpstreamSupplierInput{
+		BalanceConfig:             req.BalanceConfig,
 		Name:                      req.Name,
 		Note:                      req.Note,
 		DefaultEffectiveCNYPerUSD: req.DefaultEffectiveCNYPerUSD,
@@ -148,6 +152,7 @@ func (h *AccountHandler) UpdateUpstreamSupplier(c *gin.Context) {
 		return
 	}
 	supplier, err := svc.UpdateUpstreamSupplier(c.Request.Context(), service.UpdateUpstreamSupplierInput{
+		BalanceConfig:             req.BalanceConfig,
 		SupplierID:                supplierID,
 		Name:                      req.Name,
 		Note:                      req.Note,

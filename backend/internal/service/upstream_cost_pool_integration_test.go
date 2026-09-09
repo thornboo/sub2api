@@ -885,6 +885,7 @@ func newUpstreamRechargeAdminWithCache(t *testing.T, cache svc.SchedulerCache) u
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 	admin, ok := adminService.(upstreamRechargeAdmin)
 	require.True(t, ok)
@@ -933,6 +934,7 @@ func newUpstreamSupplierBindingAdmin(t *testing.T) upstreamSupplierBindingAdmin 
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 	admin, ok := adminService.(upstreamSupplierBindingAdmin)
 	require.True(t, ok)
@@ -946,6 +948,7 @@ func newUpstreamSupplierAdmin(t *testing.T) upstreamSupplierAdmin {
 		nil, nil, nil, accountRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		serviceIntegrationEntClient,
 		nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		nil,
 	)
 	admin, ok := adminService.(upstreamSupplierAdmin)
 	require.True(t, ok)
