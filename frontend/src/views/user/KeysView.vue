@@ -1,96 +1,108 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <TablePageLayout class="!gap-4">
       <template #filters>
         <div class="flex flex-col gap-3">
-          <div class="flex flex-wrap items-center gap-3">
-            <SearchInput
-              v-model="filterSearch"
-              :placeholder="t('keys.searchPlaceholder')"
-              class="w-full sm:w-64"
-              @search="onFilterChange"
-            />
-            <TagFilterSelect
-              v-model="filterTags"
-              :options="tagFilterOptions"
-              :placeholder="t('keys.tagFilterPlaceholder')"
-              :empty-label="t('keys.noTagOptions')"
-              :clear-label="t('common.reset')"
-              :remove-label="t('common.delete')"
-              class="w-full sm:w-64"
-              @change="onTagFilterChange"
-            />
-            <Select
-              :model-value="filterGroupId"
-              class="w-40"
-              :options="groupFilterOptions"
-              @update:model-value="onGroupFilterChange"
-            />
-            <Select
-              :model-value="filterStatus"
-              class="w-40"
-              :options="statusFilterOptions"
-              @update:model-value="onStatusFilterChange"
-            />
+          <div class="grid grid-cols-1 items-start gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <div class="grid min-w-0 grid-cols-2 items-start gap-2 sm:grid-cols-[minmax(0,240px)_minmax(0,180px)_repeat(2,minmax(0,140px))] [&_.input]:h-11 [&_.select-trigger]:!h-11 sm:[&_.select-trigger]:!gap-1 sm:[&_.select-trigger]:!px-2 2xl:[&_.select-trigger]:!gap-2 2xl:[&_.select-trigger]:!px-4">
+              <SearchInput
+                v-model="filterSearch"
+                :placeholder="t('keys.searchPlaceholder')"
+                class="col-span-2 min-w-0 sm:col-span-1"
+                @search="onFilterChange"
+              />
+              <TagFilterSelect
+                v-model="filterTags"
+                :options="tagFilterOptions"
+                :placeholder="t('keys.tagFilterPlaceholder')"
+                :empty-label="t('keys.noTagOptions')"
+                :clear-label="t('common.reset')"
+                :remove-label="t('common.delete')"
+                :max-visible="1"
+                class="col-span-2 min-w-0 sm:col-span-1 [&_[role=combobox]]:h-11 [&_[role=combobox]]:rounded-xl [&_.flex-wrap]:flex-nowrap [&_.flex-wrap>span:first-child]:min-w-0 [&_.flex-wrap>span+span]:shrink-0"
+                @change="onTagFilterChange"
+              />
+              <Select
+                :model-value="filterGroupId"
+                class="min-w-0"
+                :options="groupFilterOptions"
+                :aria-label="t('keys.group')"
+                match-trigger-width
+                @update:model-value="onGroupFilterChange"
+              />
+              <Select
+                :model-value="filterStatus"
+                class="min-w-0"
+                :options="statusFilterOptions"
+                :aria-label="t('common.status')"
+                match-trigger-width
+                @update:model-value="onStatusFilterChange"
+              />
+            </div>
+            <div class="flex h-11 items-start justify-end gap-2">
+              <button
+                @click="loadApiKeys"
+                :disabled="loading"
+                class="btn btn-secondary h-11 px-2.5 2xl:px-4"
+                :title="t('common.refresh')"
+                :aria-label="t('common.refresh')"
+              >
+                <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
+              </button>
+              <div class="relative" ref="columnDropdownRef">
+                <button
+                  @click="showColumnDropdown = !showColumnDropdown"
+                  class="btn btn-secondary h-11 px-2.5 2xl:px-4"
+                  :title="t('keys.columnSettings')"
+                  :aria-label="t('keys.columnSettings')"
+                  :aria-expanded="showColumnDropdown"
+                >
+                  <svg class="h-5 w-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125z" />
+                  </svg>
+                  <span class="hidden xl:inline">{{ t('keys.columnSettings') }}</span>
+                </button>
+                <div
+                  v-if="showColumnDropdown"
+                  class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-stone-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-neutral-900"
+                >
+                  <button
+                    v-for="col in toggleableColumns"
+                    :key="col.key"
+                    @click="toggleColumn(col.key)"
+                    class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-stone-700 hover:bg-stone-100 dark:text-neutral-300 dark:hover:bg-white/[0.06]"
+                  >
+                    <span>{{ col.label }}</span>
+                    <Icon
+                      v-if="isColumnVisible(col.key)"
+                      name="check"
+                      size="sm"
+                      class="text-primary-500"
+                      :stroke-width="2"
+                    />
+                  </button>
+                </div>
+              </div>
+              <button
+                @click="showBatchCreateModal = true"
+                class="btn btn-secondary h-11 px-2.5 2xl:px-4"
+                :title="t('keys.batchCreate.title')"
+                :aria-label="t('keys.batchCreate.title')"
+              >
+                <Icon name="copy" size="md" />
+                <span class="hidden xl:inline">{{ t('keys.batchCreate.title') }}</span>
+              </button>
+              <button @click="showCreateModal = true" class="btn btn-primary h-11 whitespace-nowrap px-3 2xl:px-4" data-tour="keys-create-btn">
+                <Icon name="plus" size="md" class="hidden xl:inline" />
+                {{ t('keys.createKey') }}
+              </button>
+            </div>
           </div>
           <EndpointPopover
             v-if="publicSettings?.api_base_url || (publicSettings?.custom_endpoints?.length ?? 0) > 0"
             :api-base-url="publicSettings?.api_base_url || ''"
             :custom-endpoints="publicSettings?.custom_endpoints || []"
           />
-        </div>
-      </template>
-
-      <template #actions>
-        <div class="flex justify-end gap-3">
-          <button
-            @click="loadApiKeys"
-            :disabled="loading"
-            class="btn btn-secondary"
-            :title="t('common.refresh')"
-          >
-            <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
-          </button>
-          <div class="relative" ref="columnDropdownRef">
-            <button
-              @click="showColumnDropdown = !showColumnDropdown"
-              class="btn btn-secondary px-2 md:px-3"
-              :title="t('keys.columnSettings')"
-            >
-              <svg class="h-4 w-4 md:mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125z" />
-              </svg>
-              <span class="hidden md:inline">{{ t('keys.columnSettings') }}</span>
-            </button>
-            <div
-              v-if="showColumnDropdown"
-              class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-stone-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-neutral-900"
-            >
-              <button
-                v-for="col in toggleableColumns"
-                :key="col.key"
-                @click="toggleColumn(col.key)"
-                class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-stone-700 hover:bg-stone-100 dark:text-neutral-300 dark:hover:bg-white/[0.06]"
-              >
-                <span>{{ col.label }}</span>
-                <Icon
-                  v-if="isColumnVisible(col.key)"
-                  name="check"
-                  size="sm"
-                  class="text-primary-500"
-                  :stroke-width="2"
-                />
-              </button>
-            </div>
-          </div>
-          <button @click="showBatchCreateModal = true" class="btn btn-secondary">
-            <Icon name="copy" size="md" class="mr-2" />
-            {{ t('keys.batchCreate.title') }}
-          </button>
-          <button @click="showCreateModal = true" class="btn btn-primary" data-tour="keys-create-btn">
-            <Icon name="plus" size="md" class="mr-2" />
-            {{ t('keys.createKey') }}
-          </button>
         </div>
       </template>
 
