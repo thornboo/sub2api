@@ -90,13 +90,20 @@ func (h *AccountHandler) SetModelDeliveryService(delivery *service.ModelDelivery
 }
 
 type probeModelsRequest struct {
-	BaseURL string `json:"base_url"`
-	APIKey  string `json:"api_key"`
+	BaseURL   string `json:"base_url"`
+	APIKey    string `json:"api_key"`
+	AccountID int64  `json:"account_id"`
 }
 
 type probeModelsResponse struct {
 	Models []string `json:"models"`
 }
+
+var (
+	errProbeModelsAPIKeyRequired = errors.New("probe models API key is required")
+	errProbeModelsInvalidAccount = errors.New("probe models account ID is invalid")
+	errProbeModelsAccountMissing = errors.New("probe models account was not found")
+)
 
 type openAIModelsResponse struct {
 	Data []struct {
@@ -2961,9 +2968,16 @@ func (h *AccountHandler) ProbeModels(c *gin.Context) {
 		return
 	}
 
-	apiKey := strings.TrimSpace(req.APIKey)
-	if apiKey == "" {
-		response.BadRequest(c, "API key is required")
+	apiKey, err := h.resolveProbeModelsAPIKey(c.Request.Context(), req)
+	if err != nil {
+		switch {
+		case errors.Is(err, errProbeModelsInvalidAccount):
+			response.BadRequest(c, "Invalid account ID")
+		case errors.Is(err, errProbeModelsAccountMissing):
+			response.BadRequest(c, "Account not found")
+		default:
+			response.BadRequest(c, "API key is required")
+		}
 		return
 	}
 
@@ -3030,6 +3044,33 @@ func (h *AccountHandler) ProbeModels(c *gin.Context) {
 	}
 
 	response.Success(c, probeModelsResponse{Models: models})
+}
+
+func (h *AccountHandler) resolveProbeModelsAPIKey(ctx context.Context, req probeModelsRequest) (string, error) {
+	if apiKey := strings.TrimSpace(req.APIKey); apiKey != "" {
+		return apiKey, nil
+	}
+	if req.AccountID < 0 {
+		return "", errProbeModelsInvalidAccount
+	}
+	if req.AccountID == 0 || h == nil || h.adminService == nil {
+		return "", errProbeModelsAPIKeyRequired
+	}
+
+	account, err := h.adminService.GetAccount(ctx, req.AccountID)
+	if err != nil {
+		return "", errProbeModelsAccountMissing
+	}
+	if account == nil {
+		return "", errProbeModelsAccountMissing
+	}
+	if apiKey := strings.TrimSpace(account.GetCredential("api_key")); apiKey != "" {
+		return apiKey, nil
+	}
+	if accessToken := strings.TrimSpace(account.GetCredential("access_token")); accessToken != "" {
+		return accessToken, nil
+	}
+	return "", errProbeModelsAPIKeyRequired
 }
 
 func buildProbeModelsEndpoint(baseURL string) string {

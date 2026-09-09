@@ -4,6 +4,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 const {
   updateAccountMock,
+  probeModelsMock,
+  showErrorMock,
   listUpstreamSuppliersMock,
   getAccountUpstreamCostBindingMock,
   updateAccountUpstreamSupplierBindingMock,
@@ -12,6 +14,8 @@ const {
   authIsSimpleMode
 } = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
+  probeModelsMock: vi.fn(),
+  showErrorMock: vi.fn(),
   listUpstreamSuppliersMock: vi.fn(),
   getAccountUpstreamCostBindingMock: vi.fn(),
   updateAccountUpstreamSupplierBindingMock: vi.fn(),
@@ -22,7 +26,8 @@ const {
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    showError: vi.fn(),
+    showError: showErrorMock,
+    showWarning: vi.fn(),
     showSuccess: vi.fn(),
     showInfo: vi.fn()
   })
@@ -40,6 +45,7 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
       update: updateAccountMock,
+      probeModels: probeModelsMock,
       listUpstreamSuppliers: listUpstreamSuppliersMock,
       getAccountUpstreamCostBinding: getAccountUpstreamCostBindingMock,
       updateAccountUpstreamSupplierBinding: updateAccountUpstreamSupplierBindingMock,
@@ -93,7 +99,7 @@ const ModelWhitelistSelectorStub = defineComponent({
       default: () => []
     }
   },
-  emits: ['update:modelValue'],
+  emits: ['update:modelValue', 'probe-models'],
   template: `
     <div>
       <button
@@ -344,6 +350,8 @@ function mountModal(account = buildAccount()) {
 describe('EditAccountModal', () => {
   beforeEach(() => {
     authIsSimpleMode.value = true
+    probeModelsMock.mockReset()
+    showErrorMock.mockReset()
     listChannelsMock.mockReset()
     listChannelsMock.mockResolvedValue({ items: [{ id: 99, name: 'Official CNY', status: 'active' }], total: 1 })
     listUpstreamSuppliersMock.mockReset()
@@ -375,6 +383,132 @@ describe('EditAccountModal', () => {
   })
 
   afterEach(() => vi.useRealTimers())
+
+  it('fetches models with the saved key and only persists restrictions on submit', async () => {
+    const account = buildAccount()
+    delete account.credentials.api_key
+    account.credentials_status = { has_api_key: true }
+    const originalCredentials = structuredClone(account.credentials)
+    probeModelsMock.mockResolvedValue({ models: ['gpt-5.2', 'gpt-new'] })
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+
+    wrapper.getComponent(ModelWhitelistSelectorStub).vm.$emit('probe-models')
+    await flushPromises()
+
+    expect(probeModelsMock).toHaveBeenCalledWith({
+      account_id: account.id,
+      base_url: 'https://api.openai.com'
+    })
+    expect(wrapper.get('[data-testid="model-whitelist-value"]').text()).toBe('gpt-5.2,gpt-new')
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    expect(account.credentials).toEqual(originalCredentials)
+    expect(showErrorMock).not.toHaveBeenCalled()
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials.model_mapping).toEqual({
+      'gpt-5.2': 'gpt-5.2',
+      'gpt-new': 'gpt-new'
+    })
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).not.toHaveProperty('api_key')
+    wrapper.unmount()
+  })
+
+  it('uses the draft key and URL for model fetching without saving them', async () => {
+    const account = buildAccount()
+    const originalCredentials = structuredClone(account.credentials)
+    probeModelsMock.mockResolvedValue({ models: ['gpt-5.2'] })
+    updateAccountMock.mockReset()
+    const wrapper = mountModal(account)
+    await wrapper.get('input[type="password"]').setValue('  sk-replacement  ')
+    await wrapper.get('input[placeholder="https://api.openai.com"]').setValue('https://new-provider.example/v1')
+
+    wrapper.getComponent(ModelWhitelistSelectorStub).vm.$emit('probe-models')
+    await flushPromises()
+
+    expect(probeModelsMock).toHaveBeenCalledWith({
+      account_id: account.id,
+      base_url: 'https://new-provider.example/v1',
+      api_key: 'sk-replacement'
+    })
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    expect(account.credentials).toEqual(originalCredentials)
+    wrapper.unmount()
+  })
+
+  it('fetches model mappings without asking for the redacted key', async () => {
+    const account = buildAccount()
+    account.credentials = {
+      base_url: 'https://api.openai.com',
+      model_mapping: { public: 'gpt-5.2' },
+      model_restriction_mode: 'mapping'
+    }
+    account.credentials_status = { has_api_key: true }
+    probeModelsMock.mockResolvedValue({ models: ['gpt-5.2', 'gpt-new'] })
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    const fetchButton = wrapper.findAll('button').find(button => button.text() === 'admin.accounts.probeSupportedModels')
+    expect(fetchButton).toBeDefined()
+
+    await fetchButton!.trigger('click')
+    await flushPromises()
+
+    expect(probeModelsMock).toHaveBeenCalledWith({ account_id: account.id, base_url: 'https://api.openai.com' })
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials.model_mapping).toEqual({
+      public: 'gpt-5.2',
+      'gpt-new': 'gpt-new'
+    })
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).not.toHaveProperty('api_key')
+    wrapper.unmount()
+  })
+
+  it('keeps the existing restriction draft when model fetching fails', async () => {
+    const account = buildAccount()
+    delete account.credentials.api_key
+    account.credentials_status = { has_api_key: true }
+    probeModelsMock.mockRejectedValue({ response: { status: 400 } })
+    updateAccountMock.mockReset()
+    const wrapper = mountModal(account)
+
+    wrapper.getComponent(ModelWhitelistSelectorStub).vm.$emit('probe-models')
+    await flushPromises()
+
+    expect(probeModelsMock).toHaveBeenCalledTimes(1)
+    expect(showErrorMock).toHaveBeenCalledWith('admin.accounts.probeModelsFailed')
+    expect(wrapper.get('[data-testid="model-whitelist-value"]').text()).toBe('gpt-5.2')
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it.each(['close', 'switch account'])('ignores a pending model fetch after %s', async (action) => {
+    const account = buildAccount()
+    let resolveProbe!: (value: { models: string[] }) => void
+    probeModelsMock.mockReturnValue(new Promise(resolve => { resolveProbe = resolve }))
+    const wrapper = mountModal(account)
+    wrapper.getComponent(ModelWhitelistSelectorStub).vm.$emit('probe-models')
+    await flushPromises()
+
+    if (action === 'close') {
+      await wrapper.setProps({ show: false })
+      await wrapper.setProps({ show: true })
+    } else {
+      await wrapper.setProps({ account: { ...buildAccount(), id: 2 } })
+    }
+    resolveProbe({ models: ['gpt-5.2', 'stale-model'] })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="model-whitelist-value"]').text()).toBe('gpt-5.2')
+    expect(showErrorMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
 
   it('sets expiry presets from now instead of extending the saved expiry', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })

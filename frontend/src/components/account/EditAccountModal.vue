@@ -3327,7 +3327,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, nextTick } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 
@@ -3624,6 +3624,7 @@ const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
 const mappingCatalogModel = ref('')
 const probeModelsLoading = ref(false)
+let probeModelsGeneration = 0
 const probeNewWhitelistModels = ref<string[]>([])
 const probeMissingWhitelistModels = ref<string[]>([])
 const probeNewMappingTargets = ref<string[]>([])
@@ -4214,11 +4215,6 @@ const defaultBaseUrl = computed(() => {
   return 'https://api.anthropic.com'
 })
 
-const getStringCredential = (credentials: Record<string, unknown>, key: string) => {
-  const value = credentials[key]
-  return typeof value === 'string' ? value.trim() : ''
-}
-
 const canProbeModels = computed(() => {
   if (!props.account) return false
   return props.account.type !== 'bedrock' && props.account.type !== 'service_account'
@@ -4232,17 +4228,6 @@ const getProbeModelsErrorMessage = (error: unknown) => {
     return t('admin.accounts.probeModelsEndpointMissing')
   }
   return t('admin.accounts.probeModelsFailed')
-}
-
-const getEditProbeCredentials = () => {
-  const credentials = (props.account?.credentials as Record<string, unknown>) || {}
-  const baseUrl = editBaseUrl.value.trim() || getStringCredential(credentials, 'base_url') || defaultBaseUrl.value
-  const apiKey =
-    editApiKey.value.trim() ||
-    getStringCredential(credentials, 'api_key') ||
-    getStringCredential(credentials, 'access_token')
-
-  return { baseUrl, apiKey }
 }
 
 type ProbeModelsTarget = 'whitelist' | 'mapping' | 'antigravityMapping'
@@ -4336,27 +4321,29 @@ const appendProbeModelsToTarget = (models: string[], target: ProbeModelsTarget) 
 }
 
 const handleProbeModels = async (target: ProbeModelsTarget = 'whitelist') => {
-  const { baseUrl, apiKey } = getEditProbeCredentials()
+  if (!props.account || probeModelsLoading.value) return
+  const baseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
+  const apiKey = editApiKey.value.trim()
   if (!baseUrl) {
     appStore.showError(t('admin.accounts.probeModelsMissingBaseUrl'))
     return
   }
-  if (!apiKey) {
-    appStore.showError(t('admin.accounts.probeModelsMissingApiKey'))
-    return
-  }
-
+  const generation = ++probeModelsGeneration
   probeModelsLoading.value = true
   try {
     const result = await adminAPI.accounts.probeModels({
       base_url: baseUrl,
-      api_key: apiKey
+      account_id: props.account.id,
+      ...(apiKey ? { api_key: apiKey } : {})
     })
+    if (generation !== probeModelsGeneration) return
     appendProbeModelsToTarget(result.models ?? [], target)
   } catch (error) {
-    appStore.showError(getProbeModelsErrorMessage(error))
+    if (generation === probeModelsGeneration) {
+      appStore.showError(getProbeModelsErrorMessage(error))
+    }
   } finally {
-    probeModelsLoading.value = false
+    if (generation === probeModelsGeneration) probeModelsLoading.value = false
   }
 }
 
@@ -5080,8 +5067,9 @@ async function loadTLSProfiles() {
 watch(
   [() => props.show, () => props.account],
   ([show, newAccount], [wasShow, previousAccount]) => {
+    probeModelsGeneration += 1
+    probeModelsLoading.value = false
     if (!show || !newAccount) {
-      probeModelsLoading.value = false
       return
     }
     if (!wasShow || newAccount !== previousAccount) {
@@ -5620,11 +5608,14 @@ const parseDateTimeLocal = parseDateTimeLocalInput
 
 // Methods
 const handleClose = () => {
+  probeModelsGeneration += 1
   probeModelsLoading.value = false
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
   emit('close')
 }
+
+onBeforeUnmount(() => { probeModelsGeneration += 1 })
 
 const submitUpdateAccount = async (
   accountID: number,
