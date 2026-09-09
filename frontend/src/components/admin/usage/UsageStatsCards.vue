@@ -10,7 +10,7 @@
         <p class="text-xs text-stone-400 dark:text-stone-600">{{ t('usage.inSelectedRange') }}</p>
       </div>
     </div>
-    <div class="card flex items-center gap-3 p-4">
+    <div class="card relative flex items-center gap-3 p-4 hover:z-10 focus-within:z-10">
       <div class="rounded-lg bg-amber-100 p-2 text-amber-700 dark:bg-amber-500/12 dark:text-amber-300"><svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" /></svg></div>
       <div>
         <p class="text-xs font-medium text-stone-500 dark:text-stone-500">{{ t('usage.totalTokens') }}</p>
