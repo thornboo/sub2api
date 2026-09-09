@@ -21,20 +21,10 @@
         </div>
       </div>
 
-      <!-- Right: Announcements + Docs + Language + Subscriptions + Balance + User Dropdown -->
+      <!-- Right: Announcements + Docs + Language + Theme + Subscriptions + Balance + User Dropdown -->
       <div class="flex min-w-0 items-center gap-1 sm:gap-3">
         <!-- Announcement Bell -->
         <AnnouncementBell v-if="user" />
-
-        <router-link
-          v-if="user"
-          to="/feedback"
-          class="hidden h-9 items-center gap-1.5 rounded-lg border border-transparent px-2.5 text-sm font-medium text-stone-600 transition hover:border-stone-200/70 hover:bg-white/60 hover:text-stone-950 dark:text-stone-400 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-white sm:flex"
-          :title="t('feedback.myTickets')"
-        >
-          <Icon name="chat" size="sm" />
-          <span class="hidden md:inline">{{ t('feedback.entry') }}</span>
-        </router-link>
 
         <!-- Docs Link -->
         <a
@@ -42,7 +32,7 @@
           :href="docUrl"
           target="_blank"
           rel="noopener noreferrer"
-          class="hidden h-9 items-center gap-1.5 rounded-lg border border-transparent px-2.5 text-sm font-medium text-stone-600 transition hover:border-stone-200/70 hover:bg-white/60 hover:text-stone-950 dark:text-stone-400 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-white sm:flex"
+          class="hidden h-9 shrink-0 items-center gap-1.5 rounded-lg border border-stone-200/70 bg-white/55 px-2.5 text-sm font-semibold text-stone-600 shadow-sm transition hover:border-emerald-500/30 hover:bg-white/75 hover:text-stone-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35 dark:border-white/10 dark:bg-white/[0.035] dark:text-stone-300 dark:shadow-none dark:hover:border-emerald-500/25 dark:hover:bg-white/[0.07] dark:hover:text-white sm:flex"
         >
           <Icon name="book" size="sm" />
           <span class="hidden sm:inline">{{ t('nav.docs') }}</span>
@@ -50,6 +40,17 @@
 
         <!-- Language Switcher -->
         <LocaleSwitcher />
+
+        <!-- Theme Toggle -->
+        <button
+          type="button"
+          @click="toggleTheme"
+          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-stone-200/70 bg-white/55 text-stone-600 shadow-sm transition hover:border-emerald-500/30 hover:bg-white/75 hover:text-stone-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35 dark:border-white/10 dark:bg-white/[0.035] dark:text-stone-300 dark:shadow-none dark:hover:border-emerald-500/25 dark:hover:bg-white/[0.07] dark:hover:text-white"
+          :title="isDark ? t('nav.lightMode') : t('nav.darkMode')"
+          :aria-label="isDark ? t('nav.lightMode') : t('nav.darkMode')"
+        >
+          <Icon :name="isDark ? 'sun' : 'moon'" size="md" :class="{ 'text-amber-500': isDark }" />
+        </button>
 
         <!-- Subscription Progress (for users with active subscriptions) -->
         <SubscriptionProgressMini v-if="user" />
@@ -163,21 +164,16 @@
                   {{ t('nav.apiKeys') }}
                 </router-link>
 
-                <router-link to="/feedback" @click="closeDropdown" class="dropdown-item">
-                  <Icon name="chat" size="sm" />
-                  {{ t('feedback.entry') }}
-                </router-link>
-
               </div>
 
               <!-- Contact Support (only show if configured) -->
               <div
                 v-if="contactInfo"
-                class="border-t border-stone-200/70 px-4 py-2.5 dark:border-white/10"
+                class="border-t border-stone-200/70 bg-emerald-50/60 px-4 py-3 dark:border-white/10 dark:bg-emerald-500/[0.06]"
               >
-                <div class="flex items-center gap-2 text-xs text-stone-500 dark:text-stone-400">
+                <div class="flex items-start gap-2.5">
                   <svg
-                    class="h-3.5 w-3.5 flex-shrink-0"
+                    class="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-300"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -189,10 +185,12 @@
                       d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155"
                     />
                   </svg>
-                  <span>{{ t('common.contactSupport') }}:</span>
-                  <span class="font-medium text-stone-700 dark:text-stone-300">{{
-                    contactInfo
-                  }}</span>
+                  <div class="min-w-0 flex-1">
+                    <span class="block text-sm font-medium text-stone-600 dark:text-stone-300">{{ t('common.contactSupport') }}</span>
+                    <span class="mt-1 block break-words text-base font-semibold leading-6 text-emerald-700 dark:text-emerald-300">{{
+                      contactInfo
+                    }}</span>
+                  </div>
                 </div>
               </div>
 
@@ -257,6 +255,7 @@ const adminSettingsStore = useAdminSettingsStore()
 const onboardingStore = useOnboardingStore()
 
 const user = computed(() => authStore.user)
+const isDark = ref(document.documentElement.classList.contains('dark'))
 const dropdownOpen = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
 const contactInfo = computed(() => appStore.contactInfo)
@@ -320,6 +319,12 @@ const pageDescription = computed(() => {
 
 function toggleMobileSidebar() {
   appStore.toggleMobileSidebar()
+}
+
+function toggleTheme() {
+  isDark.value = !isDark.value
+  document.documentElement.classList.toggle('dark', isDark.value)
+  localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
 }
 
 function toggleDropdown() {

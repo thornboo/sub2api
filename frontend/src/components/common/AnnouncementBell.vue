@@ -3,8 +3,8 @@
     <!-- 铃铛按钮 -->
     <button
       @click="openModal"
-      class="relative flex h-9 w-9 items-center justify-center rounded-lg text-stone-600 transition-all hover:scale-105 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-white/[0.06]"
-      :class="{ 'text-emerald-600 dark:text-emerald-300': unreadCount > 0 }"
+      class="relative flex h-9 w-9 items-center justify-center rounded-lg border border-stone-200/70 bg-white/55 shadow-sm transition hover:border-emerald-500/30 hover:bg-white/75 hover:text-stone-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35 dark:border-white/10 dark:bg-white/[0.035] dark:shadow-none dark:hover:border-emerald-500/25 dark:hover:bg-white/[0.07] dark:hover:text-white"
+      :class="unreadCount > 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-stone-600 dark:text-stone-300'"
       :aria-label="t('announcements.title')"
     >
       <Icon name="bell" size="md" />
