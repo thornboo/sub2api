@@ -20,13 +20,25 @@ func NewFeedbackRepository(db *sql.DB) service.FeedbackRepository {
 	return &feedbackRepository{db: db}
 }
 
+const feedbackReplyStatusSQL = `(CASE WHEN (
+				SELECT fr_latest.author_role
+				FROM feedback_replies fr_latest
+				WHERE fr_latest.feedback_id = f.id
+				ORDER BY fr_latest.created_at DESC, fr_latest.id DESC
+				LIMIT 1
+			) = '` + service.FeedbackActorAdmin + `' THEN '` + service.FeedbackReplyStatusReplied + `'
+			ELSE '` + service.FeedbackReplyStatusPending + `' END)`
+
 const feedbackBaseSelectColumns = `
-	f.id,
-	f.content,
-	f.source,
-	f.status,
-	f.user_id,
-	COALESCE(u.email, '') AS user_email,
+		f.id,
+		f.title,
+		f.content,
+		f.source,
+		f.status,
+		` + feedbackReplyStatusSQL + ` AS reply_status,
+		f.user_id,
+		COALESCE(u.email, '') AS user_email,
+	COALESCE(u.username, '') AS user_name,
 	f.api_key_id,
 	COALESCE(k.name, '') AS key_name,
 	CASE
@@ -77,9 +89,10 @@ func (r *feedbackRepository) Create(ctx context.Context, input service.FeedbackC
 		return nil, fmt.Errorf("nil feedback repository")
 	}
 	row := r.db.QueryRowContext(ctx, `
-		INSERT INTO feedbacks (content, source, status, user_id, api_key_id, member_id, origin_member_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, content, source, status, user_id, '' AS user_email, api_key_id, '' AS key_name, '' AS key_prefix, member_id, created_at, updated_at, closed_at, closed_by, 0 AS unread_count`,
+			INSERT INTO feedbacks (title, content, source, status, user_id, api_key_id, member_id, origin_member_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			RETURNING id, title, content, source, status, '`+service.FeedbackReplyStatusPending+`' AS reply_status, user_id, '' AS user_email, '' AS user_name, api_key_id, '' AS key_name, '' AS key_prefix, member_id, created_at, updated_at, closed_at, closed_by, 0 AS unread_count`,
+		input.Title,
 		input.Content,
 		input.Source,
 		service.FeedbackStatusOpen,
@@ -383,6 +396,10 @@ func feedbackWhere(filters service.FeedbackListFilters, scope service.FeedbackSc
 		args = append(args, filters.Status)
 		where += " AND f.status = $" + itoa(len(args))
 	}
+	if filters.ReplyStatus != "" {
+		args = append(args, filters.ReplyStatus)
+		where += " AND " + feedbackReplyStatusSQL + " = $" + itoa(len(args))
+	}
 	switch scope.Kind {
 	case service.FeedbackActorUser:
 		args = append(args, scope.UserID)
@@ -438,11 +455,14 @@ func scanFeedback(scanner feedbackScanner) (*service.Feedback, error) {
 	var closedBy sql.NullString
 	if err := scanner.Scan(
 		&item.ID,
+		&item.Title,
 		&item.Content,
 		&item.Source,
 		&item.Status,
+		&item.ReplyStatus,
 		&item.UserID,
 		&item.UserEmail,
+		&item.UserName,
 		&apiKeyID,
 		&item.KeyName,
 		&item.KeyPrefix,
@@ -457,6 +477,10 @@ func scanFeedback(scanner feedbackScanner) (*service.Feedback, error) {
 			return nil, infraerrors.NotFound("FEEDBACK_NOT_FOUND", "feedback not found")
 		}
 		return nil, fmt.Errorf("scan feedback: %w", err)
+	}
+	item.Title = service.FeedbackTitleOrFallback(item.Title, item.Content)
+	if item.ReplyStatus == "" {
+		item.ReplyStatus = service.FeedbackReplyStatusPending
 	}
 	if apiKeyID.Valid {
 		item.APIKeyID = &apiKeyID.Int64

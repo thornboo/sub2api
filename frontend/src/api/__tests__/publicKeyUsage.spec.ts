@@ -71,12 +71,14 @@ describe('publicKeyUsageAPI', () => {
     const { publicKeyUsageAPI } = await import('../publicKeyUsage')
     const signal = new AbortController().signal
 
-    await publicKeyUsageAPI.listFeedback(2, 20, { status: 'open' }, { signal })
+    await publicKeyUsageAPI.submitFeedback({ title: 'Key problem', content: 'Please help' }, signal)
+    await publicKeyUsageAPI.listFeedback(2, 20, { status: 'open', reply_status: 'pending' }, { signal })
     await publicKeyUsageAPI.listFeedbackMessages(9, 1, 20, signal)
     await publicKeyUsageAPI.replyFeedback(9, 'plain text', signal)
     await publicKeyUsageAPI.closeFeedback(9, signal)
 
-    expect(get).toHaveBeenCalledWith('/key/feedback', { params: { page: 2, page_size: 20, status: 'open' }, signal })
+    expect(post).toHaveBeenCalledWith('/key/feedback', { title: 'Key problem', content: 'Please help' }, { signal })
+    expect(get).toHaveBeenCalledWith('/key/feedback', { params: { page: 2, page_size: 20, status: 'open', reply_status: 'pending' }, signal })
     expect(get).toHaveBeenCalledWith('/key/feedback/9/messages', { params: { page: 1, page_size: 20 }, signal })
     expect(post).toHaveBeenCalledWith('/key/feedback/9/messages', { content: 'plain text' }, { signal })
     expect(post).toHaveBeenCalledWith('/key/feedback/9/close', {}, { signal })

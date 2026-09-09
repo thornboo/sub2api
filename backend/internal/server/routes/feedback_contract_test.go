@@ -158,7 +158,7 @@ type feedbackContractRepository struct {
 }
 
 func (r *feedbackContractRepository) Create(_ context.Context, input service.FeedbackCreateInput) (*service.Feedback, error) {
-	r.item = service.Feedback{ID: 7, Content: input.Content, Source: input.Source, UserID: input.UserID, APIKeyID: input.APIKeyID, MemberID: input.MemberID, Status: service.FeedbackStatusOpen, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	r.item = service.Feedback{ID: 7, Title: input.Title, Content: input.Content, Source: input.Source, UserID: input.UserID, APIKeyID: input.APIKeyID, MemberID: input.MemberID, Status: service.FeedbackStatusOpen, ReplyStatus: service.FeedbackReplyStatusPending, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
 	return &r.item, nil
 }
 
@@ -169,9 +169,10 @@ func (r *feedbackContractRepository) List(ctx context.Context, params pagination
 func (r *feedbackContractRepository) ListByScope(_ context.Context, params pagination.PaginationParams, filters service.FeedbackListFilters, scope service.FeedbackScope, reader service.FeedbackReader) ([]service.Feedback, *pagination.PaginationResult, error) {
 	r.params, r.filter = params, filters
 	items := []service.Feedback{}
-	if r.matches(scope) && (filters.Status == "" || r.item.Status == filters.Status) {
+	if r.matches(scope) && (filters.Status == "" || r.item.Status == filters.Status) && (filters.ReplyStatus == "" || r.replyStatus() == filters.ReplyStatus) {
 		item := r.item
 		item.UnreadCount = r.unread(reader)
+		item.ReplyStatus = r.replyStatus()
 		items = append(items, item)
 	}
 	return items, &pagination.PaginationResult{Total: int64(len(items)), Page: params.Page, PageSize: params.PageSize, Pages: 1}, nil
@@ -196,6 +197,7 @@ func (r *feedbackContractRepository) Get(_ context.Context, id int64, scope serv
 	}
 	item := r.item
 	item.UnreadCount = r.unread(reader)
+	item.ReplyStatus = r.replyStatus()
 	return &item, nil
 }
 
@@ -217,6 +219,7 @@ func (r *feedbackContractRepository) CreateReply(ctx context.Context, input serv
 	message := service.FeedbackReply{ID: int64(len(r.messages) + 1), FeedbackID: input.FeedbackID, AuthorRole: input.AuthorRole, Content: input.Content, CreatedAt: time.Now().UTC()}
 	r.messages = append(r.messages, message)
 	r.item.UpdatedAt = message.CreatedAt
+	r.item.ReplyStatus = r.replyStatus()
 	return &message, nil
 }
 
@@ -231,6 +234,22 @@ func (r *feedbackContractRepository) Close(ctx context.Context, id int64, closed
 	item := r.item
 	item.UnreadCount = r.unread(reader)
 	return &item, nil
+}
+
+func (r *feedbackContractRepository) replyStatus() string {
+	if len(r.messages) == 0 {
+		return service.FeedbackReplyStatusPending
+	}
+	latest := r.messages[0]
+	for _, message := range r.messages[1:] {
+		if message.CreatedAt.After(latest.CreatedAt) || (message.CreatedAt.Equal(latest.CreatedAt) && message.ID > latest.ID) {
+			latest = message
+		}
+	}
+	if latest.AuthorRole == service.FeedbackActorAdmin {
+		return service.FeedbackReplyStatusReplied
+	}
+	return service.FeedbackReplyStatusPending
 }
 
 func (r *feedbackContractRepository) unread(reader service.FeedbackReader) int64 {
@@ -295,7 +314,7 @@ func newFeedbackContractRouter(t *testing.T) (*gin.Engine, *feedbackContractRepo
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	repo := &feedbackContractRepository{item: service.Feedback{
-		ID: 7, Source: service.FeedbackSourceUser, UserID: 42, UserEmail: "private-owner@example.test",
+		ID: 7, Source: service.FeedbackSourceUser, UserID: 42, UserEmail: "private-owner@example.test", UserName: "private owner",
 		Content: "<img src=x>\n保留原始文字", Status: service.FeedbackStatusOpen,
 		CreatedAt: time.Date(2026, 9, 8, 9, 0, 0, 0, time.UTC), UpdatedAt: time.Date(2026, 9, 8, 9, 0, 0, 0, time.UTC),
 	}}
@@ -337,7 +356,7 @@ func feedbackContractRequest(router *gin.Engine, method, path, body string) *htt
 
 func requireFeedbackCustomerProjection(t *testing.T, body string) {
 	t.Helper()
-	for _, privateField := range []string{"user_id", "user_email", "api_key_id", "key_name", "key_prefix", "member_id", "private-owner@example.test"} {
+	for _, privateField := range []string{"user_id", "user_email", "user_name", "api_key_id", "key_name", "key_prefix", "member_id", "private-owner@example.test", "private owner"} {
 		require.NotContains(t, body, privateField)
 	}
 }
@@ -446,6 +465,7 @@ func TestFeedbackRoutesRejectOtherOwnersAndLoginAccessToKeyTickets(t *testing.T)
 			admin := feedbackContractRequest(router, http.MethodGet, "/api/v1/admin/feedback/7", "")
 			require.Equal(t, http.StatusOK, admin.Code)
 			require.Contains(t, admin.Body.String(), `"user_id"`)
+			require.Contains(t, admin.Body.String(), `"user_name":"private owner"`)
 		})
 	}
 }
@@ -467,6 +487,7 @@ func TestFeedbackRoutesDoNotAcceptClientSuppliedActorsOrStatus(t *testing.T) {
 		for _, body := range []string{
 			`{"content":"冒充回复","author_role":"admin"}`,
 			`{"content":"替他人回复","user_id":43}`,
+			`{"content":"回复不能改标题","title":"not allowed"}`,
 			`{"content":"图片","attachment":"data:image/png;base64,example"}`,
 		} {
 			reply := feedbackContractRequest(router, http.MethodPost, base+"/7/messages", body)
@@ -478,10 +499,60 @@ func TestFeedbackRoutesDoNotAcceptClientSuppliedActorsOrStatus(t *testing.T) {
 		}
 		invalid := feedbackContractRequest(router, http.MethodGet, base+"?status=processed", "")
 		require.Equal(t, http.StatusBadRequest, invalid.Code, invalid.Body.String())
+		invalidReplyStatus := feedbackContractRequest(router, http.MethodGet, base+"?reply_status=read", "")
+		require.Equal(t, http.StatusBadRequest, invalidReplyStatus.Code, invalidReplyStatus.Body.String())
 	}
 	require.Empty(t, repo.messages)
 	require.Empty(t, cooldown.claimed)
 	require.Equal(t, service.FeedbackStatusOpen, repo.item.Status)
+}
+
+func TestFeedbackRoutesExposeTicketTitleAndDerivedReplyStatus(t *testing.T) {
+	router, repo, _ := newFeedbackContractRouter(t)
+	repo.item.Title = ""
+
+	initial := feedbackContractRequest(router, http.MethodGet, "/api/v1/feedback/7", "")
+	require.Equal(t, http.StatusOK, initial.Code, initial.Body.String())
+	var initialBody struct {
+		Data struct {
+			Title       string `json:"title"`
+			ReplyStatus string `json:"reply_status"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(initial.Body.Bytes(), &initialBody))
+	require.Equal(t, "<img src=x> 保留原始文字", initialBody.Data.Title)
+	require.Equal(t, service.FeedbackReplyStatusPending, initialBody.Data.ReplyStatus)
+	require.Contains(t, initial.Body.String(), `"reply_status":"pending"`)
+	requireFeedbackCustomerProjection(t, initial.Body.String())
+
+	adminReply := feedbackContractRequest(router, http.MethodPost, "/api/v1/admin/feedback/7/messages", `{"content":"管理员回复"}`)
+	require.Equal(t, http.StatusCreated, adminReply.Code, adminReply.Body.String())
+	replied := feedbackContractRequest(router, http.MethodGet, "/api/v1/feedback?reply_status=replied", "")
+	require.Equal(t, http.StatusOK, replied.Code, replied.Body.String())
+	require.Contains(t, replied.Body.String(), `"total":1`)
+	require.Contains(t, replied.Body.String(), `"reply_status":"replied"`)
+	require.Equal(t, service.FeedbackReplyStatusReplied, repo.filter.ReplyStatus)
+	requireFeedbackCustomerProjection(t, replied.Body.String())
+
+	read := feedbackContractRequest(router, http.MethodPost, "/api/v1/feedback/7/read", `{"last_read_reply_id":1}`)
+	require.Equal(t, http.StatusOK, read.Code, read.Body.String())
+	stillReplied := feedbackContractRequest(router, http.MethodGet, "/api/v1/feedback/7", "")
+	require.Equal(t, http.StatusOK, stillReplied.Code, stillReplied.Body.String())
+	require.Contains(t, stillReplied.Body.String(), `"reply_status":"replied"`)
+
+	userReply := feedbackContractRequest(router, http.MethodPost, "/api/v1/feedback/7/messages", `{"content":"用户追问"}`)
+	require.Equal(t, http.StatusCreated, userReply.Code, userReply.Body.String())
+	pending := feedbackContractRequest(router, http.MethodGet, "/api/v1/admin/feedback?reply_status=pending", "")
+	require.Equal(t, http.StatusOK, pending.Code, pending.Body.String())
+	require.Contains(t, pending.Body.String(), `"total":1`)
+	require.Contains(t, pending.Body.String(), `"reply_status":"pending"`)
+	require.Contains(t, pending.Body.String(), `"user_name":"private owner"`)
+	require.Equal(t, service.FeedbackReplyStatusPending, repo.filter.ReplyStatus)
+
+	closed := feedbackContractRequest(router, http.MethodPost, "/api/v1/admin/feedback/7/close", `{}`)
+	require.Equal(t, http.StatusOK, closed.Code, closed.Body.String())
+	require.Contains(t, closed.Body.String(), `"status":"closed"`)
+	require.Contains(t, closed.Body.String(), `"reply_status":"pending"`)
 }
 
 type feedbackContractKeyRepository struct {
@@ -551,6 +622,12 @@ func TestFeedbackRoutesKeyHolderConversationAndSiblingIsolation(t *testing.T) {
 
 	admin := feedbackContractRequest(router, http.MethodPost, "/api/v1/admin/feedback/7/messages", `{"content":"管理员向 Key 用户回复"}`)
 	require.Equal(t, http.StatusCreated, admin.Code, admin.Body.String())
+	filtered := keyRequest(http.MethodGet, "/api/v1/key/feedback?reply_status=replied", "")
+	require.Equal(t, http.StatusOK, filtered.Code, filtered.Body.String())
+	require.Contains(t, filtered.Body.String(), `"total":1`)
+	require.Equal(t, service.FeedbackReplyStatusReplied, repo.filter.ReplyStatus)
+	invalidFilter := keyRequest(http.MethodGet, "/api/v1/key/feedback?reply_status=read", "")
+	require.Equal(t, http.StatusBadRequest, invalidFilter.Code, invalidFilter.Body.String())
 	for _, path := range []string{"/api/v1/key/feedback?user_id=999", "/api/v1/key/feedback/7", "/api/v1/key/feedback/7/messages"} {
 		rec := keyRequest(http.MethodGet, path, "")
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())

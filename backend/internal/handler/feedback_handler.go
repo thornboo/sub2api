@@ -31,6 +31,11 @@ func NewFeedbackHandler(feedbackService *service.FeedbackService, apiKeyService 
 }
 
 type submitFeedbackRequest struct {
+	Title   string `json:"title"`
+	Content string `json:"content"`
+}
+
+type feedbackContentRequest struct {
 	Content string `json:"content"`
 }
 
@@ -65,7 +70,7 @@ func (h *FeedbackHandler) SubmitUser(c *gin.Context) {
 		response.Unauthorized(c, "User not found in context")
 		return
 	}
-	result, err := h.feedbackService.CreateForUser(c.Request.Context(), subject.UserID, req.Content)
+	result, err := h.feedbackService.CreateForUser(c.Request.Context(), subject.UserID, req.Title, req.Content)
 	if err != nil {
 		writeFeedbackError(c, err)
 		return
@@ -125,7 +130,7 @@ func (h *FeedbackHandler) ReplyUser(c *gin.Context) {
 	if !ok {
 		return
 	}
-	req, ok := bindFeedbackRequest(c)
+	req, ok := bindFeedbackContentRequest(c)
 	if !ok {
 		return
 	}
@@ -183,7 +188,7 @@ func (h *FeedbackHandler) SubmitKey(c *gin.Context) {
 	if !ok {
 		return
 	}
-	result, err := h.feedbackService.CreateForKey(c.Request.Context(), session, req.Content)
+	result, err := h.feedbackService.CreateForKey(c.Request.Context(), session, req.Title, req.Content)
 	if err != nil {
 		writeFeedbackError(c, err)
 		return
@@ -247,7 +252,7 @@ func (h *FeedbackHandler) ReplyKey(c *gin.Context) {
 	if !ok {
 		return
 	}
-	req, ok := bindFeedbackRequest(c)
+	req, ok := bindFeedbackContentRequest(c)
 	if !ok {
 		return
 	}
@@ -323,6 +328,18 @@ func (h *FeedbackHandler) publicKeyUsageSession(c *gin.Context) (*service.Public
 
 func bindFeedbackRequest(c *gin.Context) (submitFeedbackRequest, bool) {
 	var req submitFeedbackRequest
+	if !bindStrictJSON(c, feedbackRequestBodyMaxBytes, &req) {
+		return req, false
+	}
+	if _, err := service.NormalizeFeedbackContent(req.Content); err != nil {
+		response.ErrorFrom(c, err)
+		return req, false
+	}
+	return req, true
+}
+
+func bindFeedbackContentRequest(c *gin.Context) (feedbackContentRequest, bool) {
+	var req feedbackContentRequest
 	if !bindStrictJSON(c, feedbackRequestBodyMaxBytes, &req) {
 		return req, false
 	}
@@ -514,7 +531,10 @@ func feedbackPagination(c *gin.Context) pagination.PaginationParams {
 }
 
 func feedbackFilters(c *gin.Context) service.FeedbackListFilters {
-	return service.FeedbackListFilters{Status: strings.TrimSpace(c.Query("status"))}
+	return service.FeedbackListFilters{
+		Status:      strings.TrimSpace(c.Query("status")),
+		ReplyStatus: strings.TrimSpace(c.Query("reply_status")),
+	}
 }
 
 func rejectCrossSiteFeedback(c *gin.Context) bool {

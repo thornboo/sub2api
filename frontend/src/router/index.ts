@@ -223,7 +223,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: true,
       requiresAdmin: false,
-      title: 'Feedback',
+      title: 'My tickets',
       titleKey: 'feedback.myTickets',
       descriptionKey: 'feedback.myTicketsDescription'
     }
@@ -596,7 +596,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: true,
       requiresAdmin: true,
-      title: 'Feedback',
+      title: 'Ticket management',
       titleKey: 'admin.feedback.title',
       descriptionKey: 'admin.feedback.description'
     }

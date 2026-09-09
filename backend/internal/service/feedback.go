@@ -19,30 +19,39 @@ const (
 	FeedbackStatusOpen   = "open"
 	FeedbackStatusClosed = "closed"
 
+	FeedbackReplyStatusPending = "pending"
+	FeedbackReplyStatusReplied = "replied"
+
 	FeedbackActorUser  = "user"
 	FeedbackActorAdmin = "admin"
 
 	FeedbackContentMaxRunes = 2000
+	FeedbackTitleMaxRunes   = 120
 	FeedbackCooldown        = time.Minute
 )
 
 var (
-	ErrFeedbackInvalidContent = infraerrors.BadRequest("FEEDBACK_INVALID_CONTENT", "feedback content must be 1..2000 characters")
-	ErrFeedbackInvalidStatus  = infraerrors.BadRequest("FEEDBACK_INVALID_STATUS", "feedback status must be open or closed")
-	ErrFeedbackClosed         = infraerrors.New(409, "FEEDBACK_CLOSED", "feedback is closed")
-	ErrFeedbackRateLimited    = infraerrors.TooManyRequests("FEEDBACK_RATE_LIMITED", "feedback can be submitted once per minute")
-	ErrFeedbackUnavailable    = infraerrors.ServiceUnavailable("FEEDBACK_UNAVAILABLE", "feedback is temporarily unavailable")
-	ErrFeedbackInvalidID      = infraerrors.BadRequest("FEEDBACK_INVALID_ID", "invalid feedback id")
-	ErrFeedbackInvalidReadID  = infraerrors.BadRequest("FEEDBACK_INVALID_READ_ID", "invalid feedback read cursor")
+	ErrFeedbackInvalidContent     = infraerrors.BadRequest("FEEDBACK_INVALID_CONTENT", "feedback content must be 1..2000 characters")
+	ErrFeedbackInvalidStatus      = infraerrors.BadRequest("FEEDBACK_INVALID_STATUS", "feedback status must be open or closed")
+	ErrFeedbackInvalidTitle       = infraerrors.BadRequest("FEEDBACK_INVALID_TITLE", "feedback title must be at most 120 characters")
+	ErrFeedbackInvalidReplyStatus = infraerrors.BadRequest("FEEDBACK_INVALID_REPLY_STATUS", "feedback reply_status must be pending or replied")
+	ErrFeedbackClosed             = infraerrors.New(409, "FEEDBACK_CLOSED", "feedback is closed")
+	ErrFeedbackRateLimited        = infraerrors.TooManyRequests("FEEDBACK_RATE_LIMITED", "feedback can be submitted once per minute")
+	ErrFeedbackUnavailable        = infraerrors.ServiceUnavailable("FEEDBACK_UNAVAILABLE", "feedback is temporarily unavailable")
+	ErrFeedbackInvalidID          = infraerrors.BadRequest("FEEDBACK_INVALID_ID", "invalid feedback id")
+	ErrFeedbackInvalidReadID      = infraerrors.BadRequest("FEEDBACK_INVALID_READ_ID", "invalid feedback read cursor")
 )
 
 type Feedback struct {
 	ID          int64
+	Title       string
 	Content     string
 	Source      string
 	Status      string
+	ReplyStatus string
 	UserID      int64
 	UserEmail   string
+	UserName    string
 	APIKeyID    *int64
 	KeyName     string
 	KeyPrefix   string
@@ -55,6 +64,7 @@ type Feedback struct {
 }
 
 type FeedbackCreateInput struct {
+	Title    string
 	Content  string
 	Source   string
 	UserID   int64
@@ -63,7 +73,8 @@ type FeedbackCreateInput struct {
 }
 
 type FeedbackListFilters struct {
-	Status string
+	Status      string
+	ReplyStatus string
 }
 
 type FeedbackScope struct {
@@ -133,23 +144,25 @@ type FeedbackReplyResult struct {
 	RetryAfter time.Duration
 }
 
-func (s *FeedbackService) CreateForUser(ctx context.Context, userID int64, content string) (*FeedbackCreateResult, error) {
+func (s *FeedbackService) CreateForUser(ctx context.Context, userID int64, title string, content string) (*FeedbackCreateResult, error) {
 	if userID <= 0 {
 		return nil, ErrFeedbackUnavailable
 	}
 	return s.create(ctx, fmt.Sprintf("user:%d", userID), FeedbackCreateInput{
+		Title:   title,
 		Content: content,
 		Source:  FeedbackSourceUser,
 		UserID:  userID,
 	})
 }
 
-func (s *FeedbackService) CreateForKey(ctx context.Context, session *PublicKeyUsageSession, content string) (*FeedbackCreateResult, error) {
+func (s *FeedbackService) CreateForKey(ctx context.Context, session *PublicKeyUsageSession, title string, content string) (*FeedbackCreateResult, error) {
 	if session == nil || session.APIKeyID <= 0 || session.UserID <= 0 {
 		return nil, ErrPublicKeyUsageSessionInvalid
 	}
 	apiKeyID := session.APIKeyID
 	return s.create(ctx, fmt.Sprintf("key:%d", session.APIKeyID), FeedbackCreateInput{
+		Title:    title,
 		Content:  content,
 		Source:   FeedbackSourceKey,
 		UserID:   session.UserID,
@@ -167,6 +180,11 @@ func (s *FeedbackService) create(ctx context.Context, identity string, input Fee
 		return nil, err
 	}
 	input.Content = content
+	title, err := NormalizeFeedbackTitle(input.Title, content)
+	if err != nil {
+		return nil, err
+	}
+	input.Title = title
 
 	ok, retryAfter, err := s.cooldown.ClaimFeedbackCooldown(ctx, identity, FeedbackCooldown)
 	if err != nil {
@@ -471,6 +489,9 @@ func normalizeFeedbackListParams(params pagination.PaginationParams, filters Fee
 	if filters.Status != "" && !IsFeedbackStatus(filters.Status) {
 		return params, ErrFeedbackInvalidStatus
 	}
+	if filters.ReplyStatus != "" && !IsFeedbackReplyStatus(filters.ReplyStatus) {
+		return params, ErrFeedbackInvalidReplyStatus
+	}
 	params = normalizeFeedbackPagination(params)
 	params.SortBy = "updated_at"
 	params.SortOrder = pagination.SortOrderDesc
@@ -535,9 +556,63 @@ func NormalizeFeedbackContent(content string) (string, error) {
 	return trimmed, nil
 }
 
+func NormalizeFeedbackTitle(title string, content string) (string, error) {
+	if strings.ContainsRune(title, '\x00') {
+		return "", ErrFeedbackInvalidTitle
+	}
+	normalized := singleLineWhitespace(title)
+	if normalized == "" {
+		normalized = feedbackTitleFromContent(content)
+	}
+	if utf8.RuneCountInString(normalized) > FeedbackTitleMaxRunes {
+		return "", ErrFeedbackInvalidTitle
+	}
+	return normalized, nil
+}
+
+func FeedbackTitleOrFallback(title string, content string) string {
+	normalized := singleLineWhitespace(title)
+	if normalized != "" {
+		if utf8.RuneCountInString(normalized) <= FeedbackTitleMaxRunes {
+			return normalized
+		}
+		return truncateRunes(normalized, FeedbackTitleMaxRunes)
+	}
+	return feedbackTitleFromContent(content)
+}
+
+func feedbackTitleFromContent(content string) string {
+	normalized := singleLineWhitespace(content)
+	if normalized == "" {
+		return "Ticket"
+	}
+	return truncateRunes(normalized, FeedbackTitleMaxRunes)
+}
+
+func singleLineWhitespace(value string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+}
+
+func truncateRunes(value string, maxRunes int) string {
+	if maxRunes <= 0 || utf8.RuneCountInString(value) <= maxRunes {
+		return value
+	}
+	runes := []rune(value)
+	return string(runes[:maxRunes])
+}
+
 func IsFeedbackStatus(status string) bool {
 	switch strings.TrimSpace(status) {
 	case FeedbackStatusOpen, FeedbackStatusClosed:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsFeedbackReplyStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case FeedbackReplyStatusPending, FeedbackReplyStatusReplied:
 		return true
 	default:
 		return false

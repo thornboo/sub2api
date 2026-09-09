@@ -33,7 +33,7 @@ func (r *feedbackRepoStub) Create(_ context.Context, input FeedbackCreateInput) 
 		return nil, r.createErr
 	}
 	r.created = append(r.created, input)
-	return &Feedback{ID: int64(len(r.created)), Content: input.Content, Source: input.Source, Status: FeedbackStatusOpen, UserID: input.UserID, APIKeyID: input.APIKeyID, MemberID: input.MemberID, CreatedAt: time.Unix(1776790020, 0)}, nil
+	return &Feedback{ID: int64(len(r.created)), Title: input.Title, Content: input.Content, Source: input.Source, Status: FeedbackStatusOpen, ReplyStatus: FeedbackReplyStatusPending, UserID: input.UserID, APIKeyID: input.APIKeyID, MemberID: input.MemberID, CreatedAt: time.Unix(1776790020, 0)}, nil
 }
 
 func (r *feedbackRepoStub) List(context.Context, pagination.PaginationParams, FeedbackListFilters) ([]Feedback, *pagination.PaginationResult, error) {
@@ -124,7 +124,7 @@ func TestFeedbackServiceValidationHappensBeforeCooldown(t *testing.T) {
 	svc := NewFeedbackService(repo, cooldown)
 
 	for _, content := range []string{"", "   ", "ok\x00bad"} {
-		if _, err := svc.CreateForUser(context.Background(), 7, content); !errors.Is(err, ErrFeedbackInvalidContent) {
+		if _, err := svc.CreateForUser(context.Background(), 7, "", content); !errors.Is(err, ErrFeedbackInvalidContent) {
 			t.Fatalf("CreateForUser(%q) err = %v, want invalid content", content, err)
 		}
 	}
@@ -132,11 +132,78 @@ func TestFeedbackServiceValidationHappensBeforeCooldown(t *testing.T) {
 	for i := range long {
 		long[i] = '你'
 	}
-	if _, err := svc.CreateForUser(context.Background(), 7, string(long)); !errors.Is(err, ErrFeedbackInvalidContent) {
+	if _, err := svc.CreateForUser(context.Background(), 7, "", string(long)); !errors.Is(err, ErrFeedbackInvalidContent) {
 		t.Fatalf("long unicode content err = %v, want invalid content", err)
 	}
 	if len(cooldown.calls) != 0 || len(repo.created) != 0 {
 		t.Fatalf("invalid content should not claim cooldown or write DB, calls=%v created=%v", cooldown.calls, repo.created)
+	}
+}
+
+func TestFeedbackServiceNormalizesTitleAndKeepsLegacyContentOnlyCreate(t *testing.T) {
+	repo := &feedbackRepoStub{}
+	cooldown := &feedbackCooldownStub{}
+	svc := NewFeedbackService(repo, cooldown)
+
+	if _, err := svc.CreateForUser(context.Background(), 7, "  标题\n\t含 空白  ", " first line\nsecond line "); err != nil {
+		t.Fatalf("CreateForUser with title: %v", err)
+	}
+	if got := repo.created[0].Title; got != "标题 含 空白" {
+		t.Fatalf("normalized title = %q", got)
+	}
+
+	if _, err := svc.CreateForUser(context.Background(), 8, "   ", "内容第一行\n第二行"); err != nil {
+		t.Fatalf("legacy content-only CreateForUser: %v", err)
+	}
+	if got := repo.created[1].Title; got != "内容第一行 第二行" {
+		t.Fatalf("fallback title = %q", got)
+	}
+}
+
+func TestFeedbackServiceRejectsOverlongExplicitUnicodeTitle(t *testing.T) {
+	repo := &feedbackRepoStub{}
+	cooldown := &feedbackCooldownStub{}
+	svc := NewFeedbackService(repo, cooldown)
+	long := make([]rune, FeedbackTitleMaxRunes+1)
+	for i := range long {
+		long[i] = '你'
+	}
+
+	if _, err := svc.CreateForUser(context.Background(), 7, string(long), "content"); !errors.Is(err, ErrFeedbackInvalidTitle) {
+		t.Fatalf("overlong title err = %v, want invalid title", err)
+	}
+	if len(cooldown.calls) != 0 || len(repo.created) != 0 {
+		t.Fatalf("invalid title should not claim cooldown or write DB, calls=%v created=%v", cooldown.calls, repo.created)
+	}
+}
+
+func TestFeedbackServiceRejectsTitleContainingNULBeforeCooldown(t *testing.T) {
+	repo := &feedbackRepoStub{}
+	cooldown := &feedbackCooldownStub{}
+	svc := NewFeedbackService(repo, cooldown)
+
+	if _, err := svc.CreateForUser(context.Background(), 7, "bad\x00title", "content"); !errors.Is(err, ErrFeedbackInvalidTitle) {
+		t.Fatalf("NUL title err = %v, want invalid title", err)
+	}
+	if len(cooldown.calls) != 0 || len(repo.created) != 0 {
+		t.Fatalf("invalid title should not claim cooldown or write DB, calls=%v created=%v", cooldown.calls, repo.created)
+	}
+}
+
+func TestFeedbackServiceContentFallbackTitleTruncatesUnicode(t *testing.T) {
+	repo := &feedbackRepoStub{}
+	cooldown := &feedbackCooldownStub{}
+	svc := NewFeedbackService(repo, cooldown)
+	long := make([]rune, FeedbackTitleMaxRunes+5)
+	for i := range long {
+		long[i] = '你'
+	}
+
+	if _, err := svc.CreateForUser(context.Background(), 7, "", string(long)); err != nil {
+		t.Fatalf("content fallback should truncate title while accepting valid content: %v", err)
+	}
+	if got := len([]rune(repo.created[0].Title)); got != FeedbackTitleMaxRunes {
+		t.Fatalf("fallback title runes = %d, want %d", got, FeedbackTitleMaxRunes)
 	}
 }
 
@@ -146,16 +213,16 @@ func TestFeedbackServiceCooldownIsPerStableIdentity(t *testing.T) {
 	svc := NewFeedbackService(repo, cooldown)
 	memberID := int64(9)
 
-	if _, err := svc.CreateForUser(context.Background(), 7, " first "); err != nil {
+	if _, err := svc.CreateForUser(context.Background(), 7, "", " first "); err != nil {
 		t.Fatalf("first user feedback: %v", err)
 	}
-	if _, err := svc.CreateForUser(context.Background(), 8, "second user"); err != nil {
+	if _, err := svc.CreateForUser(context.Background(), 8, "", "second user"); err != nil {
 		t.Fatalf("separate user feedback: %v", err)
 	}
-	if _, err := svc.CreateForKey(context.Background(), &PublicKeyUsageSession{APIKeyID: 101, UserID: 7, MemberID: &memberID}, "key feedback"); err != nil {
+	if _, err := svc.CreateForKey(context.Background(), &PublicKeyUsageSession{APIKeyID: 101, UserID: 7, MemberID: &memberID}, "", "key feedback"); err != nil {
 		t.Fatalf("key feedback: %v", err)
 	}
-	_, err := svc.CreateForUser(context.Background(), 7, "again")
+	_, err := svc.CreateForUser(context.Background(), 7, "", "again")
 	if !errors.Is(err, ErrFeedbackRateLimited) {
 		t.Fatalf("repeat user feedback err = %v, want rate limited", err)
 	}
@@ -182,7 +249,7 @@ func TestFeedbackServiceConcurrentCooldownAllowsOne(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := svc.CreateForUser(context.Background(), 7, "content")
+			_, err := svc.CreateForUser(context.Background(), 7, "", "content")
 			errs <- err
 		}()
 	}
@@ -208,14 +275,14 @@ func TestFeedbackServiceConcurrentCooldownAllowsOne(t *testing.T) {
 
 func TestFeedbackServiceFailsClosedOnCooldownOrDBErrors(t *testing.T) {
 	svc := NewFeedbackService(&feedbackRepoStub{}, &feedbackCooldownStub{err: errors.New("redis down")})
-	if _, err := svc.CreateForUser(context.Background(), 7, "content"); !errors.Is(err, ErrFeedbackUnavailable) {
+	if _, err := svc.CreateForUser(context.Background(), 7, "", "content"); !errors.Is(err, ErrFeedbackUnavailable) {
 		t.Fatalf("redis err = %v, want unavailable", err)
 	}
 
 	cooldown := &feedbackCooldownStub{}
 	repo := &feedbackRepoStub{createErr: errors.New("db down")}
 	svc = NewFeedbackService(repo, cooldown)
-	if _, err := svc.CreateForUser(context.Background(), 7, "content"); !errors.Is(err, ErrFeedbackUnavailable) {
+	if _, err := svc.CreateForUser(context.Background(), 7, "", "content"); !errors.Is(err, ErrFeedbackUnavailable) {
 		t.Fatalf("db err = %v, want unavailable", err)
 	}
 	if !cooldown.claimed["user:7"] {

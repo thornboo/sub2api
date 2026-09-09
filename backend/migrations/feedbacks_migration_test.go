@@ -90,3 +90,25 @@ func TestFeedbackReadReceiptsMigrationDefinesPersistentUnreadCursors(t *testing.
 		}
 	}
 }
+
+func TestFeedbackTicketTitleMigrationAddsTitle(t *testing.T) {
+	data, err := FS.ReadFile("242_feedback_ticket_title.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	sql := string(data)
+	for _, want := range []string{
+		"ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT ''",
+		"left(regexp_replace(btrim(content), '\\s+', ' ', 'g'), 120)",
+		"feedbacks_title_length_check CHECK (char_length(title) <= 120)",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("migration missing %q:\n%s", want, sql)
+		}
+	}
+	for _, unexpected := range []string{"reply_status", "feedback_replies"} {
+		if strings.Contains(sql, unexpected) {
+			t.Fatalf("title migration must not add reply-status schema/index changes containing %q:\n%s", unexpected, sql)
+		}
+	}
+}

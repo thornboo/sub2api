@@ -8,6 +8,30 @@
   >
     <form id="feedback-form" class="space-y-4" @submit.prevent="handleSubmit">
       <div>
+        <label for="feedback-title" class="input-label">{{ t('feedback.titleLabel') }}</label>
+        <input
+          id="feedback-title"
+          v-model="titleDraft"
+          type="text"
+          class="input"
+          :class="displayTitleError && 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/10'"
+          :placeholder="t('feedback.titlePlaceholder')"
+          :disabled="submitting"
+          :aria-invalid="displayTitleError || undefined"
+          aria-required="true"
+          aria-describedby="feedback-title-help"
+          maxlength="240"
+        />
+        <div id="feedback-title-help" class="mt-2 flex justify-between gap-3 text-xs">
+          <span :class="displayTitleError ? 'text-rose-600 dark:text-rose-300' : 'text-stone-500 dark:text-stone-400'">
+            {{ displayTitleError ? titleError : t('feedback.titleHint') }}
+          </span>
+          <span class="shrink-0 tabular-nums" :class="titleLength > maxTitleLength ? 'text-rose-600 dark:text-rose-300' : 'text-stone-400'">
+            {{ titleLength }} / {{ maxTitleLength }}
+          </span>
+        </div>
+      </div>
+      <div>
         <label for="feedback-content" class="input-label">{{ t('feedback.contentLabel') }}</label>
         <textarea
           id="feedback-content"
@@ -74,6 +98,7 @@ import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores/app'
+import type { FeedbackSubmitRequest } from '@/api/feedback'
 
 export interface FeedbackSubmitResult {
   id: number
@@ -86,7 +111,7 @@ type MessageType = 'success' | 'error'
 const props = withDefaults(defineProps<{
   show: boolean
   identityKey: string
-  submitter: (content: string, signal?: AbortSignal) => Promise<FeedbackSubmitResult>
+  submitter: (request: FeedbackSubmitRequest, signal?: AbortSignal) => Promise<FeedbackSubmitResult>
 }>(), {
   identityKey: '',
 })
@@ -101,6 +126,8 @@ const { t } = useI18n()
 const appStore = useAppStore()
 
 const maxContentLength = 2000
+const maxTitleLength = 120
+const titleDraft = ref('')
 const draft = ref('')
 const submitting = ref(false)
 const now = ref(Date.now())
@@ -113,6 +140,14 @@ let tickId: number | null = null
 let activeController: AbortController | null = null
 
 const trimmedContent = computed(() => draft.value.trim())
+const normalizedTitle = computed(() => titleDraft.value.trim().replace(/\s+/gu, ' '))
+const titleLength = computed(() => Array.from(normalizedTitle.value).length)
+const titleError = computed(() => {
+  if (!normalizedTitle.value) return t('feedback.titleRequired')
+  if (titleLength.value > maxTitleLength) return t('feedback.titleTooLong', { max: maxTitleLength })
+  return ''
+})
+const displayTitleError = computed(() => attemptedSubmit.value && Boolean(titleError.value))
 const contentLength = computed(() => Array.from(trimmedContent.value).length)
 const cooldownRemaining = computed(() => Math.max(0, Math.ceil((cooldownUntil.value - now.value) / 1000)))
 const contentError = computed(() => {
@@ -125,7 +160,7 @@ const submitLabel = computed(() => (
     ? t('feedback.waitSubmit', { seconds: cooldownRemaining.value })
     : t('feedback.submit')
 ))
-const submitDisabled = computed(() => submitting.value || cooldownRemaining.value > 0 || Boolean(contentError.value))
+const submitDisabled = computed(() => submitting.value || cooldownRemaining.value > 0 || Boolean(contentError.value) || Boolean(titleError.value))
 const displayContentError = computed(() => attemptedSubmit.value && Boolean(contentError.value))
 
 function ensureTicking() {
@@ -152,6 +187,7 @@ function startCooldown(seconds: number) {
 function resetState() {
   activeController?.abort()
   activeController = null
+  titleDraft.value = ''
   draft.value = ''
   submitting.value = false
   cooldownUntil.value = 0
@@ -199,7 +235,7 @@ function handlePaste(event: ClipboardEvent) {
 async function handleSubmit() {
   attemptedSubmit.value = true
   if (submitDisabled.value) return
-  const content = trimmedContent.value
+  const request = { title: normalizedTitle.value, content: trimmedContent.value }
   const identityAtSubmit = props.identityKey
   const controller = new AbortController()
   activeController = controller
@@ -208,9 +244,11 @@ async function handleSubmit() {
   attachmentError.value = ''
 
   try {
-    const result = await props.submitter(content, controller.signal)
+    const result = await props.submitter(request, controller.signal)
     if (controller.signal.aborted || identityAtSubmit !== props.identityKey) return
+    titleDraft.value = ''
     draft.value = ''
+    attemptedSubmit.value = false
     startCooldown(result.retry_after || 60)
     appStore.showSuccess(t('feedback.success'))
     emit('submitted', result)

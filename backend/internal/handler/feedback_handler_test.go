@@ -26,13 +26,16 @@ type feedbackHandlerRepoStub struct {
 func (r *feedbackHandlerRepoStub) Create(_ context.Context, input service.FeedbackCreateInput) (*service.Feedback, error) {
 	r.created = append(r.created, input)
 	return &service.Feedback{
-		ID:        int64(len(r.created)),
-		Content:   input.Content,
-		Source:    input.Source,
-		UserID:    input.UserID,
-		APIKeyID:  input.APIKeyID,
-		MemberID:  input.MemberID,
-		CreatedAt: time.Unix(1776790020, 0).UTC(),
+		ID:          int64(len(r.created)),
+		Title:       input.Title,
+		Content:     input.Content,
+		Source:      input.Source,
+		Status:      service.FeedbackStatusOpen,
+		ReplyStatus: service.FeedbackReplyStatusPending,
+		UserID:      input.UserID,
+		APIKeyID:    input.APIKeyID,
+		MemberID:    input.MemberID,
+		CreatedAt:   time.Unix(1776790020, 0).UTC(),
 	}, nil
 }
 
@@ -68,6 +71,8 @@ func TestFeedbackHandlerSubmitUserStrictJSONAndNoStore(t *testing.T) {
 	}{
 		{name: "ok", contentType: "application/json; charset=utf-8", body: `{"content":" hello "}`, wantStatus: http.StatusCreated},
 		{name: "wrong content type", contentType: "text/plain", body: `{"content":"hello"}`, wantStatus: http.StatusBadRequest},
+		{name: "ok with title", contentType: "application/json", body: `{"title":" 工单 标题 ","content":"hello"}`, wantStatus: http.StatusCreated},
+		{name: "legacy content only", contentType: "application/json", body: `{"content":"hello"}`, wantStatus: http.StatusCreated},
 		{name: "unknown field", contentType: "application/json", body: `{"content":"hello","image":"x"}`, wantStatus: http.StatusBadRequest},
 		{name: "trailing json", contentType: "application/json", body: `{"content":"hello"} {}`, wantStatus: http.StatusBadRequest},
 		{name: "non string content", contentType: "application/json", body: `{"content":1}`, wantStatus: http.StatusBadRequest},

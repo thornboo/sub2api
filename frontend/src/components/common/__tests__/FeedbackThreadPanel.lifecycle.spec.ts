@@ -16,6 +16,7 @@ vi.mock('vue-i18n', async () => {
 })
 
 const ticket: FeedbackTicket = {
+  title: 'First issue', reply_status: 'pending',
   id: 9, content: 'first ticket opening', source: 'user', status: 'open',
   created_at: '2026-09-08T00:00:00Z', updated_at: '2026-09-08T00:01:00Z',
   closed_at: null, closed_by: null,
@@ -149,7 +150,7 @@ describe('Feedback conversation lifecycle', () => {
     const api = makeAPI()
     const wrapper = mountPanel(api)
     await flushPromises()
-    await wrapper.get('[data-testid="feedback-filter-open"]').trigger('click')
+    await wrapper.get('[data-testid="feedback-filter-pending"]').trigger('click')
     await flushPromises()
     await wrapper.findAll('[data-testid="feedback-ticket-row"]')[0].trigger('click')
     await flushPromises()

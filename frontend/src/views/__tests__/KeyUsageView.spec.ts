@@ -350,11 +350,12 @@ describe('KeyUsageView', () => {
     await newButton!.trigger('click')
     await flushPromises()
 
+    await wrapper.get('#feedback-title').setValue('Key problem')
     await wrapper.get('#feedback-content').setValue('key scoped issue')
     await wrapper.get('#feedback-form').trigger('submit')
     await flushPromises()
 
-    expect(submitFeedback).toHaveBeenCalledWith('key scoped issue', expect.any(AbortSignal))
+    expect(submitFeedback).toHaveBeenCalledWith({ title: 'Key problem', content: 'key scoped issue' }, expect.any(AbortSignal))
     expect(JSON.stringify(getSummary.mock.calls)).not.toContain('key scoped issue')
     expect(showSuccess).toHaveBeenCalledWith('feedback.success')
     expect(wrapper.find('#feedback-content').exists()).toBe(false)

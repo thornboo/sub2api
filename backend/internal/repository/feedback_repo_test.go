@@ -29,7 +29,7 @@ func TestFeedbackRepositoryListReturnsAdminTicketWithoutFullKey(t *testing.T) {
 	mock.ExpectQuery(`CASE\s+WHEN k.key IS NULL THEN ''\s+WHEN char_length\(k.key\) <= 8 THEN '\*\*\*'\s+ELSE left\(k.key, 8\) \|\| '\.\.\.'\s+END AS key_prefix.*feedback_read_receipts rr.*WHERE 1=1 AND f.status = \$1.*ORDER BY f.updated_at DESC, f.id DESC.*LIMIT \$5 OFFSET \$6`).
 		WithArgs(service.FeedbackStatusOpen, service.FeedbackActorAdmin, int64(1), service.FeedbackActorUser, 20, 0).
 		WillReturnRows(feedbackRows().
-			AddRow(int64(1), "content", service.FeedbackSourceKey, service.FeedbackStatusOpen, int64(7), "u@example.com", apiKeyID, "test key", "sk-12345...", memberID, now, now, nil, nil, int64(3)))
+			AddRow(int64(1), "title", "content", service.FeedbackSourceKey, service.FeedbackStatusOpen, service.FeedbackReplyStatusPending, int64(7), "u@example.com", "Test User", apiKeyID, "test key", "sk-12345...", memberID, now, now, nil, nil, int64(3)))
 
 	repo := NewFeedbackRepository(db)
 	items, result, err := repo.ListByScope(
@@ -89,6 +89,72 @@ func TestFeedbackRepositoryKeyScopeUsesOriginMemberSnapshot(t *testing.T) {
 	}
 }
 
+func TestFeedbackRepositoryReplyStatusFilterAppliesBeforeCountAndPagination(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	now := time.Unix(1776790020, 0)
+
+	replyStatusPredicate := `CASE WHEN \(\s+SELECT fr_latest\.author_role\s+FROM feedback_replies fr_latest\s+WHERE fr_latest\.feedback_id = f\.id\s+ORDER BY fr_latest\.created_at DESC, fr_latest\.id DESC\s+LIMIT 1\s+\) = 'admin' THEN 'replied'\s+ELSE 'pending' END\) = \$1`
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM feedbacks f WHERE 1=1 AND \(` + replyStatusPredicate).
+		WithArgs(service.FeedbackReplyStatusReplied).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(1)))
+	mock.ExpectQuery(`SELECT.*AS reply_status.*feedback_read_receipts rr.*WHERE 1=1 AND \(`+replyStatusPredicate+`.*ORDER BY f.updated_at DESC, f.id DESC.*LIMIT \$5 OFFSET \$6`).
+		WithArgs(service.FeedbackReplyStatusReplied, service.FeedbackActorAdmin, int64(900), service.FeedbackActorUser, 1, 1).
+		WillReturnRows(feedbackRows().
+			AddRow(int64(42), "title", "content", service.FeedbackSourceUser, service.FeedbackStatusOpen, service.FeedbackReplyStatusReplied, int64(7), "u@example.com", "Test User", nil, "", "", nil, now, now, nil, nil, int64(0)))
+
+	repo := NewFeedbackRepository(db)
+	items, result, err := repo.ListByScope(
+		context.Background(),
+		pagination.PaginationParams{Page: 2, PageSize: 1},
+		service.FeedbackListFilters{ReplyStatus: service.FeedbackReplyStatusReplied},
+		service.FeedbackScope{Kind: service.FeedbackActorAdmin},
+		service.FeedbackReader{Kind: service.FeedbackActorAdmin, ID: 900},
+	)
+	if err != nil {
+		t.Fatalf("ListByScope: %v", err)
+	}
+	if result.Total != 1 || result.PageSize != 1 || len(items) != 1 || items[0].ReplyStatus != service.FeedbackReplyStatusReplied {
+		t.Fatalf("unexpected result=%+v items=%+v", result, items)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestFeedbackRepositoryReplyStatusFilterCombinesWithKeyScope(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	memberID := int64(9)
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM feedbacks f WHERE 1=1 AND \(CASE WHEN .* THEN 'replied'\s+ELSE 'pending' END\) = \$1 AND f.source = 'key' AND f.user_id = \$2 AND f.api_key_id = \$3 AND f.origin_member_id = \$4`).
+		WithArgs(service.FeedbackReplyStatusPending, int64(7), int64(101), memberID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(0)))
+	mock.ExpectQuery(`WHERE 1=1 AND \(CASE WHEN .* THEN 'replied'\s+ELSE 'pending' END\) = \$1 AND f.source = 'key' AND f.user_id = \$2 AND f.api_key_id = \$3 AND f.origin_member_id = \$4.*ORDER BY f.updated_at DESC`).
+		WithArgs(service.FeedbackReplyStatusPending, int64(7), int64(101), memberID, service.FeedbackSourceKey, int64(101), service.FeedbackActorAdmin, 20, 0).
+		WillReturnRows(feedbackRows())
+
+	repo := NewFeedbackRepository(db)
+	_, _, err = repo.ListByScope(context.Background(), pagination.PaginationParams{Page: 1, PageSize: 20}, service.FeedbackListFilters{ReplyStatus: service.FeedbackReplyStatusPending}, service.FeedbackScope{
+		Kind:     service.FeedbackSourceKey,
+		UserID:   7,
+		APIKeyID: 101,
+		MemberID: &memberID,
+	}, service.FeedbackReader{Kind: service.FeedbackSourceKey, ID: 101})
+	if err != nil {
+		t.Fatalf("ListByScope: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestFeedbackRepositoryCloseLocksFeedbackAndIsIdempotent(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	if err != nil {
@@ -101,10 +167,10 @@ func TestFeedbackRepositoryCloseLocksFeedbackAndIsIdempotent(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT.*FROM feedbacks f.*WHERE 1=1 AND f.id = \$1\s+FOR UPDATE OF f`).
 		WithArgs(int64(42)).
-		WillReturnRows(feedbackRows().AddRow(int64(42), "content", service.FeedbackSourceUser, service.FeedbackStatusOpen, int64(7), "u@example.com", nil, "", "", nil, now, now, nil, nil, int64(0)))
+		WillReturnRows(feedbackRows().AddRow(int64(42), "title", "content", service.FeedbackSourceUser, service.FeedbackStatusOpen, service.FeedbackReplyStatusPending, int64(7), "u@example.com", "Test User", nil, "", "", nil, now, now, nil, nil, int64(0)))
 	mock.ExpectQuery(`WITH updated AS \(\s+UPDATE feedbacks\s+SET status = \$2, closed_at = NOW\(\), closed_by = \$3, updated_at = NOW\(\)\s+WHERE id = \$1\s+RETURNING \*\s+\)\s+SELECT.*FROM updated f.*feedback_read_receipts rr`).
 		WithArgs(int64(42), service.FeedbackStatusClosed, service.FeedbackActorAdmin, service.FeedbackActorAdmin, int64(900), service.FeedbackActorUser).
-		WillReturnRows(feedbackRows().AddRow(int64(42), "content", service.FeedbackSourceUser, service.FeedbackStatusClosed, int64(7), "u@example.com", nil, "", "", nil, now, closedAt, closedAt, service.FeedbackActorAdmin, int64(1)))
+		WillReturnRows(feedbackRows().AddRow(int64(42), "title", "content", service.FeedbackSourceUser, service.FeedbackStatusClosed, service.FeedbackReplyStatusPending, int64(7), "u@example.com", "Test User", nil, "", "", nil, now, closedAt, closedAt, service.FeedbackActorAdmin, int64(1)))
 	mock.ExpectCommit()
 
 	repo := NewFeedbackRepository(db)
@@ -132,7 +198,7 @@ func TestFeedbackRepositoryCreateReplyRejectsClosedWithinLock(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT.*FROM feedbacks f.*WHERE 1=1 AND f.id = \$1 AND f.source = 'user' AND f.user_id = \$2\s+FOR UPDATE OF f`).
 		WithArgs(int64(42), int64(7)).
-		WillReturnRows(feedbackRows().AddRow(int64(42), "content", service.FeedbackSourceUser, service.FeedbackStatusClosed, int64(7), "u@example.com", nil, "", "", nil, now, now, now, closedBy, int64(0)))
+		WillReturnRows(feedbackRows().AddRow(int64(42), "title", "content", service.FeedbackSourceUser, service.FeedbackStatusClosed, service.FeedbackReplyStatusPending, int64(7), "u@example.com", "Test User", nil, "", "", nil, now, now, now, closedBy, int64(0)))
 	mock.ExpectRollback()
 
 	repo := NewFeedbackRepository(db)
@@ -161,7 +227,7 @@ func TestFeedbackRepositoryCreateReplyLocksInsertsTouchesAndCommits(t *testing.T
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT.*FROM feedbacks f.*WHERE 1=1 AND f.id = \$1 AND f.source = 'user' AND f.user_id = \$2\s+FOR UPDATE OF f`).
 		WithArgs(int64(42), int64(7)).
-		WillReturnRows(feedbackRows().AddRow(int64(42), "content", service.FeedbackSourceUser, service.FeedbackStatusOpen, int64(7), "u@example.com", nil, "", "", nil, now, now, nil, nil, int64(0)))
+		WillReturnRows(feedbackRows().AddRow(int64(42), "title", "content", service.FeedbackSourceUser, service.FeedbackStatusOpen, service.FeedbackReplyStatusPending, int64(7), "u@example.com", "Test User", nil, "", "", nil, now, now, nil, nil, int64(0)))
 	mock.ExpectQuery(`INSERT INTO feedback_replies \(feedback_id, author_role, content\)\s+VALUES \(\$1, \$2, \$3\)\s+RETURNING id, feedback_id, author_role, content, created_at`).
 		WithArgs(int64(42), service.FeedbackActorUser, "reply").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "feedback_id", "author_role", "content", "created_at"}).
@@ -220,7 +286,7 @@ func TestFeedbackRepositoryMarkReadUsesMonotonicCursorAndReturnsIncomingUnread(t
 
 	mock.ExpectQuery(`SELECT.*FROM feedbacks f.*feedback_read_receipts rr.*WHERE 1=1 AND f.id = \$1 AND f.source = 'user' AND f.user_id = \$2`).
 		WithArgs(int64(42), int64(7), service.FeedbackActorUser, int64(7), service.FeedbackActorAdmin).
-		WillReturnRows(feedbackRows().AddRow(int64(42), "content", service.FeedbackSourceUser, service.FeedbackStatusOpen, int64(7), "u@example.com", nil, "", "", nil, now, now, nil, nil, int64(2)))
+		WillReturnRows(feedbackRows().AddRow(int64(42), "title", "content", service.FeedbackSourceUser, service.FeedbackStatusOpen, service.FeedbackReplyStatusPending, int64(7), "u@example.com", "Test User", nil, "", "", nil, now, now, nil, nil, int64(2)))
 	mock.ExpectQuery(`SELECT EXISTS\(.*FROM feedback_replies.*WHERE feedback_id = \$1 AND id = \$2`).
 		WithArgs(int64(42), int64(5)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -257,7 +323,7 @@ func TestFeedbackRepositoryMarkReadRejectsForeignCursorAfterScopePasses(t *testi
 
 	mock.ExpectQuery(`SELECT.*FROM feedbacks f.*feedback_read_receipts rr.*WHERE 1=1 AND f.id = \$1`).
 		WithArgs(int64(42), service.FeedbackActorAdmin, int64(900), service.FeedbackActorUser).
-		WillReturnRows(feedbackRows().AddRow(int64(42), "content", service.FeedbackSourceUser, service.FeedbackStatusOpen, int64(7), "u@example.com", nil, "", "", nil, now, now, nil, nil, int64(1)))
+		WillReturnRows(feedbackRows().AddRow(int64(42), "title", "content", service.FeedbackSourceUser, service.FeedbackStatusOpen, service.FeedbackReplyStatusPending, int64(7), "u@example.com", "Test User", nil, "", "", nil, now, now, nil, nil, int64(1)))
 	mock.ExpectQuery(`SELECT EXISTS\(.*FROM feedback_replies.*WHERE feedback_id = \$1 AND id = \$2`).
 		WithArgs(int64(42), int64(99)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
@@ -279,5 +345,5 @@ func TestFeedbackRepositoryMarkReadRejectsForeignCursorAfterScopePasses(t *testi
 }
 
 func feedbackRows() *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"id", "content", "source", "status", "user_id", "user_email", "api_key_id", "key_name", "key_prefix", "member_id", "created_at", "updated_at", "closed_at", "closed_by", "unread_count"})
+	return sqlmock.NewRows([]string{"id", "title", "content", "source", "status", "reply_status", "user_id", "user_email", "user_name", "api_key_id", "key_name", "key_prefix", "member_id", "created_at", "updated_at", "closed_at", "closed_by", "unread_count"})
 }

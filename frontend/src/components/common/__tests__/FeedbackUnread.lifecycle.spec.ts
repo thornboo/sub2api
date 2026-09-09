@@ -16,6 +16,7 @@ vi.mock('vue-i18n', async () => {
 })
 
 const ticket: FeedbackTicket = {
+  title: 'First issue', reply_status: 'replied',
   id: 9, content: 'ticket opening', source: 'user', status: 'open',
   created_at: '2026-09-08T00:00:00Z', updated_at: '2026-09-08T00:01:00Z',
   closed_at: null, closed_by: null, unread_count: 1,

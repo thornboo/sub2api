@@ -65,6 +65,7 @@ const openTicket = {
   source: 'key',
   status: 'open',
   user_id: 3,
+  user_name: 'Example user',
   user_email: '',
   api_key_id: 7,
   key_name: 'Prod Key',
@@ -126,9 +127,36 @@ describe('FeedbackView', () => {
     await flushPromises()
 
     expect(listFeedback).toHaveBeenCalledWith(1, 20, { status: undefined }, { signal: expect.any(AbortSignal) })
+    const row = wrapper.get('[data-testid="feedback-ticket-row"]')
+    expect(row.text()).toContain('Example user')
+    expect(row.text()).toContain('#3')
+    expect(row.text()).not.toContain('Prod Key')
+    await row.trigger('click')
+    await flushPromises()
     expect(wrapper.text()).toContain('Prod Key')
-    expect(wrapper.text()).toContain('<img src=x onerror=alert(1)>plain')
-    expect(wrapper.html()).not.toContain('<img src=x')
+    const openingBubble = wrapper.get('[data-testid="feedback-message"][data-opening="true"]')
+    expect(openingBubble.text()).toContain('<img src=x onerror=alert(1)>plain')
+    expect(openingBubble.find('img').exists()).toBe(false)
+    expect(openingBubble.find('[onerror]').exists()).toBe(false)
+  })
+
+  it('keeps titled ticket rows compact without duplicating the opening message or Key name', async () => {
+    const titledTicket = {
+      ...openTicket,
+      title: 'Cannot finish checkout',
+      content: 'This longer opening message belongs in the thread body.',
+    }
+    listFeedback.mockResolvedValue({ items: [titledTicket], total: 1, page: 1, page_size: 20, pages: 1 })
+    getFeedback.mockResolvedValue(titledTicket)
+    const wrapper = mountView()
+    await flushPromises()
+
+    const row = wrapper.get('[data-testid="feedback-ticket-row"]')
+    expect(row.text()).toContain('Cannot finish checkout')
+    expect(row.text()).toContain('Example user')
+    expect(row.text()).toContain('#3')
+    expect(row.text()).not.toContain('This longer opening message belongs in the thread body.')
+    expect(row.text()).not.toContain('Prod Key')
   })
 
   it('opens a ticket detail and shows administrator replies', async () => {
@@ -143,6 +171,47 @@ describe('FeedbackView', () => {
     expect(wrapper.text()).toContain('feedback.openingMessage')
     expect(wrapper.text()).toContain('Admin reply')
     expect(wrapper.text()).toContain('feedback.authorLabels.admin')
+    const bubbles = wrapper.findAll('[data-testid="feedback-message"]')
+    expect(bubbles).toHaveLength(2)
+    expect(bubbles.map((bubble) => bubble.attributes('data-side'))).toEqual(['incoming', 'outgoing'])
+    expect(bubbles.map((bubble) => bubble.attributes('data-opening'))).toEqual(['true', 'false'])
+    const identity = wrapper.get('[data-testid="feedback-ticket-identity"]')
+    expect(identity.text()).toContain('admin.feedback.owner')
+    expect(identity.text()).toContain('Example user')
+    expect(identity.text()).toContain('#3')
+    expect(identity.text()).toContain('Prod Key')
+  })
+
+  it('shows the submitting user name and ID for login-origin tickets', async () => {
+    const loginTicket = { ...openTicket, source: 'user', key_name: '', user_name: 'Login user' }
+    listFeedback.mockResolvedValue({ items: [loginTicket], total: 1, page: 1, page_size: 20, pages: 1 })
+    getFeedback.mockResolvedValue(loginTicket)
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-testid="feedback-ticket-row"]').trigger('click')
+    await flushPromises()
+    const identity = wrapper.get('[data-testid="feedback-ticket-identity"]')
+    expect(identity.text()).toContain('admin.feedback.submitter')
+    expect(identity.text()).toContain('Login user')
+    expect(identity.text()).toContain('#3')
+    expect(identity.text()).not.toContain('admin.feedback.owner')
+  })
+
+  it.each([
+    { user_name: '  ', user_email: 'user@example.test', expected: 'user@example.test' },
+    { user_name: '', user_email: '', expected: 'admin.feedback.unnamedUser' },
+  ])('keeps user identity recognizable when no name is set: $expected', async ({ user_name, user_email, expected }) => {
+    const item = { ...openTicket, user_name, user_email }
+    listFeedback.mockResolvedValue({ items: [item], total: 1, page: 1, page_size: 20, pages: 1 })
+    getFeedback.mockResolvedValue(item)
+    const wrapper = mountView()
+    await flushPromises()
+    const row = wrapper.get('[data-testid="feedback-ticket-row"]')
+    expect(row.text()).toContain(expected)
+    expect(row.text()).toContain('#3')
+    await row.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="feedback-ticket-identity"]').text()).toContain(expected)
   })
 
   it('allows the administrator to reply and refreshes the thread', async () => {

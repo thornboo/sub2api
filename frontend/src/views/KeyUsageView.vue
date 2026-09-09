@@ -519,7 +519,7 @@ import {
   type PublicKeyUsageRecordKind,
   type PublicKeyUsageSummary,
 } from '@/api/publicKeyUsage'
-import type { FeedbackSubmitResult } from '@/api/feedback'
+import type { FeedbackSubmitRequest, FeedbackSubmitResult } from '@/api/feedback'
 import { useAppStore } from '@/stores'
 import type { UserAnnouncement } from '@/types'
 import { clearKeyAnnouncementSession, restoreKeyAnnouncementIds, saveKeyAnnouncementIds } from '@/utils/keyAnnouncementSession'
@@ -1097,8 +1097,8 @@ function clearQueryData(options: { preserveAnnouncementSession?: boolean } = {})
   clearAnnouncementState()
 }
 
-function submitKeyFeedback(content: string, signal?: AbortSignal) {
-  return publicKeyUsageAPI.submitFeedback(content, signal)
+function submitKeyFeedback(request: FeedbackSubmitRequest, signal?: AbortSignal) {
+  return publicKeyUsageAPI.submitFeedback(request, signal)
 }
 
 function openFeedbackHistory() {

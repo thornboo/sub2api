@@ -1,7 +1,10 @@
 <template>
-  <div class="grid min-h-[560px] gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-    <section class="min-w-0 rounded-lg border border-stone-200 bg-white dark:border-white/10 dark:bg-[#0d0d0d]">
-      <div class="border-b border-stone-200 p-3 dark:border-white/10">
+  <div
+    class="grid min-h-[560px] gap-4 lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,2fr)]"
+    :class="fillHeight ? 'lg:h-full' : 'lg:h-[min(760px,calc(100dvh-200px))]'"
+  >
+    <section class="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-stone-200 bg-white dark:border-white/10 dark:bg-[#0d0d0d]">
+      <div class="shrink-0 border-b border-stone-200 p-3 dark:border-white/10">
         <div class="flex items-center justify-between gap-2">
           <h2 class="text-sm font-semibold text-stone-900 dark:text-white">{{ title }}</h2>
           <div class="flex items-center gap-1">
@@ -10,6 +13,7 @@
               class="rounded-lg p-1.5 text-stone-500 hover:bg-stone-100 hover:text-stone-900 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/10 dark:hover:text-white"
               :disabled="ticketsLoading"
               :title="t('common.refresh')"
+              :aria-label="t('common.refresh')"
               @click="loadTickets"
             >
               <Icon name="refresh" size="sm" :class="ticketsLoading && 'animate-spin'" />
@@ -20,14 +24,15 @@
             </button>
           </div>
         </div>
-        <div class="mt-3 grid grid-cols-3 gap-1 rounded-lg bg-stone-100 p-1 text-xs dark:bg-white/[0.06]">
+        <div class="mt-3 grid grid-cols-4 gap-1 rounded-lg bg-stone-100 p-1 text-xs dark:bg-white/[0.06]" :aria-label="t('feedback.filterLabel')">
           <button
             v-for="option in statusOptions"
             :key="option.value || 'all'"
             type="button"
             :data-testid="`feedback-filter-${option.value || 'all'}`"
-            class="rounded-md px-2 py-1.5 font-medium transition"
-            :class="statusFilter === option.value ? 'bg-white text-stone-950 shadow-sm dark:bg-[#1b1b1b] dark:text-white' : 'text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-white'"
+            :aria-pressed="statusFilter === option.value"
+            class="rounded-md border px-2 py-1.5 font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-100 dark:focus-visible:ring-offset-[#1b1b1b]"
+            :class="statusFilter === option.value ? 'border-emerald-500/50 bg-emerald-50 text-emerald-800 shadow-sm dark:border-emerald-400/50 dark:bg-emerald-500/20 dark:text-emerald-200' : 'border-transparent text-stone-500 hover:bg-white/70 hover:text-stone-900 dark:text-stone-400 dark:hover:bg-white/[0.05] dark:hover:text-white'"
             @click="setStatusFilter(option.value)"
           >
             {{ option.label }}
@@ -35,18 +40,18 @@
         </div>
       </div>
 
-      <div class="max-h-[430px] overflow-y-auto">
+      <div class="min-h-0 max-h-[430px] flex-1 overflow-y-auto lg:max-h-none">
         <button
           v-for="ticket in tickets"
           :key="ticket.id"
           type="button"
           data-testid="feedback-ticket-row"
-          class="block w-full border-b border-stone-100 px-3 py-3 text-left transition last:border-b-0 hover:bg-stone-50 dark:border-white/[0.06] dark:hover:bg-white/[0.04]"
+          class="block w-full border-b border-stone-100 px-3 py-3 text-left transition last:border-b-0 hover:bg-stone-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500 dark:border-white/[0.06] dark:hover:bg-white/[0.04]"
           :class="selectedTicket?.id === ticket.id && 'bg-emerald-50/70 dark:bg-emerald-500/[0.08]'"
           @click="selectTicket(ticket)"
         >
-          <div class="flex items-center justify-between gap-3">
-            <span class="inline-flex items-center gap-1.5 font-mono text-xs text-stone-500">
+          <div class="flex min-w-0 items-center gap-2">
+            <span class="inline-flex shrink-0 items-center gap-1.5 font-mono text-[11px] text-stone-500">
               #{{ ticket.id }}
               <span
                 v-if="ticket.unread_count > 0"
@@ -57,12 +62,16 @@
               ></span>
               <span v-if="ticket.unread_count > 0" class="sr-only">{{ t('feedback.unreadCount', { count: ticket.unread_count }) }}</span>
             </span>
-            <span :class="['badge', ticket.status === 'open' ? 'badge-success' : 'badge-gray']">{{ statusLabel(ticket.status) }}</span>
+            <span class="min-w-0 flex-1 truncate text-sm font-semibold leading-5 text-stone-900 dark:text-stone-100" :title="ticketTitle(ticket)">{{ ticketTitle(ticket) }}</span>
+            <span :class="['badge shrink-0', statusBadge(ticket)]">{{ statusLabel(ticket) }}</span>
           </div>
-          <p class="mt-2 line-clamp-2 whitespace-pre-wrap break-words text-sm leading-5 text-stone-800 dark:text-stone-200">{{ preview(ticket.content) }}</p>
-          <div class="mt-2 flex min-w-0 items-center justify-between gap-2 text-xs text-stone-400">
-            <span class="truncate">{{ ticketMeta(ticket) }}</span>
-            <span class="shrink-0">{{ formatDateTime(ticket.updated_at) }}</span>
+          <div class="mt-2 flex min-w-0 items-center justify-between gap-2 text-xs text-stone-500 dark:text-stone-400">
+            <span v-if="admin" class="flex min-w-0 items-center gap-1.5">
+              <span class="truncate" :title="ticketUserName(ticket)">{{ ticketUserName(ticket) }}</span>
+              <span v-if="ticket.user_id" class="shrink-0 font-mono" :aria-label="t('admin.feedback.userId', { id: ticket.user_id })">#{{ ticket.user_id }}</span>
+            </span>
+            <span v-else>{{ t('feedback.lastActivity') }}</span>
+            <time class="shrink-0 text-[11px] tabular-nums" :datetime="ticket.updated_at" :title="formatDateTimeToMinute(ticket.updated_at)">{{ formatQueueTime(ticket.updated_at) }}</time>
           </div>
         </button>
         <div v-if="ticketsLoading && tickets.length === 0" class="px-3 py-10 text-center text-sm text-stone-400">{{ t('feedback.loadingTickets') }}</div>
@@ -79,29 +88,23 @@
       />
     </section>
 
-    <section class="min-w-0 rounded-lg border border-stone-200 bg-white dark:border-white/10 dark:bg-[#0d0d0d]">
-      <div v-if="!selectedTicket" class="flex min-h-[520px] items-center justify-center px-4 text-sm text-stone-400">
+    <section class="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-stone-200 bg-white dark:border-white/10 dark:bg-[#0d0d0d]">
+      <div v-if="!selectedTicket" class="flex min-h-[520px] flex-1 items-center justify-center px-4 text-sm text-stone-400 lg:min-h-0">
         {{ t('feedback.selectTicket') }}
       </div>
 
-      <div v-else class="flex min-h-[560px] flex-col">
-        <div class="border-b border-stone-200 p-4 dark:border-white/10">
-          <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div class="min-w-0">
-              <div class="flex flex-wrap items-center gap-2">
-                <h2 class="font-mono text-sm font-semibold text-stone-900 dark:text-white">#{{ selectedTicket.id }}</h2>
-                <span :class="['badge', selectedTicket.status === 'open' ? 'badge-success' : 'badge-gray']">{{ statusLabel(selectedTicket.status) }}</span>
-                <span v-if="selectedTicket.source" :class="['badge', selectedTicket.source === 'key' ? 'badge-warning' : 'badge-success']">{{ sourceLabel(selectedTicket.source) }}</span>
-              </div>
-              <p class="mt-1 text-xs text-stone-500 dark:text-stone-400">{{ formatDateTime(selectedTicket.created_at) }} · {{ t('feedback.lastActivity') }} {{ formatDateTime(selectedTicket.updated_at) }}</p>
-              <p v-if="selectedTicket.status === 'closed' && selectedTicket.closed_at" class="mt-1 text-xs text-stone-500 dark:text-stone-400">
-                {{ t('feedback.closedBy', { actor: closedByLabel(selectedTicket.closed_by), time: formatDateTime(selectedTicket.closed_at) }) }}
-              </p>
+      <div v-else class="flex min-h-0 flex-1 flex-col">
+        <div data-testid="feedback-ticket-header" class="shrink-0 border-b border-stone-200 px-4 py-3 dark:border-white/10 sm:px-5">
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5 pt-1">
+              <span class="shrink-0 font-mono text-xs text-stone-500">#{{ selectedTicket.id }}</span>
+              <h2 class="min-w-0 max-w-full break-words text-base font-semibold leading-6 text-stone-950 [overflow-wrap:anywhere] dark:text-white">{{ ticketTitle(selectedTicket) }}</h2>
+              <span :class="['badge shrink-0', statusBadge(selectedTicket)]">{{ statusLabel(selectedTicket, true) }}</span>
+              <span v-if="selectedTicket.source" :class="['badge shrink-0', selectedTicket.source === 'key' ? 'badge-warning' : 'badge-success']">{{ sourceLabel(selectedTicket.source) }}</span>
             </div>
-            <div class="flex items-center gap-2">
-              <button type="button" class="btn btn-secondary h-9 px-3 text-sm" :disabled="detailLoading" @click="() => refreshSelected()">
-                <Icon name="refresh" size="sm" :class="detailLoading && 'animate-spin'" class="mr-1" />
-                {{ t('common.refresh') }}
+            <div class="flex shrink-0 items-center gap-2">
+              <button type="button" class="btn btn-secondary h-9 w-9 p-0" :disabled="detailLoading" :title="t('common.refresh')" :aria-label="t('common.refresh')" @click="() => refreshSelected()">
+                <Icon name="refresh" size="sm" :class="detailLoading && 'animate-spin'" />
               </button>
               <button
                 v-if="selectedTicket.status === 'open'"
@@ -115,38 +118,61 @@
               </button>
             </div>
           </div>
+          <div class="mt-2 flex min-w-0 flex-wrap items-baseline gap-x-5 gap-y-1.5 text-xs">
+            <dl v-if="admin" data-testid="feedback-ticket-identity" class="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1.5">
+              <div class="flex min-w-0 items-baseline gap-2">
+                <dt class="shrink-0 text-stone-500 dark:text-stone-400">{{ t(selectedTicket.source === 'key' ? 'admin.feedback.owner' : 'admin.feedback.submitter') }}</dt>
+                <dd class="flex min-w-0 items-baseline gap-1.5">
+                  <span class="min-w-0 font-medium text-stone-800 [overflow-wrap:anywhere] dark:text-stone-200">{{ ticketUserName(selectedTicket) }}</span>
+                  <span v-if="selectedTicket.user_id" class="shrink-0 font-mono text-stone-500" :aria-label="t('admin.feedback.userId', { id: selectedTicket.user_id })">#{{ selectedTicket.user_id }}</span>
+                </dd>
+              </div>
+              <div v-if="selectedTicket.source === 'key'" class="flex min-w-0 items-baseline gap-2">
+                <dt class="shrink-0 text-stone-500 dark:text-stone-400">{{ t('admin.feedback.keyLabel') }}</dt>
+                <dd class="min-w-0 text-stone-700 [overflow-wrap:anywhere] dark:text-stone-300">{{ ticketKeyName(selectedTicket) }}</dd>
+              </div>
+            </dl>
+            <p v-if="selectedTicket.status === 'closed' && selectedTicket.closed_at" class="min-w-0 text-stone-500 dark:text-stone-400 sm:ml-auto">
+              {{ t('feedback.closedBy', { actor: closedByLabel(selectedTicket.closed_by), time: formatDateTimeToMinute(selectedTicket.closed_at) }) }}
+            </p>
+            <p v-else class="min-w-0 text-stone-500 dark:text-stone-400 sm:ml-auto">
+              {{ t('feedback.lastActivity') }}
+              <time class="ml-1 tabular-nums" :datetime="selectedTicket.updated_at">{{ formatDateTimeToMinute(selectedTicket.updated_at) }}</time>
+            </p>
+          </div>
         </div>
 
-        <div class="flex-1 overflow-y-auto p-4">
-          <article class="rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-white/10 dark:bg-white/[0.04]">
-            <div class="mb-2 flex items-center justify-between gap-3 text-xs text-stone-500">
-              <span class="font-semibold text-stone-700 dark:text-stone-300">{{ t('feedback.openingMessage') }}</span>
-              <span>{{ formatDateTime(selectedTicket.created_at) }}</span>
-            </div>
-            <p class="whitespace-pre-wrap break-words text-sm leading-6 text-stone-800 dark:text-stone-200">{{ selectedTicket.content }}</p>
-          </article>
-
-          <div class="mt-4 space-y-3">
+        <div class="min-h-40 flex-1 overflow-y-auto px-4 py-5 sm:px-5">
+          <div class="space-y-5">
             <article
-              v-for="message in chronologicalMessages"
-              :key="message.id"
-              class="rounded-lg border p-3"
-              :class="message.author_role === 'admin'
-                ? 'border-emerald-500/25 bg-emerald-50/70 dark:bg-emerald-500/[0.08]'
-                : 'border-stone-200 bg-white dark:border-white/10 dark:bg-black/20'"
+              v-for="message in conversationEntries"
+              :key="message.key"
+              data-testid="feedback-message"
+              :data-side="isOutgoingMessage(message.author_role) ? 'outgoing' : 'incoming'"
+              :data-opening="message.opening"
+              class="flex min-w-0 flex-col"
+              :class="isOutgoingMessage(message.author_role) ? 'items-end' : 'items-start'"
             >
-              <div class="mb-2 flex items-center justify-between gap-3 text-xs text-stone-500">
-                <span class="font-semibold text-stone-700 dark:text-stone-300">{{ authorLabel(message.author_role) }}</span>
-                <span>{{ formatDateTime(message.created_at) }}</span>
+              <div class="mb-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1 px-1 text-[11px] text-stone-500 dark:text-stone-400" :class="isOutgoingMessage(message.author_role) && 'justify-end'">
+                <span class="font-medium text-stone-600 dark:text-stone-300">{{ authorLabel(message.author_role) }}</span>
+                <span v-if="message.opening">{{ t('feedback.openingMessage') }}</span>
+                <time class="tabular-nums" :datetime="message.created_at" :title="formatDateTimeToMinute(message.created_at)">{{ formatDateTimeToMinute(message.created_at) }}</time>
               </div>
-              <p class="whitespace-pre-wrap break-words text-sm leading-6 text-stone-800 dark:text-stone-200">{{ message.content }}</p>
+              <div
+                class="w-fit max-w-[92%] rounded-2xl border px-4 py-2.5 sm:max-w-[min(85%,42rem)]"
+                :class="isOutgoingMessage(message.author_role)
+                  ? 'rounded-tr-md border-emerald-500/25 bg-emerald-50 text-emerald-950 dark:bg-emerald-500/[0.12] dark:text-stone-100'
+                  : 'rounded-tl-md border-stone-200 bg-stone-100 text-stone-800 dark:border-white/10 dark:bg-white/[0.05] dark:text-stone-200'"
+              >
+                <p class="whitespace-pre-wrap text-sm leading-6 [overflow-wrap:anywhere]">{{ message.content }}</p>
+              </div>
             </article>
             <div v-if="messagesLoading" class="py-4 text-center text-sm text-stone-400">{{ t('feedback.loadingMessages') }}</div>
             <div v-else-if="messages.length === 0" class="py-4 text-center text-sm text-stone-400">{{ t('feedback.noReplies') }}</div>
           </div>
         </div>
 
-        <div class="border-t border-stone-200 p-4 dark:border-white/10">
+        <div data-testid="feedback-ticket-footer" class="shrink-0 border-t border-stone-200 p-4 dark:border-white/10">
           <div v-if="messagePagination.pages > 1" class="mb-3 flex items-center justify-between gap-3 text-xs text-stone-500">
             <button type="button" class="btn btn-secondary h-8 px-3 text-xs" :disabled="messagePagination.page >= messagePagination.pages || messagesLoading" @click="changeMessagePage(messagePagination.page + 1)">
               {{ t('feedback.olderMessages') }}
@@ -158,6 +184,7 @@
           </div>
 
           <form v-if="selectedTicket.status === 'open'" class="space-y-2" @submit.prevent="sendReply">
+            <label for="feedback-reply-content" class="sr-only">{{ t('feedback.sendReply') }}</label>
             <textarea
               id="feedback-reply-content"
               v-model="replyDraft"
@@ -188,9 +215,7 @@
               </button>
             </div>
           </form>
-          <p v-else class="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-stone-400">
-            {{ t('feedback.closedReadOnly') }}
-          </p>
+          <p v-else class="text-center text-sm text-stone-500 dark:text-stone-400">{{ t('feedback.closedReadOnly') }}</p>
         </div>
       </div>
     </section>
@@ -212,16 +237,16 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useI18n } from 'vue-i18n'
 
 import type { BasePaginationResponse } from '@/types'
-import type { FeedbackReadState, FeedbackReply, FeedbackReplyResult, FeedbackStatus, FeedbackTicket } from '@/api/feedback'
+import type { FeedbackListFilters, FeedbackReadState, FeedbackReply, FeedbackReplyResult, FeedbackReplyStatus, FeedbackTicket } from '@/api/feedback'
 import { useAppStore } from '@/stores/app'
-import { formatDateTime } from '@/utils/format'
+import { formatDateTime, formatDateTimeToMinute } from '@/utils/format'
 
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import Pagination from '@/components/common/Pagination.vue'
 
 interface ThreadAPI<T extends FeedbackTicket> {
-  list: (page: number, pageSize: number, filters: { status?: FeedbackStatus }, options?: { signal?: AbortSignal }) => Promise<BasePaginationResponse<T>>
+  list: (page: number, pageSize: number, filters: FeedbackListFilters, options?: { signal?: AbortSignal }) => Promise<BasePaginationResponse<T>>
   get: (id: number, signal?: AbortSignal) => Promise<T>
   listMessages: (id: number, page: number, pageSize: number, signal?: AbortSignal) => Promise<BasePaginationResponse<FeedbackReply>>
   reply: (id: number, content: string, signal?: AbortSignal) => Promise<FeedbackReplyResult>
@@ -231,6 +256,7 @@ interface ThreadAPI<T extends FeedbackTicket> {
 
 type AnyTicket = FeedbackTicket & {
   user_id?: number
+  user_name?: string
   user_email?: string
   api_key_id?: number | null
   key_name?: string
@@ -244,9 +270,11 @@ const props = withDefaults(defineProps<{
   api: ThreadAPI<AnyTicket>
   showCreate?: boolean
   admin?: boolean
+  fillHeight?: boolean
 }>(), {
   showCreate: false,
   admin: false,
+  fillHeight: false,
 })
 
 const emit = defineEmits<{
@@ -270,7 +298,8 @@ const detailLoading = ref(false)
 const messagesLoading = ref(false)
 const replying = ref(false)
 const closing = ref(false)
-const statusFilter = ref<FeedbackStatus | ''>('')
+type TicketFilter = FeedbackReplyStatus | 'closed' | ''
+const statusFilter = ref<TicketFilter>('')
 const replyDraft = ref('')
 const attachmentError = ref('')
 const attemptedReply = ref(false)
@@ -297,10 +326,18 @@ let lastAckByTicket = new Map<number, number>()
 
 const statusOptions = computed(() => [
   { value: '' as const, label: t('feedback.allTickets') },
-  { value: 'open' as const, label: t('feedback.statusLabels.open') },
+  { value: 'pending' as const, label: t('feedback.replyStatusLabels.pending') },
+  { value: 'replied' as const, label: t('feedback.replyStatusLabels.replied') },
   { value: 'closed' as const, label: t('feedback.statusLabels.closed') },
 ])
-const chronologicalMessages = computed(() => [...messages.value].reverse())
+const conversationEntries = computed(() => {
+  const ticket = selectedTicket.value
+  if (!ticket) return []
+  return [
+    { key: `opening:${ticket.id}`, author_role: 'user' as const, content: ticket.content, created_at: ticket.created_at, opening: true },
+    ...[...messages.value].reverse().map(message => ({ ...message, key: `reply:${message.id}`, opening: false })),
+  ]
+})
 const trimmedReply = computed(() => replyDraft.value.trim())
 const replyLength = computed(() => Array.from(trimmedReply.value).length)
 const cooldownRemaining = computed(() => Math.max(0, Math.ceil((cooldownUntil.value - now.value) / 1000)))
@@ -319,8 +356,35 @@ function preview(content: string) {
   return chars.length > 96 ? `${chars.slice(0, 96).join('')}...` : normalized
 }
 
-function statusLabel(status: FeedbackStatus) {
-  return t(`feedback.statusLabels.${status}`)
+function ticketTitle(ticket: AnyTicket) {
+  return ticket.title?.trim() || preview(ticket.content)
+}
+
+function formatQueueTime(value: string) {
+  return formatDateTime(value, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+function isOutgoingMessage(role: FeedbackReply['author_role']) {
+  return role === (props.admin ? 'admin' : 'user')
+}
+
+function statusLabel(ticket: AnyTicket, detail = false) {
+  if (ticket.status === 'closed') return t('feedback.statusLabels.closed')
+  // Older servers do not expose reply progress; do not invent a pending state.
+  if (!ticket.reply_status) return t('feedback.statusLabels.open')
+  return t(`feedback.${detail && !props.admin ? 'userReplyStatusLabels' : 'replyStatusLabels'}.${ticket.reply_status}`)
+}
+
+function statusBadge(ticket: AnyTicket) {
+  if (ticket.status === 'closed') return 'badge-gray'
+  return ticket.reply_status === 'pending' ? 'badge-warning' : 'badge-success'
+}
+
+function listFilters(): FeedbackListFilters {
+  if (statusFilter.value === 'pending' || statusFilter.value === 'replied') {
+    return { status: 'open', reply_status: statusFilter.value }
+  }
+  return { status: statusFilter.value || undefined }
 }
 
 function sourceLabel(source: AnyTicket['source']) {
@@ -353,13 +417,12 @@ function markClosed(id: number) {
   if (pendingCloseTicket.value?.id === id) pendingCloseTicket.value = null
 }
 
-function ticketMeta(ticket: AnyTicket) {
-  if (!props.admin) return t('feedback.lastActivity')
-  if (ticket.source === 'key') {
-    const title = ticket.key_name || ticket.key_prefix || (ticket.api_key_id ? t('admin.feedback.keyId', { id: ticket.api_key_id }) : t('admin.feedback.deletedKey'))
-    return [title, ticket.user_id ? t('admin.feedback.userId', { id: ticket.user_id }) : ''].filter(Boolean).join(' · ')
-  }
-  return ticket.user_email || (ticket.user_id ? t('admin.feedback.userId', { id: ticket.user_id }) : sourceLabel(ticket.source))
+function ticketUserName(ticket: AnyTicket) {
+  return ticket.user_name?.trim() || ticket.user_email?.trim() || t('admin.feedback.unnamedUser')
+}
+
+function ticketKeyName(ticket: AnyTicket) {
+  return ticket.key_name || ticket.key_prefix || (ticket.api_key_id ? t('admin.feedback.keyId', { id: ticket.api_key_id }) : t('admin.feedback.deletedKey'))
 }
 
 function isCanceled(error: unknown) {
@@ -464,21 +527,33 @@ async function fetchTickets(preserveSelected: boolean, quiet = false) {
   const controller = new AbortController()
   ticketsController = controller
   ticketsLoading.value = true
+  let page = ticketPagination.page
+  const pageSize = ticketPagination.page_size
+  const filters = listFilters()
 
   try {
-    const res = await props.api.list(ticketPagination.page, ticketPagination.page_size, { status: statusFilter.value || undefined }, { signal: controller.signal })
-    if (controller.signal.aborted || requestEpoch !== identityEpoch || ticketsController !== controller) return
-    tickets.value = res.items.map(preserveClosedState)
-    ticketPagination.total = res.total
-    ticketPagination.pages = res.pages
-    ticketPagination.page = res.page
-    ticketPagination.page_size = res.page_size
-    if (!preserveSelected && selectedTicket.value && !res.items.some((ticket) => ticket.id === selectedTicket.value?.id)) {
-      selectionEpoch += 1
-      detailController?.abort()
-      messagesController?.abort()
-      selectedTicket.value = null
-      messages.value = []
+    while (true) {
+      const res = await props.api.list(page, pageSize, filters, { signal: controller.signal })
+      if (controller.signal.aborted || requestEpoch !== identityEpoch || ticketsController !== controller) return
+      const lastPage = Math.max(1, res.pages)
+      // Replies or closures can shrink a filtered queue. Each retry moves to a lower page.
+      if (page > lastPage) {
+        page = lastPage
+        continue
+      }
+      tickets.value = res.items.map(preserveClosedState)
+      ticketPagination.total = res.total
+      ticketPagination.pages = res.pages
+      ticketPagination.page = res.page
+      ticketPagination.page_size = res.page_size
+      if (!preserveSelected && selectedTicket.value && !res.items.some((ticket) => ticket.id === selectedTicket.value?.id)) {
+        selectionEpoch += 1
+        detailController?.abort()
+        messagesController?.abort()
+        selectedTicket.value = null
+        messages.value = []
+      }
+      break
     }
   } catch (error: unknown) {
     if (controller.signal.aborted || requestEpoch !== identityEpoch || isCanceled(error)) return
@@ -506,7 +581,7 @@ async function refreshAfterCreate(createdId?: number) {
   if (createdTicket) await selectTicket(createdTicket)
 }
 
-function setStatusFilter(value: FeedbackStatus | '') {
+function setStatusFilter(value: TicketFilter) {
   statusFilter.value = value
   ticketPagination.page = 1
   void loadTickets()

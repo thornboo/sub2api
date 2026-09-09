@@ -1,6 +1,7 @@
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { formatDateTimeToMinute } from '@/utils/format'
 import FeedbackThreadPanel from '../FeedbackThreadPanel.vue'
 
 enableAutoUnmount(afterEach)
@@ -63,13 +64,18 @@ function makeAPI() {
   }
 }
 
-function mountPanel(api = makeAPI(), identityKey = 'user:1') {
+function mountPanel(
+  api = makeAPI(),
+  identityKey = 'user:1',
+  props: Partial<InstanceType<typeof FeedbackThreadPanel>['$props']> = {},
+) {
   const wrapper = mount(FeedbackThreadPanel, {
     props: {
       identityKey,
       title: 'Tickets',
       api,
       showCreate: true,
+      ...props,
     },
     global: {
       stubs: {
@@ -94,6 +100,127 @@ describe('FeedbackThreadPanel', () => {
     vi.clearAllMocks()
   })
 
+  it('shows reply progress independently of unread messages and gives closure precedence', async () => {
+    const api = makeAPI()
+    api.list.mockResolvedValue({ items: [
+      { ...openTicket, title: 'Waiting for help', reply_status: 'pending', unread_count: 0 },
+      { ...openTicket, id: 10, title: 'Answer received', reply_status: 'replied', unread_count: 2 },
+      { ...closedTicket, id: 11, title: 'Finished thread', reply_status: 'pending' },
+    ], total: 3, page: 1, page_size: 20, pages: 1 })
+    const { wrapper } = mountPanel(api)
+    await flushPromises()
+    const rows = wrapper.findAll('[data-testid="feedback-ticket-row"]')
+    expect(rows[0].text()).toContain('Waiting for help')
+    expect(rows[0].text()).toContain('feedback.replyStatusLabels.pending')
+    expect(rows[1].text()).toContain('feedback.replyStatusLabels.replied')
+    expect(rows[2].text()).toContain('feedback.statusLabels.closed')
+    expect(rows[2].text()).not.toContain('feedback.replyStatusLabels.pending')
+  })
+
+  it('requests reply-status filtering from the server and resets pagination', async () => {
+    const { wrapper, api } = mountPanel()
+    await flushPromises()
+    await wrapper.get('[data-testid="feedback-filter-pending"]').trigger('click')
+    await flushPromises()
+    expect(api.list).toHaveBeenLastCalledWith(1, 20, { status: 'open', reply_status: 'pending' }, { signal: expect.any(AbortSignal) })
+    await wrapper.get('[data-testid="feedback-filter-replied"]').trigger('click')
+    await flushPromises()
+    expect(api.list).toHaveBeenLastCalledWith(1, 20, { status: 'open', reply_status: 'replied' }, { signal: expect.any(AbortSignal) })
+  })
+
+  it.each([
+    { admin: true, filter: 'pending', nextStatus: 'replied' },
+    { admin: false, filter: 'replied', nextStatus: 'pending' },
+  ])('returns to the last valid $filter page after replying and keeps the conversation open', async ({ admin, filter, nextStatus }) => {
+    const api = makeAPI()
+    let replied = false
+    const selected = { ...openTicket, title: 'Last ticket on page two', reply_status: filter }
+    const remaining = Array.from({ length: 20 }, (_, index) => ({
+      ...openTicket, id: 100 + index, title: `Remaining ticket ${index}`, reply_status: filter,
+    }))
+    api.list.mockImplementation(async (page: number) => ({
+      items: page === 1 ? remaining : replied ? [] : [selected],
+      total: replied ? 20 : 21, page, page_size: 20, pages: replied ? 1 : 2,
+    }))
+    api.get.mockImplementation(async () => ({ ...selected, reply_status: replied ? nextStatus : filter }))
+    api.reply.mockImplementation(async () => {
+      replied = true
+      return { message: { id: 3, feedback_id: 9, author_role: admin ? 'admin' : 'user', content: 'sent', created_at: openTicket.updated_at }, retry_after: 0 }
+    })
+    const { wrapper } = mountPanel(api, admin ? 'admin:1' : 'user:1', { admin })
+    await flushPromises()
+    await wrapper.get(`[data-testid="feedback-filter-${filter}"]`).trigger('click')
+    await flushPromises()
+    await wrapper.get('.pagination-next').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="feedback-ticket-row"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('#feedback-reply-content').setValue('sent')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(api.list).toHaveBeenLastCalledWith(1, 20, { status: 'open', reply_status: filter }, { signal: expect.any(AbortSignal) })
+    expect(wrapper.findAll('[data-testid="feedback-ticket-row"]')).toHaveLength(20)
+    expect(wrapper.find('.pagination-next').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('feedback.emptyTickets')
+    expect(wrapper.get('[data-testid="feedback-ticket-header"]').text()).toContain(selected.title)
+    expect(wrapper.get('[data-testid="feedback-ticket-header"]').text()).toContain(admin ? `feedback.replyStatusLabels.${nextStatus}` : `feedback.userReplyStatusLabels.${nextStatus}`)
+    expect(wrapper.get('#feedback-reply-content').element).toHaveProperty('value', '')
+  })
+
+  it('normalizes an emptied queue to page one so subsequent refreshes can show new tickets', async () => {
+    const api = makeAPI()
+    api.list.mockImplementation(async (page: number) => ({ items: [openTicket], total: 21, page, page_size: 20, pages: 2 }))
+    const { wrapper } = mountPanel(api)
+    await flushPromises()
+    await wrapper.get('.pagination-next').trigger('click')
+    await flushPromises()
+
+    api.list.mockImplementation(async (page: number) => ({ items: [], total: 0, page, page_size: 20, pages: 0 }))
+    await wrapper.get('button[aria-label="common.refresh"]').trigger('click')
+    await flushPromises()
+    expect(api.list.mock.calls.at(-1)?.[0]).toBe(1)
+    expect(wrapper.text()).toContain('feedback.emptyTickets')
+    expect(wrapper.find('.pagination-next').exists()).toBe(false)
+
+    api.list.mockImplementation(async (page: number) => ({ items: page === 1 ? [openTicket] : [], total: 1, page, page_size: 20, pages: 1 }))
+    await wrapper.get('button[aria-label="common.refresh"]').trigger('click')
+    await flushPromises()
+    expect(api.list.mock.calls.at(-1)?.[0]).toBe(1)
+    expect(wrapper.findAll('[data-testid="feedback-ticket-row"]')).toHaveLength(1)
+  })
+
+  it('ignores a late page fallback after switching the status filter', async () => {
+    const api = makeAPI()
+    api.list.mockImplementation(async (page: number) => ({ items: [openTicket], total: 21, page, page_size: 20, pages: 2 }))
+    const { wrapper } = mountPanel(api)
+    await flushPromises()
+    await wrapper.get('.pagination-next').trigger('click')
+    await flushPromises()
+
+    let resolveFallback!: (value: unknown) => void
+    const fallback = new Promise((resolve) => { resolveFallback = resolve })
+    api.list
+      .mockResolvedValueOnce({ items: [], total: 20, page: 2, page_size: 20, pages: 1 })
+      .mockImplementationOnce(() => fallback)
+    await wrapper.get('button[aria-label="common.refresh"]').trigger('click')
+    await flushPromises()
+    expect(api.list.mock.calls.at(-1)?.[0]).toBe(1)
+    const fallbackSignal = api.list.mock.calls.at(-1)?.[3].signal as AbortSignal
+
+    api.list.mockResolvedValue({ items: [closedTicket], total: 1, page: 1, page_size: 20, pages: 1 })
+    await wrapper.get('[data-testid="feedback-filter-closed"]').trigger('click')
+    await flushPromises()
+    expect(fallbackSignal.aborted).toBe(true)
+    resolveFallback({ items: [{ ...openTicket, title: 'Stale fallback ticket' }], total: 20, page: 1, page_size: 20, pages: 1 })
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-testid="feedback-ticket-row"]')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="feedback-ticket-row"]').text()).toContain('feedback.statusLabels.closed')
+    expect(wrapper.text()).not.toContain('Stale fallback ticket')
+    expect(showError).not.toHaveBeenCalled()
+  })
+
   it('loads personal tickets, opens detail, and renders replies chronologically within the current page', async () => {
     const { wrapper, api } = mountPanel()
     await flushPromises()
@@ -106,6 +233,95 @@ describe('FeedbackThreadPanel', () => {
     expect(api.listMessages).toHaveBeenCalledWith(9, 1, 20, expect.any(AbortSignal))
     const text = wrapper.text()
     expect(text.indexOf('older user')).toBeLessThan(text.indexOf('newer admin'))
+  })
+
+  it('renders user-viewer conversation bubbles chronologically with user messages outgoing', async () => {
+    const api = makeAPI()
+    api.listMessages.mockResolvedValue({
+      items: [
+        { id: 2, feedback_id: 9, author_role: 'admin', content: 'newer admin', created_at: '2026-09-08T00:02:00Z' },
+        { id: 1, feedback_id: 9, author_role: 'user', content: '<b>older user</b>', created_at: '2026-09-08T00:01:00Z' },
+      ],
+      total: 2,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+    const { wrapper } = mountPanel(api)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="feedback-ticket-row"]').trigger('click')
+    await flushPromises()
+
+    const bubbles = wrapper.findAll('[data-testid="feedback-message"]')
+    expect(bubbles).toHaveLength(3)
+    expect(bubbles[0].text()).toContain('feedback.openingMessage')
+    expect(bubbles[0].text()).toContain('opening')
+    expect(bubbles[1].text()).toContain('<b>older user</b>')
+    expect(bubbles[1].html()).not.toContain('<b>older user</b>')
+    expect(bubbles[2].text()).toContain('newer admin')
+    expect(bubbles.map((bubble) => bubble.attributes('data-opening'))).toEqual(['true', 'false', 'false'])
+    expect(bubbles.map((bubble) => bubble.attributes('data-side'))).toEqual(['outgoing', 'outgoing', 'incoming'])
+    expect(bubbles[0].classes()).toContain('items-end')
+    expect(bubbles[2].classes()).toContain('items-start')
+  })
+
+  it('renders admin-viewer conversation bubbles with administrator replies outgoing', async () => {
+    const { wrapper } = mountPanel(makeAPI(), 'admin:1', { admin: true })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="feedback-ticket-row"]').trigger('click')
+    await flushPromises()
+
+    const bubbles = wrapper.findAll('[data-testid="feedback-message"]')
+    expect(bubbles).toHaveLength(3)
+    expect(bubbles.map((bubble) => bubble.attributes('data-side'))).toEqual(['incoming', 'incoming', 'outgoing'])
+    expect(bubbles[0].classes()).toContain('items-start')
+    expect(bubbles[2].classes()).toContain('items-end')
+  })
+
+  it('shows ticket timestamps and tooltips to minute precision while preserving machine-readable dates', async () => {
+    const { wrapper } = mountPanel()
+    await flushPromises()
+
+    const time = wrapper.get('[data-testid="feedback-ticket-row"] time')
+    expect(time.attributes('datetime')).toBe('2026-09-08T00:01:00Z')
+    expect(time.attributes('title')).toBe(formatDateTimeToMinute(openTicket.updated_at))
+
+    await wrapper.get('[data-testid="feedback-ticket-row"]').trigger('click')
+    await flushPromises()
+    for (const timestamp of wrapper.findAll('time')) {
+      expect(timestamp.text()).not.toMatch(/\d{1,2}:\d{2}:\d{2}/)
+      expect(timestamp.attributes('title') || '').not.toMatch(/\d{1,2}:\d{2}:\d{2}/)
+    }
+    const header = wrapper.get('[data-testid="feedback-ticket-header"]')
+    expect(header.text()).toContain('feedback.lastActivity')
+    expect(header.text()).toContain(formatDateTimeToMinute(openTicket.updated_at))
+    expect(header.find(`time[datetime="${openTicket.created_at}"]`).exists()).toBe(false)
+    expect(wrapper.get('[data-opening="true"] time').attributes('datetime')).toBe(openTicket.created_at)
+  })
+
+  it('places closure actor and minute-precision time in the header and keeps the footer read-only', async () => {
+    const api = makeAPI()
+    api.list.mockResolvedValue({ items: [closedTicket], total: 1, page: 1, page_size: 20, pages: 1 })
+    api.get.mockResolvedValue(closedTicket)
+    const { wrapper } = mountPanel(api)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="feedback-ticket-row"]').trigger('click')
+    await flushPromises()
+
+    const closedByParams = {
+      actor: 'feedback.authorLabels.admin',
+      time: formatDateTimeToMinute(closedTicket.closed_at),
+    }
+    const header = wrapper.get('[data-testid="feedback-ticket-header"]')
+    const footer = wrapper.get('[data-testid="feedback-ticket-footer"]')
+    expect(header.text()).toContain(`feedback.closedBy:${JSON.stringify(closedByParams)}`)
+    expect(header.text()).not.toContain('feedback.lastActivity')
+    expect(footer.text()).toContain('feedback.closedReadOnly')
+    expect(footer.text()).not.toContain('feedback.closedBy')
+    expect(wrapper.find('#feedback-reply-content').exists()).toBe(false)
   })
 
   it('shows an unread dot and clears it by acknowledging the displayed latest reply page', async () => {
@@ -169,13 +385,13 @@ describe('FeedbackThreadPanel', () => {
     vi.useRealTimers()
   })
 
-  it('filters and paginates using the open/closed ticket contract', async () => {
+  it('filters pending tickets and paginates their messages', async () => {
     const { wrapper, api } = mountPanel()
     await flushPromises()
 
-    await wrapper.get('[data-testid="feedback-filter-open"]').trigger('click')
+    await wrapper.get('[data-testid="feedback-filter-pending"]').trigger('click')
     await flushPromises()
-    expect(api.list).toHaveBeenLastCalledWith(1, 20, { status: 'open' }, { signal: expect.any(AbortSignal) })
+    expect(api.list).toHaveBeenLastCalledWith(1, 20, { status: 'open', reply_status: 'pending' }, { signal: expect.any(AbortSignal) })
 
     api.listMessages.mockResolvedValue({ items: [], total: 21, page: 1, page_size: 20, pages: 2 })
     await wrapper.get('[data-testid="feedback-ticket-row"]').trigger('click')

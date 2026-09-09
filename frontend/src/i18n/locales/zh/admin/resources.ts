@@ -447,9 +447,13 @@ export default {
     },
 
     feedback: {
-      title: '反馈管理',
-      description: '查看、回复并关闭用户与 Key 自助查询提交的文本反馈',
-      queueTitle: '反馈队列',
+      title: '工单管理',
+      description: '查看用户与 Key 查询用户的工单，回复问题并跟进处理。',
+      queueTitle: '工单列表',
+      submitter: '提交用户',
+      owner: '所属用户',
+      unnamedUser: '未设置名称',
+      keyLabel: 'Key',
       userId: '用户 #{id}',
       memberId: '成员 #{id}',
       keyId: 'Key #{id}',

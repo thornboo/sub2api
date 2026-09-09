@@ -180,7 +180,10 @@ func adminFeedbackPagination(c *gin.Context) pagination.PaginationParams {
 }
 
 func feedbackFilters(c *gin.Context) service.FeedbackListFilters {
-	return service.FeedbackListFilters{Status: strings.TrimSpace(c.Query("status"))}
+	return service.FeedbackListFilters{
+		Status:      strings.TrimSpace(c.Query("status")),
+		ReplyStatus: strings.TrimSpace(c.Query("reply_status")),
+	}
 }
 
 func feedbackIDParam(c *gin.Context) (int64, bool) {

@@ -450,9 +450,13 @@ export default {
     },
 
     feedback: {
-      title: 'Feedback',
-      description: 'Review, reply to, and close text feedback from signed-in users and Key self-service sessions',
-      queueTitle: 'Feedback queue',
+      title: 'Ticket management',
+      description: 'Review tickets from signed-in users and Key holders, reply, and follow up.',
+      queueTitle: 'Tickets',
+      submitter: 'Submitted by',
+      owner: 'Key owner',
+      unnamedUser: 'Unnamed user',
+      keyLabel: 'Key',
       userId: 'User #{id}',
       memberId: 'Member #{id}',
       keyId: 'Key #{id}',

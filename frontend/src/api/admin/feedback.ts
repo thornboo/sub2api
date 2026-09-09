@@ -8,6 +8,7 @@ import type {
   FeedbackSource,
   FeedbackStatus,
   FeedbackTicket,
+  FeedbackListFilters,
 } from '@/api/feedback'
 
 export type AdminFeedbackSource = FeedbackSource
@@ -15,6 +16,7 @@ export type AdminFeedbackStatus = FeedbackStatus
 
 export interface AdminFeedbackRecord extends FeedbackTicket {
   user_id: number
+  user_name?: string
   user_email?: string
   api_key_id: number | null
   key_name: string
@@ -23,9 +25,7 @@ export interface AdminFeedbackRecord extends FeedbackTicket {
   closed_by: FeedbackClosedBy | null
 }
 
-export interface AdminFeedbackListFilters {
-  status?: AdminFeedbackStatus
-}
+export type AdminFeedbackListFilters = FeedbackListFilters
 
 export async function list(
   page: number = 1,

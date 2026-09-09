@@ -3,14 +3,17 @@ import type { BasePaginationResponse } from '@/types'
 
 export type FeedbackSource = 'user' | 'key'
 export type FeedbackStatus = 'open' | 'closed'
+export type FeedbackReplyStatus = 'pending' | 'replied'
 export type FeedbackClosedBy = 'user' | 'admin'
 export type FeedbackReplyAuthorRole = 'user' | 'admin'
 
 export interface FeedbackTicket {
   id: number
+  title: string
   content: string
   source: FeedbackSource
   status: FeedbackStatus
+  reply_status: FeedbackReplyStatus
   created_at: string
   updated_at: string
   closed_at: string | null
@@ -33,11 +36,13 @@ export interface FeedbackSubmitResult {
 }
 
 export interface FeedbackSubmitRequest {
+  title: string
   content: string
 }
 
 export interface FeedbackListFilters {
   status?: FeedbackStatus
+  reply_status?: FeedbackReplyStatus
 }
 
 export interface FeedbackReplyResult {

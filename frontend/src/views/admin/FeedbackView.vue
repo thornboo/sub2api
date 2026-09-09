@@ -1,18 +1,15 @@
 <template>
   <AppLayout>
-    <div class="space-y-4">
-      <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 class="text-xl font-semibold text-stone-950 dark:text-white">{{ t('admin.feedback.title') }}</h1>
-          <p class="mt-1 text-sm text-stone-500 dark:text-stone-400">{{ t('admin.feedback.description') }}</p>
-        </div>
-      </div>
+    <!-- Desktop height accounts for the 4rem header and AppLayout's 4rem vertical padding. -->
+    <div class="space-y-4 lg:h-[calc(100dvh-8rem)] lg:min-h-[560px] lg:space-y-0">
+      <h1 class="text-xl font-semibold text-stone-950 dark:text-white lg:hidden">{{ t('admin.feedback.title') }}</h1>
 
       <FeedbackThreadPanel
         :identity-key="identityKey"
         :title="t('admin.feedback.queueTitle')"
         :api="threadAPI"
         admin
+        fill-height
       />
     </div>
   </AppLayout>

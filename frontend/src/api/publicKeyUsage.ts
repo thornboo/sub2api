@@ -3,7 +3,7 @@ import axios, { type AxiosInstance } from 'axios'
 import { getLocale } from '@/i18n'
 import type { ApiResponse, PaginatedResponse, UserAnnouncement } from '@/types'
 import type { BasePaginationResponse } from '@/types'
-import type { FeedbackListFilters, FeedbackReadState, FeedbackReply, FeedbackReplyResult, FeedbackSubmitResult, FeedbackTicket } from '@/api/feedback'
+import type { FeedbackListFilters, FeedbackReadState, FeedbackReply, FeedbackReplyResult, FeedbackSubmitRequest, FeedbackSubmitResult, FeedbackTicket } from '@/api/feedback'
 import { getAPIBaseURL } from './url'
 
 export type PublicKeyUsageRecordKind = 'success' | 'error'
@@ -248,10 +248,10 @@ export const publicKeyUsageAPI = {
     return unwrap(response.data)
   },
 
-  async submitFeedback(content: string, signal?: AbortSignal): Promise<PublicKeyFeedbackSubmitResult> {
+  async submitFeedback(request: FeedbackSubmitRequest, signal?: AbortSignal): Promise<PublicKeyFeedbackSubmitResult> {
     const response = await publicKeyUsageClient.post<ApiResponse<PublicKeyFeedbackSubmitResult>>(
       '/key/feedback',
-      { content },
+      request,
       { signal },
     )
     return unwrap(response.data)
