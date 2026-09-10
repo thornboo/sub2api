@@ -472,10 +472,9 @@ const isCanceledRequest = (error: unknown): boolean => {
 const formatLocalDate = (date: Date): string =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 
-const getLast24HoursRangeDates = () => {
-  const end = new Date()
-  const start = new Date(end.getTime() - 24 * 60 * 60 * 1000)
-  return { start: formatLocalDate(start), end: formatLocalDate(end) }
+const getTodayRangeDates = () => {
+  const today = formatLocalDate(new Date())
+  return { start: today, end: today }
 }
 
 const getGranularityForRange = (start: string, end: string): 'day' | 'hour' => {
@@ -484,7 +483,7 @@ const getGranularityForRange = (start: string, end: string): 'day' | 'hour' => {
   return Math.ceil((endTime - startTime) / (1000 * 60 * 60 * 24)) <= 1 ? 'hour' : 'day'
 }
 
-const defaultRange = getLast24HoursRangeDates()
+const defaultRange = getTodayRangeDates()
 const startDate = ref(defaultRange.start)
 const endDate = ref(defaultRange.end)
 const startTime = ref('')
@@ -742,7 +741,7 @@ const refreshData = () => {
 }
 
 const resetFilters = () => {
-  const range = getLast24HoursRangeDates()
+  const range = getTodayRangeDates()
   startDate.value = range.start
   endDate.value = range.end
   startTime.value = ''

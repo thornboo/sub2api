@@ -820,9 +820,17 @@ describe('admin UsageView native compaction filter', () => {
     getModelStats.mockClear()
     getSnapshotV2.mockClear()
 
+    // A custom time range must not survive resetting the date range to today.
+    ;(wrapper.vm as any).startTime = '2026-01-01T08:00:00Z'
+    ;(wrapper.vm as any).endTime = '2026-01-01T09:00:00Z'
     ;(wrapper.vm as any).resetFilters()
     await flushPromises()
 
+    const today = formatLocalDate(new Date())
+    const resetParams = list.mock.calls.at(-1)?.[0]
+    expect(resetParams).toMatchObject({ start_date: today, end_date: today })
+    expect(resetParams).not.toHaveProperty('start_time')
+    expect(resetParams).not.toHaveProperty('end_time')
     expect((wrapper.vm as any).filters.native_compaction_v2).toBeNull()
     expect((wrapper.vm as any).breakdownFilters).not.toHaveProperty('native_compaction_v2')
     expect(list).toHaveBeenCalledWith(
@@ -940,9 +948,8 @@ describe('admin UsageView distribution metric toggles', () => {
 
     expect(getSnapshotV2).toHaveBeenCalledTimes(1)
     const now = new Date()
-    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)
     expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({
-      start_date: formatLocalDate(yesterday),
+      start_date: formatLocalDate(now),
       end_date: formatLocalDate(now),
       granularity: 'hour'
     }))

@@ -264,14 +264,17 @@ describe('user UsageView', () => {
     getAvailable.mockResolvedValue([{ id: 1, name: 'default' }])
   })
 
-  it('loads logs, stats, model stats, and snapshot on first render', async () => {
-    mountUsageView()
+  it('loads today’s logs, stats, model stats, and snapshot on first render', async () => {
+    const wrapper = mountUsageView()
     await flushPromises()
 
-    expect(query).toHaveBeenCalled()
-    expect(getStats).toHaveBeenCalled()
-    expect(getDashboardModels).toHaveBeenCalled()
+    const today = (wrapper.vm as any).formatLocalDate(new Date())
+    const dateRange = { start_date: today, end_date: today }
+    expect(query).toHaveBeenCalledWith(expect.objectContaining(dateRange), expect.anything())
+    expect(getStats).toHaveBeenCalledWith(expect.objectContaining(dateRange))
+    expect(getDashboardModels).toHaveBeenCalledWith(expect.objectContaining(dateRange))
     expect(getDashboardSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({
+      ...dateRange,
       include_trend: true,
       include_model_stats: false,
       include_group_stats: true,
@@ -279,6 +282,7 @@ describe('user UsageView', () => {
     expect(list).toHaveBeenCalledTimes(1)
     expect(list).toHaveBeenCalledWith(1, 100)
     expect(getAvailable).toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('loads every API-key page so member-to-key drill-down is not capped at 100 keys', async () => {
@@ -485,6 +489,8 @@ describe('user UsageView', () => {
     ;(wrapper.vm as any).resetFilters()
     await flushPromises()
 
+    const today = (wrapper.vm as any).formatLocalDate(new Date())
+    expect(query.mock.calls.at(-1)?.[0]).toMatchObject({ start_date: today, end_date: today })
     expect((wrapper.vm as any).filters.native_compaction_v2).toBeNull()
     expect(query).toHaveBeenCalledWith(
       expect.objectContaining({ native_compaction_v2: null }),
