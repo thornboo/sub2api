@@ -566,6 +566,7 @@
             :recharge-overview="supplierRechargeOverview"
             :loading="costComparisonLoading"
             :error="costComparisonError"
+            :overview-error="supplierRechargeOverviewError"
             @refresh="loadSupplierCostView"
             @edit-supplier="openSupplierEdit"
             @recharge-records="openSupplierRechargeRecords"
@@ -791,6 +792,7 @@ const activeAccountView = ref<AccountViewMode>('list')
 const upstreamSuppliers = ref<UpstreamSupplier[]>([])
 const upstreamCostPools = ref<UpstreamCostPool[]>([])
 const supplierRechargeOverview = ref<UpstreamSupplierRechargeOverview | null>(null)
+const supplierRechargeOverviewError = ref<string | null>(null)
 const editingUpstreamSupplier = computed(() => (
   editingUpstreamSupplierID.value === null
     ? null
@@ -805,12 +807,14 @@ const upstreamAccountBindings = ref<Record<number, UpstreamAccountCostBinding>>(
 const upstreamCostContextLoading = ref(false)
 const costComparisonLoading = ref(false)
 const supplierBalancesRefreshing = ref(false)
+const supplierStoredDataRefreshing = ref(false)
 const costComparisonError = ref<string | null>(null)
 let upstreamCostPoolsRequest: Promise<UpstreamCostPool[]> | null = null
 let upstreamCostBindingsRequestKey = ''
 let upstreamCostBindingsRequest: Promise<Record<number, UpstreamAccountCostBinding>> | null = null
 let upstreamCostContextRequestSeq = 0
 let supplierCostViewRequestSeq = 0
+let supplierStoredDataRequestSeq = 0
 const probingUpstreamBilling = reactive(new Set<number>())
 const upstreamBillingProbeGloballyEnabled = ref<boolean | undefined>(undefined)
 const upstreamBillingNow = ref(Date.now())
@@ -1470,25 +1474,124 @@ const refreshSupplierBalances = async (suppliers: UpstreamSupplier[], requestSeq
   }))
 }
 
+const refreshSupplierRechargeOverview = async (
+  requestSeq: number,
+  options: { clearBefore?: boolean } = {}
+) => {
+  if (requestSeq !== supplierCostViewRequestSeq || activeAccountView.value !== 'cost') {
+    return
+  }
+  if (options.clearBefore) {
+    supplierRechargeOverviewError.value = null
+  }
+  try {
+    const rechargeOverview = await adminAPI.accounts.getUpstreamSupplierRechargeOverview()
+    if (requestSeq !== supplierCostViewRequestSeq || activeAccountView.value !== 'cost') {
+      return
+    }
+    supplierRechargeOverview.value = rechargeOverview
+    supplierRechargeOverviewError.value = null
+  } catch (error: any) {
+    if (requestSeq !== supplierCostViewRequestSeq || activeAccountView.value !== 'cost') {
+      return
+    }
+    supplierRechargeOverviewError.value = error?.message || t('admin.accounts.upstreamCost.overview.loadFailed')
+    if (options.clearBefore) {
+      supplierRechargeOverview.value = null
+    }
+  }
+}
+
+const isSupplierCostViewActiveAndVisible = () => activeAccountView.value === 'cost' && (
+  typeof document === 'undefined' || !document.hidden
+)
+
+const refreshSupplierStoredData = async () => {
+  if (!isSupplierCostViewActiveAndVisible()) return
+  if (costComparisonLoading.value || supplierBalancesRefreshing.value || supplierStoredDataRefreshing.value) return
+
+  const costViewSeq = supplierCostViewRequestSeq
+  const storedDataSeq = ++supplierStoredDataRequestSeq
+  supplierStoredDataRefreshing.value = true
+  try {
+    const [suppliersResult, overviewResult] = await Promise.allSettled([
+      adminAPI.accounts.listUpstreamSuppliers(),
+      adminAPI.accounts.getUpstreamSupplierRechargeOverview()
+    ])
+
+    if (
+      costViewSeq !== supplierCostViewRequestSeq ||
+      storedDataSeq !== supplierStoredDataRequestSeq ||
+      !isSupplierCostViewActiveAndVisible()
+    ) {
+      return
+    }
+
+    if (suppliersResult.status === 'fulfilled') {
+      upstreamSuppliers.value = suppliersResult.value
+      costComparisonError.value = null
+    } else {
+      costComparisonError.value = suppliersResult.reason?.message || t('admin.accounts.upstreamCost.loadFailed')
+    }
+
+    if (overviewResult.status === 'fulfilled') {
+      supplierRechargeOverview.value = overviewResult.value
+      supplierRechargeOverviewError.value = null
+    } else {
+      supplierRechargeOverviewError.value = overviewResult.reason?.message || t('admin.accounts.upstreamCost.overview.loadFailed')
+    }
+  } finally {
+    if (storedDataSeq === supplierStoredDataRequestSeq) {
+      supplierStoredDataRefreshing.value = false
+    }
+  }
+}
+
+const { pause: pauseSupplierStoredDataRefresh, resume: resumeSupplierStoredDataRefresh } = useIntervalFn(
+  () => { void refreshSupplierStoredData() },
+  60_000,
+  { immediate: false }
+)
+pauseSupplierStoredDataRefresh()
+
+const syncSupplierStoredDataRefreshTimer = () => {
+  if (isSupplierCostViewActiveAndVisible()) {
+    resumeSupplierStoredDataRefresh()
+  } else {
+    pauseSupplierStoredDataRefresh()
+    supplierStoredDataRequestSeq++
+    supplierStoredDataRefreshing.value = false
+  }
+}
+
+const handleSupplierStoredDataVisibilityChange = () => {
+  syncSupplierStoredDataRefreshTimer()
+}
+
 const loadSupplierCostView = async (options?: { forcePools?: boolean }) => {
   const requestSeq = ++supplierCostViewRequestSeq
+  supplierStoredDataRequestSeq++
+  supplierStoredDataRefreshing.value = false
   costComparisonLoading.value = true
   costComparisonError.value = null
+  supplierRechargeOverviewError.value = null
   try {
-    const [suppliers, pools, rechargeOverview] = await Promise.all([
+    const [suppliers, pools] = await Promise.all([
       adminAPI.accounts.listUpstreamSuppliers(),
-      fetchUpstreamCostPools(options?.forcePools === true),
-      adminAPI.accounts.getUpstreamSupplierRechargeOverview()
+      fetchUpstreamCostPools(options?.forcePools === true)
     ])
     if (requestSeq !== supplierCostViewRequestSeq || activeAccountView.value !== 'cost') {
       return
     }
     upstreamSuppliers.value = suppliers
     setUpstreamCostPools(pools)
-    supplierRechargeOverview.value = rechargeOverview
     costComparisonLoading.value = false
     supplierBalancesRefreshing.value = true
-    await refreshSupplierBalances(suppliers, requestSeq)
+    await Promise.all([
+      refreshSupplierRechargeOverview(requestSeq, { clearBefore: true }),
+      refreshSupplierBalances(suppliers, requestSeq)
+    ])
+    await refreshSupplierRechargeOverview(requestSeq)
   } catch (error: any) {
     if (requestSeq !== supplierCostViewRequestSeq || activeAccountView.value !== 'cost') {
       return
@@ -1496,6 +1599,7 @@ const loadSupplierCostView = async (options?: { forcePools?: boolean }) => {
     costComparisonError.value = error?.message || t('admin.accounts.upstreamCost.loadFailed')
     upstreamSuppliers.value = []
     supplierRechargeOverview.value = null
+    supplierRechargeOverviewError.value = null
     setUpstreamCostPools([])
     upstreamAccountBindings.value = {}
   } finally {
@@ -2738,6 +2842,9 @@ const buildAccountQueryFilters = () => ({
 
 const setAccountView = (view: AccountViewMode) => {
   if (activeAccountView.value === view) return
+  if (activeAccountView.value === 'cost' || view !== 'cost') {
+    supplierStoredDataRequestSeq++
+  }
   activeAccountView.value = view
   showAutoRefreshDropdown.value = false
   showAccountToolsDropdown.value = false
@@ -2746,11 +2853,13 @@ const setAccountView = (view: AccountViewMode) => {
   resetAutoRefreshCache()
   hasPendingListSync.value = false
   if (view === 'cost') {
+    syncSupplierStoredDataRefreshTimer()
     loadSupplierCostView().catch((error) => {
       console.error('Failed to load upstream supplier costs:', error)
     })
     return
   }
+  syncSupplierStoredDataRefreshTimer()
   load().catch((error) => {
     console.error('Failed to load accounts:', error)
   })
@@ -3290,6 +3399,8 @@ onMounted(async () => {
   window.addEventListener('scroll', handleScroll, true)
   window.addEventListener('resize', handleViewportResize)
   document.addEventListener('click', handleClickOutside)
+  document.addEventListener('visibilitychange', handleSupplierStoredDataVisibilityChange)
+  syncSupplierStoredDataRefreshTimer()
 
   if (autoRefreshEnabled.value) {
     autoRefreshCountdown.value = autoRefreshIntervalSeconds.value
@@ -3301,6 +3412,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   supplierCostViewRequestSeq++
+  supplierStoredDataRequestSeq++
+  pauseSupplierStoredDataRefresh()
   upstreamBillingRateAbortController?.abort()
   if (usageBatchFlushTimer !== null) {
     clearTimeout(usageBatchFlushTimer)
@@ -3310,6 +3423,7 @@ onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll, true)
   window.removeEventListener('resize', handleViewportResize)
   document.removeEventListener('click', handleClickOutside)
+  document.removeEventListener('visibilitychange', handleSupplierStoredDataVisibilityChange)
   if (desktopViewportMediaQuery && desktopViewportListener) {
     if (typeof desktopViewportMediaQuery.removeEventListener === 'function') {
       desktopViewportMediaQuery.removeEventListener('change', desktopViewportListener)

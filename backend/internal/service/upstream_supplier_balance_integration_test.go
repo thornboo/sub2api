@@ -95,6 +95,12 @@ func (p *supplierBalanceProvider) requireRequests(t *testing.T, wantStatus, want
 	require.Equal(t, wantUser, p.lastUser)
 }
 
+func (p *supplierBalanceProvider) requestCounts() (int, int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.statusCalls, p.selfCalls
+}
+
 func TestUpstreamSupplierBalanceRefreshStoresAccountWalletFromNewAPI(t *testing.T) {
 	admin := newUpstreamSupplierBalanceAdmin(t)
 	provider := newSupplierBalanceProvider(t, "1250000")
@@ -109,6 +115,7 @@ func TestUpstreamSupplierBalanceRefreshStoresAccountWalletFromNewAPI(t *testing.
 	require.Equal(t, float64(5), *refreshed.BalanceSnapshot.BalanceUSD)
 	require.NotNil(t, refreshed.BalanceSnapshot.UpdatedAt)
 	provider.requireRequests(t, 1, 1, "Bearer plain-access-token", "42")
+	requireSupplierBalanceSampleCount(t, supplier.ID, requireSupplierBalanceRevision(t, supplier.ID), 1)
 
 	ciphertext := requireSupplierBalanceCiphertext(t, supplier.ID)
 	require.NotEmpty(t, ciphertext)
@@ -195,11 +202,13 @@ func TestUpstreamSupplierBalanceDiscardsSupersededRefresh(t *testing.T) {
 			require.Equal(t, latest.BalanceSnapshot, stored.BalanceSnapshot)
 			if changeConfig {
 				require.Nil(t, stored.BalanceSnapshot)
+				requireSupplierBalanceSampleCount(t, supplier.ID, requireSupplierBalanceRevision(t, supplier.ID), 0)
 			} else {
 				require.NotNil(t, stored.BalanceSnapshot)
 				require.Equal(t, "ok", stored.BalanceSnapshot.Status)
 				require.NotNil(t, stored.BalanceSnapshot.BalanceUSD)
 				require.Equal(t, float64(2), *stored.BalanceSnapshot.BalanceUSD)
+				requireSupplierBalanceSampleCount(t, supplier.ID, requireSupplierBalanceRevision(t, supplier.ID), 1)
 			}
 		})
 	}
@@ -289,6 +298,7 @@ func TestUpstreamSupplierBalanceSoleAPIStoresCreditsAndKeepsFailedSnapshot(t *te
 	require.Equal(t, "ok", success.BalanceSnapshot.Status)
 	require.Equal(t, 131.4, *success.BalanceSnapshot.BalanceUSD)
 	require.Equal(t, "Credits", success.BalanceSnapshot.Unit)
+	requireSupplierBalanceSampleCount(t, supplier.ID, requireSupplierBalanceRevision(t, supplier.ID), 1)
 	requireSupplierBalanceJSONDoesNotLeakToken(t, *success, "sk-sole-integration", ciphertext)
 	listed := requireListedSupplier(t, admin, supplier.ID)
 	require.Equal(t, "Credits", listed.BalanceSnapshot.Unit)
@@ -304,6 +314,7 @@ func TestUpstreamSupplierBalanceSoleAPIStoresCreditsAndKeepsFailedSnapshot(t *te
 	require.Equal(t, "Credits", stale.BalanceSnapshot.Unit)
 	require.True(t, stale.BalanceSnapshot.UpdatedAt.Equal(*success.BalanceSnapshot.UpdatedAt))
 	require.Contains(t, stale.BalanceSnapshot.Error, "HTTP 403: Key expired: [redacted]")
+	requireSupplierBalanceSampleCount(t, supplier.ID, requireSupplierBalanceRevision(t, supplier.ID), 1)
 	requireSupplierBalanceJSONDoesNotLeakToken(t, *stale, "sk-sole-integration", ciphertext)
 	mu.Lock()
 	require.Equal(t, 2, calls)
@@ -410,6 +421,8 @@ func TestUpstreamSupplierBalanceChangingSiteClearsSnapshotAndRequiresNewToken(t 
 	refreshed, err := admin.RefreshUpstreamSupplierBalance(context.Background(), supplier.ID)
 	require.NoError(t, err)
 	require.NotNil(t, refreshed.BalanceSnapshot)
+	firstRevision := requireSupplierBalanceRevision(t, supplier.ID)
+	requireSupplierBalanceSampleCount(t, supplier.ID, firstRevision, 1)
 
 	secondProvider := newSupplierBalanceProvider(t, "250000")
 	_, err = admin.UpdateUpstreamSupplier(context.Background(), svc.UpdateUpstreamSupplierInput{
@@ -435,11 +448,63 @@ func TestUpstreamSupplierBalanceChangingSiteClearsSnapshotAndRequiresNewToken(t 
 	})
 	require.NoError(t, err)
 	require.Nil(t, updated.BalanceSnapshot)
+	secondRevision := requireSupplierBalanceRevision(t, supplier.ID)
+	require.Equal(t, firstRevision+1, secondRevision)
+	requireSupplierBalanceSampleCount(t, supplier.ID, secondRevision, 0)
 
 	refreshed, err = admin.RefreshUpstreamSupplierBalance(context.Background(), supplier.ID)
 	require.NoError(t, err)
 	require.Equal(t, float64(1), *refreshed.BalanceSnapshot.BalanceUSD)
+	requireSupplierBalanceSampleCount(t, supplier.ID, secondRevision, 1)
 	secondProvider.requireRequests(t, 1, 1, "Bearer second-token", "42")
+}
+
+func TestUpstreamSupplierBalancePollerAtomicClaimSkipsDisabledAndSystem(t *testing.T) {
+	admin := newUpstreamSupplierBalanceAdmin(t)
+	cfg := supplierBalanceIntegrationConfig()
+	encryptor, err := repository.NewAESEncryptor(cfg)
+	require.NoError(t, err)
+	provider := newSupplierBalanceProvider(t, "1750000")
+	active := createSupplierWithBalanceConfig(t, admin, provider, "poller-active-token")
+	disabled, err := admin.CreateUpstreamSupplier(context.Background(), svc.CreateUpstreamSupplierInput{
+		Name: fmt.Sprintf("supplier-poller-disabled-%d", time.Now().UnixNano()),
+		BalanceConfig: &svc.UpstreamSupplierBalanceInput{
+			Enabled:     false,
+			Provider:    "newapi",
+			BaseURL:     provider.baseURL(),
+			UserID:      42,
+			AccessToken: "poller-disabled-token",
+		},
+	})
+	require.NoError(t, err)
+	system := createSupplierWithBalanceConfig(t, admin, provider, "poller-system-token")
+	_, err = serviceIntegrationDB.ExecContext(context.Background(), `
+UPDATE upstream_suppliers
+SET is_system = TRUE, balance_next_poll_at = NOW()
+WHERE id = $1`, system.ID)
+	require.NoError(t, err)
+
+	pollerA := svc.NewUpstreamSupplierBalancePollerWithOptions(serviceIntegrationEntClient, cfg, encryptor, time.Hour, time.Hour, 4, 4, 35*24*time.Hour)
+	pollerB := svc.NewUpstreamSupplierBalancePollerWithOptions(serviceIntegrationEntClient, cfg, encryptor, time.Hour, time.Hour, 4, 4, 35*24*time.Hour)
+	pollerA.Start()
+	pollerB.Start()
+	t.Cleanup(pollerA.Stop)
+	t.Cleanup(pollerB.Stop)
+	require.Eventually(t, func() bool {
+		statusCalls, selfCalls := provider.requestCounts()
+		return statusCalls == 1 && selfCalls == 1
+	}, 10*time.Second, 20*time.Millisecond)
+	activeRevision := requireSupplierBalanceRevision(t, active.ID)
+	require.Eventually(t, func() bool {
+		return supplierBalanceSampleCount(t, active.ID, activeRevision) == 1
+	}, 10*time.Second, 20*time.Millisecond)
+	pollerA.Stop()
+	pollerB.Stop()
+
+	provider.requireRequests(t, 1, 1, "Bearer poller-active-token", "42")
+	requireSupplierBalanceSampleCount(t, active.ID, activeRevision, 1)
+	requireSupplierBalanceSampleCount(t, disabled.ID, requireSupplierBalanceRevision(t, disabled.ID), 0)
+	requireSupplierBalanceSampleCount(t, system.ID, requireSupplierBalanceRevision(t, system.ID), 0)
 }
 
 func TestUpstreamSupplierBalanceArchivedSupplierRejectsRefreshWithoutRequest(t *testing.T) {
@@ -541,6 +606,31 @@ SELECT balance_access_token
 FROM upstream_suppliers
 WHERE id = $1`, supplierID).Scan(&ciphertext))
 	return ciphertext
+}
+
+func requireSupplierBalanceRevision(t *testing.T, supplierID int64) int64 {
+	t.Helper()
+	var revision int64
+	require.NoError(t, serviceIntegrationDB.QueryRowContext(context.Background(), `
+SELECT balance_revision
+FROM upstream_suppliers
+WHERE id = $1`, supplierID).Scan(&revision))
+	return revision
+}
+
+func requireSupplierBalanceSampleCount(t *testing.T, supplierID, revision int64, want int) {
+	t.Helper()
+	require.Equal(t, want, supplierBalanceSampleCount(t, supplierID, revision))
+}
+
+func supplierBalanceSampleCount(t *testing.T, supplierID, revision int64) int {
+	t.Helper()
+	var count int
+	require.NoError(t, serviceIntegrationDB.QueryRowContext(context.Background(), `
+SELECT COUNT(*)
+FROM upstream_supplier_balance_samples
+WHERE supplier_id = $1 AND revision = $2`, supplierID, revision).Scan(&count))
+	return count
 }
 
 func requireListedSupplier(t *testing.T, admin upstreamSupplierBalanceAdmin, supplierID int64) svc.UpstreamSupplier {

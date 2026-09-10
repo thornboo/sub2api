@@ -342,6 +342,44 @@ export interface UpstreamSupplierRechargeOverviewItem {
 export interface UpstreamSupplierRechargeOverview {
   totals: UpstreamRechargeCurrencyTotal[]
   suppliers: UpstreamSupplierRechargeOverviewItem[]
+  consumption?: UpstreamSupplierConsumptionOverview
+}
+
+export type UpstreamSupplierConsumptionIssueReason =
+  | 'not_configured'
+  | 'no_history'
+  | 'insufficient_history'
+  | 'stale_balance'
+  | 'query_failed'
+  | 'unit_mismatch'
+  | 'unrecorded_credit'
+  | string
+
+export interface UpstreamSupplierConsumptionIssue {
+  supplier_id: number
+  reason: UpstreamSupplierConsumptionIssueReason
+}
+
+export interface UpstreamSupplierConsumptionTotal {
+  unit: string
+  amount: number
+  supplier_count: number
+}
+
+export interface UpstreamSupplierConsumptionPeriod {
+  start_at: string
+  end_at: string
+  totals: UpstreamSupplierConsumptionTotal[]
+  supplier_count: number
+  covered_supplier_count: number
+  complete_supplier_count: number
+  issues: UpstreamSupplierConsumptionIssue[]
+}
+
+export interface UpstreamSupplierConsumptionOverview {
+  timezone: string
+  today: UpstreamSupplierConsumptionPeriod
+  last_7_days: UpstreamSupplierConsumptionPeriod
 }
 
 export interface UpstreamSupplierRechargeTrendPoint {

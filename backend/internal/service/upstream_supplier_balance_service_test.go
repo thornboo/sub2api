@@ -137,10 +137,32 @@ func TestSupplierBalanceConfigurationStoresOnlyEncryptedToken(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	s := &adminServiceImpl{secretEncryptor: supplierBalanceTestEncryptor{}}
 	current := &UpstreamSupplier{ID: 1}
-	mock.ExpectExec("UPDATE upstream_suppliers").WithArgs(int64(1), sqlmock.AnyArg(), "encrypted:secret", true).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE upstream_suppliers").WithArgs(int64(1), sqlmock.AnyArg(), "encrypted:secret", true, true).WillReturnResult(sqlmock.NewResult(0, 1))
 	err = s.configureUpstreamSupplierBalance(context.Background(), db, current, &UpstreamSupplierBalanceInput{Enabled: true, Provider: "newapi", BaseURL: "https://supplier.example", AccessToken: "secret"})
 	require.NoError(t, err)
 	require.NoError(t, s.configureUpstreamSupplierBalance(context.Background(), db, current, nil))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSupplierBalanceConfigurationResetIncrementsRevisionAndRequeues(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	s := &adminServiceImpl{secretEncryptor: supplierBalanceTestEncryptor{}}
+	current := &UpstreamSupplier{
+		ID: 1,
+		BalanceConfig: UpstreamSupplierBalanceConfig{
+			Enabled:  true,
+			Provider: "newapi",
+			BaseURL:  "https://old.example",
+		},
+		balanceAccessToken: "encrypted:old",
+	}
+	mock.ExpectExec("balance_revision = CASE WHEN").
+		WithArgs(int64(1), sqlmock.AnyArg(), "encrypted:secret", true, true).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	err = s.configureUpstreamSupplierBalance(context.Background(), db, current, &UpstreamSupplierBalanceInput{Enabled: true, Provider: "newapi", BaseURL: "https://new.example", AccessToken: "secret"})
+	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -161,5 +183,72 @@ func TestSupplierBalanceConfigurationErrorContext(t *testing.T) {
 	input.Provider = "unsupported"
 	err = s.configureUpstreamSupplierBalance(context.Background(), db, current, input)
 	require.Equal(t, "INVALID_SUPPLIER_BALANCE_CONFIG", infraerrors.Reason(err))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSaveSupplierBalanceSnapshotSuccessInsertsHistoryAtomically(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	sampledAt := time.Date(2026, 9, 10, 2, 0, 0, 0, time.UTC)
+	current := &UpstreamSupplier{
+		ID:                  7,
+		balanceConfigJSON:   `{"enabled":true,"provider":"newapi"}`,
+		balanceAccessToken:  "ciphertext",
+		balanceSnapshotJSON: `{}`,
+		balanceRevision:     3,
+	}
+	mock.ExpectQuery("WITH updated AS").
+		WithArgs(int64(7), `{"status":"ok"}`, current.balanceConfigJSON, current.balanceAccessToken, current.balanceSnapshotJSON, 12.5, "USD", sampledAt, int64(3)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	accepted, err := saveUpstreamSupplierBalanceSnapshot(context.Background(), db, current, `{"status":"ok"}`, true, 12.5, "USD", sampledAt)
+
+	require.NoError(t, err)
+	require.True(t, accepted)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSaveSupplierBalanceSnapshotDiscardDoesNotInsertHistory(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	sampledAt := time.Date(2026, 9, 10, 2, 0, 0, 0, time.UTC)
+	current := &UpstreamSupplier{
+		ID:                  7,
+		balanceConfigJSON:   `{"enabled":true,"provider":"newapi"}`,
+		balanceAccessToken:  "ciphertext",
+		balanceSnapshotJSON: `{}`,
+		balanceRevision:     3,
+	}
+	mock.ExpectQuery("WITH updated AS").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	accepted, err := saveUpstreamSupplierBalanceSnapshot(context.Background(), db, current, `{"status":"ok"}`, true, 12.5, "USD", sampledAt)
+
+	require.NoError(t, err)
+	require.False(t, accepted)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSaveSupplierBalanceSnapshotFailureDoesNotInsertHistory(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	current := &UpstreamSupplier{
+		ID:                  7,
+		balanceConfigJSON:   `{"enabled":true,"provider":"newapi"}`,
+		balanceAccessToken:  "ciphertext",
+		balanceSnapshotJSON: `{}`,
+		balanceRevision:     3,
+	}
+	mock.ExpectExec("UPDATE upstream_suppliers").
+		WithArgs(int64(7), `{"status":"error"}`, current.balanceConfigJSON, current.balanceAccessToken, current.balanceSnapshotJSON, int64(3)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	accepted, err := saveUpstreamSupplierBalanceSnapshot(context.Background(), db, current, `{"status":"error"}`, false, 0, "USD", time.Now())
+
+	require.NoError(t, err)
+	require.True(t, accepted)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

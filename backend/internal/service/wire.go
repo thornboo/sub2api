@@ -1024,6 +1024,7 @@ var ProviderSet = wire.NewSet(
 	ProvideAccountUsageService,
 	ProvideAccountTestService,
 	ProvideUpstreamBillingProbeService,
+	ProvideUpstreamSupplierBalancePoller,
 	ProvideOllamaCloudUsageService,
 	ProvideSettingService,
 	NewDataManagementService,
@@ -1097,6 +1098,12 @@ var ProviderSet = wire.NewSet(
 	NewChannelMonitorRequestTemplateService,
 	ProvideUserPlatformQuotaUsageFlusher,
 )
+
+func ProvideUpstreamSupplierBalancePoller(db *dbent.Client, cfg *config.Config, encryptor SecretEncryptor) *UpstreamSupplierBalancePoller {
+	poller := NewUpstreamSupplierBalancePoller(db, cfg, encryptor)
+	poller.Start()
+	return poller
+}
 
 // ProvideUserPlatformQuotaUsageFlusher 创建并启动 UserPlatformQuotaUsageFlusher。
 func ProvideUserPlatformQuotaUsageFlusher(cfg *config.Config, cache BillingCache, quotaRepo UserPlatformQuotaRepository, tw *TimingWheelService) *UserPlatformQuotaUsageFlusher {

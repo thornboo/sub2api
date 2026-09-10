@@ -782,6 +782,34 @@ export default {
                 totalPaidOverview: '全部供应商累计支付',
                 totalPaidOverviewHint: '按充值记录的实际支付币种分别汇总，不做汇率折算。',
                 recordCountBadge: '{count} 条',
+                overview: {
+                    rechargeTitle: '累计充值',
+                    todayConsumptionTitle: '今日消耗',
+                    last7ConsumptionTitle: '7天消耗',
+                    actualBadge: '实际支付',
+                    estimatedBadge: '本地估算',
+                    estimateFormula: '期初余额 + 期间到账额度 - 期末余额；未录入的充值、赠送或退款会影响估算。',
+                    rechargeAria: '累计充值，按实际支付币种汇总',
+                    noRechargeData: '暂无充值记录',
+                    supplierCountBadge: '{count} 家',
+                    coverage: '已统计 {covered}/{total} 家',
+                    incomplete: '数据不完整',
+                    accumulatingData: '待积累数据',
+                    noAvailableData: '无可用数据',
+                    consumptionUnknown: '未知',
+                    consumptionUnknownHint: '暂无可用的余额历史，采集后显示估算消耗。',
+                    issueCount: '{reason} {count} 家',
+                    loadFailed: '加载供应商消耗概览失败',
+                    issueReasons: {
+                        not_configured: '未启用采集',
+                        no_history: '暂无历史',
+                        insufficient_history: '历史不足',
+                        stale_balance: '余额过期',
+                        query_failed: '查询失败',
+                        unit_mismatch: '单位不匹配',
+                        unrecorded_credit: '未记录额度变动'
+                    }
+                },
                 supplierNoPool: '未建余额池',
                 noSuppliers: '暂无供应商，请点击右上角新增。',
                 status: '状态',
@@ -845,6 +873,7 @@ export default {
                     failed: '查询失败',
                     notFetched: '还没有刷新过',
                     updatedAt: '更新于 {time}',
+                    lastSuccess: '上次成功 {amount} · {time}',
                     refreshFailed: '供应商账户余额查询失败'
                 },
                 rechargeTrend: {

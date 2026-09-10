@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
@@ -108,8 +109,10 @@ func (s *adminServiceImpl) configureUpstreamSupplierBalance(ctx context.Context,
 	_, err = exec.ExecContext(ctx, `UPDATE upstream_suppliers
 SET balance_config = $2::jsonb, balance_access_token = $3,
     balance_snapshot = CASE WHEN $4 THEN '{}'::jsonb ELSE balance_snapshot END,
+    balance_revision = CASE WHEN $4 THEN balance_revision + 1 ELSE balance_revision END,
+    balance_next_poll_at = CASE WHEN $5 THEN NOW() ELSE balance_next_poll_at END,
     updated_at = NOW()
-WHERE id = $1`, current.ID, string(encoded), token, resetSnapshot)
+WHERE id = $1`, current.ID, string(encoded), token, resetSnapshot, cfg.Enabled || resetSnapshot)
 	if err != nil {
 		return fmt.Errorf("save supplier balance configuration: %w", err)
 	}
@@ -136,7 +139,11 @@ func (s *adminServiceImpl) RefreshUpstreamSupplierBalance(ctx context.Context, s
 	if err := s.ensureUpstreamCostPoolServiceAvailable(); err != nil {
 		return nil, err
 	}
-	current, err := fetchUpstreamSupplierByID(ctx, s.entClient, supplierID)
+	return refreshUpstreamSupplierBalance(ctx, s.entClient, s.cfg, s.secretEncryptor, supplierID)
+}
+
+func refreshUpstreamSupplierBalance(ctx context.Context, exec upstreamCostPoolSQLExecutor, cfg *config.Config, encryptor SecretEncryptor, supplierID int64) (*UpstreamSupplier, error) {
+	current, err := fetchUpstreamSupplierByID(ctx, exec, supplierID)
 	if err != nil {
 		return nil, fmt.Errorf("load supplier for balance refresh: %w", err)
 	}
@@ -149,21 +156,21 @@ func (s *adminServiceImpl) RefreshUpstreamSupplierBalance(ctx context.Context, s
 	var balance float64
 	unit := "USD"
 	var queryErr error
-	if s.secretEncryptor == nil {
+	if encryptor == nil {
 		queryErr = errors.New("supplier credential encryption is unavailable")
 	} else {
-		token, decryptErr := s.secretEncryptor.Decrypt(current.balanceAccessToken)
+		token, decryptErr := encryptor.Decrypt(current.balanceAccessToken)
 		if decryptErr != nil {
 			queryErr = errors.New("unable to read saved query credential; please enter it again")
 		} else {
 			switch current.BalanceConfig.Provider {
 			case "newapi":
-				balance, queryErr = fetchNewAPISupplierBalance(ctx, s.cfg, current.BalanceConfig, token)
+				balance, queryErr = fetchNewAPISupplierBalance(ctx, cfg, current.BalanceConfig, token)
 			case "soleapi":
-				balance, queryErr = fetchSoleAPISupplierBalance(ctx, s.cfg, current.BalanceConfig, token)
+				balance, queryErr = fetchSoleAPISupplierBalance(ctx, cfg, current.BalanceConfig, token)
 				unit = "Credits"
 			case "sub2api":
-				balance, queryErr = fetchSub2APISupplierBalance(ctx, s.cfg, current.BalanceConfig, token)
+				balance, queryErr = fetchSub2APISupplierBalance(ctx, cfg, current.BalanceConfig, token)
 			default:
 				queryErr = errors.New("unsupported supplier balance provider")
 			}
@@ -177,24 +184,74 @@ func (s *adminServiceImpl) RefreshUpstreamSupplierBalance(ctx context.Context, s
 	if err != nil {
 		return nil, fmt.Errorf("encode supplier balance snapshot: %w", err)
 	}
-	// A result for old credentials or an already superseded snapshot must not
-	// overwrite edits or a refresh that completed while the request was in flight.
-	result, err := s.entClient.ExecContext(ctx, `UPDATE upstream_suppliers
-SET balance_snapshot = $2::jsonb
-WHERE id = $1 AND balance_config = $3::jsonb AND balance_access_token = $4
-  AND balance_snapshot = $5::jsonb AND status = 'active'`,
-		supplierID, string(encoded), current.balanceConfigJSON, current.balanceAccessToken, current.balanceSnapshotJSON)
+	accepted, err := saveUpstreamSupplierBalanceSnapshot(ctx, exec, current, string(encoded), queryErr == nil, balance, unit, snapshot.LastAttemptAt)
 	if err != nil {
-		return nil, fmt.Errorf("save supplier balance snapshot: %w", err)
+		return nil, err
 	}
-	if affected, rowsErr := result.RowsAffected(); rowsErr != nil {
-		return nil, fmt.Errorf("check supplier balance snapshot update: %w", rowsErr)
-	} else if affected == 0 {
+	if !accepted {
 		slog.DebugContext(ctx, "Supplier balance refresh result discarded because stored state changed", "supplier_id", supplierID)
 	}
-	latest, err := fetchUpstreamSupplierByID(ctx, s.entClient, supplierID)
+	latest, err := fetchUpstreamSupplierByID(ctx, exec, supplierID)
 	if err != nil {
 		return nil, fmt.Errorf("reload supplier after balance refresh: %w", err)
 	}
 	return latest, nil
+}
+
+func saveUpstreamSupplierBalanceSnapshot(
+	ctx context.Context,
+	exec upstreamCostPoolSQLExecutor,
+	current *UpstreamSupplier,
+	encodedSnapshot string,
+	success bool,
+	balance float64,
+	unit string,
+	sampledAt time.Time,
+) (bool, error) {
+	if success {
+		rows, err := exec.QueryContext(ctx, `
+WITH updated AS (
+    UPDATE upstream_suppliers
+    SET balance_snapshot = $2::jsonb,
+        balance_next_poll_at = NOW() + INTERVAL '5 minutes'
+    WHERE id = $1 AND balance_config = $3::jsonb AND balance_access_token = $4
+      AND balance_snapshot = $5::jsonb AND balance_revision = $9 AND status = 'active'
+    RETURNING id, balance_revision
+), inserted AS (
+    INSERT INTO upstream_supplier_balance_samples (supplier_id, revision, balance, unit, sampled_at)
+    SELECT id, balance_revision, $6, $7, $8
+    FROM updated
+    RETURNING id
+)
+SELECT COUNT(*) FROM inserted`,
+			current.ID, encodedSnapshot, current.balanceConfigJSON, current.balanceAccessToken, current.balanceSnapshotJSON, balance, unit, sampledAt, current.balanceRevision)
+		if err != nil {
+			return false, fmt.Errorf("save supplier balance snapshot: %w", err)
+		}
+		defer func() { _ = rows.Close() }()
+		var inserted int
+		if rows.Next() {
+			if err := rows.Scan(&inserted); err != nil {
+				return false, fmt.Errorf("check supplier balance snapshot update: %w", err)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return false, fmt.Errorf("check supplier balance snapshot update: %w", err)
+		}
+		return inserted > 0, nil
+	}
+
+	result, err := exec.ExecContext(ctx, `UPDATE upstream_suppliers
+SET balance_snapshot = $2::jsonb
+WHERE id = $1 AND balance_config = $3::jsonb AND balance_access_token = $4
+  AND balance_snapshot = $5::jsonb AND balance_revision = $6 AND status = 'active'`,
+		current.ID, encodedSnapshot, current.balanceConfigJSON, current.balanceAccessToken, current.balanceSnapshotJSON, current.balanceRevision)
+	if err != nil {
+		return false, fmt.Errorf("save supplier balance snapshot: %w", err)
+	}
+	affected, rowsErr := result.RowsAffected()
+	if rowsErr != nil {
+		return false, fmt.Errorf("check supplier balance snapshot update: %w", rowsErr)
+	}
+	return affected > 0, nil
 }

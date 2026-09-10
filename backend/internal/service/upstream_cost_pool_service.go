@@ -97,7 +97,12 @@ type UpstreamSupplier struct {
 	balanceAccessToken  string
 	balanceConfigJSON   string
 	balanceSnapshotJSON string
+	balanceRevision     int64
 }
+
+const upstreamSupplierSelectColumns = `
+id, name, status, note, is_system, balance_config::text, balance_access_token, balance_snapshot::text,
+COALESCE(balance_revision, 1), created_at, updated_at, archived_at`
 
 type UpstreamCostPool struct {
 	ID                        int64          `json:"id"`
@@ -200,7 +205,7 @@ func (s *adminServiceImpl) ListUpstreamSuppliers(ctx context.Context) ([]Upstrea
 		return nil, err
 	}
 	rows, err := s.entClient.QueryContext(ctx, `
-SELECT id, name, status, note, is_system, balance_config::text, balance_access_token, balance_snapshot::text, created_at, updated_at, archived_at
+SELECT `+upstreamSupplierSelectColumns+`
 FROM upstream_suppliers
 WHERE is_system = FALSE
 ORDER BY status ASC, name ASC, id ASC`)
@@ -285,7 +290,7 @@ func (s *adminServiceImpl) CreateUpstreamSupplier(ctx context.Context, input Cre
 	}
 
 	rows, err := txClient.QueryContext(ctx, `
-SELECT id, name, status, note, is_system, balance_config::text, balance_access_token, balance_snapshot::text, created_at, updated_at, archived_at
+SELECT `+upstreamSupplierSelectColumns+`
 FROM upstream_suppliers
 WHERE id = $1`, supplierID)
 	if err != nil {
@@ -1207,7 +1212,7 @@ RETURNING id`, name, nullableString(note), nullableInt64(createdBy))
 // ErrUpstreamSupplierNotFound.
 func loadUpstreamSupplierForUpdate(ctx context.Context, exec upstreamCostPoolSQLExecutor, supplierID int64) (*UpstreamSupplier, error) {
 	rows, err := exec.QueryContext(ctx, `
-SELECT id, name, status, note, is_system, balance_config::text, balance_access_token, balance_snapshot::text, created_at, updated_at, archived_at
+SELECT `+upstreamSupplierSelectColumns+`
 FROM upstream_suppliers
 WHERE id = $1`, supplierID)
 	if err != nil {
@@ -1891,6 +1896,7 @@ func scanUpstreamSupplier(scanner upstreamRechargeScanner) (*UpstreamSupplier, e
 		&balanceConfigJSON,
 		&balanceAccessToken,
 		&balanceSnapshotJSON,
+		&item.balanceRevision,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 		&archivedAt,

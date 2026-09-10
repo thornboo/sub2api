@@ -93,6 +93,7 @@ func TestGetUpstreamSupplierRechargeOverviewGroupsByPaidCurrency(t *testing.T) {
 			AddRow(int64(10), "CNY", 80.5, 1, 257.25).
 			AddRow(int64(10), "USD", 25.25, 1, 257.25).
 			AddRow(int64(11), "CNY", 20.0, 1, 20.0))
+	expectEmptySupplierConsumption(mock)
 
 	overview, err := svc.GetUpstreamSupplierRechargeOverview(context.Background())
 	require.NoError(t, err)
@@ -125,6 +126,7 @@ func TestGetUpstreamSupplierRechargeOverviewReturnsEmptySlices(t *testing.T) {
 
 	mock.ExpectQuery("analytics-overview-suppliers").
 		WillReturnRows(sqlmock.NewRows([]string{"supplier_id", "paid_currency", "amount", "record_count", "reference_cny_amount"}))
+	expectEmptySupplierConsumption(mock)
 
 	overview, err := svc.GetUpstreamSupplierRechargeOverview(context.Background())
 	require.NoError(t, err)

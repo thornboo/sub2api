@@ -184,13 +184,17 @@ describe('admin AccountsView lite account list', () => {
     listUpstreamCostPoolAccounts.mockReset().mockResolvedValue([])
     listUpstreamSuppliers.mockReset().mockResolvedValue([])
     refreshUpstreamSupplierBalance.mockReset()
-    getUpstreamSupplierRechargeOverview.mockReset().mockResolvedValue({ suppliers: [] })
+    getUpstreamSupplierRechargeOverview.mockReset().mockResolvedValue({ totals: [], suppliers: [] })
     getAllProxies.mockReset().mockResolvedValue([])
     getAllGroups.mockReset().mockResolvedValue([{ id: 7, name: 'codex', platform: 'openai' }])
     showError.mockReset()
   })
 
   afterEach(() => {
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      value: false
+    })
     vi.useRealTimers()
     vi.restoreAllMocks()
   })
@@ -204,6 +208,13 @@ describe('admin AccountsView lite account list', () => {
   const selectView = async (wrapper: ReturnType<typeof mountView>, key: string) => {
     await wrapper.findAll('button').find(button => button.text() === `admin.accounts.views.${key}`)!.trigger('click')
     await flushPromises()
+  }
+
+  const setPageHidden = (hidden: boolean) => {
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      value: hidden
+    })
   }
 
   it('shows the supplier list before wallet queries complete and queries only enabled active suppliers', async () => {
@@ -252,6 +263,145 @@ describe('admin AccountsView lite account list', () => {
     wrapper.unmount()
   })
 
+  it('keeps the supplier table when the overview request fails', async () => {
+    const active = supplier(1)
+    listUpstreamSuppliers.mockResolvedValue([active])
+    refreshUpstreamSupplierBalance.mockResolvedValue(active)
+    getUpstreamSupplierRechargeOverview.mockRejectedValue(new Error('overview unavailable'))
+
+    const wrapper = mountView()
+    await flushPromises()
+    await selectView(wrapper, 'upstreamCost')
+
+    const costView = wrapper.findComponent(UpstreamCostComparison)
+    expect(costView.props('suppliers')).toEqual([active])
+    expect(costView.props('error')).toBeNull()
+    expect(costView.props('overviewError')).toBe('overview unavailable')
+    wrapper.unmount()
+  })
+
+  it('refetches the overview after wallet refresh and ignores older overview responses', async () => {
+    const active = supplier(1)
+    listUpstreamSuppliers.mockResolvedValue([active])
+    refreshUpstreamSupplierBalance.mockResolvedValue(active)
+    let finishOldOverview!: (value: unknown) => void
+    getUpstreamSupplierRechargeOverview
+      .mockReturnValueOnce(new Promise(resolve => { finishOldOverview = resolve }))
+      .mockResolvedValueOnce({ totals: [{ currency: 'USD', amount: 2, record_count: 1 }], suppliers: [] })
+      .mockResolvedValueOnce({ totals: [{ currency: 'USD', amount: 3, record_count: 1 }], suppliers: [] })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await selectView(wrapper, 'upstreamCost')
+    await selectView(wrapper, 'list')
+    await selectView(wrapper, 'upstreamCost')
+
+    finishOldOverview({ totals: [{ currency: 'USD', amount: 999, record_count: 1 }], suppliers: [] })
+    await flushPromises()
+
+    expect(getUpstreamSupplierRechargeOverview).toHaveBeenCalledTimes(3)
+    expect(wrapper.findComponent(UpstreamCostComparison).props('rechargeOverview')).toEqual({
+      totals: [{ currency: 'USD', amount: 3, record_count: 1 }],
+      suppliers: []
+    })
+    wrapper.unmount()
+  })
+
+  it('surfaces background stored-data refresh failures without posting wallet refreshes', async () => {
+    vi.useFakeTimers()
+    setPageHidden(false)
+    const active = supplier(1)
+    listUpstreamSuppliers.mockResolvedValue([active])
+    refreshUpstreamSupplierBalance.mockResolvedValue(active)
+
+    const wrapper = mountView()
+    await flushPromises()
+    await selectView(wrapper, 'upstreamCost')
+    const balanceRefreshesAfterLoad = refreshUpstreamSupplierBalance.mock.calls.length
+
+    listUpstreamSuppliers.mockRejectedValueOnce(new Error('cached suppliers failed'))
+    getUpstreamSupplierRechargeOverview.mockRejectedValueOnce(new Error('cached overview failed'))
+    await vi.advanceTimersByTimeAsync(60_000)
+    await flushPromises()
+
+    const costView = wrapper.findComponent(UpstreamCostComparison)
+    expect(costView.props('error')).toBe('cached suppliers failed')
+    expect(costView.props('overviewError')).toBe('cached overview failed')
+    expect(refreshUpstreamSupplierBalance).toHaveBeenCalledTimes(balanceRefreshesAfterLoad)
+    wrapper.unmount()
+  })
+
+  it('stops background stored-data refresh after leaving the supplier tab', async () => {
+    vi.useFakeTimers()
+    setPageHidden(false)
+    const active = supplier(1)
+    listUpstreamSuppliers.mockResolvedValue([active])
+    refreshUpstreamSupplierBalance.mockResolvedValue(active)
+
+    const wrapper = mountView()
+    await flushPromises()
+    await selectView(wrapper, 'upstreamCost')
+    const suppliersCallsAfterLoad = listUpstreamSuppliers.mock.calls.length
+    const overviewCallsAfterLoad = getUpstreamSupplierRechargeOverview.mock.calls.length
+    const balanceCallsAfterLoad = refreshUpstreamSupplierBalance.mock.calls.length
+
+    await selectView(wrapper, 'list')
+    await vi.advanceTimersByTimeAsync(60_000)
+    await flushPromises()
+
+    expect(listUpstreamSuppliers).toHaveBeenCalledTimes(suppliersCallsAfterLoad)
+    expect(getUpstreamSupplierRechargeOverview).toHaveBeenCalledTimes(overviewCallsAfterLoad)
+    expect(refreshUpstreamSupplierBalance).toHaveBeenCalledTimes(balanceCallsAfterLoad)
+    wrapper.unmount()
+  })
+
+  it('does not let an older stored-data response clear a newer refresh generation', async () => {
+    vi.useFakeTimers()
+    setPageHidden(false)
+    const active = supplier(1)
+    listUpstreamSuppliers.mockResolvedValue([active])
+    refreshUpstreamSupplierBalance.mockResolvedValue(active)
+
+    const wrapper = mountView()
+    await flushPromises()
+    await selectView(wrapper, 'upstreamCost')
+
+    let finishOldSuppliers!: (value: unknown) => void
+    let finishOldOverview!: (value: unknown) => void
+    listUpstreamSuppliers.mockReturnValueOnce(new Promise(resolve => { finishOldSuppliers = resolve }))
+    getUpstreamSupplierRechargeOverview.mockReturnValueOnce(new Promise(resolve => { finishOldOverview = resolve }))
+    await vi.advanceTimersByTimeAsync(60_000)
+    await flushPromises()
+
+    await selectView(wrapper, 'list')
+    listUpstreamSuppliers.mockResolvedValueOnce([active])
+    getUpstreamSupplierRechargeOverview
+      .mockResolvedValueOnce({ totals: [], suppliers: [] })
+      .mockResolvedValueOnce({ totals: [], suppliers: [] })
+    await selectView(wrapper, 'upstreamCost')
+
+    let finishNewSuppliers!: (value: unknown) => void
+    let finishNewOverview!: (value: unknown) => void
+    listUpstreamSuppliers.mockReturnValueOnce(new Promise(resolve => { finishNewSuppliers = resolve }))
+    getUpstreamSupplierRechargeOverview.mockReturnValueOnce(new Promise(resolve => { finishNewOverview = resolve }))
+    const supplierCallsBeforeNewRefresh = listUpstreamSuppliers.mock.calls.length
+    await vi.advanceTimersByTimeAsync(60_000)
+    await flushPromises()
+    expect(listUpstreamSuppliers).toHaveBeenCalledTimes(supplierCallsBeforeNewRefresh + 1)
+
+    finishOldSuppliers([active])
+    finishOldOverview({ totals: [{ currency: 'USD', amount: 999, record_count: 1 }], suppliers: [] })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(60_000)
+    await flushPromises()
+    expect(listUpstreamSuppliers).toHaveBeenCalledTimes(supplierCallsBeforeNewRefresh + 1)
+
+    finishNewSuppliers([active])
+    finishNewOverview({ totals: [], suppliers: [] })
+    await flushPromises()
+    wrapper.unmount()
+  })
+
   it('queries balances again through toolbar refresh and the supplier saved event', async () => {
     const active = supplier(1)
     listUpstreamSuppliers.mockResolvedValue([active])
@@ -268,6 +418,32 @@ describe('admin AccountsView lite account list', () => {
     wrapper.findComponent(UpstreamSupplierModal).vm.$emit('saved')
     await flushPromises()
     expect(refreshUpstreamSupplierBalance).toHaveBeenCalledTimes(3)
+    wrapper.unmount()
+  })
+
+  it('resumes stored-data polling after a manual refresh supersedes a pending background read', async () => {
+    vi.useFakeTimers()
+    setPageHidden(false)
+    const active = supplier(1)
+    listUpstreamSuppliers.mockResolvedValue([active])
+    refreshUpstreamSupplierBalance.mockResolvedValue(active)
+    const wrapper = mountView()
+    await flushPromises()
+    await selectView(wrapper, 'upstreamCost')
+
+    let finishOld!: (value: unknown) => void
+    listUpstreamSuppliers.mockReturnValueOnce(new Promise(resolve => { finishOld = resolve }))
+    await vi.advanceTimersByTimeAsync(60_000)
+    await flushPromises()
+    wrapper.findComponent(AccountTableActions).vm.$emit('refresh')
+    await flushPromises()
+    finishOld([active])
+    await flushPromises()
+
+    const before = listUpstreamSuppliers.mock.calls.length
+    await vi.advanceTimersByTimeAsync(60_000)
+    await flushPromises()
+    expect(listUpstreamSuppliers).toHaveBeenCalledTimes(before + 1)
     wrapper.unmount()
   })
 

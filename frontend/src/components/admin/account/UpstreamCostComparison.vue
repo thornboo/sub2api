@@ -4,37 +4,55 @@
       {{ error }}
     </div>
 
-    <div class="border-b border-stone-200/80 px-4 py-4 dark:border-white/10">
-      <div class="flex flex-col gap-3 rounded-lg border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-500/20 dark:bg-emerald-500/[0.08] sm:flex-row sm:items-center sm:justify-between">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-emerald-800 dark:text-emerald-200">
-            {{ t('admin.accounts.upstreamCost.totalPaidOverview') }}
-          </p>
-          <p class="mt-1 text-xs text-stone-500 dark:text-stone-400">
-            {{ t('admin.accounts.upstreamCost.totalPaidOverviewHint') }}
-          </p>
-        </div>
-        <div class="flex flex-wrap gap-2 sm:justify-end">
-          <span
-            v-if="overviewTotals.length === 0"
-            class="font-mono text-sm text-stone-400 dark:text-stone-500"
-          >
-            -
-          </span>
-          <template v-else>
+    <div class="border-b border-stone-200/80 px-4 py-3 dark:border-white/10">
+      <div class="grid gap-3 lg:grid-cols-3">
+        <section
+          v-for="card in overviewCards"
+          :key="card.key"
+          class="rounded-lg border border-stone-200 bg-stone-50/70 p-4 shadow-sm shadow-stone-950/[0.03] dark:border-white/10 dark:bg-white/[0.035]"
+          :data-test="`supplier-overview-card-${card.key}`"
+          :aria-label="card.title"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <p class="text-sm font-medium text-stone-500 dark:text-stone-400" :title="card.details || undefined">
+              {{ card.title }}
+            </p>
             <span
-              v-for="total in overviewTotals"
-              :key="total.currency"
-              class="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-white px-3 py-2 font-mono text-sm font-semibold text-stone-950 shadow-sm shadow-emerald-950/5 dark:border-emerald-500/25 dark:bg-white/[0.05] dark:text-white"
+              v-if="card.incomplete"
+              role="img"
+              tabindex="0"
+              class="shrink-0 cursor-help rounded text-amber-600 outline-none focus-visible:ring-2 focus-visible:ring-amber-500 dark:text-amber-400"
+              :title="card.details"
+              :aria-label="card.details"
+              :data-test="`supplier-overview-notice-${card.key}`"
             >
-              <span>{{ formatMoney(total.amount, total.currency) }}</span>
-              <span class="text-xs font-medium text-stone-500 dark:text-stone-400">
-                {{ t('admin.accounts.upstreamCost.recordCountBadge', { count: total.record_count }) }}
-              </span>
+              <Icon name="exclamationCircle" size="sm" aria-hidden="true" />
             </span>
-          </template>
-        </div>
+          </div>
+          <div class="mt-3 flex flex-col gap-1">
+            <template v-if="card.totals.length > 0">
+              <div
+                v-for="total in card.totals"
+                :key="total.key"
+                class="flex items-baseline justify-between gap-3"
+              >
+                <span class="font-mono text-2xl font-semibold leading-8 text-stone-950 dark:text-white">
+                  {{ total.amount }}
+                </span>
+                <span class="shrink-0 text-xs font-medium text-stone-500 dark:text-stone-400">
+                  {{ total.meta }}
+                </span>
+              </div>
+            </template>
+            <p v-else class="text-sm font-medium text-stone-500 dark:text-stone-400">
+              {{ card.empty }}
+            </p>
+          </div>
+        </section>
       </div>
+      <p v-if="overviewError" class="mt-2 text-xs text-red-600 dark:text-red-300" data-test="supplier-overview-error">
+        {{ overviewError }}
+      </p>
     </div>
 
     <div class="min-h-0 flex-1 overflow-auto">
@@ -142,7 +160,7 @@
                     </div>
                     <div
                       v-if="balanceErrorHint(row)"
-                      class="mt-1 line-clamp-2 max-w-[220px] break-words text-xs leading-4 text-amber-700 dark:text-amber-300"
+                      class="mt-1 line-clamp-2 max-w-[220px] break-words text-xs leading-4 text-red-700 dark:text-red-300"
                       :title="balanceErrorHint(row)"
                     >
                       {{ balanceErrorHint(row) }}
@@ -235,7 +253,15 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
-import type { UpstreamCostPool, UpstreamRechargeCurrencyTotal, UpstreamSupplier, UpstreamSupplierRechargeOverview } from '@/api/admin/accounts'
+import type {
+  UpstreamCostPool,
+  UpstreamRechargeCurrencyTotal,
+  UpstreamSupplier,
+  UpstreamSupplierConsumptionIssue,
+  UpstreamSupplierConsumptionPeriod,
+  UpstreamSupplierConsumptionTotal,
+  UpstreamSupplierRechargeOverview
+} from '@/api/admin/accounts'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores/app'
 import { ConfirmDialog } from '@/components/common'
@@ -264,6 +290,7 @@ const props = defineProps<{
   rechargeOverview?: UpstreamSupplierRechargeOverview | null
   loading?: boolean
   error?: string | null
+  overviewError?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -299,6 +326,12 @@ const sortableColumns = computed<Array<{ key: SupplierSortKey; label: string }>>
 const isReserved = (row: SupplierCostRow) => row.isSystem
 const isActivePool = (pool: UpstreamCostPool) => pool.status === 'active' && !pool.archived_at
 const overviewTotals = computed(() => sortCurrencyTotals(props.rechargeOverview?.totals || []))
+const consumptionOverview = computed(() => props.rechargeOverview?.consumption ?? null)
+const overviewCards = computed(() => [
+  buildRechargeOverviewCard(),
+  buildConsumptionOverviewCard('today', consumptionOverview.value?.today ?? null),
+  buildConsumptionOverviewCard('last7', consumptionOverview.value?.last_7_days ?? null)
+])
 const supplierPaidTotalsByID = computed(() => {
   const result = new Map<number, UpstreamRechargeCurrencyTotal[]>()
   for (const supplier of props.rechargeOverview?.suppliers || []) {
@@ -615,6 +648,99 @@ function sortCurrencyTotals(totals: UpstreamRechargeCurrencyTotal[]) {
     .sort((a, b) => a.currency.localeCompare(b.currency))
 }
 
+function sortConsumptionTotals(totals: UpstreamSupplierConsumptionTotal[]) {
+  return [...totals]
+    .filter((total) => Number.isFinite(Number(total.amount)) && Number(total.supplier_count) > 0)
+    .sort((a, b) => a.unit.localeCompare(b.unit))
+}
+
+const buildRechargeOverviewCard = () => ({
+  key: 'recharge',
+  title: t('admin.accounts.upstreamCost.overview.rechargeTitle'),
+  incomplete: false,
+  details: '',
+  totals: overviewTotals.value.map((total) => ({
+    key: total.currency,
+    amount: formatMoney(total.amount, total.currency),
+    meta: t('admin.accounts.upstreamCost.recordCountBadge', { count: total.record_count })
+  })),
+  empty: t('admin.accounts.upstreamCost.overview.noRechargeData')
+})
+
+const buildConsumptionOverviewCard = (key: 'today' | 'last7', period: UpstreamSupplierConsumptionPeriod | null) => {
+  const timezone = consumptionOverview.value?.timezone || ''
+  const totals = period ? sortConsumptionTotals(period.totals || []) : []
+  const coverage = period ? formatCoverage(period) : t('admin.accounts.upstreamCost.overview.consumptionUnknown')
+  const issueSummary = period ? formatIssueSummary(period.issues || []) : ''
+  const title = key === 'today'
+    ? t('admin.accounts.upstreamCost.overview.todayConsumptionTitle')
+    : t('admin.accounts.upstreamCost.overview.last7ConsumptionTitle')
+  return {
+    key,
+    title,
+    incomplete: !!period && (period.complete_supplier_count < period.supplier_count || !!issueSummary),
+    details: period
+      ? [t('admin.accounts.upstreamCost.overview.estimatedBadge'), `${coverage}${formatPeriodRange(period)} ${timezone}`.trim(), t('admin.accounts.upstreamCost.overview.estimateFormula'), issueSummary].filter(Boolean).join('\n')
+      : t('admin.accounts.upstreamCost.overview.consumptionUnknownHint'),
+    totals: totals.map((total) => ({
+      key: total.unit,
+      amount: formatMoney(total.amount, total.unit),
+      meta: t('admin.accounts.upstreamCost.overview.supplierCountBadge', { count: total.supplier_count })
+    })),
+    empty: period ? emptyConsumptionLabel(period) : t('admin.accounts.upstreamCost.overview.consumptionUnknown')
+  }
+}
+
+const formatCoverage = (period: UpstreamSupplierConsumptionPeriod) => {
+  const supplierCount = Number(period.supplier_count) || 0
+  const coveredCount = Number(period.covered_supplier_count) || 0
+  const completeCount = Number(period.complete_supplier_count) || 0
+  const base = t('admin.accounts.upstreamCost.overview.coverage', {
+    covered: coveredCount,
+    total: supplierCount
+  })
+  if (supplierCount > 0 && completeCount < supplierCount) {
+    return `${base} · ${t('admin.accounts.upstreamCost.overview.incomplete')}`
+  }
+  return base
+}
+
+const formatPeriodRange = (period: UpstreamSupplierConsumptionPeriod) => {
+  const start = formatShortDate(period.start_at, consumptionOverview.value?.timezone)
+  const end = formatShortDate(period.end_at, consumptionOverview.value?.timezone)
+  if (!start || !end) return ''
+  return ` · ${start}-${end}`
+}
+
+const emptyConsumptionLabel = (period: UpstreamSupplierConsumptionPeriod) => {
+  if ((Number(period.supplier_count) || 0) <= 0) {
+    return t('admin.accounts.upstreamCost.overview.noAvailableData')
+  }
+  return t('admin.accounts.upstreamCost.overview.accumulatingData')
+}
+
+const formatIssueSummary = (issues: UpstreamSupplierConsumptionIssue[]) => {
+  if (issues.length === 0) return ''
+  const counts = new Map<string, number>()
+  for (const issue of issues) {
+    const reason = issue.reason || 'no_history'
+    counts.set(reason, (counts.get(reason) || 0) + 1)
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([reason, count]) => t('admin.accounts.upstreamCost.overview.issueCount', {
+      reason: consumptionIssueReasonLabel(reason),
+      count
+    }))
+    .join(' · ')
+}
+
+const consumptionIssueReasonLabel = (reason: string) => {
+  const key = `admin.accounts.upstreamCost.overview.issueReasons.${reason}`
+  const label = t(key)
+  return label === key ? reason : label
+}
+
 const formatAmount = (value: number) => {
   const amount = Number(value)
   if (!Number.isFinite(amount)) return '0'
@@ -625,6 +751,27 @@ const formatAmount = (value: number) => {
 }
 
 const formatMoney = (amount: number, currency: string) => `${formatAmount(amount)} ${currency || '-'}`
+
+const formatShortDate = (value?: string | null, timeZone?: string | null) => {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  if (timeZone) {
+    try {
+      const parts = new Intl.DateTimeFormat(undefined, {
+        timeZone,
+        month: '2-digit',
+        day: '2-digit'
+      }).formatToParts(date)
+      const month = parts.find(part => part.type === 'month')?.value
+      const day = parts.find(part => part.type === 'day')?.value
+      if (month && day) return `${month}/${day}`
+    } catch {
+      // Older API responses may omit or send an invalid timezone; fall back to the browser locale below.
+    }
+  }
+  return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`
+}
 
 const formatUSD = (amount: number) => {
   if (!Number.isFinite(amount)) return '-'
@@ -665,7 +812,7 @@ const balanceLabel = (row: SupplierCostRow) => {
     return t('admin.accounts.upstreamCost.supplierBalance.disabled')
   }
   const value = walletBalanceValue(row)
-  if (row.supplier.balance_snapshot?.status === 'error' && value == null) {
+  if (row.supplier.balance_snapshot?.status === 'error') {
     return t('admin.accounts.upstreamCost.supplierBalance.failed')
   }
   if (value == null) {
@@ -688,7 +835,10 @@ const balanceTimeHint = (row: SupplierCostRow) => {
   if (snapshot.status === 'error') {
     const lastSuccessTime = formatBalanceTime(snapshot.updated_at)
     if (walletBalanceValue(row) != null && lastSuccessTime) {
-      return t('admin.accounts.upstreamCost.supplierBalance.updatedAt', { time: lastSuccessTime })
+      return t('admin.accounts.upstreamCost.supplierBalance.lastSuccess', {
+        amount: formatBalanceAmount(walletBalanceValue(row)!, snapshot.unit),
+        time: lastSuccessTime
+      })
     }
     return ''
   }
@@ -712,7 +862,7 @@ const balanceErrorReason = (reason?: string | null) => {
 const balanceValueClass = (row: SupplierCostRow) => {
   const base = 'font-mono text-sm font-semibold'
   if (row.supplier.balance_snapshot?.status === 'error') {
-    return `${base} text-amber-700 dark:text-amber-300`
+    return `${base} text-red-700 dark:text-red-300`
   }
   if (walletBalanceValue(row) != null) {
     return `${base} text-stone-800 dark:text-stone-100`

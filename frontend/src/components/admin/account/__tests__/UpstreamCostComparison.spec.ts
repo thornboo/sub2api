@@ -66,6 +66,29 @@ vi.mock('vue-i18n', async () => {
     'admin.accounts.upstreamCost.totalPaidOverview': 'All-supplier total paid',
     'admin.accounts.upstreamCost.totalPaidOverviewHint': 'Grouped by paid currency',
     'admin.accounts.upstreamCost.recordCountBadge': '{count} records',
+    'admin.accounts.upstreamCost.overview.rechargeTitle': 'Total recharge',
+    'admin.accounts.upstreamCost.overview.todayConsumptionTitle': 'Today consumption',
+    'admin.accounts.upstreamCost.overview.last7ConsumptionTitle': '7-day consumption',
+    'admin.accounts.upstreamCost.overview.actualBadge': 'Actual payments',
+    'admin.accounts.upstreamCost.overview.estimatedBadge': 'Local estimate',
+    'admin.accounts.upstreamCost.overview.estimateFormula': 'Opening balance + credits - closing balance; unrecorded changes affect estimates.',
+    'admin.accounts.upstreamCost.overview.rechargeAria': 'Total recharge grouped by paid currency',
+    'admin.accounts.upstreamCost.overview.noRechargeData': 'No recharge records yet',
+    'admin.accounts.upstreamCost.overview.supplierCountBadge': '{count} suppliers',
+    'admin.accounts.upstreamCost.overview.coverage': 'Covered {covered}/{total}',
+    'admin.accounts.upstreamCost.overview.incomplete': 'Incomplete data',
+    'admin.accounts.upstreamCost.overview.accumulatingData': 'Collecting data',
+    'admin.accounts.upstreamCost.overview.noAvailableData': 'No usable data',
+    'admin.accounts.upstreamCost.overview.consumptionUnknown': 'Unknown',
+    'admin.accounts.upstreamCost.overview.consumptionUnknownHint': 'No usable wallet history yet. Estimated consumption appears after collection.',
+    'admin.accounts.upstreamCost.overview.issueCount': '{reason}: {count}',
+    'admin.accounts.upstreamCost.overview.issueReasons.not_configured': 'Collection disabled',
+    'admin.accounts.upstreamCost.overview.issueReasons.no_history': 'No history',
+    'admin.accounts.upstreamCost.overview.issueReasons.insufficient_history': 'Insufficient history',
+    'admin.accounts.upstreamCost.overview.issueReasons.stale_balance': 'Stale balance',
+    'admin.accounts.upstreamCost.overview.issueReasons.query_failed': 'Query failed',
+    'admin.accounts.upstreamCost.overview.issueReasons.unit_mismatch': 'Unit mismatch',
+    'admin.accounts.upstreamCost.overview.issueReasons.unrecorded_credit': 'Unrecorded credit',
     'admin.accounts.upstreamCost.rechargeRatio': 'Ratio',
     'admin.accounts.upstreamCost.poolDiscountUSD': 'Pool discount (USD basis)',
     'admin.accounts.upstreamCost.status': 'Status',
@@ -85,6 +108,7 @@ vi.mock('vue-i18n', async () => {
     'admin.accounts.upstreamCost.supplierBalance.failed': 'Query failed',
     'admin.accounts.upstreamCost.supplierBalance.notFetched': 'Not fetched',
     'admin.accounts.upstreamCost.supplierBalance.updatedAt': 'Updated {time}',
+    'admin.accounts.upstreamCost.supplierBalance.lastSuccess': 'Last success {amount} at {time}',
     'admin.accounts.upstreamCost.supplierBalance.refreshFailed': 'Balance refresh failed',
     'admin.accounts.upstreamCost.errors.hasBoundAccounts': 'Supplier has bound accounts',
     'admin.accounts.upstreamCost.errors.hasBindingHistory': 'Supplier has binding history',
@@ -208,7 +232,12 @@ describe('UpstreamCostComparison', () => {
     expect(wrapper.text()).not.toContain('Manage supplier costs')
     expect(wrapper.text()).not.toContain('Configured')
     expect(wrapper.text()).not.toContain('Best')
-    expect(wrapper.text()).toContain('All-supplier total paid')
+    expect(wrapper.text()).toContain('Total recharge')
+    expect(wrapper.text()).toContain('Today consumption')
+    expect(wrapper.text()).toContain('7-day consumption')
+    expect(wrapper.get('[data-test="supplier-overview-card-today"]').text()).toContain('Unknown')
+    expect(wrapper.get('[data-test="supplier-overview-card-last7"] p[title]').attributes('title')).toContain('No usable wallet history yet. Estimated consumption appears after collection.')
+    expect(wrapper.get('[data-test="supplier-overview-card-recharge"]').text()).not.toContain('Grouped by paid currency')
     expect(wrapper.text()).toContain('Pool discount (USD basis)')
     expect(wrapper.text()).toContain('8.57/10')
     expect(wrapper.text()).not.toContain('主余额池')
@@ -335,6 +364,104 @@ describe('UpstreamCostComparison', () => {
     expect(wrapper.text()).toContain('2 records')
   })
 
+  it('keeps consumption cards concise and exposes incomplete data details on hover', () => {
+    const wrapper = mountComparison({
+      rechargeOverview: {
+        totals: [{ currency: 'USD', amount: 12.5, record_count: 2 }],
+        suppliers: [],
+        consumption: {
+          timezone: 'Asia/Shanghai',
+          today: {
+            start_at: '2026-09-09T16:00:00Z',
+            end_at: '2026-09-10T15:59:59Z',
+            totals: [
+              { unit: 'USD', amount: 308.25, supplier_count: 3 }
+            ],
+            supplier_count: 4,
+            covered_supplier_count: 3,
+            complete_supplier_count: 2,
+            issues: [
+              { supplier_id: 1, reason: 'insufficient_history' },
+              { supplier_id: 2, reason: 'query_failed' }
+            ]
+          },
+          last_7_days: {
+            start_at: '2026-09-04T00:00:00+08:00',
+            end_at: '2026-09-10T23:59:59+08:00',
+            totals: [{ unit: 'USD', amount: 77.5, supplier_count: 3 }],
+            supplier_count: 4,
+            covered_supplier_count: 3,
+            complete_supplier_count: 3,
+            issues: [{ supplier_id: 3, reason: 'unrecorded_credit' }]
+          }
+        }
+      }
+    })
+
+    const today = wrapper.get('[data-test="supplier-overview-card-today"]')
+    expect(today.text()).toContain('308.25 USD')
+    expect(today.text()).toContain('3 suppliers')
+    expect(today.text()).not.toContain('Credits')
+    for (const detail of ['Local estimate', 'Opening balance + credits - closing balance', 'Asia/Shanghai', 'Covered 3/4', '09/10-09/10', 'Incomplete data', 'Insufficient history: 1', 'Query failed: 1']) {
+      expect(today.text()).not.toContain(detail)
+      expect(today.get('[data-test="supplier-overview-notice-today"]').attributes('title')).toContain(detail)
+    }
+    const notice = today.get('[data-test="supplier-overview-notice-today"]')
+    expect(notice.attributes('tabindex')).toBe('0')
+    expect(notice.attributes('aria-label')).toContain('Incomplete data')
+    expect(wrapper.get('[data-test="supplier-overview-card-last7"]').text()).toContain('77.5 USD')
+    expect(wrapper.get('[data-test="supplier-overview-notice-last7"]').attributes('title')).toContain('Unrecorded credit: 1')
+  })
+
+  it('does not render zero usable consumption as a numeric total', () => {
+    const wrapper = mountComparison({
+      rechargeOverview: {
+        totals: [],
+        suppliers: [],
+        consumption: {
+          timezone: 'UTC',
+          today: {
+            start_at: '2026-09-10T00:00:00Z',
+            end_at: '2026-09-10T23:59:59Z',
+            totals: [{ unit: 'USD', amount: 0, supplier_count: 0 }],
+            supplier_count: 2,
+            covered_supplier_count: 0,
+            complete_supplier_count: 0,
+            issues: [{ supplier_id: 7, reason: 'no_history' }]
+          },
+          last_7_days: {
+            start_at: '2026-09-04T00:00:00Z',
+            end_at: '2026-09-10T23:59:59Z',
+            totals: [],
+            supplier_count: 0,
+            covered_supplier_count: 0,
+            complete_supplier_count: 0,
+            issues: []
+          }
+        }
+      }
+    })
+
+    expect(wrapper.get('[data-test="supplier-overview-card-today"]').text()).toContain('Collecting data')
+    expect(wrapper.get('[data-test="supplier-overview-card-today"]').text()).not.toContain('0 USD')
+    expect(wrapper.get('[data-test="supplier-overview-card-last7"]').text()).toContain('No usable data')
+  })
+
+  it('shows a measured zero consumption when suppliers have usable samples', () => {
+    const period = {
+      start_at: '2026-09-10T00:00:00Z', end_at: '2026-09-10T12:00:00Z',
+      totals: [{ unit: 'USD', amount: 0, supplier_count: 1 }],
+      supplier_count: 1, covered_supplier_count: 1, complete_supplier_count: 1, issues: []
+    }
+    const wrapper = mountComparison({ rechargeOverview: {
+      totals: [], suppliers: [], consumption: { timezone: 'UTC', today: period, last_7_days: period }
+    } })
+    const today = wrapper.get('[data-test="supplier-overview-card-today"]')
+    expect(today.text()).toContain('0 USD')
+    expect(today.text()).not.toContain('Collecting data')
+    expect(today.find('[data-test="supplier-overview-notice-today"]').exists()).toBe(false)
+  })
+
   it('shows a dash for supplier paid totals when no recharge payment exists', () => {
     const wrapper = mountComparison({
       rechargeOverview: {
@@ -429,8 +556,9 @@ describe('UpstreamCostComparison', () => {
     expect(wrapper.text()).toContain('0 Credits')
     expect(wrapper.text()).toContain('$0.00 USD')
     expect(wrapper.text()).toContain('-12.34 Credits')
+    expect(wrapper.text()).toContain('Query failed')
     expect(wrapper.text()).toContain('Not checked')
-    expect(wrapper.text()).toContain('Updated 09/10 09:00')
+    expect(wrapper.text()).toContain('Last success -12.34 Credits at 09/10 09:00')
     expect(wrapper.text()).toContain('upstream HTTP 401')
     expect(wrapper.text()).toContain('Disabled')
   })

@@ -782,6 +782,34 @@ export default {
                 totalPaidOverview: 'All-supplier total paid',
                 totalPaidOverviewHint: 'Grouped by the actual paid currency from recharge records; no FX conversion is applied.',
                 recordCountBadge: '{count} records',
+                overview: {
+                    rechargeTitle: 'Total recharge',
+                    todayConsumptionTitle: 'Today consumption',
+                    last7ConsumptionTitle: '7-day consumption',
+                    actualBadge: 'Actual payments',
+                    estimatedBadge: 'Local estimate',
+                    estimateFormula: 'Opening balance + credited amount during period - closing balance; unrecorded recharge, bonus, or refund changes the estimate.',
+                    rechargeAria: 'Total recharge grouped by actual paid currency',
+                    noRechargeData: 'No recharge records yet',
+                    supplierCountBadge: '{count} supplier(s)',
+                    coverage: 'Covered {covered}/{total}',
+                    incomplete: 'Incomplete data',
+                    accumulatingData: 'Collecting data',
+                    noAvailableData: 'No usable data',
+                    consumptionUnknown: 'Unknown',
+                    consumptionUnknownHint: 'No usable wallet history yet. Estimated consumption appears after collection.',
+                    issueCount: '{reason}: {count}',
+                    loadFailed: 'Failed to load supplier consumption overview',
+                    issueReasons: {
+                        not_configured: 'Collection disabled',
+                        no_history: 'No history',
+                        insufficient_history: 'Insufficient history',
+                        stale_balance: 'Stale balance',
+                        query_failed: 'Query failed',
+                        unit_mismatch: 'Unit mismatch',
+                        unrecorded_credit: 'Unrecorded credit'
+                    }
+                },
                 supplierNoPool: 'No balance pool',
                 noSuppliers: 'No suppliers yet. Use Add in the top right.',
                 status: 'Status',
@@ -845,6 +873,7 @@ export default {
                     failed: 'Query failed',
                     notFetched: 'No refresh yet',
                     updatedAt: 'Updated {time}',
+                    lastSuccess: 'Last success {amount} · {time}',
                     refreshFailed: 'Failed to query supplier account balance'
                 },
                 rechargeTrend: {

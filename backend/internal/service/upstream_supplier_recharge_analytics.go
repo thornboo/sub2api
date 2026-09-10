@@ -38,8 +38,9 @@ type UpstreamSupplierRechargeTotal struct {
 }
 
 type UpstreamSupplierRechargeOverview struct {
-	Totals    []UpstreamRechargePaymentTotal  `json:"totals"`
-	Suppliers []UpstreamSupplierRechargeTotal `json:"suppliers"`
+	Totals      []UpstreamRechargePaymentTotal       `json:"totals"`
+	Suppliers   []UpstreamSupplierRechargeTotal      `json:"suppliers"`
+	Consumption *UpstreamSupplierConsumptionOverview `json:"consumption"`
 }
 
 type UpstreamSupplierRechargeTrendPoint struct {
@@ -65,10 +66,15 @@ func (s *adminServiceImpl) GetUpstreamSupplierRechargeOverview(ctx context.Conte
 	if err != nil {
 		return nil, err
 	}
+	consumption, err := s.getUpstreamSupplierConsumptionOverview(ctx, time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("load supplier consumption overview: %w", err)
+	}
 
 	return &UpstreamSupplierRechargeOverview{
-		Totals:    aggregateUpstreamSupplierRechargeTotals(suppliers),
-		Suppliers: suppliers,
+		Totals:      aggregateUpstreamSupplierRechargeTotals(suppliers),
+		Suppliers:   suppliers,
+		Consumption: consumption,
 	}, nil
 }
 
