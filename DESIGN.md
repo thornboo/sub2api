@@ -285,6 +285,7 @@
   - Tablet/mobile should remain usable for lookup, not full comparison workflows.
 - Layout adaptations:
   - Cards stack on small screens.
+  - Both model catalogs size their card grids from the available container width, using auto-filled columns with a 20rem minimum (capped at 100% for narrower containers) and a 1rem gap. Wide screens add fourth, fifth and further columns instead of stretching three cards; sparse groups and filtered results retain the same column widths. Loading placeholders share the grid rule. Keep typography and content-driven card heights unchanged.
   - Wide data tables may scroll horizontally, but controls should not overlap.
 - Touch/hover differences:
   - Important values cannot be hover-only on mobile.

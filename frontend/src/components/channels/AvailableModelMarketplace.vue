@@ -2,7 +2,7 @@
   <div class="p-2.5 sm:p-3">
     <div
       v-if="loading"
-      class="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+      class="model-card-grid"
       aria-busy="true"
       :aria-label="t('common.loading')"
     >
@@ -79,7 +79,7 @@
           {{ section.group.description }}
         </p>
 
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div class="model-card-grid">
           <article
             v-for="card in section.cards"
             :key="card.id"
@@ -670,3 +670,12 @@ function copyEndpoint(path: string) {
   void copyToClipboard(path, t('availableChannels.endpoints.copied'))
 }
 </script>
+
+<style scoped>
+.model-card-grid {
+  display: grid;
+  /* Keep sparse groups aligned with full rows instead of stretching their cards. */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr));
+  gap: 1rem;
+}
+</style>
