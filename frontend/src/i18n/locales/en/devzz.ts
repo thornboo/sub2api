@@ -553,6 +553,7 @@ export default {
         exporting: 'Exporting...',
         modelMarketplace: {
             reference: {
+                textInput: 'Text input', textOutput: 'Text output',
                 cacheRead: 'Cache read', cacheWrite: 'Cache write',
                 previewNotice: 'Design preview · Availability and 24-hour metrics are simulated; prices use your current configuration'
             },

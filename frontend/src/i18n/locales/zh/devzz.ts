@@ -553,6 +553,7 @@ export default {
         exporting: '导出中...',
         modelMarketplace: {
             reference: {
+                textInput: '文本输入', textOutput: '文本输出',
                 cacheRead: '缓存读取', cacheWrite: '缓存写入',
                 previewNotice: '样式预览 · 可用状态和近 24 小时运行指标为模拟数据，价格沿用当前配置'
             },

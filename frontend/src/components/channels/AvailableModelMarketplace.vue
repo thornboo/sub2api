@@ -126,50 +126,30 @@
                 <div v-if="card.pricingOptions[0]">
                   <template v-if="card.pricingOptions[0]?.billing_mode === BILLING_MODE_TOKEN">
                     <div class="grid grid-cols-2 gap-2">
-                      <div class="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-2 rounded-lg bg-stone-50 p-3 dark:bg-white/[0.04]">
+                      <div
+                        v-for="price in tokenHeadlinePriceRows(card)"
+                        :key="price.key"
+                        class="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-2 rounded-lg bg-stone-50 p-3 dark:bg-white/[0.04]"
+                      >
                         <div class="text-[10px] font-medium text-stone-500 dark:text-stone-400">
-                          {{ t('availableChannels.pricing.inputPrice') }}
+                          {{ price.label }}
                         </div>
                         <strong
-                          data-testid="effective-input-price"
+                          :data-testid="`effective-${price.key}-price`"
                           class="mt-0.5 block truncate text-right font-mono text-lg font-bold leading-6 tracking-tight text-emerald-700 dark:text-emerald-300"
                         >
-                          {{ formatCompactTokenPrice(displayPrice(card, card.pricingOptions[0]?.input_price ?? null, card.pricingOptions[0])) }}
+                          {{ formatCompactTokenPrice(displayPrice(card, price.value, card.pricingOptions[0])) }}
                         </strong>
                         <div
-                          v-if="showOriginalPrice(card, card.pricingOptions[0]?.input_price ?? null, card.pricingOptions[0])"
+                          v-if="showOriginalPrice(card, price.value, card.pricingOptions[0])"
                           class="col-span-2 mt-0.5 flex min-w-0 items-baseline justify-end gap-1 text-[10px] text-stone-400 dark:text-stone-500"
                         >
                           <span>{{ t('availableChannels.modelMarketplace.originalPrice') }}</span>
                           <del
-                            data-testid="original-input-price"
+                            :data-testid="`original-${price.key}-price`"
                             class="truncate font-mono decoration-stone-400/80 dark:decoration-stone-500"
                           >
-                            {{ formatCompactTokenPrice(card.pricingOptions[0]?.input_price ?? null) }}
-                          </del>
-                        </div>
-                      </div>
-
-                      <div class="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-2 rounded-lg bg-stone-50 p-3 dark:bg-white/[0.04]">
-                        <div class="text-[10px] font-medium text-stone-500 dark:text-stone-400">
-                          {{ t('availableChannels.pricing.outputPrice') }}
-                        </div>
-                        <strong
-                          data-testid="effective-output-price"
-                          class="mt-0.5 block truncate text-right font-mono text-lg font-bold leading-6 tracking-tight text-emerald-700 dark:text-emerald-300"
-                        >
-                          {{ formatCompactTokenPrice(displayPrice(card, card.pricingOptions[0]?.output_price ?? null, card.pricingOptions[0])) }}
-                        </strong>
-                        <div
-                          v-if="showOriginalPrice(card, card.pricingOptions[0]?.output_price ?? null, card.pricingOptions[0])"
-                          class="col-span-2 mt-0.5 flex min-w-0 items-baseline justify-end gap-1 text-[10px] text-stone-400 dark:text-stone-500"
-                        >
-                          <span>{{ t('availableChannels.modelMarketplace.originalPrice') }}</span>
-                          <del
-                            data-testid="original-output-price"
-                            class="truncate font-mono decoration-stone-400/80 dark:decoration-stone-500"
-                          >
-                            {{ formatCompactTokenPrice(card.pricingOptions[0]?.output_price ?? null) }}
+                            {{ formatCompactTokenPrice(price.value) }}
                           </del>
                         </div>
                       </div>
@@ -252,8 +232,12 @@
                               <tr>
                                 <th class="whitespace-nowrap px-2 py-1 font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.window') }}</th>
                                 <th class="whitespace-nowrap px-2 py-1 font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.type') }}</th>
-                                <th class="whitespace-nowrap px-2 py-1 text-right font-semibold">{{ t('availableChannels.pricing.inputPrice') }}</th>
-                                <th class="whitespace-nowrap px-2 py-1 text-right font-semibold">{{ t('availableChannels.pricing.outputPrice') }}</th>
+                                <th class="whitespace-nowrap px-2 py-1 text-right font-semibold">
+                                  {{ t(hasImageTokenPrices(card.pricingOptions[0]) ? 'availableChannels.modelMarketplace.reference.textInput' : 'availableChannels.pricing.inputPrice') }}
+                                </th>
+                                <th class="whitespace-nowrap px-2 py-1 text-right font-semibold">
+                                  {{ t(hasImageTokenPrices(card.pricingOptions[0]) ? 'availableChannels.modelMarketplace.reference.textOutput' : 'availableChannels.pricing.outputPrice') }}
+                                </th>
                                 <th class="whitespace-nowrap px-2 py-1 text-right font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.cacheWrite') }}</th>
                                 <th v-if="card.pricingOptions[0].cache_write_1h_price != null" class="whitespace-nowrap px-2 py-1 text-right font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.cacheWrite1h') }}</th>
                                 <th class="whitespace-nowrap px-2 py-1 text-right font-semibold">{{ t('availableChannels.modelMarketplace.timePricing.cacheRead') }}</th>
@@ -348,10 +332,15 @@
               </div>
             </section>
 
-            <div v-if="card.pricingOptions.length === 1 && card.pricingOptions[0]?.billing_mode === BILLING_MODE_TOKEN" class="mt-3 space-y-1.5 text-[11px]">
-              <div v-for="cache in cachePriceRows(card)" :key="cache.key" class="flex items-center justify-between gap-2">
-                <span class="text-stone-500 dark:text-stone-400">{{ t(`availableChannels.modelMarketplace.reference.${cache.key}`) }}</span>
-                <span class="font-mono text-stone-700 dark:text-stone-300">{{ formatCompactTokenPrice(cache.value) }} <span class="text-[10px] text-stone-400">{{ pricingLabels.unitPerMillion }}</span></span>
+            <div v-if="tokenDetailPriceRows(card).length" data-testid="token-price-details" class="mt-3 space-y-1.5 text-[11px]">
+              <div
+                v-for="price in tokenDetailPriceRows(card)"
+                :key="price.key"
+                :data-testid="`detail-${price.key}-price`"
+                class="flex items-center justify-between gap-2"
+              >
+                <span class="text-stone-500 dark:text-stone-400">{{ price.label }}</span>
+                <span class="font-mono text-stone-700 dark:text-stone-300">{{ formatCompactTokenPrice(price.value) }} <span class="text-[10px] text-stone-400">{{ pricingLabels.unitPerMillion }}</span></span>
               </div>
             </div>
 
@@ -457,12 +446,58 @@ const { copyToClipboard } = useClipboard()
 
 const RATE_COMPARISON_EPSILON = 1e-9
 
-function cachePriceRows(card: AvailableModelMarketplaceCard) {
+interface TokenPriceRow {
+  key: string
+  label: string
+  value: number | null
+}
+
+function hasImageTokenPrices(pricing: UserSupportedModelPricing): boolean {
+  // Zero-filled image fields alone must not reclassify an ordinary token model.
+  return pricing.billing_mode === BILLING_MODE_TOKEN
+    && ((pricing.image_input_price ?? 0) > 0 || (pricing.image_output_price ?? 0) > 0)
+}
+
+function tokenHeadlinePriceRows(card: AvailableModelMarketplaceCard): TokenPriceRow[] {
   const pricing = card.pricingOptions[0]
+  if (!pricing) return []
+  const hasImagePrices = hasImageTokenPrices(pricing)
+  // Billing falls back to text input for zero image input; image output can be explicitly free.
+  const imageInput = hasImagePrices && (pricing.image_input_price ?? 0) > 0
+  const imageOutput = hasImagePrices && pricing.image_output_price != null
   return [
-    { key: 'cacheRead', value: displayPrice(card, pricing?.cache_read_price ?? null, pricing) },
-    { key: 'cacheWrite', value: displayPrice(card, pricing?.cache_write_price ?? null, pricing) },
+    {
+      key: imageInput ? 'image-input' : 'input',
+      label: t(imageInput ? 'availableChannels.pricing.imageInputPrice'
+        : hasImagePrices ? 'availableChannels.modelMarketplace.reference.textInput' : 'availableChannels.pricing.inputPrice'),
+      value: (imageInput ? pricing.image_input_price : pricing.input_price) ?? null,
+    },
+    {
+      key: imageOutput ? 'image-output' : 'output',
+      label: t(imageOutput ? 'availableChannels.pricing.imageOutputPrice'
+        : hasImagePrices ? 'availableChannels.modelMarketplace.reference.textOutput' : 'availableChannels.pricing.outputPrice'),
+      value: (imageOutput ? pricing.image_output_price : pricing.output_price) ?? null,
+    },
   ]
+}
+
+function tokenDetailPriceRows(card: AvailableModelMarketplaceCard): TokenPriceRow[] {
+  const pricing = card.pricingOptions[0]
+  if (card.pricingOptions.length !== 1 || pricing?.billing_mode !== BILLING_MODE_TOKEN) return []
+  const headlineKeys = new Set(tokenHeadlinePriceRows(card).map(row => row.key))
+  const rows: TokenPriceRow[] = [
+    { key: 'input', label: t('availableChannels.modelMarketplace.reference.textInput'), value: pricing.input_price },
+    { key: 'output', label: t('availableChannels.modelMarketplace.reference.textOutput'), value: pricing.output_price },
+    { key: 'image-input', label: t('availableChannels.pricing.imageInputPrice'), value: pricing.image_input_price },
+    { key: 'image-output', label: t('availableChannels.pricing.imageOutputPrice'), value: pricing.image_output_price },
+    { key: 'cache-read', label: t('availableChannels.modelMarketplace.reference.cacheRead'), value: pricing.cache_read_price },
+    { key: 'cache-write', label: t('availableChannels.modelMarketplace.reference.cacheWrite'), value: pricing.cache_write_price },
+    { key: 'cache-write-1h', label: t('availableChannels.modelMarketplace.timePricing.cacheWrite1h'), value: pricing.cache_write_1h_price ?? null },
+  ]
+  return rows
+    .filter(row => !headlineKeys.has(row.key))
+    .map(row => ({ ...row, value: displayPrice(card, row.value ?? null, pricing) }))
+    .filter(row => row.value != null && row.value > 0)
 }
 
 // One clock per marketplace; only minute changes invalidate price calculations.

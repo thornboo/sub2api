@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import AvailableModelMarketplace from '../AvailableModelMarketplace.vue'
 import { createModelRuntimeMetricsPreview } from '../modelRuntimeMetrics'
 import type { AvailableModelMarketplaceCard } from '@/utils/availableModelMarketplace'
-import { BILLING_MODE_IMAGE, BILLING_MODE_TOKEN } from '@/constants/channel'
+import { BILLING_MODE_IMAGE, BILLING_MODE_PER_REQUEST, BILLING_MODE_TOKEN } from '@/constants/channel'
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -32,6 +32,16 @@ const pricing = {
   image_output_price: null,
   per_request_price: null,
   intervals: [],
+}
+
+const imageTokenPricing = {
+  ...pricing,
+  input_price: 0.000005,
+  output_price: 0,
+  image_input_price: 0.000008,
+  image_output_price: 0.00003,
+  cache_read_price: 0.000002,
+  cache_write_price: 0,
 }
 
 const publicGroup = {
@@ -343,6 +353,163 @@ describe('AvailableModelMarketplace', () => {
     expect(card.find('[data-testid="price-effective-rate"]').exists()).toBe(false)
     expect(card.find('[data-testid="price-discount"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="group-rate"]').exists()).toBe(false)
+  })
+
+  it.each([
+    { rates: {}, input: '$53.6', output: '$201', text: '$33.5', cache: '$13.4' },
+    { rates: { 1: 0.5 }, input: '$4', output: '$15', text: '$2.5', cache: '$1' },
+  ])('promotes configured image token prices with the applicable rate $rates', ({ rates, input, output, text, cache }) => {
+    const wrapper = mountMarketplace({
+      cards: [{
+        ...cards[0],
+        // Use an ordinary name to prove selection follows pricing fields.
+        group: { ...publicGroup, rate_multiplier: 6.7 },
+        pricingOptions: [imageTokenPricing],
+      }],
+      applyRateMultiplier: true,
+      userGroupRates: rates,
+    })
+    try {
+      expect(wrapper.get('[data-testid="effective-image-input-price"]').text()).toBe(input)
+      expect(wrapper.get('[data-testid="effective-image-output-price"]').text()).toBe(output)
+      expect(wrapper.get('[data-testid="original-image-input-price"]').text()).toBe('$8')
+      expect(wrapper.get('[data-testid="original-image-output-price"]').text()).toBe('$30')
+      const details = wrapper.get('[data-testid="token-price-details"]')
+      expect(details.get('[data-testid="detail-input-price"]').text()).toContain(text)
+      expect(details.get('[data-testid="detail-cache-read-price"]').text()).toContain(cache)
+      expect(details.text()).toContain('availableChannels.modelMarketplace.reference.textInput')
+      expect(details.text()).toContain('/ 1M token')
+      expect(details.find('[data-testid="detail-output-price"]').exists()).toBe(false)
+      expect(details.find('[data-testid="detail-cache-write-price"]').exists()).toBe(false)
+      expect(details.find('[data-testid="detail-image-output-price"]').exists()).toBe(false)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('keeps textual output when only image input pricing is configured', () => {
+    const wrapper = mountMarketplace({
+      cards: [{ ...cards[0], pricingOptions: [{ ...imageTokenPricing, image_output_price: null, output_price: 0.000004 }] }],
+    })
+    try {
+      expect(wrapper.get('[data-testid="effective-image-input-price"]').text()).toBe('$8')
+      expect(wrapper.get('[data-testid="effective-output-price"]').text()).toBe('$4')
+      expect(wrapper.text()).toContain('availableChannels.modelMarketplace.reference.textOutput')
+      expect(wrapper.find('[data-testid="effective-image-output-price"]').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="detail-input-price"]').text()).toContain('$5')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it.each([null, 0])('keeps textual input when image input pricing is %s and image output is priced', (imageInputPrice) => {
+    const wrapper = mountMarketplace({
+      cards: [{ ...cards[0], pricingOptions: [{ ...imageTokenPricing, image_input_price: imageInputPrice }] }],
+    })
+    try {
+      expect(wrapper.get('[data-testid="effective-input-price"]').text()).toBe('$5')
+      expect(wrapper.get('[data-testid="effective-image-output-price"]').text()).toBe('$30')
+      expect(wrapper.text()).toContain('availableChannels.modelMarketplace.reference.textInput')
+      expect(wrapper.find('[data-testid="effective-image-input-price"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="detail-image-input-price"]').exists()).toBe(false)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('retains explicitly free image output when image input is priced', () => {
+    const wrapper = mountMarketplace({
+      cards: [{ ...cards[0], pricingOptions: [{ ...imageTokenPricing, image_output_price: 0, output_price: 0.000004 }] }],
+    })
+    try {
+      expect(wrapper.get('[data-testid="effective-image-input-price"]').text()).toBe('$8')
+      expect(wrapper.get('[data-testid="effective-image-output-price"]').text()).toBe('$0')
+      expect(wrapper.find('[data-testid="effective-output-price"]').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="detail-output-price"]').text()).toContain('$4')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('omits zero and absent details without changing ordinary token headlines', () => {
+    const wrapper = mountMarketplace({
+      cards: [{ ...cards[0], name: 'gpt-image-example', pricingOptions: [{
+        ...pricing, output_price: 0, image_input_price: 0, image_output_price: 0,
+        cache_read_price: 0, cache_write_1h_price: 0,
+      }] }],
+    })
+    try {
+      expect(wrapper.get('[data-testid="effective-input-price"]').text()).toBe('$0.8')
+      expect(wrapper.get('[data-testid="effective-output-price"]').text()).toBe('$0')
+      expect(wrapper.find('[data-testid="effective-image-input-price"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="token-price-details"]').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('availableChannels.modelMarketplace.reference.cacheRead')
+      expect(wrapper.text()).not.toContain('availableChannels.modelMarketplace.reference.cacheWrite')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('hides details made free by a user rate while retaining zero image headlines', () => {
+    const wrapper = mountMarketplace({
+      cards: [{ ...cards[0], pricingOptions: [imageTokenPricing] }],
+      applyRateMultiplier: true,
+      userGroupRates: { 1: 0 },
+    })
+    try {
+      expect(wrapper.get('[data-testid="effective-image-input-price"]').text()).toBe('$0')
+      expect(wrapper.get('[data-testid="effective-image-output-price"]').text()).toBe('$0')
+      expect(wrapper.find('[data-testid="token-price-details"]').exists()).toBe(false)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('applies the current time rate to image prices and labels text prices in the popover', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(new Date('2026-09-08T02:30:00Z'))
+    const wrapper = mountMarketplace({
+      cards: [{ ...cards[0], pricingOptions: [{
+        ...imageTokenPricing, cache_write_1h_price: 0.000003,
+        time_pricing: scheduledTierPricing.time_pricing,
+      }] }],
+      applyRateMultiplier: true,
+      userGroupRates: { 1: 0.5 },
+    })
+    try {
+      expect(wrapper.get('[data-testid="effective-image-input-price"]').text()).toBe('$16')
+      expect(wrapper.get('[data-testid="effective-image-output-price"]').text()).toBe('$60')
+      expect(wrapper.get('[data-testid="detail-input-price"]').text()).toContain('$10')
+      expect(wrapper.get('[data-testid="detail-cache-read-price"]').text()).toContain('$4')
+      expect(wrapper.get('[data-testid="detail-cache-write-1h-price"]').text()).toContain('$6')
+
+      await wrapper.get('[data-testid="time-pricing-trigger"]').trigger('click')
+      await flushPromises()
+      const element = document.body.querySelector<HTMLElement>('[data-testid="time-pricing-popover"]')
+      expect(element).not.toBeNull()
+      const popover = new DOMWrapper(element!)
+      expect(popover.findAll('thead th').slice(2, 4).map(column => column.text())).toEqual([
+        'availableChannels.modelMarketplace.reference.textInput',
+        'availableChannels.modelMarketplace.reference.textOutput',
+      ])
+      const peakRow = popover.findAll('[data-testid="time-pricing-row"]')[1]
+      expect(peakRow.findAll('td').slice(2, 4).map(cell => cell.text())).toEqual(['$10.0000', '$0.0000'])
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it.each([BILLING_MODE_IMAGE, BILLING_MODE_PER_REQUEST])('keeps per-request prices for %s billing', (billingMode) => {
+    const wrapper = mountMarketplace({
+      cards: [{ ...cards[0], pricingOptions: [{ ...imageTokenPricing, billing_mode: billingMode, per_request_price: 0.2 }] }],
+    })
+    try {
+      expect(wrapper.text()).toContain('$0.2 / 次')
+      expect(wrapper.find('[data-testid="effective-image-output-price"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="token-price-details"]').exists()).toBe(false)
+    } finally {
+      wrapper.unmount()
+    }
   })
 
   it('does not repeat an identical original price for a 1x rate', () => {
@@ -742,6 +909,11 @@ describe('AvailableModelMarketplace', () => {
       expect(popoverElement).not.toBeNull()
       const popover = new DOMWrapper(popoverElement!)
       const rows = popover.findAll('[data-testid="time-pricing-row"]')
+
+      expect(popover.findAll('thead th').slice(2, 4).map(column => column.text())).toEqual([
+        'availableChannels.pricing.inputPrice',
+        'availableChannels.pricing.outputPrice',
+      ])
 
       expect(trigger.attributes('aria-expanded')).toBe('true')
       expect(card.element.contains(popover.element)).toBe(false)
