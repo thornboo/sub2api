@@ -5,7 +5,7 @@
     <template v-if="mode === 'token'">
       <div class="pricing-interval-grid grid min-w-0 flex-1 gap-2">
         <div>
-          <label class="text-xs text-stone-400">{{ t('admin.channels.form.minTokens') }}</label>
+          <label class="text-xs text-stone-400">{{ t('admin.channels.form.minTokens') }} <span class="text-stone-300 dark:text-stone-500">{{ t('admin.channels.form.exclusive') }}</span></label>
           <input :value="interval.min_tokens" @input="emitField('min_tokens', toInt(($event.target as HTMLInputElement).value))"
             type="number" min="0" class="input mt-0.5 text-xs" />
         </div>
@@ -74,7 +74,7 @@
           type="text" class="input mt-0.5 text-xs" :placeholder="mode === 'image' ? '1K / 2K / 4K' : ''" />
       </div>
       <div class="w-20">
-        <label class="text-xs text-stone-400">{{ t('admin.channels.form.minTokens') }}</label>
+        <label class="text-xs text-stone-400">{{ t('admin.channels.form.minTokens') }} <span class="text-stone-300 dark:text-stone-500">{{ t('admin.channels.form.exclusive') }}</span></label>
         <input :value="interval.min_tokens" @input="emitField('min_tokens', toInt(($event.target as HTMLInputElement).value))"
           type="number" min="0" class="input mt-0.5 text-xs" />
       </div>

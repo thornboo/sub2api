@@ -240,6 +240,17 @@
                 + {{ t('admin.channels.form.addInterval') }}
               </button>
             </div>
+            <p class="mt-1 text-xs text-stone-400 dark:text-stone-500">
+              {{ t('admin.channels.form.intervalBoundsHint') }}
+            </p>
+            <p
+              v-for="gap in tokenIntervalGaps"
+              :key="`${gap.previousMax}-${gap.currentMin}`"
+              class="mt-1 text-xs text-amber-600 dark:text-amber-400"
+              data-testid="token-interval-gap-warning"
+            >
+              {{ t('admin.channels.form.intervalGapWarning', { ...gap }) }}
+            </p>
             <div v-if="entry.intervals && entry.intervals.length > 0" class="mt-2 space-y-2">
               <IntervalRow
                 v-for="(iv, idx) in entry.intervals"
@@ -343,7 +354,7 @@ import IntervalRow from './IntervalRow.vue'
 import ModelTagInput from './ModelTagInput.vue'
 import TimePricingEditor from './TimePricingEditor.vue'
 import type { PricingFormEntry, IntervalFormEntry } from './types'
-import { perTokenToMTok, getPlatformTagClass } from './types'
+import { findTokenIntervalGaps, perTokenToMTok, getPlatformTagClass } from './types'
 import type { BillingMode, ChannelModelDelivery, ModelDeliveryStatus } from '@/api/admin/channels'
 import channelsAPI from '@/api/admin/channels'
 
@@ -389,6 +400,9 @@ const enabledSelfCheckCount = computed(() =>
 )
 
 const deliveryRows = computed(() => props.entry.models.map(model => deliveryFor(model)).filter(Boolean) as ChannelModelDelivery[])
+const tokenIntervalGaps = computed(() =>
+  props.entry.billing_mode === 'token' ? findTokenIntervalGaps(props.entry.intervals || []) : []
+)
 const deliverySummaryLabel = computed(() => {
   const delivered = deliveryRows.value.filter(row => row.status === 'deliverable' || row.status === 'partial').length
   return t('admin.channels.form.deliverySummary', { delivered, total: props.entry.models.length })

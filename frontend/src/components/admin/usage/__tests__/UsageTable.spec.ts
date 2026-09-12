@@ -66,6 +66,7 @@ const messages: Record<string, string> = {
   'admin.usage.billingModeImage': 'Image',
   'admin.usage.apiKeyDeletedBadge': 'Deleted',
   'admin.usage.accountArchivedBadge': 'Archived',
+  'admin.usage.longContextBillingApplied': 'Long context',
   'admin.usage.requestIdCopied': 'Request ID copied',
   'admin.usage.upstreamRequestIdCopied': 'Upstream ID copied',
   'keys.copied': 'Copied',
@@ -292,7 +293,7 @@ describe('admin UsageTable tooltip', () => {
     })
 
     expect(wrapper.findAll('[data-testid="long-context-billing-marker"]')).toHaveLength(1)
-    expect(wrapper.get('[data-testid="long-context-billing-marker"]').text()).toBe('x2')
+    expect(wrapper.get('[data-testid="long-context-billing-marker"]').text()).toBe('Long context')
   })
 
   it('keeps the request type badge and adds a separate badge only for native compaction rows', () => {

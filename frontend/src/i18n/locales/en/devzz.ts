@@ -1035,6 +1035,7 @@ export default {
             apiKeyDeletedBadge: 'Deleted',
             accountArchivedBadge: 'Archived',
             apiKeyActiveBadge: 'Active',
+            longContextBillingApplied: 'Long context',
             apiKeyId: 'API Key ID',
             apiKeyStatus: 'API Key Status',
             apiKeyDeletedAt: 'API Key Deleted At',

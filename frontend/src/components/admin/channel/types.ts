@@ -19,6 +19,13 @@ export interface IntervalFormEntry {
   sort_order: number
 }
 
+export interface TokenIntervalGap {
+  previousMax: number
+  currentMin: number
+  missingStart: number
+  missingEnd: number
+}
+
 export interface PricingFormEntry {
   _ui_id?: string
   sort_order?: number
@@ -362,6 +369,30 @@ export function validateIntervals(
   // per_request / image 模式按 tier_label 匹配，不做 token 区间重叠校验
   if (mode !== 'token') return null
   return checkIntervalOverlap(sorted, t)
+}
+
+export function findTokenIntervalGaps(intervals: IntervalFormEntry[]): TokenIntervalGap[] {
+  if (!intervals || intervals.length < 2) return []
+
+  const sorted = [...intervals].sort((a, b) => a.min_tokens - b.min_tokens)
+  const gaps: TokenIntervalGap[] = []
+  let coveredMax = sorted[0].max_tokens
+  if (coveredMax == null) return []
+
+  for (let i = 1; i < sorted.length; i++) {
+    const current = sorted[i]
+    if (coveredMax < current.min_tokens) {
+      gaps.push({
+        previousMax: coveredMax,
+        currentMin: current.min_tokens,
+        missingStart: coveredMax + 1,
+        missingEnd: current.min_tokens,
+      })
+    }
+    if (current.max_tokens == null) return gaps
+    coveredMax = Math.max(coveredMax, current.max_tokens)
+  }
+  return gaps
 }
 
 function intervalValidationMessage(

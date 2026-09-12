@@ -1036,6 +1036,7 @@ export default {
             apiKeyDeletedBadge: '已删除',
             accountArchivedBadge: '已归档',
             apiKeyActiveBadge: '活跃',
+            longContextBillingApplied: '长上下文',
             apiKeyId: 'API Key ID',
             apiKeyStatus: 'API Key 状态',
             apiKeyDeletedAt: 'API Key 删除时间',

@@ -1451,6 +1451,20 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 		breakdown.TimePricingRule = applied.Rule
 	}
 	applyCostBreakdownMultiplier(breakdown, maxReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, pricing))
+	if contextTierPricingEnabled && breakdown.ActualCost > 0 {
+		if interval := FindMatchingInterval(resolved.Intervals, pricingContext); interval != nil && interval.MinTokens > 0 {
+			// Explicit intervals already include the surcharge, so computeTokenBreakdown
+			// cannot mark it. Compare with the same request billed at the lowest tier;
+			// disabling both gates makes this comparison stop after one additional call.
+			baselineResolved := *resolved
+			baselineResolved.longContextPricingEnabled = false
+			baselineInput := input
+			baselineInput.LongContextBillingEnabled = &baselineResolved.longContextPricingEnabled
+			if baseline, err := s.calculateTokenCost(&baselineResolved, baselineInput); err == nil {
+				breakdown.LongContextBillingApplied = breakdown.ActualCost > baseline.ActualCost
+			}
+		}
+	}
 	return breakdown, nil
 }
 

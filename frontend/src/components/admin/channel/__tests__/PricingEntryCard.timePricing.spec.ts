@@ -73,3 +73,50 @@ describe('PricingEntryCard request multipliers', () => {
     expect(shown.text()).toContain('admin.channels.form.maxReasoningEffortMultiplier')
   })
 })
+
+describe('PricingEntryCard token interval guidance', () => {
+  it('shows a non-blocking fallback warning for sparse token intervals', () => {
+    const wrapper = shallowMount(PricingEntryCard, {
+      props: {
+        entry: {
+          ...createEntry(),
+          intervals: [
+            {
+              min_tokens: 0,
+              max_tokens: 272000,
+              tier_label: '',
+              input_price: 10,
+              output_price: 50,
+              cache_write_price: null,
+              cache_read_price: 1,
+              input_multiplier: null,
+              output_multiplier: null,
+              cache_write_multiplier: null,
+              cache_read_multiplier: null,
+              per_request_price: null,
+              sort_order: 0,
+            },
+            {
+              min_tokens: 272001,
+              max_tokens: null,
+              tier_label: '',
+              input_price: 20,
+              output_price: 75,
+              cache_write_price: null,
+              cache_read_price: 2,
+              input_multiplier: null,
+              output_multiplier: null,
+              cache_write_multiplier: null,
+              cache_read_multiplier: null,
+              per_request_price: null,
+              sort_order: 1,
+            },
+          ],
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('admin.channels.form.intervalBoundsHint')
+    expect(wrapper.findAll('[data-testid="token-interval-gap-warning"]')).toHaveLength(1)
+  })
+})

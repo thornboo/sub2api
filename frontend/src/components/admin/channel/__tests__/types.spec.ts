@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   apiIntervalsToForm,
   apiTimePricingToForm,
+  findTokenIntervalGaps,
   formIntervalsToAPI,
   formTimePricingToAPI,
   isValidPositiveMultiplier,
@@ -104,6 +105,53 @@ describe('validateIntervals', () => {
         makeInterval({ min_tokens: 200000, max_tokens: 500000, input_price: 2, output_price: 2 }),
       ]
       expect(validateIntervals(intervals, 'token', t)).toContain('overlap')
+    })
+
+    it('allows sparse token intervals and reports their fallback gaps separately', () => {
+      const intervals: IntervalFormEntry[] = [
+        makeInterval({ min_tokens: 0, max_tokens: 272000, input_price: 1, output_price: 1 }),
+        makeInterval({ min_tokens: 272001, max_tokens: null, input_price: 2, output_price: 2 }),
+      ]
+
+      expect(validateIntervals(intervals, 'token', t)).toBeNull()
+      expect(findTokenIntervalGaps(intervals)).toEqual([{
+        previousMax: 272000,
+        currentMin: 272001,
+        missingStart: 272001,
+        missingEnd: 272001,
+      }])
+    })
+
+    it('does not report a gap when adjacent token intervals share the boundary', () => {
+      const intervals: IntervalFormEntry[] = [
+        makeInterval({ min_tokens: 0, max_tokens: 272000, input_price: 1, output_price: 1 }),
+        makeInterval({ min_tokens: 272000, max_tokens: null, input_price: 2, output_price: 2 }),
+      ]
+
+      expect(validateIntervals(intervals, 'token', t)).toBeNull()
+      expect(findTokenIntervalGaps(intervals)).toEqual([])
+    })
+
+    it('uses cumulative coverage so overlapping drafts do not report false fallback gaps', () => {
+      const intervals: IntervalFormEntry[] = [
+        makeInterval({ min_tokens: 0, max_tokens: 500000, input_price: 1, output_price: 1 }),
+        makeInterval({ min_tokens: 100000, max_tokens: 200000, input_price: 2, output_price: 2 }),
+        makeInterval({ min_tokens: 500000, max_tokens: null, input_price: 3, output_price: 3 }),
+      ]
+
+      expect(validateIntervals(intervals, 'token', t)).toContain('overlap')
+      expect(findTokenIntervalGaps(intervals)).toEqual([])
+    })
+
+    it('stops gap reporting after an unbounded interval even when it is not last', () => {
+      const intervals: IntervalFormEntry[] = [
+        makeInterval({ min_tokens: 0, max_tokens: 100000, input_price: 1, output_price: 1 }),
+        makeInterval({ min_tokens: 100000, max_tokens: null, input_price: 2, output_price: 2 }),
+        makeInterval({ min_tokens: 300000, max_tokens: 400000, input_price: 3, output_price: 3 }),
+      ]
+
+      expect(validateIntervals(intervals, 'token', t)).toContain('unboundedLast')
+      expect(findTokenIntervalGaps(intervals)).toEqual([])
     })
 
     it('rejects unbounded interval in token mode', () => {
