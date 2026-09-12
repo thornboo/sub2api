@@ -75,8 +75,9 @@ func RegisterGatewayRoutes(
 	isOpenAIResponsesCompatibleGatewayPlatform := func(c *gin.Context) bool {
 		switch getGroupPlatform(c) {
 		case service.PlatformOpenAI, service.PlatformGrok,
-			service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek:
-			// 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 openai/grok 一样经 OpenAI 网关转发。
+			service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek,
+			service.PlatformMiniMax, service.PlatformOpenCodeGo:
+			// 国产 OpenAI 兼容供应商与 openai/grok 一样经 OpenAI 网关转发。
 			return true
 		default:
 			return false
@@ -84,7 +85,7 @@ func RegisterGatewayRoutes(
 	}
 	countTokensHandler := func(c *gin.Context) {
 		switch getGroupPlatform(c) {
-		case service.PlatformOpenAI, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek:
+		case service.PlatformOpenAI, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo:
 			h.OpenAIGateway.CountTokens(c)
 		case service.PlatformGrok:
 			h.OpenAIGateway.GrokCountTokens(c)
@@ -300,6 +301,8 @@ func RegisterGatewayRoutes(
 		// /models endpoint with a client_version query and expect the ChatGPT
 		// Codex manifest format; other clients keep the OpenAI-style list.
 		gateway.GET("/models", memberModelsHandler)
+		// Single-model discovery never selects the Codex client_version manifest.
+		gateway.GET("/models/:model", orchestrateMemberGroups(h.Gateway.Models))
 		gateway.GET("/usage", h.Gateway.Usage)
 		gateway.POST("/live", withCompositeLiveMemberGroups(liveCreateHandler))
 		gateway.GET("/live/:call_id", h.OpenAIGateway.LiveSideband)
@@ -465,8 +468,8 @@ func RegisterGatewayRoutes(
 		h.OpenAIGateway.ResponsesWebSocket(c)
 	}))...)
 	r.GET("/models", append(commonDirect, memberModelsHandler)...)
+	r.GET("/models/:model", append(commonDirect, orchestrateMemberGroups(h.Gateway.Models))...)
 	r.POST("/messages/count_tokens", append(commonDirect, withCompositeMemberGroups(countTokensHandler))...)
-
 	codexDirect := r.Group("/backend-api/codex")
 	codexDirect.Use(commonDirect...)
 	{

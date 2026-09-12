@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -51,10 +52,11 @@ func TestOpenAIWSv2StreamingRepairsConcatenatedJSONDocumentsInSingleMessage(t *t
 
 	pool := newOpenAIWSConnPool(cfg)
 	pool.setClientDialerForTest(&openAIWSCaptureDialer{conn: captureConn})
+	upstream := &httpUpstreamRecorder{}
 	svc := &OpenAIGatewayService{
 		cfg:              cfg,
 		cache:            &stubGatewayCache{},
-		httpUpstream:     &httpUpstreamRecorder{},
+		httpUpstream:     upstream,
 		openaiWSResolver: NewOpenAIWSProtocolResolver(cfg),
 		openaiWSPool:     pool,
 		toolCorrector:    NewCodexToolCorrector(),
@@ -186,10 +188,11 @@ func testOpenAIWSv2RejectsMalformedEventBeforeWritingDownstream(t *testing.T, ma
 
 	pool := newOpenAIWSConnPool(cfg)
 	pool.setClientDialerForTest(&openAIWSCaptureDialer{conn: captureConn})
+	upstream := &httpUpstreamRecorder{}
 	svc := &OpenAIGatewayService{
 		cfg:              cfg,
 		cache:            &stubGatewayCache{},
-		httpUpstream:     &httpUpstreamRecorder{},
+		httpUpstream:     upstream,
 		openaiWSResolver: NewOpenAIWSProtocolResolver(cfg),
 		openaiWSPool:     pool,
 		toolCorrector:    NewCodexToolCorrector(),
@@ -214,11 +217,13 @@ func testOpenAIWSv2RejectsMalformedEventBeforeWritingDownstream(t *testing.T, ma
 
 	result, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-5.6-sol","stream":true,"input":"hello"}`))
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed Responses event JSON")
 	var fallbackErr *openAIWSFallbackError
-	require.ErrorAs(t, err, &fallbackErr)
-	require.Equal(t, "invalid_event_json", fallbackErr.Reason)
+	require.False(t, errors.As(err, &fallbackErr), "malformed post-dispatch WS outcome must not be retryable fallback")
 	require.Nil(t, result)
 	require.Empty(t, recorder.Body.String())
+	require.Nil(t, upstream.lastReq, "malformed post-dispatch WS outcome must not fall back to HTTP")
+	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
 	require.True(t, captureConn.closed)
 }
 

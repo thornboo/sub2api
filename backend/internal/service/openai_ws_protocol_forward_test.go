@@ -865,6 +865,169 @@ func TestOpenAIGatewayService_Forward_WSv2CloseAfterDispatchDoesNotReplay(t *tes
 	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
 }
 
+func TestOpenAIGatewayService_Forward_WSv2ReusedConnCloseAfterDispatchDoesNotReplay(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.Enabled = false
+	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	cfg.Gateway.OpenAIWS.Enabled = true
+	cfg.Gateway.OpenAIWS.OAuthEnabled = true
+	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
+	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
+	cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 1
+	cfg.Gateway.OpenAIWS.MinIdlePerAccount = 0
+	cfg.Gateway.OpenAIWS.MaxIdlePerAccount = 1
+	cfg.Gateway.OpenAIWS.QueueLimitPerConn = 8
+	cfg.Gateway.OpenAIWS.DialTimeoutSeconds = 3
+	cfg.Gateway.OpenAIWS.ReadTimeoutSeconds = 3
+	cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
+	cfg.Gateway.OpenAIWS.FallbackCooldownSeconds = 1
+
+	pooledConn := &openAIWSCaptureConn{
+		events: [][]byte{
+			[]byte(`{"type":"response.completed","response":{"id":"resp_reused_first","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`),
+		},
+	}
+	dialer := &openAIWSQueueDialer{conns: []openAIWSClientConn{pooledConn}}
+	pool := newOpenAIWSConnPool(cfg)
+	pool.setClientDialerForTest(dialer)
+
+	upstream := &httpUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(
+				"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_reused_http_fallback\",\"usage\":{\"input_tokens\":2,\"output_tokens\":1}}}\n\n" +
+					"data: [DONE]\n\n",
+			)),
+		},
+	}
+	svc := &OpenAIGatewayService{
+		cfg:              cfg,
+		httpUpstream:     upstream,
+		openaiWSResolver: NewOpenAIWSProtocolResolver(cfg),
+		toolCorrector:    NewCodexToolCorrector(),
+		openaiWSPool:     pool,
+	}
+	account := &Account{
+		ID:          91,
+		Name:        "openai-apikey-reused-no-replay",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{"api_key": "sk-test"},
+		Extra:       map[string]any{"responses_websockets_v2_enabled": true},
+	}
+
+	firstCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	firstCtx.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
+	firstCtx.Request.Header.Set("User-Agent", "custom-client/1.0")
+	firstBody := []byte(`{"model":"gpt-5.1","stream":false,"input":[{"type":"input_text","text":"first"}]}`)
+	firstResult, firstErr := svc.Forward(context.Background(), firstCtx, account, firstBody)
+	require.NoError(t, firstErr)
+	require.NotNil(t, firstResult)
+	require.Equal(t, "resp_reused_first", firstResult.RequestID)
+	require.Equal(t, 1, dialer.DialCount())
+
+	secondCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	secondCtx.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
+	secondCtx.Request.Header.Set("User-Agent", "custom-client/1.0")
+	secondBody := []byte(`{"model":"gpt-5.1","stream":true,"input":[{"type":"input_text","text":"second"}]}`)
+	secondResult, secondErr := svc.Forward(context.Background(), secondCtx, account, secondBody)
+	require.Error(t, secondErr)
+	require.Nil(t, secondResult)
+	require.Nil(t, upstream.lastReq, "reused WS close after dispatch must not fall back to HTTP")
+	require.Equal(t, 1, dialer.DialCount(), "reused connection unknown outcome must not redial and replay")
+	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(secondCtx))
+	pooledConn.mu.Lock()
+	writes := len(pooledConn.writes)
+	pooledConn.mu.Unlock()
+	require.Equal(t, 2, writes, "second request was dispatched exactly once on the reused connection")
+}
+
+func TestOpenAIGatewayService_Forward_WSv2MalformedJSONAfterDispatchDoesNotReplay(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var wsAttempts atomic.Int32
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	wsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wsAttempts.Add(1)
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade websocket failed: %v", err)
+			return
+		}
+		defer func() {
+			_ = conn.Close()
+		}()
+
+		var req map[string]any
+		if err := conn.ReadJSON(&req); err != nil {
+			t.Errorf("read ws request failed: %v", err)
+			return
+		}
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.created"`))
+	}))
+	defer wsServer.Close()
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
+	c.Request.Header.Set("User-Agent", "custom-client/1.0")
+
+	upstream := &httpUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(
+				"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_malformed_http_fallback\",\"usage\":{\"input_tokens\":2,\"output_tokens\":1}}}\n\n" +
+					"data: [DONE]\n\n",
+			)),
+		},
+	}
+
+	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.Enabled = false
+	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	cfg.Gateway.OpenAIWS.Enabled = true
+	cfg.Gateway.OpenAIWS.OAuthEnabled = true
+	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
+	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
+	cfg.Gateway.OpenAIWS.FallbackCooldownSeconds = 1
+
+	svc := &OpenAIGatewayService{
+		cfg:              cfg,
+		httpUpstream:     upstream,
+		openaiWSResolver: NewOpenAIWSProtocolResolver(cfg),
+		toolCorrector:    NewCodexToolCorrector(),
+	}
+
+	account := &Account{
+		ID:          90,
+		Name:        "openai-apikey-malformed-json",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-test",
+			"base_url": wsServer.URL,
+		},
+		Extra: map[string]any{
+			"responses_websockets_v2_enabled": true,
+		},
+	}
+
+	body := []byte(`{"model":"gpt-5.3-codex","stream":true,"input":[{"type":"input_text","text":"hello"}]}`)
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed Responses event JSON")
+	require.Nil(t, result)
+	require.Nil(t, upstream.lastReq, "WS malformed JSON after dispatch must not fall back to HTTP")
+	require.Equal(t, int32(1), wsAttempts.Load(), "malformed JSON after dispatch leaves outcome unknown and must not replay")
+	require.True(t, IsEnterpriseMemberBudgetOutcomeAmbiguous(c))
+}
+
 func TestOpenAIGatewayService_Forward_WSv2PolicyViolationFastFallbackHTTP(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

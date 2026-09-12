@@ -1452,7 +1452,7 @@ function handleToolbarRefresh() {
               v-if="!props.fullscreen"
               class="text-[10px] font-bold text-emerald-600 hover:underline dark:text-emerald-300"
               type="button"
-              @click="openDetails({ title: t('admin.ops.ttftLabel'), sort: 'duration_desc' })"
+              @click="openDetails({ title: t('admin.ops.ttftLabel'), kind: 'success', sort: 'ttft_desc' })"
             >
               {{ t('admin.ops.requestDetails.details') }}
             </button>

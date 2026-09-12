@@ -93,8 +93,8 @@ func (s *imageTaskStore) ListRecoverable(ctx context.Context, before time.Time, 
 	if limit <= 0 {
 		limit = 100
 	}
-	ids, err := s.rdb.ZRangeByScore(ctx, imageTaskRecoverableIndex, &redis.ZRangeBy{
-		Min: "-inf", Max: strconv.FormatInt(before.Unix(), 10), Offset: 0, Count: limit,
+	ids, err := s.rdb.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key: imageTaskRecoverableIndex, Start: "-inf", Stop: strconv.FormatInt(before.Unix(), 10), ByScore: true, Count: limit,
 	}).Result()
 	if err != nil || len(ids) == 0 {
 		return nil, err

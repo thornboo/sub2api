@@ -467,7 +467,7 @@
             </div>
             <div v-if="tooltipData && hasImageInputCost(tooltipData)" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('usage.imageInputCost') }}</span>
-              <span class="font-medium text-fuchsia-300">${{ tooltipData.image_input_cost.toFixed(6) }}</span>
+              <span class="font-medium text-fuchsia-300">${{ tooltipData.image_input_cost.toFixed(8) }}</span>
             </div>
             <div v-if="tooltipData && tooltipData.output_cost > 0" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.outputCost') }}</span>
@@ -636,7 +636,7 @@ const formatDisplayText = (value: unknown, fallback = '-'): string => {
 }
 
 const formatCount = (value: unknown): string => toFiniteNumber(value).toLocaleString()
-const formatCost = (value: unknown): string => toFiniteNumber(value).toFixed(6)
+const formatCost = (value: unknown): string => toFiniteNumber(value).toFixed(8)
 const getModelMappingSteps = (value: unknown): string[] => {
   if (typeof value !== 'string') return []
   return value.split('→').map((step) => step.trim()).filter(Boolean)

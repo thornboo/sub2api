@@ -781,7 +781,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
-import type { UserSubscription, Group, GroupPlatform, SubscriptionType } from '@/types'
+import type { AdminUser, UserSubscription, Group, GroupPlatform, SubscriptionType } from '@/types'
 import type { SimpleUser } from '@/api/admin/usage'
 import type { Column } from '@/components/common/types'
 import { formatDateTimeToMinute } from '@/utils/format'
@@ -956,10 +956,10 @@ let filterUserSearchTimeout: ReturnType<typeof setTimeout> | null = null
 
 // User search state
 const userSearchKeyword = ref('')
-const userSearchResults = ref<SimpleUser[]>([])
+const userSearchResults = ref<AdminUser[]>([])
 const userSearchLoading = ref(false)
 const showUserDropdown = ref(false)
-const selectedUser = ref<SimpleUser | null>(null)
+const selectedUser = ref<AdminUser | null>(null)
 let userSearchTimeout: ReturnType<typeof setTimeout> | null = null
 
 const filters = reactive({
@@ -1138,6 +1138,11 @@ const clearFilterUser = () => {
 
 // User search with debounce
 const debounceSearchUsers = () => {
+  // Invalidate the assignment target before the debounced search runs.
+  if (selectedUser.value && userSearchKeyword.value.trim() !== selectedUser.value.email) {
+    selectedUser.value = null
+    assignForm.user_id = null
+  }
   if (userSearchTimeout) {
     clearTimeout(userSearchTimeout)
   }
@@ -1147,12 +1152,6 @@ const debounceSearchUsers = () => {
 const searchUsers = async () => {
   const keyword = userSearchKeyword.value.trim()
 
-  // Clear selection if user modified the search keyword
-  if (selectedUser.value && keyword !== selectedUser.value.email) {
-    selectedUser.value = null
-    assignForm.user_id = null
-  }
-
   if (!keyword) {
     userSearchResults.value = []
     return
@@ -1160,7 +1159,10 @@ const searchUsers = async () => {
 
   userSearchLoading.value = true
   try {
-    userSearchResults.value = await adminAPI.usage.searchUsers(keyword)
+    const result = await adminAPI.users.list(1, 30, {
+      search: keyword, sort_by: 'email', sort_order: 'asc'
+    })
+    userSearchResults.value = result.items
   } catch (error) {
     console.error('Failed to search users:', error)
     userSearchResults.value = []
@@ -1169,7 +1171,7 @@ const searchUsers = async () => {
   }
 }
 
-const selectUser = (user: SimpleUser) => {
+const selectUser = (user: AdminUser) => {
   selectedUser.value = user
   userSearchKeyword.value = user.email
   showUserDropdown.value = false

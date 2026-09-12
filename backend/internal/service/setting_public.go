@@ -215,6 +215,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyWeChatConnectFrontendRedirectURL,
 		SettingKeyBackendModeEnabled,
 		SettingPaymentEnabled,
+		SettingBalancePayDisabled,
 		SettingKeyOIDCConnectEnabled,
 		SettingKeyOIDCConnectProviderName,
 		SettingKeyGitHubOAuthEnabled,
@@ -236,7 +237,9 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyModelSelfCheckMaxConcurrency,
 		SettingKeyModelSelfCheckMaxTasksPerRound,
 		SettingKeyChannelMonitorShowQuota,
+		SettingKeyChannelMonitorHideUserRanking,
 		SettingKeyAvailableChannelsEnabled,
+		SettingKeySubscriptionEnabled,
 		SettingKeyModelPlazaEnabled,
 		SettingKeyModelPlazaRequireAuth,
 		SettingKeyPluginManagementEnabled,
@@ -348,6 +351,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		WeChatOAuthMobileEnabled:            weChatMobileEnabled,
 		BackendModeEnabled:                  settings[SettingKeyBackendModeEnabled] == "true",
 		PaymentEnabled:                      settings[SettingPaymentEnabled] == "true",
+		PaymentBalanceDisabled:              settings[SettingBalancePayDisabled] == "true",
 		OIDCOAuthEnabled:                    oidcEnabled,
 		OIDCOAuthProviderName:               oidcProviderName,
 		GitHubOAuthEnabled:                  gitHubEnabled,
@@ -366,8 +370,11 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		ModelSelfCheckMaxConcurrency:         parseModelSelfCheckMaxConcurrency(settings[SettingKeyModelSelfCheckMaxConcurrency]),
 		ModelSelfCheckMaxTasksPerRound:       parseModelSelfCheckMaxTasksPerRound(settings[SettingKeyModelSelfCheckMaxTasksPerRound]),
 		ChannelMonitorShowQuota:              settings[SettingKeyChannelMonitorShowQuota] == "true",
+		ChannelMonitorHideUserRanking:        isTrueSettingValue(settings[SettingKeyChannelMonitorHideUserRanking]),
 
 		AvailableChannelsEnabled: settings[SettingKeyAvailableChannelsEnabled] == "true",
+
+		SubscriptionEnabled: !isFalseSettingValue(settings[SettingKeySubscriptionEnabled]),
 
 		ModelPlazaEnabled:       settings[SettingKeyModelPlazaEnabled] == "true",
 		ModelPlazaRequireAuth:   settings[SettingKeyModelPlazaRequireAuth] == "true",
@@ -438,6 +445,9 @@ type ChannelMonitorRuntime struct {
 	// snapshots; otherwise the user handler strips them server-side.
 	// Parsed fail-closed (only literal "true" enables). Admin always sees them.
 	ShowQuota bool
+	// HideUserRanking: when true, user-facing V2 views hide the user ranking tab
+	// and the /users payload. Parsed fail-open (only literal "true" hides it).
+	HideUserRanking bool
 }
 
 // ActiveProbesAllowed reports whether V1 active provider probes may run.
@@ -467,6 +477,7 @@ func (s *SettingService) GetChannelMonitorRuntime(ctx context.Context) ChannelMo
 		SettingKeyChannelMonitorDefaultIntervalSeconds,
 		SettingKeyChannelMonitorHideThroughput,
 		SettingKeyChannelMonitorShowQuota,
+		SettingKeyChannelMonitorHideUserRanking,
 	})
 	if err != nil {
 		return ChannelMonitorRuntime{
@@ -482,6 +493,7 @@ func (s *SettingService) GetChannelMonitorRuntime(ctx context.Context) ChannelMo
 		DefaultIntervalSeconds: parseChannelMonitorInterval(vals[SettingKeyChannelMonitorDefaultIntervalSeconds]),
 		HideThroughput:         !isFalseSettingValue(vals[SettingKeyChannelMonitorHideThroughput]),
 		ShowQuota:              vals[SettingKeyChannelMonitorShowQuota] == "true",
+		HideUserRanking:        isTrueSettingValue(vals[SettingKeyChannelMonitorHideUserRanking]),
 	}
 }
 
@@ -606,6 +618,7 @@ type PublicSettingsInjectionPayload struct {
 	GoogleOAuthEnabled                  bool                     `json:"google_oauth_enabled"`
 	BackendModeEnabled                  bool                     `json:"backend_mode_enabled"`
 	PaymentEnabled                      bool                     `json:"payment_enabled"`
+	PaymentBalanceDisabled              bool                     `json:"payment_balance_disabled"`
 	Version                             string                   `json:"version"`
 	// 服务器全局时区（IANA 名称与当前 UTC 偏移），高峰时段等服务端本地时间窗口的展示标注用
 	ServerTimezone              string  `json:"server_timezone"`
@@ -626,12 +639,16 @@ type PublicSettingsInjectionPayload struct {
 	ChannelMonitorHideThroughput bool `json:"channel_monitor_hide_throughput"`
 	// ChannelMonitorShowQuota gates the user-facing quota/balance display on
 	// monitors; fail-closed (absent/false = hidden). Admin UI always shows it.
+	// ChannelMonitorHideUserRanking hides the user ranking tab and /users payload
+	// from non-admin channel-monitor v2 viewers; default false (visible).
+	ChannelMonitorHideUserRanking        bool `json:"channel_monitor_hide_user_ranking"`
 	ChannelMonitorShowQuota              bool `json:"channel_monitor_show_quota"`
 	ModelSelfCheckEnabled                bool `json:"model_self_check_enabled"`
 	ModelSelfCheckDefaultIntervalSeconds int  `json:"self_check_default_interval_seconds"`
 	ModelSelfCheckMaxConcurrency         int  `json:"self_check_max_concurrency"`
 	ModelSelfCheckMaxTasksPerRound       int  `json:"self_check_max_tasks_per_round"`
 	AvailableChannelsEnabled             bool `json:"available_channels_enabled"`
+	SubscriptionEnabled                  bool `json:"subscription_enabled"`
 	ModelPlazaEnabled                    bool `json:"model_plaza_enabled"`
 	ModelPlazaRequireAuth                bool `json:"model_plaza_require_auth"`
 	PluginManagementEnabled              bool `json:"plugin_management_enabled"`
@@ -699,6 +716,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		GoogleOAuthEnabled:                  settings.GoogleOAuthEnabled,
 		BackendModeEnabled:                  settings.BackendModeEnabled,
 		PaymentEnabled:                      settings.PaymentEnabled,
+		PaymentBalanceDisabled:              settings.PaymentBalanceDisabled,
 		Version:                             s.version,
 		ServerTimezone:                      timezone.Name(),
 		ServerUTCOffset:                     timezone.UTCOffset(),
@@ -716,7 +734,9 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		ModelSelfCheckMaxConcurrency:         settings.ModelSelfCheckMaxConcurrency,
 		ModelSelfCheckMaxTasksPerRound:       settings.ModelSelfCheckMaxTasksPerRound,
 		ChannelMonitorShowQuota:              settings.ChannelMonitorShowQuota,
+		ChannelMonitorHideUserRanking:        settings.ChannelMonitorHideUserRanking,
 		AvailableChannelsEnabled:             settings.AvailableChannelsEnabled,
+		SubscriptionEnabled:                  settings.SubscriptionEnabled,
 		ModelPlazaEnabled:                    settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:                settings.ModelPlazaRequireAuth,
 		PluginManagementEnabled:              settings.PluginManagementEnabled,

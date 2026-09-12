@@ -375,6 +375,8 @@ export const useAppStore = defineStore('app', () => {
         self_check_max_concurrency: 4,
         self_check_max_tasks_per_round: 500,
         available_channels_enabled: false,
+        subscription_enabled: true,
+        payment_balance_disabled: false,
         model_plaza_enabled: false,
         model_plaza_require_auth: false,
         plugin_management_enabled: false,

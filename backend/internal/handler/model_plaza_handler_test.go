@@ -233,6 +233,7 @@ func TestModelPlazaHandler_AnonymousAndAuthenticatedResponsesAreIdentical(t *tes
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 	accountRepo := &availableDeliveryAccountRepoStub{accounts: []*service.Account{{
 		ID: 70, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,

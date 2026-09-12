@@ -174,9 +174,13 @@
                           ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400'
                           : value === 'zhipu'
                             ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
-                            : value === 'deepseek'
-                              ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400'
-                              : 'bg-stone-100 text-stone-700 dark:bg-white/10 dark:text-stone-300',
+                    : value === 'deepseek'
+                      ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400'
+                      : value === 'minimax'
+                        ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'
+                      : value === 'opencode_go'
+                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+                        : 'bg-stone-100 text-stone-700 dark:bg-white/10 dark:text-stone-300',
               ]"
             >
               <PlatformIcon :platform="value" size="xs" />
@@ -4375,7 +4379,11 @@
                                 ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
                                 : group.platform === 'deepseek'
                                   ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400'
-                                  : 'bg-stone-100 text-stone-700 dark:bg-white/10 dark:text-stone-300',
+                                  : group.platform === 'minimax'
+                                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'
+                                  : group.platform === 'opencode_go'
+                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+                                    : 'bg-stone-100 text-stone-700 dark:bg-white/10 dark:text-stone-300',
                   ]"
                 >
                   {{ t("admin.groups.platforms." + group.platform) }}

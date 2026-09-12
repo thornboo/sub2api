@@ -101,7 +101,18 @@ describe('channel monitor Grok provider', () => {
 
     expect(PROVIDERS).toContain(PROVIDER_GROK)
     const providerButtons = wrapper.findAll('[data-testid^="monitor-provider-"]')
-    expect(providerButtons).toHaveLength(8)
+    expect(providerButtons.map(button => button.attributes('data-testid'))).toEqual([
+      'monitor-provider-anthropic',
+      'monitor-provider-openai',
+      'monitor-provider-gemini',
+      'monitor-provider-grok',
+      'monitor-provider-antigravity',
+      'monitor-provider-kimi',
+      'monitor-provider-zhipu',
+      'monitor-provider-deepseek',
+      'monitor-provider-minimax',
+      'monitor-provider-opencode_go',
+    ])
     expect(providerButtons[0].element.parentElement?.className).toContain('grid-cols-2')
     expect(providerButtons[0].element.parentElement?.className).toContain('sm:grid-cols-4')
 

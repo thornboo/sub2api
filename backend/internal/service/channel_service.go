@@ -147,7 +147,14 @@ const (
 	channelCacheTTL       = 10 * time.Minute
 	channelErrorTTL       = 5 * time.Second // DB 错误时的短缓存
 	channelCacheDBTimeout = 10 * time.Second
+	channelCacheNotifyTTL = 3 * time.Second
 )
+
+// ChannelCachePubSub broadcasts channel cache invalidations between instances.
+type ChannelCachePubSub interface {
+	NotifyUpdate(ctx context.Context) error
+	SubscribeUpdates(ctx context.Context, handler func())
+}
 
 // ChannelService 渠道管理服务
 type ChannelService struct {
@@ -156,6 +163,7 @@ type ChannelService struct {
 	authCacheInvalidator APIKeyAuthCacheInvalidator
 	pricingService       *PricingService // 用于「可用渠道」展示时回落到全局定价；可为 nil（测试场景）
 	billingService       *BillingService // 复用真实结算的 LiteLLM → fallback 基础价格链，避免报价与扣费分叉
+	cachePubSub          ChannelCachePubSub
 
 	cache   atomic.Value // *channelCache
 	cacheSF singleflight.Group
@@ -164,14 +172,17 @@ type ChannelService struct {
 // NewChannelService 创建渠道服务实例。
 // pricingService 保留图片模式等 LiteLLM 展示元数据；billingService 供 token 模式复用
 // 真实结算的 LiteLLM → fallback 基础价格链。两者均可在不需要报价的测试中传 nil。
-func NewChannelService(repo ChannelRepository, groupRepo GroupRepository, authCacheInvalidator APIKeyAuthCacheInvalidator, pricingService *PricingService, billingService *BillingService) *ChannelService {
+// cachePubSub 在实例间广播渠道配置失效；不需要跨实例通知的测试可传 nil。
+func NewChannelService(repo ChannelRepository, groupRepo GroupRepository, authCacheInvalidator APIKeyAuthCacheInvalidator, pricingService *PricingService, billingService *BillingService, cachePubSub ChannelCachePubSub) *ChannelService {
 	s := &ChannelService{
 		repo:                 repo,
 		groupRepo:            groupRepo,
 		authCacheInvalidator: authCacheInvalidator,
 		pricingService:       pricingService,
 		billingService:       billingService,
+		cachePubSub:          cachePubSub,
 	}
+	s.subscribeCacheUpdates(context.Background())
 	return s
 }
 
@@ -359,7 +370,7 @@ func isPlatformPricingMatch(groupPlatform, pricingPlatform string) bool {
 // fallback used before a request target has been resolved.
 func matchingPlatforms(groupPlatform string) []string {
 	if groupPlatform == PlatformComposite {
-		return []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek}
+		return []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo}
 	}
 	return []string{groupPlatform}
 }
@@ -385,13 +396,41 @@ func (s *ChannelService) InvalidateCache() {
 }
 
 func (s *ChannelService) invalidateCache() {
-	s.cache.Store((*channelCache)(nil))
-	s.cacheSF.Forget("channel_cache")
+	s.clearCache()
 
 	// 主动重建缓存，确保 CRUD 后立即生效
 	if _, err := s.buildCache(context.Background()); err != nil {
 		slog.Warn("failed to rebuild channel cache after invalidation", "error", err)
 	}
+
+	s.notifyCacheUpdate()
+}
+
+// clearCache clears only the in-process snapshot. Keeping this separate from
+// invalidateCache prevents notifications received from Redis from being
+// published again in a loop.
+func (s *ChannelService) clearCache() {
+	s.cache.Store((*channelCache)(nil))
+	s.cacheSF.Forget("channel_cache")
+}
+
+func (s *ChannelService) notifyCacheUpdate() {
+	if s.cachePubSub == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), channelCacheNotifyTTL)
+	defer cancel()
+	if err := s.cachePubSub.NotifyUpdate(ctx); err != nil {
+		slog.Warn("failed to publish channel cache invalidation", "error", err)
+	}
+}
+
+func (s *ChannelService) subscribeCacheUpdates(ctx context.Context) {
+	if s.cachePubSub == nil {
+		return
+	}
+	s.cachePubSub.SubscribeUpdates(ctx, s.clearCache)
 }
 
 // InvalidateRoutingEligibilityCache is used after a cluster channel/group

@@ -225,7 +225,7 @@ func requestSupplierBalanceJSON(ctx context.Context, client *http.Client, endpoi
 	if err != nil {
 		return nil, classifyNewAPISupplierRequestError(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := readUpstreamResponseBodyLimited(resp.Body, upstreamBalanceResponseLimit)
 	if err != nil {
 		detail := classifyNewAPISupplierRequestError(err)

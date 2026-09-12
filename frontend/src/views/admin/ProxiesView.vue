@@ -26,7 +26,7 @@
                 :options="protocolOptions"
                 :placeholder="t('admin.proxies.allProtocols')"
                 match-trigger-width
-                @change="loadProxies"
+                @change="handleFilterChange"
               />
             </div>
             <div class="min-w-0">
@@ -35,7 +35,7 @@
                 :options="statusOptions"
                 :placeholder="t('admin.proxies.allStatus')"
                 match-trigger-width
-                @change="loadProxies"
+                @change="handleFilterChange"
               />
             </div>
           </div>
@@ -532,7 +532,7 @@
             class="input mb-2"
             :placeholder="t('admin.proxies.expiryDaysPlaceholder')"
           />
-          <input v-model="createForm.expires_at" type="date" class="input" />
+          <input v-model="createForm.expires_at" type="date" max="9999-12-31" class="input" />
         </div>
         <div>
           <label class="input-label">{{ t('admin.proxies.fallbackMode') }}</label>
@@ -765,7 +765,7 @@
             class="input mb-2"
             :placeholder="t('admin.proxies.expiryDaysPlaceholder')"
           />
-          <input v-model="editForm.expires_at" type="date" class="input" />
+          <input v-model="editForm.expires_at" type="date" max="9999-12-31" class="input" />
         </div>
         <div>
           <label class="input-label">{{ t('admin.proxies.fallbackMode') }}</label>
@@ -1243,6 +1243,11 @@ const loadProxies = async () => {
       abortController = null
     }
   }
+}
+
+const handleFilterChange = () => {
+  pagination.page = 1
+  loadProxies()
 }
 
 let searchTimeout: ReturnType<typeof setTimeout>
@@ -1810,6 +1815,14 @@ const qualityTargetLabel = (target: string) => {
       return 'Gemini'
     case 'grok':
       return 'Grok'
+    case 'kimi':
+      return 'Kimi'
+    case 'zhipu':
+      return 'Zhipu GLM'
+    case 'deepseek':
+      return 'DeepSeek'
+    case 'minimax':
+      return 'MiniMax'
     default:
       return target
   }

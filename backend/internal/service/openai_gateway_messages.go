@@ -33,6 +33,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
+	rememberOpenCodeInboundBody(c, body)
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
@@ -43,15 +44,34 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		return nil, err
 	}
 
-	// 入口分流（国产供应商 Anthropic 协议）：上游为供应商原生 Anthropic 端点时，
-	// /v1/messages 请求零转换直通（仅模型名映射 + 少量 body 清洗），完整保留
-	// thinking / tool_use / cache 语义，适配 Claude Code 等原生客户端。
-	// 必须先于 ShouldUseResponsesAPI 分流：Anthropic 协议账号经 probe 落标
-	// openai_responses_supported=false，会先命中下方的 CC 直转分支。
-	if account.IsAnthropicProtocol() || account.IsAdaptiveAPIProtocol() {
+	forceChatCompletionsFallback := false
+	// OpenCode Go：按模型原生协议分流。规则未命中兜底 Chat Completions。
+	if account.IsOpenCodeGo() {
+		mapped := resolveOpenCodeGoMappedModel(account, body, defaultMappedModel)
+		switch openCodeGoNativeProtocol(account, mapped) {
+		case APIProtocolAnthropic:
+			return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
+		case APIProtocolResponses:
+			break
+		default:
+			forceChatCompletionsFallback = true
+		}
+	} else if account.IsAnthropicProtocol() || account.IsAdaptiveAPIProtocol() {
+		// 入口分流（国产供应商 Anthropic 协议）：上游为供应商原生 Anthropic 端点时，
+		// /v1/messages 请求零转换直通（仅模型名映射 + 少量 body 清洗），完整保留
+		// thinking / tool_use / cache 语义，适配 Claude Code 等原生客户端。
+		// 必须先于 ShouldUseResponsesAPI 分流：Anthropic 协议账号经 probe 落标
+		// openai_responses_supported=false，会先命中下方的 CC 直转分支。
 		return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
 	}
 
+	// 固定 chat_completions 的 CN 账号，以及不支持 Responses 的其他 APIKey
+	// 账号，均在兼容会话/cache 链处理后转为 CC；固定 responses 的 CN 账号不受探针旧值覆盖。
+	if forceChatCompletionsFallback || shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+		SetActualOpenAIUpstreamEndpoint(c, "/v1/chat/completions")
+	} else {
+		SetActualOpenAIUpstreamEndpoint(c, openAIResponsesUpstreamEndpoint)
+	}
 	startTime := time.Now()
 
 	// 1. Parse Anthropic request
@@ -105,7 +125,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	compatReplayGuardEnabled := shouldAutoInjectPromptCacheKeyForCompat(upstreamModel)
 	// Explicit CN protocol configuration wins over asynchronous probe state;
 	// other API-key accounts retain the existing Responses-support decision.
-	useChatCompletionsFallback := shouldForwardOpenAIResponsesViaRawChatCompletions(account)
+	useChatCompletionsFallback := forceChatCompletionsFallback || shouldForwardOpenAIResponsesViaRawChatCompletions(account)
 	compatContinuationEnabled := !useChatCompletionsFallback && openAICompatContinuationEnabled(account, upstreamModel)
 	previousResponseID := ""
 	if compatContinuationEnabled {
@@ -531,6 +551,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		notifyOpenAIAutoReset(*account.ParentAccountID)
 	}
 
+	stampOpenAIResponsesUpstreamEndpoint(c, result)
 	return result, handleErr
 }
 

@@ -76,10 +76,6 @@ type userModelStatusTimelinePoint struct {
 	CheckedAt  string `json:"checked_at"`
 }
 
-func userModelStatusViewToItem(v *service.UserModelStatusView) userModelStatusListItem {
-	return userModelStatusViewToItemWithRuntime(v, true)
-}
-
 func userModelStatusViewToItemWithRuntime(v *service.UserModelStatusView, selfCheckEnabled bool) userModelStatusListItem {
 	status := v.Status
 	reasonCode := v.ReasonCode

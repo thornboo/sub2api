@@ -182,6 +182,7 @@ func TestOpenAIAccountConnectionRoutesMappedOAuthImageTarget(t *testing.T) {
 	ctx, rec := newAccountTestModelContext()
 	account := accountTestModelActualAccount(PlatformOpenAI, AccountTypeOAuth, map[string]any{
 		"image-public": "gpt-image-2",
+		"gpt-image-2":  "gpt-image-1",
 	}, nil)
 
 	err := svc.testOpenAIAccountConnection(ctx, account, "image-public", "draw a cat", AccountTestModeDefault)
@@ -189,9 +190,9 @@ func TestOpenAIAccountConnectionRoutesMappedOAuthImageTarget(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Len(t, upstream.requests, 1)
-	require.Equal(t, chatgptCodexAPIURL, upstream.requests[0].URL.String())
-	require.Equal(t, openAIImagesResponsesMainModel, gjson.GetBytes(upstream.bodies[0], "model").String())
-	require.Equal(t, "gpt-image-2", gjson.GetBytes(upstream.bodies[0], "tools.0.model").String())
+	require.Equal(t, "https://chatgpt.com/backend-api/codex/images/generations", upstream.requests[0].URL.String())
+	require.Equal(t, "gpt-image-2", gjson.GetBytes(upstream.bodies[0], "model").String(), "apply the requested model mapping exactly once")
+	require.False(t, gjson.GetBytes(upstream.bodies[0], "tools").Exists())
 }
 
 func TestOpenAIAccountConnectionRejectsInvalidMappedTargetBeforeNormalize(t *testing.T) {

@@ -1128,8 +1128,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}
 }
 
-// Models handles listing available models
-// GET /v1/models
+// Models lists visible models, or retrieves the exact list entry for a model path parameter.
+// GET /v1/models and /v1/models/:model (also exposed through root aliases)
 // Returns models based on account configurations (model_mapping whitelist)
 // Falls back to default models if no whitelist is configured
 func (h *GatewayHandler) Models(c *gin.Context) {
@@ -1215,10 +1215,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	}
 
 	if platform == service.PlatformGemini {
-		c.JSON(http.StatusOK, gin.H{
-			"object": "list",
-			"data":   geminicli.DefaultModels,
-		})
+		writeModelsListResponse(c, geminicli.DefaultModels)
 		return
 	}
 	if platform == service.PlatformGrok {
@@ -1226,10 +1223,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   claude.DefaultModels,
-	})
+	writeModelsListResponse(c, claude.DefaultModels)
 }
 
 func (h *GatewayHandler) supportedEndpointTypesForGroups(ctx context.Context, groupIDs []int64, models []string) map[string][]string {
@@ -1432,10 +1426,7 @@ func writeModelsList(c *gin.Context, platform string, modelIDs []string, endpoin
 			SupportedEndpointTypes: endpointTypes[modelID],
 		})
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   models,
-	})
+	writeModelsListResponse(c, models)
 }
 
 func writeAllowlistedModelsList(c *gin.Context, platform string, modelIDs []string, endpointTypes map[string][]string) {
@@ -1494,10 +1485,7 @@ func writeGrokModelsList(c *gin.Context, modelIDs []string) {
 		models = append(models, item)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   models,
-	})
+	writeModelsListResponse(c, models)
 }
 
 func grokModelSupportsConfigurableReasoning(modelID string) bool {
@@ -1532,10 +1520,7 @@ func writeOpenAIModelsList(c *gin.Context, modelIDs []string, endpointTypes map[
 			SupportedEndpointTypes: endpointTypes[modelID],
 		})
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   models,
-	})
+	writeModelsListResponse(c, models)
 }
 
 // modelListingSource 汇总模型列表过滤的候选来源：账号映射键（availableModels）
@@ -1554,7 +1539,9 @@ func modelListingSource(platform string, availableModels, fallbackModels []strin
 func defaultCodexModelIDsForPlatform(platform string) []string {
 	switch platform {
 	case service.PlatformDeepseek:
-		return []string{"deepseek-v4-pro", "deepseek-v4-flash"}
+		return []string{"deepseek-v4-pro", "deepseek-v4-flash", "deepseek-flash"}
+	case service.PlatformMiniMax:
+		return []string{"MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.5"}
 	default:
 		return defaultModelIDsForPlatform(platform)
 	}
@@ -1581,10 +1568,12 @@ func defaultModelIDsForPlatform(platform string) []string {
 		return claude.DefaultModelIDs()
 	case service.PlatformGrok:
 		return xai.DefaultModelIDs()
+	case service.PlatformOpenCodeGo:
+		return service.DefaultOpenCodeGoModelIDs()
 	case service.PlatformComposite:
 		ids := make([]string, 0)
 		seen := make(map[string]struct{})
-		for _, concretePlatform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek} {
+		for _, concretePlatform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo} {
 			for _, id := range defaultModelIDsForPlatform(concretePlatform) {
 				if _, ok := seen[id]; ok {
 					continue

@@ -81,11 +81,11 @@ func (u *openAIImagesDelayedSuccessUpstream) Do(_ *http.Request, _ string, _ int
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Header: http.Header{
-			"Content-Type": []string{"text/event-stream"},
+			"Content-Type": []string{"application/json"},
 			"X-Request-Id": []string{"req_img_pricing_at"},
 		},
 		Body: io.NopCloser(bytes.NewBufferString(
-			"data: {\"type\":\"response.completed\",\"response\":{\"created_at\":1710000000,\"model\":\"gpt-image-2\",\"usage\":{\"input_tokens\":10,\"output_tokens\":5,\"output_tokens_details\":{\"image_tokens\":4}},\"tool_usage\":{\"image_gen\":{\"input_tokens\":10,\"output_tokens\":5,\"output_tokens_details\":{\"image_tokens\":4},\"images\":1}},\"output\":[{\"type\":\"image_generation_call\",\"result\":\"aW1hZ2U=\",\"output_format\":\"png\"}]}}\n\n",
+			`{"created":1710000000,"data":[{"b64_json":"aW1hZ2U="}],"usage":{"input_tokens":10,"output_tokens":5,"output_tokens_details":{"image_tokens":4}}}`,
 		)),
 	}, nil
 }
@@ -208,7 +208,7 @@ func TestOpenAIGatewayHandlerImages_ServerErrorFailsOverAndReturnsClearErrorWhen
 	)
 	handler.maxAccountSwitches = 10
 
-	body := []byte(`{"model":"gpt-image-2","prompt":"draw a cat","quality":"high","size":"1536x1024"}`)
+	body := []byte(`{"model":"gpt-image-1","prompt":"draw a cat","quality":"high","size":"1536x1024"}`)
 	core, observedLogs := observer.New(zap.DebugLevel)
 	requestCtx := logger.IntoContext(context.Background(), zap.New(core))
 	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body)).WithContext(requestCtx)
@@ -349,6 +349,7 @@ func TestOpenAIGatewayHandlerImages_FreezesPricingAtBeforeSlowUpstream(t *testin
 
 	handler.Images(c)
 
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var usageLog *service.UsageLog
 	select {
 	case usageLog = <-usageRepo.created:

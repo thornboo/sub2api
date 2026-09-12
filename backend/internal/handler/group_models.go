@@ -87,6 +87,8 @@ func (h *GatewayHandler) configuredCompositeModels(ctx context.Context, groupID 
 		service.PlatformKimi,
 		service.PlatformZhipu,
 		service.PlatformDeepseek,
+		service.PlatformMiniMax,
+		service.PlatformOpenCodeGo,
 	} {
 		var platformModels []string
 		var hasAccounts bool

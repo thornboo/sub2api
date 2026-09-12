@@ -32,10 +32,20 @@ func TestFetchOpenAIAccountModelsDisplayNames(t *testing.T) {
 
 func TestFetchOpenAIAccountModelsOAuthDisplayNames(t *testing.T) {
 	newCodexModelsOAuthCacheServer(t, `{"models":[{"slug":"oauth-model"}]}`)
-	svc := &AccountTestService{openaiGatewayService: &OpenAIGatewayService{}}
-	models, err := svc.FetchOpenAIAccountModels(context.Background(), newCodexModelsTestAccount())
+	gateway := &OpenAIGatewayService{}
+	svc := &AccountTestService{openaiGatewayService: gateway}
+	account := newCodexModelsTestAccount()
+	models, err := svc.FetchOpenAIAccountModels(context.Background(), account)
 	require.NoError(t, err)
-	require.Len(t, models, 1)
+	wantIDs := []string{"oauth-model", "gpt-image-1", "gpt-image-1.5", "gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"}
+	require.Len(t, models, len(wantIDs))
+	for i, id := range wantIDs {
+		require.Equal(t, id, models[i].ID)
+		require.NotEmpty(t, models[i].DisplayName)
+	}
 	require.Equal(t, "oauth-model", models[0].ID)
 	require.Equal(t, "oauth-model", models[0].DisplayName)
+	raw, err := gateway.FetchOpenAIModelsList(context.Background(), account)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw.Body), "gpt-image-", "picker-only image choices must not mutate the shared discovery cache")
 }

@@ -1037,6 +1037,7 @@ func normalizeAndMarshalOpenAIFastPolicySettings(settings *OpenAIFastPolicySetti
 	}
 	validTiers := map[string]bool{
 		OpenAIFastTierAny: true, OpenAIFastTierPriority: true, OpenAIFastTierUltrafast: true, OpenAIFastTierFlex: true,
+		OpenAIFastTierMissing: true,
 	}
 
 	for i, rule := range normalized.Rules {
