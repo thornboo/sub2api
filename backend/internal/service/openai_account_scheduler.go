@@ -1391,7 +1391,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	req OpenAIAccountScheduleRequest,
 ) (*AccountSelectionResult, int, int, float64, error) {
 	budget := newOpenAISelectionProbeBudget()
-	accounts, err := s.service.listSchedulableAccounts(ctx, req.GroupID, req.Platform)
+	accounts, err := s.service.listSchedulableAccounts(ctx, req.GroupID, req.Platform, req.RequiredCapability)
 	if err != nil {
 		return nil, 0, 0, 0, err
 	}

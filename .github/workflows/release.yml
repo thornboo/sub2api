@@ -288,6 +288,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
 
       - name: Sync VERSION file to released tag
         run: |
@@ -296,6 +297,11 @@ jobs:
             VERSION=${VERSION#v}
           else
             VERSION=${GITHUB_REF#refs/tags/v}
+          fi
+
+          if ! git merge-base --is-ancestor "refs/tags/v${VERSION}" HEAD; then
+            echo "Release tag is outside the default branch. Skipping VERSION sync."
+            exit 0
           fi
 
           CURRENT_VERSION=$(tr -d '\r\n' < backend/cmd/server/VERSION || true)

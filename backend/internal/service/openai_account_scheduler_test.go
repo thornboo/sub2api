@@ -909,6 +909,61 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabled_AllowsG
 	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
 }
 
+func TestDashScopeRerankSelectsFullAccountWhenSnapshotOmitsBaseURL(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(19)
+	mapping := map[string]any{DashScopeRerankModel: DashScopeRerankModel}
+	snapshot := Account{
+		ID: 50, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive,
+		Schedulable: true, GroupIDs: []int64{groupID}, Concurrency: 1, Priority: 1,
+		Credentials: map[string]any{"model_mapping": mapping},
+	}
+	dashScope := snapshot
+	dashScope.Credentials = map[string]any{
+		"base_url":      "https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+		"model_mapping": mapping,
+	}
+	other := dashScope
+	other.ID = 51
+	other.Priority = 0
+	other.Credentials = map[string]any{
+		"base_url":      "https://api.example.com/compatible-mode/v1",
+		"model_mapping": mapping,
+	}
+	repo := schedulerGroupAwareOpenAIAccountRepo{
+		schedulerTestOpenAIAccountRepo{accounts: []Account{other, dashScope}},
+	}
+	cache := &openAISnapshotCacheStub{
+		snapshotAccounts: []*Account{&snapshot},
+		accountsByID:     map[int64]*Account{50: &dashScope, 51: &other},
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo:       repo,
+		schedulerSnapshot: NewSchedulerSnapshotService(cache, nil, repo, nil, nil),
+		cfg:               &config.Config{},
+	}
+
+	t.Run("advanced scheduler", func(t *testing.T) {
+		scheduler := &defaultOpenAIAccountScheduler{service: svc, stats: newOpenAIAccountRuntimeStats()}
+		selection, _, err := scheduler.Select(ctx, OpenAIAccountScheduleRequest{
+			GroupID: &groupID, Platform: PlatformOpenAI, RequestedModel: DashScopeRerankModel,
+			RequiredTransport: OpenAIUpstreamTransportHTTPSSE, RequiredCapability: OpenAIEndpointCapabilityDashScopeRerank,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, selection)
+		require.Equal(t, dashScope.ID, selection.Account.ID)
+	})
+	t.Run("legacy scheduler", func(t *testing.T) {
+		selection, err := svc.selectAccountWithLoadAwareness(
+			ctx, &groupID, PlatformOpenAI, "", DashScopeRerankModel, nil, false,
+			OpenAIEndpointCapabilityDashScopeRerank, true, false,
+		)
+		require.NoError(t, err)
+		require.NotNil(t, selection)
+		require.Equal(t, dashScope.ID, selection.Account.ID)
+	})
+}
+
 func TestOpenAIGatewayService_SelectAccountWithScheduler_GrokMediaCapabilityFiltersIneligibleAccounts(t *testing.T) {
 	resetOpenAIAdvancedSchedulerSettingCacheForTest()
 

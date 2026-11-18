@@ -896,7 +896,7 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 
 	// 2. 获取可调度的 OpenAI 账号
 	// Get schedulable OpenAI accounts
-	accounts, err := s.listSchedulableAccounts(ctx, groupID, platform)
+	accounts, err := s.listSchedulableAccounts(ctx, groupID, platform, requiredCapability)
 	if err != nil {
 		return nil, fmt.Errorf("query accounts failed: %w", err)
 	}
@@ -1157,7 +1157,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		})
 	}
 
-	accounts, err := s.listSchedulableAccounts(ctx, groupID, platform)
+	accounts, err := s.listSchedulableAccounts(ctx, groupID, platform, requiredCapability)
 	if err != nil {
 		return nil, err
 	}
@@ -1451,7 +1451,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	return nil, ErrNoAvailableAccounts
 }
 
-func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string) ([]Account, error) {
+func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string, requiredCapability OpenAIEndpointCapability) ([]Account, error) {
 	platform = NormalizeOpenAICompatiblePlatform(platform)
 	// Simple mode intentionally exposes the global account pool to ordinary
 	// requests. Enterprise-member requests are different: ActiveGroup is an
@@ -1467,7 +1467,8 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 		}
 		return accounts, nil
 	}
-	if s.schedulerSnapshot != nil {
+	// DashScope rerank verifies the configured upstream origin, which is absent from compact account snapshots.
+	if s.schedulerSnapshot != nil && requiredCapability != OpenAIEndpointCapabilityDashScopeRerank {
 		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, false)
 		if err != nil {
 			return accounts, err
