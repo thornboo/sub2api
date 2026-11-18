@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -17,12 +18,38 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	DashScopeRerankModel        = "qwen3.7-text-rerank"
+	dashScopeRerankUpstreamPath = "/compatible-api/v1/reranks"
+)
+
 func (s *OpenAIGatewayService) ForwardEmbeddings(
 	ctx context.Context,
 	c *gin.Context,
 	account *Account,
 	body []byte,
 	defaultMappedModel string,
+) (*OpenAIForwardResult, error) {
+	return s.forwardEmbeddingsOrRerank(ctx, c, account, body, defaultMappedModel, false)
+}
+
+func (s *OpenAIGatewayService) ForwardDashScopeRerank(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	defaultMappedModel string,
+) (*OpenAIForwardResult, error) {
+	return s.forwardEmbeddingsOrRerank(ctx, c, account, body, defaultMappedModel, true)
+}
+
+func (s *OpenAIGatewayService) forwardEmbeddingsOrRerank(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	defaultMappedModel string,
+	rerank bool,
 ) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
 
@@ -57,11 +84,21 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 	if baseURL == "" {
 		baseURL = "https://api.openai.com"
 	}
+	if rerank {
+		baseURL = dashScopeRerankURL(account)
+		if baseURL == "" || upstreamModel != DashScopeRerankModel || originalModel != DashScopeRerankModel {
+			return nil, errors.New("invalid DashScope rerank account or model")
+		}
+		SetActualOpenAIUpstreamEndpoint(c, dashScopeRerankUpstreamPath)
+	}
 	validatedURL, err := s.validateUpstreamBaseURL(baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base_url: %w", err)
 	}
-	targetURL := buildOpenAIEmbeddingsURL(validatedURL)
+	targetURL := validatedURL
+	if !rerank {
+		targetURL = buildOpenAIEmbeddingsURL(validatedURL)
+	}
 
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(upstreamBody))
@@ -148,12 +185,24 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 		return nil, fmt.Errorf("read upstream body: %w", err)
 	}
 
+	usage := extractOpenAIEmbeddingsUsage(respBody)
+	requestID := firstNonEmptyString(resp.Header.Get("x-request-id"), resp.Header.Get("request-id"))
+	if rerank {
+		total := gjson.GetBytes(respBody, "usage.total_tokens")
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 || !gjson.ValidBytes(respBody) ||
+			!gjson.GetBytes(respBody, "results").IsArray() || total.Type != gjson.Number || total.Int() <= 0 {
+			writeOpenAIEmbeddingsError(c, http.StatusBadGateway, "upstream_error", "DashScope rerank returned invalid results or token usage")
+			return nil, errors.New("invalid DashScope rerank response")
+		}
+		usage = OpenAIUsage{InputTokens: int(total.Int())}
+		requestID = firstNonEmptyString(requestID, gjson.GetBytes(respBody, "id").String())
+	}
 	writeOpenAIEmbeddingsUpstreamResponse(c, resp, respBody, s.responseHeaderFilter)
 
 	return &OpenAIForwardResult{
-		RequestID:       firstNonEmptyString(resp.Header.Get("x-request-id"), resp.Header.Get("request-id")),
+		RequestID:       requestID,
 		UpstreamHeaders: resp.Header,
-		Usage:           extractOpenAIEmbeddingsUsage(respBody),
+		Usage:           usage,
 		Model:           originalModel,
 		BillingModel:    billingModel,
 		UpstreamModel:   upstreamModel,
@@ -236,4 +285,25 @@ func firstPositiveGJSONInt(values ...gjson.Result) int {
 
 func buildOpenAIEmbeddingsURL(base string) string {
 	return buildOpenAIEndpointURL(base, "/v1/embeddings")
+}
+
+// The existing account must opt in by mapping the exact model to itself.
+// Both compatible endpoints share the DashScope origin but use different paths.
+func dashScopeRerankURL(account *Account) string {
+	if account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey ||
+		account.GetModelMapping()[DashScopeRerankModel] != DashScopeRerankModel {
+		return ""
+	}
+	base, err := url.Parse(account.GetOpenAIFormatBaseURL())
+	if err != nil || base.Scheme != "https" || base.User != nil ||
+		(base.Port() != "" && base.Port() != "443") ||
+		strings.TrimRight(base.Path, "/") != "/compatible-mode/v1" {
+		return ""
+	}
+	host := strings.ToLower(base.Hostname())
+	if host != "dashscope.aliyuncs.com" && host != "dashscope-intl.aliyuncs.com" &&
+		!strings.HasSuffix(host, ".maas.aliyuncs.com") {
+		return ""
+	}
+	return "https://" + base.Host + dashScopeRerankUpstreamPath
 }

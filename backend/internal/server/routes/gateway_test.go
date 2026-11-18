@@ -377,6 +377,18 @@ func TestGatewayRoutesCompositeOpenAIOnlyEndpointsRequireOpenAITarget(t *testing
 	require.NotEqual(t, http.StatusNotFound, w.Code)
 }
 
+func TestGatewayRoutesDashScopeRerankRequiresOpenAIGroup(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformGemini)
+	req := httptest.NewRequest(http.MethodPost, "/v1/rerank", strings.NewReader(`{"model":"qwen3.7-text-rerank"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Contains(t, w.Body.String(), "Rerank requires an OpenAI group")
+}
+
 func TestGatewayRoutesGrokAllowsCLICompatibilityEntrypoints(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformGrok)
 

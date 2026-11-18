@@ -344,6 +344,7 @@ func RegisterGatewayRoutes(
 			}
 			h.OpenAIGateway.Embeddings(c)
 		}))
+		gateway.POST("/rerank", textBodyLimit, withActiveGroupAllowlist(h.OpenAIGateway.DashScopeRerank))
 		gateway.POST("/images/generations", withCompositeMemberGroups(imagesHandler))
 		gateway.POST("/images/edits", withCompositeMemberGroups(imagesHandler))
 		gateway.POST("/images/generations/async", withCompositeMemberGroups(h.AsyncImage.Submit))

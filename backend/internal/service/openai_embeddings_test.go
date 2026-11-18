@@ -16,6 +16,83 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestForwardDashScopeRerank(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url":      "https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/",
+			"api_key":       "test-key",
+			"model_mapping": map[string]any{DashScopeRerankModel: DashScopeRerankModel},
+		},
+	}
+	require.True(t, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityDashScopeRerank))
+	reqBody := []byte(`{"model":"qwen3.7-text-rerank","query":"first","documents":["first","second"],"top_n":1}`)
+
+	for _, tt := range []struct {
+		name           string
+		upstreamStatus int
+		body           string
+		wantStatus     int
+	}{
+		{"success", http.StatusOK, `{"id":"rank-1","results":[{"index":0,"relevance_score":0.9}],"usage":{"total_tokens":79}}`, http.StatusOK},
+		{"missing usage", http.StatusOK, `{"results":[{"index":0,"relevance_score":0.9}]}`, http.StatusBadGateway},
+		{"upstream rejection", http.StatusBadRequest, `{"code":"InvalidParameter","message":"bad query"}`, http.StatusBadRequest},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/rerank", bytes.NewReader(reqBody))
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: tt.upstreamStatus,
+				Header:     http.Header{},
+				Body:       io.NopCloser(strings.NewReader(tt.body)),
+			}}
+			svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+
+			result, err := svc.ForwardDashScopeRerank(c.Request.Context(), c, account, reqBody, "")
+
+			require.Equal(t, "https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-api/v1/reranks", upstream.lastReq.URL.String())
+			require.Equal(t, "Bearer test-key", upstream.lastReq.Header.Get("Authorization"))
+			sentBody, readErr := io.ReadAll(upstream.lastReq.Body)
+			require.NoError(t, readErr)
+			require.JSONEq(t, string(reqBody), string(sentBody))
+			require.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantStatus != http.StatusOK {
+				require.Error(t, err)
+				require.Nil(t, result)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, "rank-1", result.RequestID)
+			require.Equal(t, OpenAIUsage{InputTokens: 79}, result.Usage)
+			require.Equal(t, DashScopeRerankModel, result.BillingModel)
+			require.JSONEq(t, tt.body, rec.Body.String())
+		})
+	}
+}
+
+func TestDashScopeRerankAccountRejectsOtherHostsAndImplicitModels(t *testing.T) {
+	for _, tt := range []struct {
+		baseURL string
+		mapping map[string]any
+	}{
+		{"https://dashscope.aliyuncs.com.example.com/compatible-mode/v1", map[string]any{DashScopeRerankModel: DashScopeRerankModel}},
+		{"https://dashscope.aliyuncs.com/compatible-mode/v1", map[string]any{"qwen*": DashScopeRerankModel}},
+	} {
+		account := &Account{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"base_url":      tt.baseURL,
+				"model_mapping": tt.mapping,
+			},
+		}
+		require.False(t, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityDashScopeRerank))
+	}
+}
+
 func TestForwardEmbeddingsUnknownTransportPreservesMemberBudget(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"model":"text-embedding-3-small","input":"hello"}`)
